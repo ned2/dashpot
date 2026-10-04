@@ -1064,7 +1064,7 @@ def integrate(
         Parameter(
             group=_integrate_action,
             show_default=False,
-            help="remove exactly the Dashpot hooks and managed skills",
+            help="remove exactly the Dashpot hooks, managed skills and agents",
         ),
     ] = False,
 ) -> int:
@@ -1072,8 +1072,8 @@ def integrate(
 
     Register, inspect, or remove the opt-in hooks that publish Agent Session
     lifecycle observations and the agent-facing skills Dashpot bundles, such
-    as the Issue-work skill. Nothing is installed without running this
-    command.
+    as the Issue-work skill, and, for OpenCode, the bundled worker agent.
+    Nothing is installed without running this command.
     """
     with command_outcome("integrate") as outcome:
         outcome.target_harness = harness

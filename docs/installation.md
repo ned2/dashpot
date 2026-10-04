@@ -444,10 +444,19 @@ and its OpenCode support is pinned to 2.0.22, the release its
 `dashpot integrate opencode` refuses to install while the `opencode` on PATH
 is a 1.x release, and installs for any other release with a warning. It
 installs a managed plugin,
-`plugins/dashpot.js`, and the bundled skills in OpenCode's global
+`plugins/dashpot.js`, the bundled skills, and a managed agent definition,
+`agent/dashpot-worker.md`, in OpenCode's global
 configuration directory (`$XDG_CONFIG_HOME/opencode`, by default
-`~/.config/opencode`). A plugin of that name that Dashpot did not write is
-refused and left in place. `dashpot integrate opencode --status` reports
+`~/.config/opencode`). The `dashpot-worker` agent is the one the
+`dashpot-execute-issues` skill launches each worker Sub-agent as. Its
+permissions deny `*session_move`, so a worker Sub-agent cannot move its lead
+session, or its own, by mistake. The deny is no security boundary, since a
+shell can still move a session through OpenCode's HTTP API
+([ADR 0093](adr/0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md)).
+Codex and Claude Code get no agent definition. A plugin or an agent file of
+that name that Dashpot did not write is refused and left in place.
+`dashpot integrate opencode --status` reports the worker agent as installed,
+missing, with an update available, or a conflict, and reports
 whether the plugin is current and bound to an executable helper, the
 `opencode` release on PATH, and the release of the shared OpenCode service
 that `$XDG_STATE_HOME/opencode/service.json` registers, which can differ:
@@ -462,8 +471,10 @@ and an `OPENCODE_PURE` setting that keeps every plugin out. OpenCode loads
 the plugin when it sets up a plugin instance. A running 2.0.22 server sets
 its instances up again when installing or updating changes the plugin file;
 after removing the plugin, run `opencode reload`, or restart the OpenCode
-service, so that no instance keeps it. The supported ways to run OpenCode, and what each one's
-state means, are in
+service, so that no instance keeps it. A 2.0.22 server also reloads its
+agents when a file in its agent directory changes; if it still lists the
+worker agent after its removal, the same reload or restart drops it. The
+supported ways to run OpenCode, and what each one's state means, are in
 [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes).
 
 Each OpenCode release `--status` reports reads as one of:

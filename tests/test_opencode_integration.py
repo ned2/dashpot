@@ -138,6 +138,7 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
         f"installed the OpenCode plugin in {plugin_file(home)}",
         f"hook publisher: {command}",
         f"installed Dashpot Issue work skill in {skill}",
+        f"installed Dashpot worker agent in {home / 'agent' / 'dashpot-worker.md'}",
     ]
 
     again = install_integration("opencode", home, command_path=command)
@@ -199,6 +200,7 @@ def test_install_refuses_while_the_opencode_on_path_is_v1(
     )
     assert not plugin_file(home).exists()
     assert not (home / "skills").exists()
+    assert not (home / "agent").exists()
 
 
 @pytest.mark.parametrize(
@@ -270,6 +272,7 @@ def test_remove_takes_only_what_opencodes_integration_owns(
     assert messages == [
         f"removed the OpenCode plugin {plugin_file(home)}",
         f"removed the Dashpot Issue work skill from {skill}",
+        f"removed the Dashpot worker agent from {home / 'agent' / 'dashpot-worker.md'}",
     ]
     assert not plugin_file(home).exists()
     assert not skill.exists()

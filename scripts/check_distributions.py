@@ -13,17 +13,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "src" / "dashpot"
-# Every file of every bundled skill ships, so a new skill's directory needs
-# no entry here. The walk is read from the checkout rather than from the
-# package's skill registry, so a skill directory left out of the registry
-# is still checked against both archives.
+# Every file of every bundled skill and agent ships, so a new skill's
+# directory or agent's file needs no entry here. The walk is read from the
+# checkout rather than from the package's registries, so a skill or agent
+# left out of its registry is still checked against both archives.
 ASSETS = (
     "dashpot.tcss",
     "plugins/opencode.js",
     "py.typed",
     *sorted(
         path.relative_to(PACKAGE).as_posix()
-        for path in (PACKAGE / "skills").rglob("*")
+        for bundle in ("skills", "agents")
+        for path in (PACKAGE / bundle).rglob("*")
         if path.is_file()
     ),
 )
