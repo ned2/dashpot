@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-02
-amended-by: 0081-support-opencode-1-18-30-on-linux.md, 0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md
+amended-by: 0081-support-opencode-1-18-30-on-linux.md, 0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md, 0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md
 ---
 
 # Install OpenCode as one managed plugin, and keep it unsupported until acceptance
@@ -76,3 +76,8 @@ that run.
   nothing, and its commands cannot opt in.
 - The second half of #163 measures the local TUI and accepts a release.
   Until then, no document claims OpenCode support.
+- Amended by [ADR 0103](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md)
+  ([#436](https://github.com/ned2/dashpot/issues/436)): each managed skill
+  copy keeps a manifest of the files Dashpot wrote into it, so an update
+  removes a file a release stopped shipping and `--remove` takes it too,
+  while a file the user added stays.

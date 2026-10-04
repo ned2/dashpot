@@ -2,24 +2,31 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sysconfig
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, ValidationError
 
 from ..core.errors import DashpotError
 from ..core.git import GitError
 from ..core.model import HARNESS_DISPLAY, Harness
-from ..core.pydantic import PublishedModel, describe_validation_error
+from ..core.pydantic import (
+    PersistedRecord,
+    PublishedModel,
+    RepositoryRelativePath,
+    describe_validation_error,
+)
 from ..core.record_store import replace_atomically
 from ..core.state_paths import is_configured_checkout
 from ..core.worktree_paths import (
@@ -63,6 +70,12 @@ CONFIG_HOOKS_TABLE = re.compile(r"^\s*\[+\s*hooks\s*(?:\]|\.(?!state\b))", re.MU
 BUNDLED_SKILL_VERSION = "0.1.0"
 BUNDLED_SKILLS_ROOT = Path(__file__).parents[1] / "skills"
 BUNDLED_AGENTS_ROOT = Path(__file__).parents[1] / "agents"
+# Written beside the marker in every managed skill copy, it names each file
+# Dashpot wrote there, so a later Dashpot can tell a file an earlier one
+# shipped from one the user added (ADR 0103).
+SKILL_MANIFEST = Path(".dashpot-manifest.json")
+# The file that carries a skill, and in a managed copy its marker.
+SKILL_FILE = Path("SKILL.md")
 
 
 class IntegrationError(DashpotError):
@@ -75,7 +88,9 @@ class BundledSkill:
 
     A copy is Dashpot's to manage only while its ``SKILL.md`` carries this
     skill's own marker: a directory of the same name without it is the
-    user's, and is never overwritten or removed.
+    user's, and is never overwritten or removed. Inside a managed copy, the
+    files its manifest names are Dashpot's, and any other is the user's
+    (ADR 0103).
     """
 
     name: str
@@ -98,6 +113,18 @@ class BundledSkill:
                 if path.is_file()
             )
         )
+
+
+class SkillManifest(PersistedRecord):
+    """The files Dashpot wrote into one managed skill copy, relative to it."""
+
+    # A copy's files obey the Repository-relative rule: a POSIX path that
+    # stays inside the directory it is relative to, here the copy itself.
+    files: tuple[RepositoryRelativePath, ...]
+
+
+# What a skill's destination holds, judged by its marker before any listing.
+CopyState = Literal["vacant", "managed", "unmanaged", "not a directory"]
 
 
 ISSUE_WORK_SKILL = BundledSkill(
@@ -635,32 +662,89 @@ def _skill_copies(
 
 def _skill_text(destination: Path) -> str:
     """An installed copy's ``SKILL.md``; raises ``OSError`` or ``ValueError``."""
-    return (destination / "SKILL.md").read_text(encoding="utf-8")
+    return (destination / SKILL_FILE).read_text(encoding="utf-8")
 
 
 def _is_managed(skill: BundledSkill, destination: Path) -> bool:
     """Whether a copy's ``SKILL.md`` is readable and carries this skill's marker."""
     try:
-        return skill.marker in _skill_text(destination)
+        return _copy_state(skill, destination) == "managed"
     except (OSError, ValueError):
         return False
 
 
-def _is_vacant(destination: Path) -> bool:
-    """Whether nothing is at a skill's destination, or only an empty directory."""
-    if not destination.exists():
-        return True
-    return destination.is_dir() and not any(destination.iterdir())
+def _file_mode(path: Path) -> int | None:
+    """A path's mode, or ``None`` when nothing is there; raises any other ``OSError``.
+
+    Only absence is absence: ``Path.exists`` reads a path it may not search
+    as absent on some Python releases, which would report a copy it cannot
+    inspect as missing.
+    """
+    try:
+        return path.stat().st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
+def _copy_state(skill: BundledSkill, destination: Path) -> CopyState:
+    """What holds a bundled skill's destination.
+
+    ``SKILL.md`` is read before the directory is listed, so a copy that can
+    be entered but not listed is still recognised by its marker; only a
+    directory without one is listed, to tell an empty directory from
+    someone else's. Raises ``OSError`` when the destination cannot be
+    inspected, and ``ValueError`` when its ``SKILL.md`` is not text.
+    """
+    mode = _file_mode(destination)
+    if mode is None:
+        return "vacant"
+    if not stat.S_ISDIR(mode):
+        return "not a directory"
+    skill_mode = _file_mode(destination / SKILL_FILE)
+    if skill_mode is not None and stat.S_ISREG(skill_mode):
+        return "managed" if skill.marker in _skill_text(destination) else "unmanaged"
+    return "unmanaged" if any(destination.iterdir()) else "vacant"
+
+
+def _recorded_files(destination: Path) -> frozenset[Path] | None:
+    """The files a copy's manifest names, or ``None`` when it has no valid one."""
+    try:
+        manifest = SkillManifest.model_validate_json(
+            (destination / SKILL_MANIFEST).read_bytes()
+        )
+    except (OSError, ValidationError):
+        return None
+    return frozenset(Path(relative) for relative in manifest.files)
+
+
+def _written_files(skill: BundledSkill, destination: Path) -> frozenset[Path]:
+    """Every file Dashpot wrote into a managed copy.
+
+    A copy without a valid manifest was written by a revision from before
+    Dashpot kept one, and every file those revisions shipped is still
+    shipped, so the files this Dashpot ships stand in for its list
+    (ADR 0103).
+    """
+    recorded = _recorded_files(destination)
+    return frozenset(skill.files) if recorded is None else recorded
 
 
 def _is_current(skill: BundledSkill, destination: Path) -> bool:
-    """Whether a copy holds every file this Dashpot ships for the skill, unchanged."""
-    return all(
-        (destination / relative).is_file()
-        and (destination / relative).read_bytes()
-        == (skill.source / relative).read_bytes()
-        for relative in skill.files
-    )
+    """Whether a copy holds every file this Dashpot ships, unchanged, and no other of Dashpot's.
+
+    Its manifest must name exactly the shipped files: a file it names beyond
+    them is one an earlier Dashpot shipped and an update removes. Files the
+    user added are not Dashpot's, and leave the copy current.
+    """
+    try:
+        return _recorded_files(destination) == frozenset(skill.files) and all(
+            (destination / relative).is_file()
+            and (destination / relative).read_bytes()
+            == (skill.source / relative).read_bytes()
+            for relative in skill.files
+        )
+    except OSError:
+        return False
 
 
 def _validate_destinations(
@@ -670,21 +754,27 @@ def _validate_destinations(
     """Refuse when any skill or agent destination holds what Dashpot does not manage.
 
     An empty or absent skill directory is free to install into; any other
-    directory must already carry that skill's own marker. An absent agent
-    file is free to install into; anything else at its path must be a file
-    carrying that agent's own marker.
+    directory must already carry that skill's own marker, and one that
+    cannot be inspected is refused. An absent agent file is free to install
+    into; anything else at its path must be a file carrying that agent's
+    own marker.
     """
     refusals: list[str] = []
     for skill, destination in destinations:
-        if destination.exists() and not destination.is_dir():
+        refused = f"cannot install the Dashpot {skill.label} at {destination}: "
+        try:
+            state = _copy_state(skill, destination)
+        except OSError as exc:
+            refusals.append(f"{refused}could not inspect it: {exc}; move it and retry")
+            continue
+        except ValueError:
+            state = "unmanaged"
+        if state == "not a directory":
+            refusals.append(f"{refused}the path is not a directory; move it and retry")
+        elif state == "unmanaged":
             refusals.append(
-                f"cannot install the Dashpot {skill.label} at {destination}: "
-                "the path is not a directory; move it and retry"
-            )
-        elif not _is_vacant(destination) and not _is_managed(skill, destination):
-            refusals.append(
-                f"cannot install the Dashpot {skill.label} at {destination}: "
-                "an existing skill is not managed by Dashpot; move it and retry"
+                f"{refused}an existing skill is not managed by Dashpot; "
+                "move it and retry"
             )
     for agent, destination in agent_destinations:
         if not os.path.lexists(destination):
@@ -703,44 +793,42 @@ def _validate_destinations(
         raise IntegrationError("; ".join(refusals))
 
 
-def _install_skill(skill: BundledSkill, destination: Path) -> str:
-    if _is_current(skill, destination):
-        return f"Dashpot {skill.label} already installed in {destination}"
-    existed = destination.exists()
-    for relative in skill.files:
-        target = destination / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        replace_atomically(
-            target,
-            (skill.source / relative).read_text(encoding="utf-8"),
-            temporary_prefix=f".{target.name}.",
-        )
-    verb = "updated" if existed else "installed"
-    return f"{verb} Dashpot {skill.label} in {destination}"
+def _write_manifest(destination: Path, files: frozenset[Path]) -> None:
+    """Record which files Dashpot wrote into a managed copy.
+
+    The manifest is rewritten whole: anything a newer Dashpot recorded in it
+    described the copy this one has just rewritten.
+    """
+    manifest = SkillManifest(files=tuple(path.as_posix() for path in sorted(files)))
+    replace_atomically(
+        destination / SKILL_MANIFEST,
+        manifest.model_dump_json(by_alias=True, indent=2) + "\n",
+        temporary_prefix=f".{SKILL_MANIFEST.name}.",
+    )
 
 
-def _remove_skill(skill: BundledSkill, destination: Path) -> str:
-    skill_file = destination / "SKILL.md"
-    # SKILL.md is looked for before the directory is listed, so a copy that
-    # can be entered but not listed is still inspected by its marker.
-    if not skill_file.is_file():
-        if _is_vacant(destination):
-            return f"Dashpot {skill.label} is not installed: no {skill_file}"
-        # A file, or a directory holding no SKILL.md, is not Dashpot's copy.
-        return f"left unmanaged {skill.label} unchanged at {destination}"
-    try:
-        text = _skill_text(destination)
-    except (OSError, ValueError) as exc:
-        return f"could not inspect Dashpot {skill.label} at {destination}: {exc}"
-    if skill.marker not in text:
-        return f"left unmanaged {skill.label} unchanged at {destination}"
-    files = skill.files
+def _remove_files(destination: Path, files: Sequence[Path]) -> None:
+    """Unlink each named file of a copy, in order, then the directories they emptied.
+
+    Only the directories holding a named file are pruned, deepest first, and
+    only once empty: anything else in them is the user's. A name whose
+    directory resolves outside the copy, through a symbolic link the user
+    put there, is never followed.
+    """
+    root = destination.resolve()
+
+    def inside(path: Path) -> bool:
+        # A link loop is never followed: Python 3.12 raises ``RuntimeError``
+        # for one where later releases leave the path unresolved.
+        try:
+            return path.parent.resolve().is_relative_to(root)
+        except (OSError, RuntimeError):
+            return False
+
     for relative in files:
         path = destination / relative
-        if path.is_file():
+        if inside(path) and path.is_file():
             path.unlink()
-    # Only the directories the skill ships are pruned, deepest first, and
-    # only once empty: anything else in them is the user's.
     nested = {
         ancestor
         for relative in files
@@ -748,27 +836,93 @@ def _remove_skill(skill: BundledSkill, destination: Path) -> str:
         if ancestor != Path(".")
     }
     for relative in sorted(nested, key=lambda path: len(path.parts), reverse=True):
+        # Removing rather than listing first keeps a directory that cannot be
+        # listed prunable; one still holding the user's files refuses.
         directory = destination / relative
-        if directory.is_dir() and not any(directory.iterdir()):
-            directory.rmdir()
-    if destination.is_dir() and not any(destination.iterdir()):
+        if inside(directory):
+            with contextlib.suppress(OSError):
+                directory.rmdir()
+
+
+def _install_skill(skill: BundledSkill, destination: Path) -> str:
+    if _is_current(skill, destination):
+        return f"Dashpot {skill.label} already installed in {destination}"
+    # An empty directory, as a first installation cut short leaves, is
+    # installed into, not updated.
+    existed = _is_managed(skill, destination)
+    try:
+        _write_skill(skill, destination, managed=existed)
+    except OSError as exc:
+        action = "update" if existed else "install"
+        raise IntegrationError(
+            f"could not {action} the Dashpot {skill.label} in {destination}: {exc}"
+        ) from exc
+    verb = "updated" if existed else "installed"
+    return f"{verb} Dashpot {skill.label} in {destination}"
+
+
+def _write_skill(skill: BundledSkill, destination: Path, *, managed: bool) -> None:
+    """Leave a managed copy holding exactly the shipped files, beside the user's own.
+
+    ``SKILL.md`` is written first, so a first installation cut short before
+    it leaves a directory free to install into again. An update cut short
+    leaves every file Dashpot wrote named by the manifest, for the next
+    update or ``--remove`` to finish.
+    """
+    shipped = frozenset(skill.files)
+    recorded = _recorded_files(destination) if managed else None
+    earlier = frozenset[Path]()
+    if managed:
+        earlier = shipped if recorded is None else recorded
+    destination.mkdir(parents=True, exist_ok=True)
+    # Without a manifest the shipped files already stand in for one, so only
+    # a manifest that names fewer files than will be written is widened first.
+    if recorded is not None and recorded != earlier | shipped:
+        _write_manifest(destination, earlier | shipped)
+    for relative in sorted(skill.files, key=lambda path: path != SKILL_FILE):
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        replace_atomically(
+            target,
+            (skill.source / relative).read_text(encoding="utf-8"),
+            temporary_prefix=f".{target.name}.",
+        )
+    _remove_files(destination, sorted(earlier - shipped))
+    _write_manifest(destination, shipped)
+
+
+def _remove_skill(skill: BundledSkill, destination: Path) -> str:
+    try:
+        state = _copy_state(skill, destination)
+    except (OSError, ValueError) as exc:
+        return f"could not inspect Dashpot {skill.label} at {destination}: {exc}"
+    if state == "vacant":
+        return f"Dashpot {skill.label} is not installed: no {destination / SKILL_FILE}"
+    if state != "managed":
+        return f"left unmanaged {skill.label} unchanged at {destination}"
+    # SKILL.md, which carries the marker, goes last, after the manifest, so
+    # a removal cut short leaves a copy the next ``--remove`` still
+    # recognises and finishes.
+    written = sorted(_written_files(skill, destination) - {SKILL_FILE, SKILL_MANIFEST})
+    try:
+        _remove_files(destination, [*written, SKILL_MANIFEST, SKILL_FILE])
+    except OSError as exc:
+        return f"could not remove Dashpot {skill.label} from {destination}: {exc}"
+    # The copy stays while it still holds the user's files.
+    with contextlib.suppress(OSError):
         destination.rmdir()
     return f"removed the Dashpot {skill.label} from {destination}"
 
 
 def _skill_status(skill: BundledSkill, destination: Path, *, harness: Harness) -> str:
-    skill_file = destination / "SKILL.md"
-    conflict = f"{skill.label} conflict at {destination}: not managed by Dashpot"
-    if not skill_file.is_file():
-        if _is_vacant(destination):
-            return f"{skill.label} not installed: no {skill_file}"
-        return conflict
     try:
-        text = _skill_text(destination)
+        state = _copy_state(skill, destination)
     except (OSError, ValueError) as exc:
         return f"{skill.label} unreadable at {destination}: {exc}"
-    if skill.marker not in text:
-        return conflict
+    if state == "vacant":
+        return f"{skill.label} not installed: no {destination / SKILL_FILE}"
+    if state != "managed":
+        return f"{skill.label} conflict at {destination}: not managed by Dashpot"
     if not _is_current(skill, destination):
         return (
             f"{skill.label} update available at {destination}; run "
@@ -1242,7 +1396,7 @@ def _opencode_skill_copies(destinations: list[tuple[BundledSkill, Path]]) -> lis
             ("claude-code", CLAUDE_CODE.default_skills_home / skill.name),
             ("codex", CODEX.default_skills_home / skill.name),
         ):
-            if same_path(directory, own) or not (directory / "SKILL.md").is_file():
+            if same_path(directory, own) or not _may_hold_a_skill(directory):
                 continue
             if not (_is_managed(skill, directory) and _is_current(skill, directory)):
                 messages.append(
@@ -1251,6 +1405,15 @@ def _opencode_skill_copies(destinations: list[tuple[BundledSkill, Path]]) -> lis
                     f"either; run 'dashpot integrate {owner}' or move it"
                 )
     return messages
+
+
+def _may_hold_a_skill(directory: Path) -> bool:
+    """Whether a directory has a ``SKILL.md``, or cannot be inspected to say."""
+    try:
+        mode = _file_mode(directory / SKILL_FILE)
+    except OSError:
+        return True
+    return mode is not None and stat.S_ISREG(mode)
 
 
 def _opencode_plugin_copies(

@@ -88,7 +88,7 @@ of date.
 | 0075 | [End an orphaned run at its replacement's SessionEnd](0075-end-an-orphaned-run-at-its-replacements-session-end.md) | accepted | — |
 | 0077 | [Observe OpenCode through one publisher generation per plugin instance](0077-observe-opencode-through-one-publisher-generation-per-plugin-instance.md) | amended | [0080](0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md), [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
 | 0078 | [Give an OpenCode command a claim only for its own bootstrap](0078-give-an-opencode-command-a-claim-only-for-its-own-bootstrap.md) | superseded | [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
-| 0079 | [Install OpenCode as one managed plugin, and keep it unsupported until acceptance](0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md) | amended | [0081](0081-support-opencode-1-18-30-on-linux.md), [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
+| 0079 | [Install OpenCode as one managed plugin, and keep it unsupported until acceptance](0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md) | amended | [0081](0081-support-opencode-1-18-30-on-linux.md), [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md), [0103](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) |
 | 0080 | [Keep a retired OpenCode generation's backend on its sessions](0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md) | amended | [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
 | 0081 | [Support OpenCode 1.18.30 on Linux](0081-support-opencode-1-18-30-on-linux.md) | superseded | [0090](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) |
 | 0085 | [Return a Claude Code session before entering another Issue Worktree](0085-return-a-claude-code-session-before-entering-another-issue-worktree.md) | accepted | — |
@@ -104,3 +104,4 @@ of date.
 | 0098 | [Show Runtime Events and Stats as tabs of one temporary screen](0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md) | accepted | — |
 | 0099 | [Print Runtime Events as JSON Lines](0099-print-runtime-events-as-json-lines.md) | accepted | — |
 | 0100 | [Keep a compacted session's turn state](0100-keep-a-compacted-sessions-turn-state.md) | accepted | — |
+| 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | accepted | — |
