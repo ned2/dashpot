@@ -561,7 +561,8 @@ Each supported harness release is pinned by an acceptance run: a runner that dri
 
 #### Local review gate
 
-Before every commit, run the all-files checks and the full suite with coverage:
+Before every commit, run the all-files checks and the full suite with coverage
+(a documentation-only change skips coverage, as described below):
 
 ```bash
 review_base=$(git rev-parse origin/main)
@@ -570,7 +571,7 @@ uv run --locked python scripts/review_coverage.py --base "$review_base"
 ```
 
 Pin the review base for the engagement and include it in the review request.
-The helper runs pytest once, replacing ordinary pytest in this gate.
+The coverage helper runs pytest once, replacing ordinary pytest in this gate.
 It inherits pytest's automatic parallel default and combines worker coverage.
 Use `--workers N` to choose a count, or `--workers 0` for serial execution.
 Choose a worker count appropriate to local CPU and memory capacity. Worker crashes fail
@@ -599,6 +600,17 @@ Keep one writer and one coverage run per Worktree. Supply both reports to the
 reviewer and record useful conclusions in the PR; generated evidence is not
 committed. Coverage has no percentage threshold and does not establish the
 quality of assertions or coverage of every branch outcome.
+
+A documentation-only change, one CI's [documentation lane](#continuous-integration)
+classifies as `docs`, skips the coverage run and its check;
+[AGENTS.md](AGENTS.md#quality-and-code-conventions) says what it still
+requires. Confirm the classification before pushing with CI's own classifier,
+run from the checkout root. It reads the committed `$review_base...HEAD` diff
+and prints `docs`, or `full` when the coverage run is required:
+
+```bash
+uv run --locked python -c 'import sys; sys.path[:0] = ["scripts"]; import ci_lane; print(ci_lane.classify("pull_request", sys.argv[1], "HEAD"))' "$review_base"
+```
 
 The pushed-revision gate can also run against the working tree. Its default
 includes pytest with the same automatic parallel policy; `--skip-tests` uses already completed local coverage
@@ -976,7 +988,8 @@ it:
 2. Complete the [local review gate](#local-review-gate) and independent review
    as specified in [AGENTS.md](AGENTS.md#independent-review-before-integration).
    Address findings and refresh affected validation and review. Commit with
-   the commit hooks installed, then verify coverage evidence still matches.
+   the commit hooks installed, then verify coverage evidence still matches,
+   unless AGENTS.md exempts the change.
    A commit message line `Closes #N`
    is what closes the Issue on GitHub once the commit reaches `main`.
 3. Push the branch and open a pull request targeting `main` after local
@@ -984,7 +997,8 @@ it:
    [`scripts/check_quality.py`](scripts/check_quality.py) against the pushed
    revision in a detached worktree, so a red gate stops the push. That gate
    deliberately skips the test suite; local coverage has already run it and
-   pull-request CI confirms it across every platform. Fill in the PR template
+   pull-request CI confirms it across every platform, except for a
+   documentation-only change, which touches no code and runs neither. Fill in the PR template
    with the review base, source digest, final commit, checks, coverage
    observations, and review findings/dispositions.
 4. Watch the latest pull-request CI run to completion with

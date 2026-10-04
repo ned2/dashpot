@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-02
+date: 2026-10-05
 ---
 
 # Dashpot development integration
@@ -80,6 +80,9 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
 1. Confirm the PR is open in `ned2/dashpot`, targets `main`, and has the
    reviewed branch as its head. Verify the local coverage evidence and ensure
    the working tree and index contain no uncommitted implementation changes.
+   A documentation-only change has no coverage evidence, and a head made by
+   a content-preserving rebase keeps the evidence of the reviewed head it
+   was rebased from.
 2. Identify the latest `ci.yml` **pull_request** run for that PR and head,
    including its latest run attempt. Wait for completion and require both a
    successful run and a successful `CI required` job. Check the run's
@@ -89,8 +92,10 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
    carries the PR title and body, not the branch's own commits. If the PR
    needs a new head after the handover, such as the rebase a textual conflict
    requires, the operator makes it or returns the PR to an agent that takes
-   up the Issue work again; either way the new head needs its own
-   validation, review, and CI before it merges. The branch need not contain
+   up the Issue work again; either way the new head needs the validation,
+   review, and CI the
+   [agent instructions](../AGENTS.md#independent-review-before-integration)
+   require for that rebase before it merges. The branch need not contain
    the current `main`: CI verified the branch head, and no run exercises
    `main` itself. A semantic conflict between two PRs that each passed on
    their own therefore surfaces on the first later run that contains both,
@@ -104,7 +109,7 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
 
 A textual conflict with `main` blocks merging. Resolve it by the rebase the
 [agent instructions](../AGENTS.md#independent-review-before-integration)
-authorize, with the focused follow-up review a conflict resolution needs.
+authorize, which also say when a conflict resolution needs follow-up review.
 Release verification still checks out the release revision through reusable CI.
 
 References: [merge queue availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue),
