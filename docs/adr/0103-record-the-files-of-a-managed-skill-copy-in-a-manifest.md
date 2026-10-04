@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-05
+amended-by: 0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md
 ---
 
 # Record the files of a managed skill copy in a manifest
@@ -126,3 +127,10 @@ there, and the skills and agents after it are not attempted; rerunning
 - OpenCode's warning about another harness's differing copy uses the same
   test of currency, so it also names a copy that still holds a dropped file
   or has no manifest; that harness's own `integrate` repairs it.
+- Amended by [ADR 0110](0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md)
+  ([#491](https://github.com/ned2/dashpot/issues/491)): `integrate` checks
+  that it can write every destination before writing any, so a managed copy
+  it can read but not change refuses the installation with nothing written,
+  rather than stopping part-way with "could not update"; a write that still
+  fails past the check no longer stops the others, and every failure is
+  named together.

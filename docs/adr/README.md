@@ -106,7 +106,8 @@ of date.
 | 0100 | [Keep a compacted session's turn state](0100-keep-a-compacted-sessions-turn-state.md) | accepted | — |
 | 0101 | [Move a conversation switch's sub-agents to the session that runs them](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md) | accepted | — |
 | 0102 | [Clear a stopped sub-agent from the records a moved session left behind](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md) | accepted | — |
-| 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | accepted | — |
+| 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | amended | [0110](0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md) |
 | 0104 | [Block Worktree removal while a process runs inside it](0104-block-worktree-removal-while-a-process-runs-inside-it.md) | accepted | — |
 | 0105 | [Raise the Python floor to 3.13](0105-raise-the-python-floor-to-3-13.md) | accepted | — |
 | 0108 | [Keep OpenCode self-move and leading Workers on the shared service](0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md) | accepted | — |
+| 0110 | [Check every integrate destination before writing, and carry on past a failed write](0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md) | accepted | — |

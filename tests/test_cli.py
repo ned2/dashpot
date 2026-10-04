@@ -52,7 +52,11 @@ from dashpot.repository.worktrees.removability import (
     check_worktree,
 )
 from dashpot.sessions.hook_records import session_directory, state_directory
-from dashpot.sessions.integrate import INTEGRATIONS, IntegrationError
+from dashpot.sessions.integrate import (
+    INTEGRATIONS,
+    IncompleteIntegrationError,
+    IntegrationError,
+)
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
 from dashpot.sessions.work import IssueWorkError
 from factories import git, write_config_marker
@@ -1781,6 +1785,30 @@ def test_integrate_errors_are_reported_without_traceback(
 
     assert code == 2
     assert "no Codex configuration directory" in capsys.readouterr().err
+
+
+def test_an_incomplete_integrate_reports_what_it_wrote_then_what_failed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    incomplete = IncompleteIntegrationError(
+        "codex",
+        ["could not install the Dashpot Second skill in /x: disk full"],
+        ["installed Codex lifecycle hooks in /h", "installed Dashpot First skill"],
+    )
+    with mock.patch.object(cli, "install_integration", side_effect=incomplete):
+        code = cli.main(["integrate", "codex"])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.out.splitlines() == [
+        "installed Codex lifecycle hooks in /h",
+        "installed Dashpot First skill",
+    ]
+    assert captured.err == (
+        "dashpot: could not install the Dashpot Second skill in /x: disk full; "
+        "the rest of the integration is written, and rerunning 'dashpot "
+        "integrate codex' finishes it\n"
+    )
 
 
 def test_anchors_for_two_projects_are_refused_at_startup(tmp_path: Path) -> None:

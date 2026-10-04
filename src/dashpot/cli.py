@@ -86,6 +86,7 @@ from .serialization import (
     worktree_plan_document,
 )
 from .sessions.integrate import (
+    IncompleteIntegrationError,
     install_integration,
     integration_status,
     remove_integration,
@@ -1210,7 +1211,13 @@ def integrate(
             messages = remove_integration(harness)
             outcome.action = "removed"
         else:
-            messages = install_integration(harness)
+            try:
+                messages = install_integration(harness)
+            except IncompleteIntegrationError as incomplete:
+                # What was written is reported before the failures it carried
+                # on past, which end the command as any refusal does.
+                _report(incomplete.messages)
+                raise
             outcome.action = "installed"
         _report(messages)
     return 0
