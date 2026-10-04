@@ -159,9 +159,10 @@ def test_an_unloaded_lead_keeps_its_working_worker_blocking_until_it_stops(
     assert sessions(live, a, b) == []
     assert stored(a) is not None
 
-    # The worker's later commands neither revive nor move the ended lead.
-    assert publish(b, "PreToolUse", WORKER).state == "running"
-    assert publish(b, "UserPromptSubmit", WORKER).state == "running"
+    # The worker's later commands neither revive nor move the ended lead:
+    # the store keeps nothing of them (#489).
+    assert publish(b, "PreToolUse", WORKER).state is None
+    assert publish(b, "UserPromptSubmit", WORKER).state is None
     assert stored(b) is None
     record = stored(a)
     assert record is not None

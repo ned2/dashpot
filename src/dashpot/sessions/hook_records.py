@@ -6,8 +6,9 @@ import json
 import os
 from collections.abc import Iterable, Mapping
 from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal, cast, get_args
 
 from pydantic import AfterValidator, BeforeValidator, Field, ValidationError
 
@@ -453,6 +454,26 @@ def _process_key(raw: object) -> ProcessKey | None:
         return None
 
 
+@dataclass(frozen=True, slots=True)
+class HookRecordWrite:
+    """Where the store published one hook event, and the state it stored.
+
+    ``state`` is the state the session's record was stored with, which may
+    differ from the one the event maps to. It is ``ended`` when the event
+    ended the session, whether its record was removed or kept for its
+    sub-agents, and when a sub-agent's boundary changed or removed such a
+    kept record (ADR 0095); None when the store kept nothing of the event.
+    """
+
+    path: Path
+    state: ActiveState | None
+
+
+def _stored_state(record: Mapping[str, Any]) -> ActiveState:
+    """The state ``record`` names, refused unless a hook record may hold it."""
+    return cast("ActiveState", _active_state(record.get("state")))
+
+
 class HookRecordStore(LockedRecordStore):
     """Own the lifecycle of hook Agent Session records in one directory.
 
@@ -477,7 +498,7 @@ class HookRecordStore(LockedRecordStore):
         *,
         seed: Mapping[str, Any] | None = None,
         adopted: Iterable[str] = (),
-    ) -> Path:
+    ) -> HookRecordWrite:
         """Publish one native identity without overwriting another harness.
 
         ``seed`` is the session's freshest record in another store, when the
@@ -493,7 +514,9 @@ class HookRecordStore(LockedRecordStore):
         that process carries on (ADR 0095), as it carries a live record's
         (ADR 0097). ``adopted`` names the sub-agents a Conversation Switch's
         ``SessionStart`` takes over from the session its Host Process switched
-        from (ADR 0101); the record lists them beside its own.
+        from (ADR 0101); the record lists them beside its own. The result
+        names the state the record was stored with, which a caller reports
+        rather than the state the event maps to.
         """
         session_id = require_string(record.get("sessionId"), "sessionId")
         harness = require_string(record.get("harness"), "harness")
@@ -530,13 +553,13 @@ class HookRecordStore(LockedRecordStore):
                     or observed_instant(previous.get("lastActivityAt"))
                     > observed_instant(record.get("lastActivityAt"))
                 ):
-                    return destination
+                    return HookRecordWrite(destination, None)
                 retained = _retained_subagents(record, previous, seed)
                 if retained:
                     self.replace(key, {**record, "liveSubagents": retained})
                 else:
                     destination.unlink(missing_ok=True)
-                return destination
+                return HookRecordWrite(destination, "ended")
             if (
                 previous is not None
                 and _is_ended(previous)
@@ -553,7 +576,10 @@ class HookRecordStore(LockedRecordStore):
                     destination.unlink(missing_ok=True)
                 elif remaining != previous.get("liveSubagents"):
                     self.replace(key, {**previous, "liveSubagents": remaining})
-                return destination
+                else:
+                    # The record is as it was: the store kept nothing.
+                    return HookRecordWrite(destination, None)
+                return HookRecordWrite(destination, "ended")
             if child and previous is None and record.get("event") != "SubagentStart":
                 # With no parent record here, only a starting Sub-agent has
                 # anything to say: it is live. Any other Sub-agent event would
@@ -561,7 +587,7 @@ class HookRecordStore(LockedRecordStore):
                 # a stop has no live set to leave: one arriving after its
                 # parent's SessionEnd would list the ended session as waiting
                 # for as long as a shared Host Process lives.
-                return destination
+                return HookRecordWrite(destination, None)
             current = dict(record)
             origin = previous
             if child and previous is not None:
@@ -608,8 +634,11 @@ class HookRecordStore(LockedRecordStore):
             if started is not None:
                 current["lastSessionStartAt"] = started
             current["state"] = observed_state(current)
+            # Narrowed before the write, so a state no record may hold is
+            # refused rather than stored.
+            stored = _stored_state(current)
             self.replace(key, current)
-            return destination
+            return HookRecordWrite(destination, stored)
 
     def release_subagents(
         self, key: str, agents: Iterable[str], by: Mapping[str, Any]

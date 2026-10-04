@@ -326,6 +326,8 @@ class HookOutcome(EventBody):
     name: Literal["hook.outcome"] = Field(default="hook.outcome", alias="event.name")
     hook_event: HookEventName | None = Field(default=None, alias="dashpot.hook.event")
     result: OutcomeResult = Field(alias="dashpot.outcome.result")
+    # The state the hook record was stored with, which can differ from the
+    # one the hook event maps to; absent when the store kept nothing of it.
     record_state: HookRecordState | None = Field(
         default=None, alias="dashpot.agent_session.state"
     )
