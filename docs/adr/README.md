@@ -114,3 +114,4 @@ of date.
 | 0110 | [Check every integrate destination before writing, and carry on past a failed write](0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md) | accepted | — |
 | 0111 | [Integrate several harnesses, and every integrated one, in one command](0111-integrate-several-harnesses-and-every-integrated-one-in-one-command.md) | accepted | — |
 | 0112 | [Let a person remove a Worktree despite the sub-agents a preview lists](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md) | accepted | — |
+| 0113 | [Name a background command by its process, and show it on a waiting Claude Code session](0113-name-a-background-command-by-its-process-and-show-it-on-a-waiting-claude-code-session.md) | accepted | — |
