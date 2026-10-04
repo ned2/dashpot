@@ -35,6 +35,7 @@ from dashpot.sessions.integrate import (
     integration,
     integration_status,
     integrations_status,
+    refresh_integrations,
     remove_codex_integration,
     remove_integration,
     resolve_hook_command,
@@ -1307,10 +1308,12 @@ def integrate_one(harness: Harness, tmp_path: Path, **options: Any) -> list[str]
 
 
 def refresh(tmp_path: Path, *harnesses: Harness, **options: Any) -> list[HarnessReport]:
+    """Integrate the named harnesses, or refresh every integrated one when none is."""
     options.setdefault("version_probe", opencode_accepted)
-    return install_integrations(
-        harnesses, command_paths=publishers(tmp_path), **options
-    )
+    options["command_paths"] = publishers(tmp_path)
+    if harnesses:
+        return install_integrations(harnesses, **options)
+    return refresh_integrations(**options)
 
 
 def combined_status(
@@ -1494,14 +1497,14 @@ def test_a_harness_left_incomplete_does_not_stop_the_others(
 ) -> None:
     for harness in ("claude-code", "codex"):
         default_home(harness)
-    write_json = integrate_module._write_json
+    write = integrate_module.replace_atomically
 
-    def full_disk(path: Path, document: dict[str, Any]) -> None:
+    def full_disk(path: Path, text: str, *, temporary_prefix: str) -> None:
         if path.name == "settings.json":
             raise OSError(28, "No space left on device")
-        write_json(path, document)
+        write(path, text, temporary_prefix=temporary_prefix)
 
-    monkeypatch.setattr(integrate_module, "_write_json", full_disk)
+    monkeypatch.setattr(integrate_module, "replace_atomically", full_disk)
 
     reports = refresh(tmp_path, "codex", "claude-code")
 
@@ -1580,7 +1583,10 @@ def test_a_linked_worktree_publisher_refuses_every_harness_before_any_changes(
     }
 
     with pytest.raises(IntegrationError) as refusal:
-        install_integrations(named, command_paths=commands)
+        if named:
+            install_integrations(named, command_paths=commands)
+        else:
+            refresh_integrations(command_paths=commands)
 
     assert str(refusal.value).startswith(
         "cannot bind the Claude Code and Codex hooks to their publishers in "
@@ -1618,7 +1624,7 @@ def test_a_missing_publisher_refuses_its_harness_alone(
     monkeypatch.setattr(sysconfig, "get_path", lambda _name: str(tmp_path / "none"))
     monkeypatch.setenv("PATH", str(tmp_path / "none"))
 
-    reports = install_integrations(
+    reports = refresh_integrations(
         command_paths={"codex": publishers(tmp_path)["codex"]}
     )
 

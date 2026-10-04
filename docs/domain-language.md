@@ -466,6 +466,9 @@ when only some are, or when a managed skill or agent is left without any;
 and **not integrated** otherwise. `dashpot integrate --installed` refreshes
 only integrated harnesses
 ([ADR 0111](adr/0111-integrate-several-harnesses-and-every-integrated-one-in-one-command.md)).
+In code, a `HarnessIntegration` describes what one harness's integration
+installs and where, and an `IntegrationPresence` says how far it is
+installed.
 _Avoid_: a bare "integrated" where it could be read as a Branch integrated
 into the Integration Branch; say "integrated harness".
 

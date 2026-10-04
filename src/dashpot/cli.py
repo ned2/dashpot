@@ -97,6 +97,7 @@ from .sessions.integrate import (
     install_integrations,
     integration_status,
     integrations_status,
+    refresh_integrations,
     remove_integration,
 )
 from .sessions.work import (
@@ -1278,7 +1279,7 @@ def integrate(
             _report(combined.messages)
             outcome.action = "reported"
             return 0
-        reports = install_integrations(named)
+        reports = install_integrations(named) if named else refresh_integrations()
         _report_harnesses(reports)
         outcome.refusals = sum(report.outcome == "refused" for report in reports)
         outcome.incomplete = any(report.outcome == "incomplete" for report in reports)

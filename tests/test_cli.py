@@ -1849,10 +1849,10 @@ def test_installed_fails_only_for_a_harness_refused_or_left_incomplete(
 ) -> None:
     error = "disk full" if outcome == "incomplete" else None
     report = HarnessReport("codex", outcome, ("a line",), error=error)
-    with mock.patch.object(cli, "install_integrations", return_value=[report]) as run:
+    with mock.patch.object(cli, "refresh_integrations", return_value=[report]) as run:
         assert cli.main(["integrate", "--installed"]) == code
 
-    run.assert_called_once_with(())
+    run.assert_called_once_with()
     assert capsys.readouterr().out.splitlines() == ["Codex:", "  a line"]
 
 

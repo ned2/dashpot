@@ -322,7 +322,7 @@ def test_an_integration_across_harnesses_counts_the_harnesses_refused(
         HarnessReport("codex", "refused", note="refused", error="no /home/someone"),
         HarnessReport("opencode", "refused", note="refused", error="v1"),
     ]
-    with mock.patch.object(cli, "install_integrations", return_value=reports):
+    with mock.patch.object(cli, "refresh_integrations", return_value=reports):
         assert run(events, "integrate", "--installed") == 2
 
     assert body(outcome(events)) == {
@@ -357,7 +357,7 @@ def test_an_integration_that_changed_no_harness_records_no_action(
     events: Path,
 ) -> None:
     reports = [HarnessReport("codex", "not integrated", note="not integrated")]
-    with mock.patch.object(cli, "install_integrations", return_value=reports):
+    with mock.patch.object(cli, "refresh_integrations", return_value=reports):
         assert run(events, "integrate", "--installed") == 0
 
     assert body(outcome(events)) == {

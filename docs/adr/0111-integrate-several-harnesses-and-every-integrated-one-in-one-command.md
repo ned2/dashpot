@@ -121,7 +121,8 @@ harness, several, or `--installed` is refused.
 ## Consequences
 
 - Upgrading Dashpot needs one command, `dashpot integrate --installed`, run
-  from the environment the hooks should bind.
+  from the environment the hooks should bind, unless the release subscribes
+  a new hook event, below.
 - `--installed` never widens an opt-in: it installs a new bundled skill or
   agent only into a harness whose every hook is registered.
 - A person finishing or undoing a half-done integration is told which; the

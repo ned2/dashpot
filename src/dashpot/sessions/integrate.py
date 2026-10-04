@@ -896,55 +896,104 @@ def _partial_advice(harness: Harness, detail: str) -> str:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _PlannedInstall:
+    """A harness a command across harnesses will install, bound to its publisher."""
+
+    harness: Harness
+    command: Path
+
+
 def install_integrations(
-    harnesses: Sequence[Harness] = (),
+    harnesses: Sequence[Harness],
     *,
     command_paths: Mapping[Harness, Path] | None = None,
     version_probe: Callable[[], str | None] | None = None,
     skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
     agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
 ) -> list[HarnessReport]:
-    """Install each named harness's integration, or refresh every integrated one.
+    """Install each named harness's integration, each standing alone.
 
-    With no harness named, as ``--installed``, only a harness whose every
-    lifecycle hook is registered is refreshed; a partial one is left as it
-    is and reported, and one not integrated is never installed into. The
-    harnesses run in ``INTEGRATION_ORDER``, and each stands alone: one
-    refused, or left incomplete, does not stop the others (ADR 0110). A
-    publisher in a linked Worktree concerns the whole command, so it is
-    refused, raising ``IntegrationError``, before any harness changes
-    (ADR 0111).
+    The harnesses run in ``INTEGRATION_ORDER``: one refused, or left
+    incomplete, does not stop the others (ADR 0110). A publisher in a
+    linked Worktree concerns the whole command, so it is refused, raising
+    ``IntegrationError``, before any harness changes (ADR 0111).
     """
-    arguments = " ".join(in_integration_order(harnesses)) or "--installed"
-    planned: list[HarnessReport | tuple[Harness, Path]] = []
-    for harness in in_integration_order(harnesses or INTEGRATION_ORDER):
-        skipped = (
-            None if harnesses else _skip_unless_integrated(harness, skills, agents)
+    named = in_integration_order(harnesses)
+    return _install_across(
+        [_plan_install(harness, command_paths) for harness in named],
+        " ".join(named),
+        version_probe=version_probe,
+        skills=skills,
+        agents=agents,
+    )
+
+
+def refresh_integrations(
+    *,
+    command_paths: Mapping[Harness, Path] | None = None,
+    version_probe: Callable[[], str | None] | None = None,
+    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+) -> list[HarnessReport]:
+    """Refresh every integrated harness, as ``--installed``, and install into no other.
+
+    Only a harness whose every lifecycle hook is registered is refreshed,
+    however stale its skills or agents; a partial one is left as it is and
+    reported, and one not integrated gets a line. Otherwise it runs as
+    ``install_integrations`` does (ADR 0111).
+    """
+    return _install_across(
+        [
+            _skip_unless_integrated(harness, skills, agents)
+            or _plan_install(harness, command_paths)
+            for harness in INTEGRATION_ORDER
+        ],
+        "--installed",
+        version_probe=version_probe,
+        skills=skills,
+        agents=agents,
+    )
+
+
+def _plan_install(
+    harness: Harness, command_paths: Mapping[Harness, Path] | None
+) -> HarnessReport | _PlannedInstall:
+    """Bind a harness to its publisher, or refuse it alone when none is found."""
+    try:
+        command = (command_paths or {}).get(harness) or resolve_hook_command(
+            integration(harness)
         )
-        if skipped is not None:
-            planned.append(skipped)
-            continue
-        try:
-            command = (command_paths or {}).get(harness) or resolve_hook_command(
-                integration(harness)
-            )
-        except IntegrationError as exc:
-            planned.append(_refused(harness, exc))
-            continue
-        planned.append((harness, command))
+    except IntegrationError as exc:
+        return _refused(harness, exc)
+    return _PlannedInstall(harness, command)
+
+
+def _install_across(
+    planned: Sequence[HarnessReport | _PlannedInstall],
+    arguments: str,
+    *,
+    version_probe: Callable[[], str | None] | None,
+    skills: tuple[BundledSkill, ...],
+    agents: tuple[BundledAgent, ...],
+) -> list[HarnessReport]:
+    """Install each planned harness in turn, once no publisher is a linked Worktree's.
+
+    ``arguments`` are the command's own, which a linked-Worktree refusal
+    names for the rerun.
+    """
     _refuse_linked_worktree_publishers(
-        [item for item in planned if isinstance(item, tuple)], arguments
+        [item for item in planned if isinstance(item, _PlannedInstall)], arguments
     )
     reports: list[HarnessReport] = []
     for item in planned:
         if isinstance(item, HarnessReport):
             reports.append(item)
             continue
-        harness, command = item
         try:
             messages = install_integration(
-                harness,
-                command_path=command,
+                item.harness,
+                command_path=item.command,
                 version_probe=version_probe,
                 skills=skills,
                 agents=agents,
@@ -952,13 +1001,13 @@ def install_integrations(
         except IncompleteIntegrationError as exc:
             reports.append(
                 HarnessReport(
-                    harness, "incomplete", exc.messages, "incomplete", str(exc)
+                    item.harness, "incomplete", exc.messages, "incomplete", str(exc)
                 )
             )
         except IntegrationError as exc:
-            reports.append(_refused(harness, exc))
+            reports.append(_refused(item.harness, exc))
         else:
-            reports.append(HarnessReport(harness, "installed", tuple(messages)))
+            reports.append(HarnessReport(item.harness, "installed", tuple(messages)))
     return reports
 
 
@@ -991,13 +1040,13 @@ def _refused(harness: Harness, error: IntegrationError) -> HarnessReport:
 
 
 def _refuse_linked_worktree_publishers(
-    commands: Sequence[tuple[Harness, Path]], arguments: str
+    planned: Sequence[_PlannedInstall], arguments: str
 ) -> None:
     """Refuse the whole command when any harness would bind a linked Worktree's publisher."""
     linked = [
-        (harness, command, binding)
-        for harness, command in commands
-        if (binding := linked_worktree_binding(command)) is not None
+        (item.harness, item.command, binding)
+        for item in planned
+        if (binding := linked_worktree_binding(item.command)) is not None
     ]
     if not linked:
         return
