@@ -111,3 +111,8 @@ mutation of the targets a person selects.
   named session's ended hook records that still list sub-agents, through a
   compare-and-delete. It touches no live session's record, no Agent Run and
   no Work Store record.
+- [ADR 0096](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)
+  adds `dashpot work assign` and `dashpot work unassign`, which change only
+  the Worker Assignments on the invoking session's own Work Store record,
+  through a compare-and-replace. They create no Agent Run and change no
+  Issue Binding or location.

@@ -199,6 +199,31 @@ class RepositoryStateInventory(ObservationModel):
     branch_anchor: str | None = None
 
 
+# What a Worker's harness reports of it: working while its Lead's live hook
+# record lists it, or unknown while only a record whose process cannot be
+# observed, or one its ended Lead kept (ADR 0095), lists it. No harness
+# reports a Worker waiting, so a Worker never is (ADR 0096).
+WorkerState = Literal["running", "unknown"]
+
+
+class AssignedWorker(ObservationModel):
+    """A Worker its Lead's Agent Run assigned to an Issue, as observed (ADR 0096).
+
+    The run that carries it is its Lead's, which keeps the relationship for
+    a person to read. ``worktree`` is where the Lead declared the Worker's
+    commands run, never evidence that it is there; ``state`` is ``None``
+    while no hook record of the Lead lists the Worker as working, whether it
+    finished, failed, was stopped, or has not started.
+    """
+
+    worker_id: NonEmptyString
+    issue_id: NonEmptyString
+    issue_reference_hint: NonEmptyString
+    worktree: NonEmptyString
+    assigned_at: NonEmptyString
+    state: WorkerState | None = None
+
+
 class AgentRun(ObservationModel):
     id: str
     harness: Harness
@@ -224,6 +249,10 @@ class AgentRun(ObservationModel):
     # whether the host has booted since that process started, when known.
     orphaned: bool = False
     host_restarted: bool | None = None
+    # The Workers this run's session assigned to Issues, when it is a Lead's
+    # (ADR 0096). They are not Agent Runs: each counts toward its own
+    # Issue's activity, never this run's.
+    workers: LaxSequence[AssignedWorker] = ()
 
     @property
     def activity(self) -> SessionActivity:

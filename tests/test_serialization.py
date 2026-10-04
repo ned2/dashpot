@@ -17,7 +17,13 @@ from dashpot.core.event_log_files import (
     EventLogRemoval,
     UnreadableEventLog,
 )
-from dashpot.core.model import Branch, Diagnostic, IssueActivity, LinkedPullRequest
+from dashpot.core.model import (
+    AssignedWorker,
+    Branch,
+    Diagnostic,
+    IssueActivity,
+    LinkedPullRequest,
+)
 from dashpot.core.runtime_events import (
     CommandAttributes,
     ProcessIdentity,
@@ -129,6 +135,15 @@ AGENT_RUN_KEYS = {
     "startedAt",
     "orphaned",
     "hostRestarted",
+    "workers",
+}
+ASSIGNED_WORKER_KEYS = {
+    "workerId",
+    "issueId",
+    "issueReferenceHint",
+    "worktree",
+    "assignedAt",
+    "state",
 }
 DIAGNOSTIC_KEYS = {"source", "severity", "message", "code"}
 ISSUE_ACTIVITY_KEYS = {"commentCount", "linkedPullRequests", "unlistedPullRequestCount"}
@@ -328,7 +343,21 @@ def test_the_snapshot_document_pins_every_nested_shape() -> None:
             )
         }
     )
-    run = agent_run("codex:one", "project:one", branch=None, last_activity_at=None)
+    run = agent_run(
+        "codex:one", "project:one", branch=None, last_activity_at=None
+    ).model_copy(
+        update={
+            "workers": (
+                AssignedWorker(
+                    worker_id="agent-one",
+                    issue_id="I_one",
+                    issue_reference_hint="one",
+                    worktree="/project:one-worker",
+                    assigned_at="2026-10-04T00:00:00Z",
+                ),
+            )
+        }
+    )
 
     document = snapshot_document(workspace(observation, runs=[run]))
 
@@ -359,6 +388,9 @@ def test_the_snapshot_document_pins_every_nested_shape() -> None:
     assert repository_pull_request["mergeability"] is None
     (run_document,) = document["agentRuns"]
     assert set(run_document) == AGENT_RUN_KEYS
+    (worker_document,) = run_document["workers"]
+    assert set(worker_document) == ASSIGNED_WORKER_KEYS
+    assert worker_document["state"] is None
 
 
 def test_unknown_values_are_explicit_nulls_not_omitted_keys() -> None:

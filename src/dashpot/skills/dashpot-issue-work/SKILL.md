@@ -39,6 +39,14 @@ binding but cannot create one.
 Observation commands and dashboards stay passive; run a management command
 only for the action the user requested.
 
+A Sub-agent shares this Agent Session, so it never runs `work` commands of
+its own. A session that delegates another Issue to a Sub-agent, as the lead
+of `dashpot-execute-issues` does, keeps its one Issue Binding and attributes
+the Sub-agent to that Issue with `<dashpot> work assign <reference> --worker
+<id> --worktree <path>`. The assignment ends with this session's Agent Run,
+or with `<dashpot> work unassign <id>`, and `work show` lists it. The Issue
+reads `running` only while the hooks report that Sub-agent working.
+
 ## Finish the engagement
 
 Wait until this Agent Session and every agent or process it started are done,

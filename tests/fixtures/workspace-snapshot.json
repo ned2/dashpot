@@ -171,7 +171,17 @@
       "turnStartedAt": null,
       "startedAt": null,
       "orphaned": false,
-      "hostRestarted": null
+      "hostRestarted": null,
+      "workers": [
+        {
+          "workerId": "agent-one",
+          "issueId": "I_one",
+          "issueReferenceHint": "one",
+          "worktree": "/project:one-worker",
+          "assignedAt": "2026-10-04T00:00:00Z",
+          "state": null
+        }
+      ]
     }
   ],
   "issueRuns": {},

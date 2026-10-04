@@ -812,6 +812,60 @@ def test_work_forget_subagents_fails_when_a_record_changed_meanwhile(
     assert "changed while it was read" in capsys.readouterr().out
 
 
+def test_work_assign_and_unassign_dispatch_with_the_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        cli, "assign_worker", return_value=["assigned Worker agent-1 to #7"]
+    ) as assign:
+        assert (
+            cli.main(
+                ["work", "assign", "#7", "--worker", "agent-1", "--worktree", "../w7"]
+            )
+            == 0
+        )
+    assign.assert_called_once_with(
+        Path.cwd().resolve(),
+        "#7",
+        "agent-1",
+        Path("../w7"),
+        timeout=10.0,
+        outcome=mock.ANY,
+    )
+    assert "assigned Worker agent-1 to #7" in capsys.readouterr().out
+
+    with mock.patch.object(
+        cli, "unassign_worker", return_value=["unassigned Worker agent-1 from #7"]
+    ) as unassign:
+        assert cli.main(["work", "unassign", "agent-1"]) == 0
+    unassign.assert_called_once_with(Path.cwd().resolve(), "agent-1", outcome=mock.ANY)
+    assert "unassigned Worker agent-1 from #7" in capsys.readouterr().out
+
+
+def test_work_assign_refusal_is_reported_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        cli,
+        "assign_worker",
+        side_effect=IssueWorkError("lists no Sub-agent agent-1 as working"),
+    ):
+        code = cli.main(
+            ["work", "assign", "#7", "--worker", "agent-1", "--worktree", "."]
+        )
+
+    assert code == 2
+    assert "lists no Sub-agent agent-1 as working" in capsys.readouterr().err
+
+
 def test_work_stop_and_show_dispatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

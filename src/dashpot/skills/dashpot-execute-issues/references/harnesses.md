@@ -14,6 +14,9 @@ In every harness:
 - Dashpot attributes a worker to your Agent Session. Your session reads
   `running` while any worker works, and Cleanup's `sub-agent` blocker holds
   every Worktree of the repository until each worker's stop is recorded.
+- You assign each worker to its Issue by the ID Dashpot's hooks know it by
+  ([Assign each worker](../SKILL.md#assign-each-worker)). Each section's
+  **Worker ID** says where you get it.
 - A worker sees the skills installed for its harness, but needs none of
   them: its brief carries what it needs.
 
@@ -25,6 +28,8 @@ In every harness:
 **Launch.** Call `Agent` with a `description`, a short `prompt` pointing at
 the brief, and `run_in_background: true`. The call returns at once with the
 worker's agentId; address the worker by that ID. Your turn goes on.
+
+**Worker ID.** The agentId. Assign the worker by it once the launch returns.
 
 **Capacity.** `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` caps the workers
 running at once. A launch past the cap fails with "Concurrent subagent
@@ -52,7 +57,8 @@ again.
 **Stopping a worker.** Avoid `TaskStop`: it publishes no stop to Dashpot,
 which leaves the `sub-agent` blocker up until your session ends, and
 Dashpot's wording for that blocker is one of the
-[Known Dashpot gaps](../SKILL.md#known-dashpot-gaps). Message the worker
+[Known Dashpot gaps](../SKILL.md#known-dashpot-gaps). It also leaves the
+worker's Issue reading `running` until you unassign it. Message the worker
 to stop and hand back instead. A headless host that interrupts you stops
 your workers without telling you; treat a worker you never hear from again
 as a blocker.
@@ -99,6 +105,11 @@ the client open until every worker has finished.
 **Launch (v2).** `spawn_agent` with a `task_name` and a `message` pointing
 at the brief. It returns at once with the worker's path, `/root/<task_name>`.
 
+**Worker ID (v2).** The path is not the ID Dashpot's hooks know. A worker's
+shell holds its own thread ID in `CODEX_THREAD_ID`, and the worker's first
+message reports it. Assign the worker by it when that message arrives in
+your wait loop.
+
 **Capacity.** A session holds 3 open workers by default. A finished worker
 holding unread mail keeps its slot. A launch past the limit fails with
 "agent thread limit reached". Raise the limit with `[agents] max_threads`
@@ -110,8 +121,10 @@ finishing. Read the mail, act on it, and wait again, until every worker has
 handed back. When a wait times out or your turn was interrupted, call
 `list_agents`: it shows each resident worker's status and final text.
 
-**Worker reports (v2).** `{REPORTING}`: "To tell the lead something
-mid-flight, call `send_message` to `/root`, then carry on. Before each
+**Worker reports (v2).** `{REPORTING}`: "Before anything else, call
+`send_message` to `/root` with `worker-id: ` followed by the output of
+`echo "$CODEX_THREAD_ID"`. To tell the lead something mid-flight, call
+`send_message` to `/root`, then carry on. Before each
 gate run, commit and push, read the file `execute-issues-lead` in your
 Worktree's Git directory (`git -C <path> rev-parse --absolute-git-dir`) if
 it exists: the lead writes its broadcasts there. Your final message is your
@@ -133,7 +146,7 @@ before each gate run, commit and push.
 with its earlier context. `send_message` to a finished worker only queues.
 
 **Fallback: v1.** On a model without v2, `spawn_agent` returns an
-`agent_id`, and `wait_agent` takes `targets` and `timeout_ms` and returns
+`agent_id`, which is the worker's ID to assign, and `wait_agent` takes `targets` and `timeout_ms` and returns
 each finished worker's final text. A v1 session holds 6 workers by default,
 through the same `[agents] max_threads`. Workers have no tool to message
 you. `{REPORTING}`: "You cannot message the lead. Write anything it needs
@@ -146,8 +159,9 @@ files between waits, and broadcast through the `execute-issues-lead` files.
 Resume a finished worker with `send_input`.
 
 **Stopping a worker.** `interrupt_agent` on a worker mid-command publishes
-no stop, which leaves the `sub-agent` blocker up until your session ends.
-Use it only on a worker that has gone quiet; otherwise `followup_task` it
+no stop, which leaves the `sub-agent` blocker up until your session ends,
+and the worker's Issue reading `running` until you unassign it. Use it only
+on a worker that has gone quiet; otherwise `followup_task` it
 with an instruction to stop and hand back.
 
 **Location.** No tool a worker holds moves your session, and Dashpot
@@ -171,6 +185,10 @@ request and confirm the model loaded it before going on.
 **Launch.** Call `subagent` with `agent: "dashpot-worker"`, a
 `description`, a short `prompt` pointing at the brief, and
 `background: true`. It returns at once with the worker's `sessionID`.
+
+**Worker ID.** The `sessionID`. Assign the worker by it once the launch
+returns. Dashpot records a worker working only while it runs, so between
+the runs you resume, its Issue reads idle.
 
 `dashpot-worker` is the worker agent `<dashpot> integrate opencode` installs.
 It removes the session-move tool, so a worker cannot move your session by

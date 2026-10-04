@@ -504,10 +504,12 @@ end
 **Lead**:
 The Agent Session that runs the bundled `dashpot-execute-issues` skill to
 land an Arc of Issues through Workers. It alone holds the Arc's Agent Run
-and Issue Binding, creates and removes the Issue Worktrees, and merges only
-when the user grants it that authority. It stays at the Worktree where it
-bound while any Worker runs
-([ADR 0092](adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
+and Issue Binding, declares a Worker Assignment for each Worker it launches,
+creates and removes the Issue Worktrees, and merges only when the user grants
+it that authority. It stays at the Worktree where it bound while any Worker
+runs
+([ADR 0092](adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md),
+[ADR 0096](adr/0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)).
 _Avoid_: lead for any Agent Session that merely delegates work;
 orchestrator or coordinator
 
@@ -517,8 +519,24 @@ own Issue Worktree. It shares the Lead's Agent Session, so it has no Agent
 Run or Issue Binding of its own and runs no `work` command. The Worktree it
 works in is where its commands run, never its Observation Location
 ([ADR 0092](adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
+Its Lead's Worker Assignment attributes it to its Issue.
 _Avoid_: worker for a Host Process, such as a Claude Code supervised worker
 process; reading a Worker's Issue Worktree as bound to its Issue
+
+**Worker Assignment**:
+A Lead's explicit declaration, with `dashpot work assign`, that one of its
+Workers, named by the harness-native Sub-agent identity its launch returned,
+works on an Issue, by Issue Identity, with its commands in a named Worktree.
+It is held on the Lead's Agent Run, which it leaves unchanged, and ends with
+that run or with `dashpot work unassign`. The Issue counts the Worker's
+activity only while the Lead's hook records report it working, so an
+assignment alone shows nothing. The Worktree it names is a declaration,
+never evidence that the Worker is there
+([ADR 0096](adr/0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)).
+_Avoid_: binding or Agent Run for an assignment; assignment for an Issue's
+assignees on its Issue Source; inferring an assignment from a Branch, a
+Worktree name or a hook `cwd`; reading an assignment as occupancy, drainage or
+completion
 
 **Arc**, **Wave**:
 An Arc is the set of Issues a Lead lands in one engagement: an epic's
@@ -560,7 +578,7 @@ not observe; orphaned session for a gone unbound session
 
 **Work Store**:
 The versioned, Project-local record of active Agent Runs and any Relocation
-Intent attached to one. Each record is stored beneath the Worktree its run is
+Intent or Worker Assignments attached to one. Each record is stored beneath the Worktree its run is
 at (`.dashpot/state/`), and the records
 at all linked Worktrees of one Git Repository are jointly the sole authority
 for which sessions are working on which Issues in that Repository
@@ -620,7 +638,9 @@ own surface
 ([ADR 0040](adr/0040-summarize-integration-across-a-branch-rows-refs.md)).
 The shared agent-activity column (`◈`) uses `●` running, `◐` waiting, and
 `○` unknown. Sessions shows one Agent Session; Worktrees and Branches summarize
-located Agent Sessions; Issues summarizes explicitly bound Agent Runs. The
+located Agent Sessions; Issues summarizes explicitly bound Agent Runs and the
+Workers assigned to each Issue that their Lead's hooks report working, never
+a Lead's own state on its Workers' Issues. The
 liveliest state wins and an absent aggregate is blank. While Sessions,
 Worktrees, or Branches has focus on Dashboard, related-row emphasis follows
 only direct accepted relationships within that peer. Sessions links its

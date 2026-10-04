@@ -612,6 +612,8 @@ dashpot work relocate .        # cancel a pending move after resuming here
 dashpot work stop              # end this session's run; the session stays alive
 dashpot work stop --session KEY  # end the orphaned run of a session that is gone
 dashpot work forget-subagents SESSION_ID  # forget an ended session's sub-agents
+dashpot work assign 124 --worker ID --worktree ../w124  # a Lead assigns a Worker
+dashpot work unassign ID       # end that Worker Assignment
 ```
 
 A bare number and its `#`-prefixed form resolve to the same Issue; Local
@@ -661,6 +663,90 @@ which an interrupted one may never do
 ([#374](https://github.com/ned2/dashpot/issues/374)), so the line names the
 harness's way to end the session if none is still working, as the
 [`sub-agent` blocker](#sub-agents-and-worktree-cleanup) does.
+
+### Worker Assignments
+
+A Lead running the bundled `dashpot-execute-issues` skill holds one Agent Run
+bound to its Arc, while its Workers implement other Issues in their own Issue
+Worktrees. A Worker shares its Lead's Agent Session, so it can hold no Agent
+Run of its own. Instead the Lead declares a Worker Assignment for each Worker
+it launches, from its own shell
+([ADR 0096](adr/0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)):
+
+```bash
+dashpot work assign 124 --worker <agent-id> --worktree ../repo-124
+dashpot work unassign <agent-id>
+```
+
+`assign` confirms the Lead's session and its one active Agent Run, which must
+not still be recorded under an earlier, gone Host Process, and resolves the
+Issue as `start` does. A Claude Code Lead's next hook event continues such a
+run; a Codex or OpenCode Lead recovers it with `work start`, which ends its
+assignments, and assigns each Worker again. It requires the Worker's identity, as the
+harness's launch returned it, to be a Sub-agent the Lead's own hook records
+list as working, by the rule the Issues pane applies below. It also requires
+the Worktree to be one of the Repository's. Anything else is refused with
+nothing written. A refusal that names no listed Sub-agent can also mean the
+harness has not yet published the Worker's start, so retry once it has; a
+Worker that already finished cannot be assigned. The identity is:
+
+- **Claude Code:** the `agentId` the Agent tool returns.
+- **Codex multi-agent v1:** the `agent_id` that `spawn_agent` returns.
+- **Codex multi-agent v2:** `spawn_agent` returns only a task name, so the
+  Worker reports its shell's `CODEX_THREAD_ID` and the Lead assigns that.
+- **OpenCode:** the `sessionID` the `subagent` tool returns.
+
+The assignment is held on the Lead's run and changes nothing else about it:
+not its Issue Binding, run identity, Observation Location, relocation state or
+`startedAt`. A relocation or an Orphaned Agent Run's continuation carries it.
+`work stop`, any `work start` (one on the run's own Issue restarts the run),
+and the run's end at `SessionEnd` end it, and `stop` and `start` name the
+assignments they ended. `work show` lists each assignment under its run, and
+whether the Lead's records list the Worker as working, list it with unknown
+liveness, or do not list it, as the Issues pane would report it. In
+`dashpot --json`, each Agent Run carries its assignments as
+`workers`, each with its observed `state`, or `null` when nothing reports the
+Worker.
+
+The Issues pane counts an assigned Worker toward its own Issue's `◈` cell,
+never toward its Lead's Issue, and only while the Lead's hook records report
+the Worker:
+
+- **`running`** while the Lead's freshest live or unknown hook record lists
+  it, and that record's Host Process is the run's own and is live.
+- **`unknown`** while that record's Host Process cannot be observed, or while
+  an ended record that
+  [kept its Sub-agents](#sub-agents-and-worktree-cleanup) lists it, whichever
+  Host Process wrote it.
+- **Nothing** otherwise, including once the Worker's stop is reported, while
+  its Lead's run is orphaned, or when only another Host Process's record
+  lists it. An assignment alone never shows anything, and no Worker counts
+  toward an Issue Identity more than one Project observes.
+
+The cell's existing precedence combines assigned Workers with any directly
+bound runs. When one Worker on an Issue finishes, any other contributor keeps
+the cell lit. No harness reports a Worker's turn state, so a Worker is never
+`waiting`.
+
+What each harness reports bounds what the cell can claim:
+
+- **A stop that is never reported.** A Claude Code Worker stopped with
+  `TaskStop` and an interrupted Codex child publish no stop, so each still
+  reads `running` until the Lead runs `work unassign` or its run ends.
+- **A Codex Lead the daemon unloads.** Its run ends, and its assignments with
+  it, while its Workers may still work.
+- **A Lead that compacts.** Claude Code publishes a `SessionStart` when it
+  compacts the Lead's context, which starts the session's Sub-agent listing
+  over, so Workers working then read as not working until they start again
+  ([#448](https://github.com/ned2/dashpot/issues/448)).
+- **A followed-up Codex v2 Worker** may read as not working: whether
+  `followup_task` publishes a new start is unmeasured.
+- **An OpenCode Worker between executions** reads as not working.
+
+An assignment is attribution only. The Worktree it names is a declaration,
+not evidence that the Worker is there. It proves neither that the Worker has
+drained nor that it handed back, and gives no authority to move anything.
+Cleanup still blocks on every live Sub-agent, assigned or not.
 
 `dashpot work relocate PATH` is the explicit first phase of preserving an
 active Codex Agent Run through a sequential resume. It accepts only the live

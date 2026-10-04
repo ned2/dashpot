@@ -91,12 +91,14 @@ from .sessions.integrate import (
     remove_integration,
 )
 from .sessions.work import (
+    assign_worker,
     forget_session_subagents,
     relocate_issue_work,
     show_issue_work,
     show_session_events,
     start_issue_work,
     stop_issue_work,
+    unassign_worker,
 )
 from .ui.app import DashpotApp
 from .ui.attendance import Attendance, tmux_attachment
@@ -329,8 +331,8 @@ work = App(
         "Opt this running agent session into Issue work.\n\n"
         "Start, switch, relocate, stop, or show explicit Issue work for the agent "
         "session enclosing this command, recorded at the current Worktree's "
-        ".dashpot/state/, or forget the sub-agents an ended session still "
-        "lists."
+        ".dashpot/state/; assign a Lead's Workers to Issues; or forget the "
+        "sub-agents an ended session still lists."
     ),
 )
 app.command(work)
@@ -426,6 +428,68 @@ def forget_subagents(
             )
         )
     return USAGE_EXIT_CODE if outcome.incomplete else 0
+
+
+@work.command
+def assign(
+    reference: Annotated[
+        str,
+        Parameter(
+            help=(
+                "Issue Reference the Worker works on, such as a bare Issue "
+                "Number (12), #12, owner/repository#12, or a slug"
+            )
+        ),
+    ],
+    /,
+    *,
+    worker: Annotated[
+        str,
+        Parameter(
+            help=(
+                "ID: the Worker's Sub-agent identity, as its launch returned it "
+                "(a Claude Code agentId, a Codex thread ID, an OpenCode sessionID)"
+            )
+        ),
+    ],
+    worktree: Annotated[
+        Path,
+        Parameter(help="the Worktree the Worker's commands run in"),
+    ],
+    timeout: _Timeout = 10.0,
+) -> int:
+    """Assign one of this Lead's working Sub-agents to an Issue.
+
+    The assignment joins this session's active Agent Run, whose Issue
+    Binding and location stay as they are, and ends with it. The Issue
+    shows the Worker's activity while this session's hooks list it as
+    working; the assignment alone shows nothing.
+    """
+    with command_outcome("work assign") as outcome:
+        _report(
+            assign_worker(
+                Path.cwd().resolve(),
+                reference,
+                worker,
+                worktree,
+                timeout=timeout,
+                outcome=outcome,
+            )
+        )
+    return 0
+
+
+@work.command
+def unassign(
+    worker: Annotated[
+        str, Parameter(help="the Worker's Sub-agent identity, as it was assigned")
+    ],
+    /,
+) -> int:
+    """End one Worker Assignment of this session's Agent Run."""
+    with command_outcome("work unassign") as outcome:
+        _report(unassign_worker(Path.cwd().resolve(), worker, outcome=outcome))
+    return 0
 
 
 @work.command

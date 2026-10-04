@@ -30,6 +30,7 @@ from .issue_list import (
     IssueListRow,
     IssueListSummary,
     row_key,
+    worker_states,
 )
 from .list_result import ListResult
 from .observation_store import (
@@ -156,7 +157,8 @@ class PagedObservationStore(WorkspaceObservationStore):
             project,
             issue,
             runs,
-            tuple(run.activity for run in runs),
+            tuple(run.activity for run in runs)
+            + worker_states(self._state.agent_runs.values(), issue_id),
             True,
             auxiliary,
             tuple(result.issue for result in self.resolved.values() if result.issue),
