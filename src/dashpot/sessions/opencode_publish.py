@@ -487,7 +487,7 @@ def _publish(
             record.model_copy(update={"sessions": sessions, "deleted": deleted})
         )
     if route.arrival is not None and event is not None and names:
-        arrived = _arrive(route.arrival, route, session, event, host, lookup)
+        arrived = _arrive(route, route.arrival, session, event, host, lookup)
         if arrived is not None:
             publications = (*publications, arrived)
             names.append("SessionStart")
@@ -496,22 +496,22 @@ def _publish(
 
 
 def _arrive(
-    arrival: Place,
     move: Route,
+    arrival: Place,
     session: PluginSession,
     event: PluginEvent,
     host: ProcessIdentity,
     lookup: ProcessLookup,
 ) -> HookPublication | None:
-    """Begin a root's incarnation in the other Project ``move`` took it to.
+    """Begin a root's incarnation in ``arrival``, the other Project ``move`` took it to.
 
     Written once the move is written where the session was, under the new
     store's own Publisher Record lock, never both at once. The
     ``SessionStart`` seeds from the record the move left, as ADR 0097 has a
     ``SessionStart`` of the same Host Process do, so the new record lists
-    the Sub-agents still working, and the record left behind then stops
-    listing them: their later events reach only the new Project's stores
-    (ADR 0109). The plugin publishes a root's events and its children's in
+    the Sub-agents this Host Process still runs, and the record left behind
+    then stops listing them: their later events reach only the new
+    Project's stores (ADR 0109). The plugin publishes a root's events and its children's in
     order, so none of them is written there before the move. A store that
     refuses the session, or has seen a later event of it, takes nothing.
     """

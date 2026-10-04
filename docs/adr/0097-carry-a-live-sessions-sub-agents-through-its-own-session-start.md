@@ -130,6 +130,6 @@ or until a person forgets it after the session ends.
   Process: the `sub-agent` blocker holds until the service's child stops.
 - Amended by [ADR 0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md)
   ([#459](https://github.com/ned2/dashpot/issues/459)): an OpenCode root moved to another Project takes the
-  sub-agents its Host Process runs into the record it begins there, and the
+  Sub-agents its Host Process runs into the record it begins there, and the
   record it left stops listing them, closing the "Not changed" item for
   that move.

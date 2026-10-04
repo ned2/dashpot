@@ -114,8 +114,8 @@ def publish_hook_event(
     ``directory``, when given, is the one store every record is written to.
     ``moved_from``, when given, is the store of another Project that the
     session's move left: its records are read beside the session's own, so
-    they seed this one, and once this record lists their sub-agents they
-    stop listing them (ADR 0109).
+    they seed this one with the sub-agents the event's Host Process runs,
+    and once this record lists those they stop listing them (ADR 0109).
     """
     identity = process
     process_unobservable: str | None = None
@@ -169,6 +169,13 @@ def publish_hook_event(
         if child or freshest is None or same_path(freshest.store, store.directory)
         else freshest.raw
     )
+    if (
+        seed is not None
+        and freshest is not None
+        and moved_from is not None
+        and same_path(freshest.store, moved_from)
+    ):
+        seed = _own_listing(seed, record.get("sessionProcess"))
     switched = _records_switched_from(record, identity, worktrees, directory)
     adopted = sorted(
         {
@@ -373,7 +380,7 @@ def _session_records(
     record: dict[str, Any],
     worktrees: list[Path],
     directory: Path | None,
-    moved_from: Path | None = None,
+    moved_from: Path | None,
 ) -> list[StoredSessionRecord]:
     """The session's readable records across the stores it could be in.
 
@@ -392,6 +399,23 @@ def _session_records(
         str(record["sessionId"]),
     )
     return records
+
+
+def _own_listing(seed: Mapping[str, Any], process: object) -> dict[str, Any]:
+    """``seed`` listing only the sub-agents the Host Process ``process`` names runs.
+
+    A move to another Project takes along only the moving process's own
+    sub-agents: another process's plugin never sees the move, so its
+    sub-agents' events go on reaching the record left behind, and one listed
+    in the new Project too would block there with no stop to clear it
+    (ADR 0109).
+    """
+    own = {
+        **seed,
+        "liveSubagents": subagents_hosted_by(seed, process),
+    }
+    own.pop("subagentProcesses", None)
+    return own
 
 
 def _release_moved_from(

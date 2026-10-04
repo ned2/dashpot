@@ -200,30 +200,34 @@ def test_a_project_that_saw_a_later_event_takes_nothing_from_the_move(
 
 
 @pytest.mark.usefixtures("shell")
-def test_a_sub_agent_another_host_process_runs_is_listed_where_it_was_too(
+def test_a_sub_agent_another_host_process_runs_stays_where_its_events_go(
     first: list[Path], second: list[Path]
 ) -> None:
     main, linked = first
     there, there_linked = second
     # #448's standalone order: a client's server resumed the root, whose
     # child the shared service runs, and the client then moves the root.
-    _service, client = resumed_by_a_standalone_client(main)
+    service, client = resumed_by_a_standalone_client(main)
 
     assert client.event("moved", main, to=there).written == (
         "SessionMoved",
         "SessionStart",
     )
 
-    # The move's Host Process takes along the sub-agent of a process still
-    # running, tagged with it; only its own leave the record left behind.
+    # Only the move's own Host Process's sub-agents go along: the service
+    # never sees the move, so its child's events still reach the record
+    # left behind, which keeps it, tagged with the service.
     arrived, left = record(there, ROOT), record(main, ROOT)
-    for kept in (arrived, left):
-        assert kept["liveSubagents"] == [CHILD]
-        assert kept["subagentProcesses"][CHILD]["pid"] == SERVICE.pid
+    assert arrived["liveSubagents"] == []
+    assert "subagentProcesses" not in arrived
+    assert left["liveSubagents"] == [CHILD]
+    assert left["subagentProcesses"][CHILD]["pid"] == SERVICE.pid
     both = alive(SERVICE, CLIENT)
-    (blocker,) = sub_agent_blockers(there_linked, second, both)
-    assert f"({CHILD}; session live)" in blocker
+    assert sub_agent_blockers(there_linked, second, both) == []
     # The record left names where the session went, so it blocks nothing.
     assert sub_agent_blockers(linked, first, both) == []
-    # Once the service is gone, neither lists its child.
-    assert sub_agent_blockers(there_linked, second, alive(CLIENT)) == []
+
+    # The child's stop reaches the record that lists it, and clears it.
+    assert service.finish(main, CHILD, root=ROOT) == "accepted"
+    assert record(main, ROOT)["liveSubagents"] == []
+    assert record(there, ROOT)["liveSubagents"] == []

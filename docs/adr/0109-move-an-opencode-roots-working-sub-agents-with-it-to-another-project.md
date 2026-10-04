@@ -40,8 +40,9 @@ The child worked for a session that now belongs to the other Project, yet
 that Project's Cleanup did not see it: no `sub-agent` blocker held there
 while the child worked. [#459](https://github.com/ned2/dashpot/issues/459)
 also reported that the record left behind kept blocking the first
-Project's Cleanup. It did not: that record places the session at the new
-location, which is in no Worktree of the first Repository (#952). Cleanup
+Project's Cleanup. It did not: from the move on, that record names the
+new location as its `cwd` (#952), which is in no Worktree of the first
+Repository, and Cleanup places a session by its record's location. Cleanup
 there found no obstacle after the child ended (#1021). The trace took no
 Cleanup reading while the child worked, but the record placed the session
 at the new location then too. The record left behind blocked nothing, but
@@ -65,24 +66,37 @@ store of the Project it moved to, at the move.
   session's records in the store the move left beside those it reads
   already. The record the move just wrote there is the session's freshest,
   so the `SessionStart` seeds from it as ADR 0097 has any `SessionStart` of
-  the same Host Process do: each sub-agent the moving process runs carries
-  as the record's own, and one another live Host Process runs carries,
-  tagged with it
-  ([ADR 0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md)).
+  the same Host Process do, taking each Sub-agent the moving process runs
+  as the record's own.
+- **Only the moving process's own Sub-agents go.** One that another Host
+  Process runs
+  ([ADR 0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md))
+  stays in the record left behind, tagged with its process. That process's
+  plugin never sees the move, so its Sub-agent's events go on to the store
+  the session left, where its stop finds it. Listed in the new Project too,
+  it would block there with no stop to clear it until its process exits.
 - **Then the record left behind lets them go.** Once the new record lists
-  a sub-agent, the record the move left stops listing it, through
+  a Sub-agent, the record the move left stops listing it, through
   `release_left_behind`
   ([ADR 0102](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md)),
-  which re-reads the record under its lock and changes only its list. A
-  publisher that fails between the two writes leaves the sub-agent listed
+  which re-reads the record under its lock and changes only its list. The
+  release happens at the move, not at the Sub-agent's stop, because the
+  stop reaches only the stores of the Repository the session is in now.
+- **A failure errs as before, or toward blocking.** A helper that fails
+  after the move is written and before the new record is answers the
+  plugin with an error, and the root's next event there begins its record
+  with no Sub-agents, as before this decision. One that fails after the
+  new record is written and before the release leaves the Sub-agent listed
   twice, which errs toward blocking, as
   [ADR 0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md)'s
-  switch does. The release happens at the move, not at the sub-agent's
-  stop, because the stop reaches only the stores of the Repository the
-  session is in now.
+  switch does.
 - **The plugin's order keeps it sound.** The plugin publishes a root's
   events and its children's one at a time, in the order admitted, so no
   child event reaches the new store before the move's `SessionStart`.
+- **It departs from the measured write order.** In #448's trace the
+  `SessionStart` in the new store came with the move's `Stop` (#951). Now
+  it comes with the move, and that `Stop` is written alone. The replay of
+  the order pins both.
 
 ## Considered options
 
@@ -108,8 +122,8 @@ store of the Project it moved to, at the move.
 
 ## Consequences
 
-- A child working when its root moves to another Project is listed only
-  where the root now is. It holds the session `running` and blocks the new
+- A child the moving process runs, working when its root moves to another
+  Project, is listed only where the root now is. It holds the session `running` and blocks the new
   Project's Cleanup until its stop, which now finds it.
 - The root's incarnation in the new Project's store begins at the move,
   not at its next event. The record reads `running` while the child works,
@@ -123,10 +137,10 @@ store of the Project it moved to, at the move.
     session was, and its record keeps listing the child until the service
     exits. It places the session outside the Repository, so it blocks
     nothing.
-  - A sub-agent that another Host Process runs stays listed in the record
-    left behind as well, since only the moving process's own sub-agents
-    leave it. That record blocks nothing in the first Project, and the
-    sub-agent goes from it once that process is gone.
+  - A Sub-agent that another Host Process runs is listed only in the
+    record left behind, which blocks nothing in either Project, until its
+    stop reaches it there or its process is gone. The new Project's Cleanup
+    does not see it, as before this decision.
   - A move within one Repository is unchanged (ADR 0067, ADR 0102).
 - Amends ADR 0090: a move to another Repository writes `SessionStart` in
   the new Project's store at the move, and the session's next event there
@@ -136,7 +150,7 @@ store of the Project it moved to, at the move.
 - Amends ADR 0097: closes its "Not changed" item for an OpenCode root moved
   to another Project.
 - Amends ADR 0102: a record an OpenCode root left in another Project's
-  store releases the moving process's sub-agents at the move. Its "Not
+  store releases the moving process's Sub-agents at the move. Its "Not
   changed" item now covers only a store left some other way, and its claim
   that such a record blocks that Repository's Cleanup does not hold for an
   OpenCode move, whose record names where the session went.
