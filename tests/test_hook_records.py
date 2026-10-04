@@ -19,9 +19,9 @@ from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecordStore,
+    project_session_store,
     session_directory,
     state_directory,
-    write_hook_record,
 )
 from dashpot.sessions.hook_scan import classify_hook_record
 from dashpot.sessions.liveness import LivenessProbe
@@ -170,7 +170,7 @@ class HookRecordStoreTests(unittest.TestCase):
         cwd: str = "/repo",
         repository_root: str = "/repo",
     ) -> None:
-        write_hook_record(
+        HookRecordStore(self.state_dir).write(
             hook_record_document(
                 repository_root,
                 session_id,
@@ -180,16 +180,13 @@ class HookRecordStoreTests(unittest.TestCase):
                 at="2026-08-24T15:00:00Z",
                 cwd=cwd,
                 event="Stop" if state == "waiting" else "PreToolUse",
-            ),
-            self.state_dir,
+            )
         )
 
     def test_the_freshest_record_wins_whatever_its_stamp_precision(self) -> None:
         # The same session is recorded globally and Project-locally around an
         # integration upgrade. A whole-second stamp is not an older one.
         worktree = Path(self.temporary.name) / "repo"
-        local = session_directory(worktree)
-        local.mkdir(parents=True)
         record = {
             "version": 2,
             "sessionId": "twice",
@@ -202,9 +199,9 @@ class HookRecordStoreTests(unittest.TestCase):
             "lastActivityAt": "2026-08-24T15:00:00Z",
             "sessionProcess": self.process.as_record(),
         }
-        write_hook_record(record, self.state_dir)
-        write_hook_record(
-            {**record, "lastActivityAt": "2026-08-24T15:00:00.500000Z"}, local
+        HookRecordStore(self.state_dir).write(record)
+        project_session_store(worktree).write(
+            {**record, "lastActivityAt": "2026-08-24T15:00:00.500000Z"}
         )
 
         runs, _diagnostics = observe_agent_runs(
@@ -237,26 +234,26 @@ class HookRecordStoreTests(unittest.TestCase):
             path = self.state_dir / "turns.json"
             return cast("dict[str, object]", json.loads(path.read_text()))
 
-        write_hook_record(
-            record("running", "2026-08-24T15:00:00.000000Z"), self.state_dir
+        HookRecordStore(self.state_dir).write(
+            record("running", "2026-08-24T15:00:00.000000Z")
         )
         self.assertEqual("2026-08-24T15:00:00.000000Z", stored()["turnStartedAt"])
 
         # Later events in the same turn do not restart its clock.
-        write_hook_record(
-            record("running", "2026-08-24T15:04:00.000000Z"), self.state_dir
+        HookRecordStore(self.state_dir).write(
+            record("running", "2026-08-24T15:04:00.000000Z")
         )
         self.assertEqual("2026-08-24T15:00:00.000000Z", stored()["turnStartedAt"])
 
         # The turn ends, and a waiting session has no turn in flight.
-        write_hook_record(
-            record("waiting", "2026-08-24T15:05:00.000000Z"), self.state_dir
+        HookRecordStore(self.state_dir).write(
+            record("waiting", "2026-08-24T15:05:00.000000Z")
         )
         self.assertIsNone(stored()["turnStartedAt"])
 
         # The next turn starts its own clock.
-        write_hook_record(
-            record("running", "2026-08-24T15:09:00.000000Z"), self.state_dir
+        HookRecordStore(self.state_dir).write(
+            record("running", "2026-08-24T15:09:00.000000Z")
         )
         self.assertEqual("2026-08-24T15:09:00.000000Z", stored()["turnStartedAt"])
 
@@ -340,14 +337,12 @@ class HookRecordStoreTests(unittest.TestCase):
                     "harness": "codex",
                     "lastActivityAt": "2026-08-25T16:00:00Z",
                 }
-                write_hook_record(
-                    {**base, "sessionProcess": previous, "state": "waiting"},
-                    self.state_dir,
+                HookRecordStore(self.state_dir).write(
+                    {**base, "sessionProcess": previous, "state": "waiting"}
                 )
 
-                write_hook_record(
-                    {**base, "sessionProcess": ending, "state": "ended"},
-                    self.state_dir,
+                HookRecordStore(self.state_dir).write(
+                    {**base, "sessionProcess": ending, "state": "ended"}
                 )
 
                 self.assertEqual(not removed, (self.state_dir / "opaque.json").exists())
@@ -357,7 +352,7 @@ class HookRecordStoreTests(unittest.TestCase):
     ) -> None:
         self.write("ending", "waiting", self.process)
 
-        write_hook_record(
+        HookRecordStore(self.state_dir).write(
             {
                 "version": 2,
                 "sessionId": "ending",
@@ -366,8 +361,7 @@ class HookRecordStoreTests(unittest.TestCase):
                 "lastActivityAt": "2026-08-25T16:00:00Z",
                 "state": "ended",
                 "issueId": "not an id",
-            },
-            self.state_dir,
+            }
         )
 
         self.assertFalse((self.state_dir / "ending.json").exists())
@@ -424,7 +418,7 @@ class HookRecordStoreTests(unittest.TestCase):
         self.assertIn("unsupported record", diagnostics[0].message)
 
     def test_unsupported_harness_record_becomes_a_diagnostic(self) -> None:
-        write_hook_record(
+        HookRecordStore(self.state_dir).write(
             {
                 "version": 2,
                 "sessionId": "mystery",
@@ -434,8 +428,7 @@ class HookRecordStoreTests(unittest.TestCase):
                 "repositoryRoot": "/repo",
                 "event": "UserPromptSubmit",
                 "sessionProcess": None,
-            },
-            self.state_dir,
+            }
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -556,9 +549,8 @@ class HookRoutingTests(unittest.TestCase):
         self.assertFalse((self.worktree / ".dashpot").exists())
 
     def test_project_local_records_are_observed(self) -> None:
-        write_hook_record(
-            self.record("waiting", "2026-08-24T15:00:00Z"),
-            session_directory(self.worktree),
+        project_session_store(self.worktree).write(
+            self.record("waiting", "2026-08-24T15:00:00Z")
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -574,12 +566,11 @@ class HookRoutingTests(unittest.TestCase):
     def test_freshest_record_wins_when_a_session_exists_in_both_stores(
         self,
     ) -> None:
-        write_hook_record(
-            self.record("running", "2026-08-24T14:00:00Z"), self.state_dir
+        HookRecordStore(self.state_dir).write(
+            self.record("running", "2026-08-24T14:00:00Z")
         )
-        write_hook_record(
-            self.record("waiting", "2026-08-24T15:00:00Z"),
-            session_directory(self.worktree),
+        project_session_store(self.worktree).write(
+            self.record("waiting", "2026-08-24T15:00:00Z")
         )
 
         runs, diagnostics = observe_agent_runs(

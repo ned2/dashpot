@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.core.project_state import ensure_state_directory
+from dashpot.core.state_paths import ensure_state_directory
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.work import start_issue_work
 from dashpot.sessions.work_store import ActiveWork, WorkStore

@@ -452,7 +452,9 @@ def span_log() -> EventLog:
 
 
 def ended_spans(log: EventLog) -> list[SpanEnded]:
-    return [event.body for event in log.recent if isinstance(event.body, SpanEnded)]
+    return [
+        event.body for event in log.recent_events() if isinstance(event.body, SpanEnded)
+    ]
 
 
 def refresh_of(log: EventLog, trigger: str) -> SpanEnded:
@@ -503,7 +505,7 @@ def test_a_refresh_ends_when_the_last_key_it_asked_for_lands() -> None:
         kind="issues", project_id="alpha", outcome="landed"
     )
     # Local observation is written at ``full`` only.
-    assert {event.level for event in log.recent} == {"full"}
+    assert {event.level for event in log.recent_events()} == {"full"}
 
 
 def test_a_tick_whose_key_is_busy_is_skipped_under_its_own_refresh() -> None:
@@ -593,7 +595,7 @@ def test_an_observation_that_raises_fails_its_span_by_class_on_its_thread() -> N
         span for span in ended_spans(log) if span.parent_span_id == refresh.span_id
     ]
     assert (key.status, key.error_type) == ("ERROR", "GitError")
-    assert b"secret" not in b"".join(event.line() for event in log.recent)
+    assert b"secret" not in b"".join(event.line() for event in log.recent_events())
 
 
 def test_the_work_of_a_key_runs_inside_its_span() -> None:

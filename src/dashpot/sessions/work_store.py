@@ -14,7 +14,6 @@ from pydantic import ValidationError, model_validator
 
 from ..core.errors import DashpotError
 from ..core.model import Diagnostic, Harness
-from ..core.project_state import project_state_directory
 from ..core.pydantic import (
     NonEmptyString,
     PersistedRecord,
@@ -22,6 +21,7 @@ from ..core.pydantic import (
     describe_validation_error,
 )
 from ..core.record_store import LockedRecordStore
+from ..core.state_paths import project_state_directory
 from ..core.timestamps import observed_instant
 from ..core.worktree_paths import same_path
 from .harnesses import HarnessName, HookSessionIdentity

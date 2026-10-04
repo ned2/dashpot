@@ -15,9 +15,9 @@ from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.errors import DashpotError
 from dashpot.core.event_log import EVENTS_DIRECTORY, EventLog, EventLogDestination
 from dashpot.core.model import Harness, ObservationTarget
-from dashpot.core.project_state import project_state_directory
 from dashpot.core.runtime_events import ProcessIdentity as EventProcessIdentity
 from dashpot.core.runtime_events import ProcessStart
+from dashpot.core.state_paths import project_state_directory
 from dashpot.core.timestamps import utc_stamp
 from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.issues.issue_sources import IssueSourceRefreshError

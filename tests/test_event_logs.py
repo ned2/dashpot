@@ -23,7 +23,7 @@ from dashpot.core.event_log import (
     unrecorded_event_log,
     working_directory,
 )
-from dashpot.core.project_state import STATE_GITIGNORE
+from dashpot.core.state_paths import STATE_GITIGNORE
 from dashpot.event_logs import (
     LEVEL_VARIABLE,
     event_level,

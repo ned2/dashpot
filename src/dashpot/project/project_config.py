@@ -16,8 +16,10 @@ from ..core.pydantic import (
     repository_relative,
     translate_validation_error,
 )
+from ..core.state_paths import PROJECT_CONFIG_PATH
 
-PROJECT_CONFIG_NAME = ".dashpot/config.json"
+# The configuration's path as text, for a message or a path within a commit.
+PROJECT_CONFIG_NAME = PROJECT_CONFIG_PATH.as_posix()
 DEFAULT_RECONCILIATION_SECONDS = 300.0
 
 
@@ -74,7 +76,7 @@ def load_project_config(
     root: Path, *, polling_seconds: float | None = None
 ) -> ProjectConfig:
     """Read the Project configuration tracked at a Worktree's root."""
-    path = root / PROJECT_CONFIG_NAME
+    path = root / PROJECT_CONFIG_PATH
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:

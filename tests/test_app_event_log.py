@@ -95,7 +95,9 @@ async def test_a_write_failing_on_a_pool_thread_raises_one_diagnostic(
         assert "Cannot write the Event Log" in diagnostics_text(app)
         assert "ENOTDIR" in diagnostics_text(app)
     failures = [
-        event for event in log.recent if isinstance(event.body, EventLogWriteFailed)
+        event
+        for event in log.recent_events()
+        if isinstance(event.body, EventLogWriteFailed)
     ]
     # The two spans, and the event recording the Diagnostic's appearance,
     # each fail to reach the Event Log; only the first raised a Diagnostic.
@@ -135,7 +137,9 @@ async def test_changing_the_level_lasts_for_the_run_and_never_the_settings(
     assert log.level == "full"
     assert settings.read_text() == "event_level = 'standard'\n"
     changes = [
-        event.body for event in log.recent if isinstance(event.body, LevelChanged)
+        event.body
+        for event in log.recent_events()
+        if isinstance(event.body, LevelChanged)
     ]
     assert changes == [LevelChanged(previous="standard", current="full")]
     assert '"event.name":"level.changed"' in written_lines(log)[-1]
@@ -151,7 +155,7 @@ async def test_a_dashboard_without_an_event_log_keeps_its_events_in_memory() -> 
         app.set_event_level("full")
 
     assert app.event_log.destination is None
-    names = [event.body.name for event in app.event_log.recent]
+    names = [event.body.name for event in app.event_log.recent_events()]
     # The first load's spans, then the change of level.
     assert set(names[:-1]) == {"span"}
     assert names[-1] == "level.changed"
@@ -260,7 +264,9 @@ async def test_an_event_log_that_cannot_be_measured_leaves_its_warning_as_it_was
 
 
 def ended_spans(log: EventLog) -> list[SpanEnded]:
-    return [event.body for event in log.recent if isinstance(event.body, SpanEnded)]
+    return [
+        event.body for event in log.recent_events() if isinstance(event.body, SpanEnded)
+    ]
 
 
 def refreshes(log: EventLog) -> dict[str, SpanEnded]:

@@ -674,7 +674,9 @@ def test_an_observation_span_is_selected_by_the_project_it_observed() -> None:
         ).end()
 
     selected = [
-        event for event in log.recent if EventSelection(project="alpha").admits(event)
+        event
+        for event in log.recent_events()
+        if EventSelection(project="alpha").admits(event)
     ]
 
     (event,) = selected

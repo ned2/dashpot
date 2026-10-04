@@ -27,9 +27,9 @@ from dashpot.core.model import Diagnostic
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import (
+    project_session_store,
     session_directory,
     state_directory,
-    write_hook_record,
 )
 from dashpot.sessions.opencode_publish import (
     OpenCodeOutcome,
@@ -716,9 +716,8 @@ def test_the_mark_finds_its_record_beside_another_harness_of_the_same_id(
     claude = hook_record(project, ROOT, "claude-code", CLAUDE)
     server.turn(project)
     if claude_ended:
-        write_hook_record(
-            hook_record_document(project, ROOT, "claude-code", CLAUDE, state="ended"),
-            session_directory(project),
+        project_session_store(project).write(
+            hook_record_document(project, ROOT, "claude-code", CLAUDE, state="ended")
         )
 
     server.unobserved(project)

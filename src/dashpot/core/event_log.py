@@ -37,7 +37,6 @@ from pydantic import TypeAdapter
 
 from .errors import DashpotError
 from .model import Harness
-from .project_state import ensure_state_directory
 from .runtime_events import (
     MAX_EVENT_BYTES,
     DiagnosticCode,
@@ -58,6 +57,7 @@ from .runtime_events import (
     fitting,
     is_recorded,
 )
+from .state_paths import ensure_state_directory
 from .timestamps import utc_stamp
 
 DASHBOARD_KIND = "dashboard"
@@ -337,8 +337,8 @@ class EventLog:
         self.monotonic = monotonic
         self.on_write_failure = on_write_failure
         self.forward: Callable[[str], None] | None = None
-        self.recent: deque[RuntimeEvent] = deque(maxlen=keep_recent)
-        self.recent_window = recent_window
+        self._recent: deque[RuntimeEvent] = deque(maxlen=keep_recent)
+        self._recent_window = recent_window
         self.write_failure: str | None = None
         self._level: EventLevel = level
         self._facts_source = facts
@@ -373,6 +373,11 @@ class EventLog:
         """What ``process.start`` recorded about this process, once it has."""
         return self._facts
 
+    @property
+    def recent_limit(self) -> int:
+        """How many recent events the buffer keeps at most; zero keeps none."""
+        return self._recent.maxlen or 0
+
     def uptime_seconds(self) -> float:
         """How long the process has run, by the monotonic clock."""
         return max(0.0, self.monotonic() - self._started)
@@ -380,7 +385,7 @@ class EventLog:
     def recent_events(self) -> tuple[RuntimeEvent, ...]:
         """The buffer of recent events as it stands, oldest first."""
         with self._recent_lock:
-            return tuple(self.recent)
+            return tuple(self._recent)
 
     def set_level(self, level: EventLevel) -> None:
         """Change the level in force for the rest of the run, marking the change.
@@ -455,7 +460,7 @@ class EventLog:
 
     def start(self) -> None:
         """Record ``process.start``, the process's first event."""
-        if self._level == "off" and self.recent.maxlen == 0:
+        if self._level == "off" and self.recent_limit == 0:
             return
         self.record(self._start_facts())
 
@@ -546,18 +551,18 @@ class EventLog:
 
     def _keep(self, event: RuntimeEvent) -> None:
         """Keep ``event`` in the buffer, letting go of any older than its window."""
-        if self.recent.maxlen == 0:
+        if self.recent_limit == 0:
             return
         with self._recent_lock:
-            self.recent.append(event)
-            if self.recent_window is None:
+            self._recent.append(event)
+            if self._recent_window is None:
                 return
             # Stamps are fixed-width UTC, so they order as text. A span is
             # stamped with its start, so the buffer is only nearly in order;
             # a reader filters by time again rather than trust the trim.
-            cutoff = utc_stamp(self.clock() - self.recent_window)
-            while self.recent and self.recent[0].time < cutoff:
-                self.recent.popleft()
+            cutoff = utc_stamp(self.clock() - self._recent_window)
+            while self._recent and self._recent[0].time < cutoff:
+                self._recent.popleft()
 
     def close(self) -> None:
         """Close the open file; a later event opens one again."""

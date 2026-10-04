@@ -35,7 +35,7 @@ def main() -> None:
     from dashpot.observation.collect import create_project_collector
     from dashpot.project.workspace import ResolvedProject
     from dashpot.sessions.agents import observe_agent_runs
-    from dashpot.sessions.hook_records import session_directory, write_hook_record
+    from dashpot.sessions.hook_records import project_session_store
     from dashpot.sessions.processes import ProcessPresent, host_process_lookup
 
     with tempfile.TemporaryDirectory(prefix="dashpot-317-") as temporary:
@@ -107,7 +107,7 @@ def main() -> None:
                 children.append(child)
                 process = host_process_lookup(child.pid)
                 assert isinstance(process, ProcessPresent)
-                write_hook_record(
+                project_session_store(root).write(
                     {
                         "version": 2,
                         "harness": "codex",
@@ -120,18 +120,17 @@ def main() -> None:
                         "lastActivityAt": "2026-10-04T00:00:00Z",
                         "sessionProcess": process.identity.as_record(),
                     },
-                    session_directory(root),
                 )
-            log = EventLog(
-                None,
-                identity=ProcessIdentity(run_id="0" * 32, kind="dashboard"),
-                level="full",
-                facts=ProcessStart,
-                keep_recent=10000,
-            )
             rows = []
             for refresh in range(args.refreshes):
-                log.recent.clear()
+                # A fresh buffer per pass counts only that pass's spans.
+                log = EventLog(
+                    None,
+                    identity=ProcessIdentity(run_id="0" * 32, kind="dashboard"),
+                    level="full",
+                    facts=ProcessStart,
+                    keep_recent=10000,
+                )
                 with use_event_log(log):
                     inventory = collector.observe_targets()
                     runs, diagnostics = observe_agent_runs(
@@ -142,7 +141,7 @@ def main() -> None:
                 assert len(runs) == 3
                 commands: Counter[str] = Counter()
                 programs: Counter[str] = Counter()
-                for event in log.recent:
+                for event in log.recent_events():
                     body = event.body
                     if isinstance(body, SpanEnded) and body.span_name == "command":
                         attributes = body.attributes

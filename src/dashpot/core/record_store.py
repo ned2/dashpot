@@ -15,7 +15,7 @@ from typing import Any
 
 from .errors import DashpotError
 from .file_locks import locked_path, prune_lock_file
-from .project_state import ensure_state_directory
+from .state_paths import ensure_state_directory
 
 
 class RecordKeyError(DashpotError):
