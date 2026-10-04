@@ -213,6 +213,32 @@ TableCell = (
 )
 
 
+def cells_match(left: TableCell, right: TableCell) -> bool:
+    """Whether two cells render alike, styles and layout included.
+
+    Rich compares Text by its characters and spans alone, so a cell whose
+    style or justification changed would otherwise pass for the same.
+    """
+    if type(left) is not type(right):
+        return False
+    if not isinstance(left, Text) or not isinstance(right, Text):
+        return left == right
+    return _render_key(left) == _render_key(right)
+
+
+def _render_key(text: Text) -> tuple[object, ...]:
+    return (
+        text.plain,
+        tuple(text.spans),
+        text.style,
+        text.justify,
+        text.overflow,
+        text.no_wrap,
+        text.end,
+        text.tab_size,
+    )
+
+
 def comments_cell(activity: IssueActivity) -> str:
     count = activity.comment_count
     return str(count) if count else "-"

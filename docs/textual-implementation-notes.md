@@ -247,12 +247,22 @@ operations for this algorithm. [`App.batch_update()`](https://textual.textualize
 and [`DataTable.get_row_index()`](https://textual.textualize.io/widgets/data_table/#get_row_index)
 
 `update_cell(..., update_width=False)` is the default. Use `update_width=True` for
-values such as a title which may grow, or columns may remain too narrow. It does
-not provide a shrink-to-current-content operation. If arbitrary snapshot order
-cannot be reproduced by `sort()`, a first implementation may clear and re-add
-rows inside `batch_update()`, then restore selection by stable key. That is less
-incremental but remains correct and should be measured before adding ordering
-machinery. [DataTable update API](https://textual.textualize.io/widgets/data_table/#update_cell)
+values such as a title which may grow, or columns may remain too narrow; in
+Textual 8.2.8 a narrower value makes it measure the whole column again, so the
+column shrinks too. If arbitrary snapshot order cannot be reproduced by
+`sort()`, clear and re-add rows inside `batch_update()`, then restore selection
+by stable key. [DataTable update API](https://textual.textualize.io/widgets/data_table/#update_cell)
+
+`DataTable.clear()` also resets the cursor and the scroll offsets to zero, and
+the cursor's later `move_cursor` scrolls only far enough to show it, so a
+rebuild on every refresh makes the viewport jump even when nothing changed
+([#442](https://github.com/ned2/dashpot/issues/442)). The Issue table
+therefore rebuilds only when the page's row keys, their order, or the shown
+columns differ from the table's. Otherwise it replaces just the cells that
+render differently, with `update_width=True`, and leaves the cursor and the
+viewport alone. Rich compares `Text` by characters and spans alone, so
+[`cells_match`](../src/dashpot/ui/issue_cells.py) compares styles and layout
+too, and a theme change still repaints.
 
 `DataTable` sizes a column to its content (`auto_width`) or to a fixed
 `width`; there is no `fr`-style column that fills the table. Textual has had

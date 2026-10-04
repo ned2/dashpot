@@ -103,7 +103,6 @@ class ColumnSpec:
     description: str
     glyphs: tuple[Glyph, ...] = ()
     sortable: bool = True
-    update_width: bool = False
     header_justify: Literal["left", "center", "right", "full"] | None = None
     # Share of the table's spare width: ``None`` follows the content width,
     # ``0`` keeps the column at its content, as for a one-glyph icon.
@@ -224,7 +223,6 @@ COLUMN_SPECS = (
         "TITLE",
         TITLE_DESCRIPTION,
         sortable=False,
-        update_width=True,
         search_field=IssueSearchField.TITLE,
     ),
     ColumnSpec(
@@ -232,7 +230,6 @@ COLUMN_SPECS = (
         "WAITING ON",
         WAITING_ON_DESCRIPTION,
         sortable=False,
-        update_width=True,
         shown_when=is_waiting,
     ),
     ColumnSpec("priority", "PRIORITY", PRIORITY_DESCRIPTION, shown_when=_has_priority),
@@ -240,42 +237,36 @@ COLUMN_SPECS = (
         "labels",
         "LABELS",
         LABELS_DESCRIPTION,
-        update_width=True,
         search_field=IssueSearchField.LABELS,
     ),
     ColumnSpec(
         "project",
         "PROJECT",
         PROJECT_DESCRIPTION,
-        update_width=True,
         search_field=IssueSearchField.PROJECT,
     ),
     ColumnSpec(
         "assignees",
         "ASSIGNEES",
         ASSIGNEES_DESCRIPTION,
-        update_width=True,
         search_field=IssueSearchField.ASSIGNEES,
     ),
     ColumnSpec(
         "author",
         "AUTHOR",
         AUTHOR_DESCRIPTION,
-        update_width=True,
         search_field=IssueSearchField.AUTHOR,
     ),
     ColumnSpec(
         "milestone",
         "MILESTONE",
         MILESTONE_DESCRIPTION,
-        update_width=True,
         search_field=IssueSearchField.MILESTONE,
     ),
     ColumnSpec(
         "type",
         "TYPE",
         TYPE_DESCRIPTION,
-        update_width=True,
         search_field=IssueSearchField.TYPE,
     ),
     ColumnSpec("comments", "COMMENTS", COMMENTS_DESCRIPTION),

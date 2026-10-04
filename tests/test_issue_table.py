@@ -38,6 +38,7 @@ from dashpot.ui.issue_cells import (
     PriorityCell,
     TableCell,
     agent_state_cell,
+    cells_match,
     date_cell,
 )
 from dashpot.ui.issue_table import (
@@ -191,6 +192,21 @@ def test_issue_number_column_uses_the_bare_project_local_number() -> None:
     assert isinstance(number, IssueNumberCell)
     assert str(number) == "17"
     assert number.justify == "right"
+
+
+def test_cells_match_only_when_they_render_alike() -> None:
+    assert cells_match("Title", "Title")
+    assert not cells_match("Title", "Retitled")
+    assert cells_match(IssueNumberCell(17), IssueNumberCell(17))
+    # Rich calls these Texts equal; the table would paint them differently.
+    assert Text("■", style="green") == Text("■", style="red")
+    assert not cells_match(Text("■", style="green"), Text("■", style="red"))
+    assert not cells_match(Text("17"), Text("17", justify="right"))
+    assert not cells_match(Text("17"), IssueNumberCell(17))
+    assert not cells_match("17", Text("17"))
+    assert not cells_match(
+        IssueStateCell("open", dark=True), IssueStateCell("open", dark=False)
+    )
 
 
 def test_issue_date_columns_render_iso_dates() -> None:
