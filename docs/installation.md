@@ -509,6 +509,14 @@ leaves the copy holding exactly the files this Dashpot ships, removing one an
 earlier release shipped, and `--remove` deletes every file the manifest
 names. A file you add inside a managed copy is never touched
 ([ADR 0103](adr/0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md)).
+Before writing anything, `integrate` checks that it can write every hook
+file, plugin, skill copy and agent it would change, and refuses the whole
+installation, naming each one it cannot write, so an unwritable copy never
+leaves some copies updated and others not. A write that fails after that
+check, such as on a full disk, does not stop the others: `integrate` prints
+what it wrote, names every destination that failed, and exits with an
+error; rerunning it once the cause is fixed finishes the installation
+([ADR 0110](adr/0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md)).
 `--status` also reports each bundled skill as installed, missing, or with an
 update available. An Agent Session declares Issue work with `dashpot work start`
 from inside that session, as described in [Agent sessions](agent-sessions.md).

@@ -76,6 +76,10 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   overwritten or removed. A manifest in each managed copy keeps it to exactly
   the files this Dashpot ships across updates, and lets `--remove` take every
   file an earlier release shipped and none the user added.
+  `integrate` checks that it can write every hook file, plugin, skill copy
+  and agent it would change before writing any, so an unwritable copy refuses
+  the installation instead of leaving it part-updated; a write that still
+  fails does not stop the others, and every failure is reported together.
 - `dashpot integrate opencode` also installs, updates, checks and removes the
   `dashpot-worker` OpenCode agent, whose permissions deny `*session_move` so
   that a worker Sub-agent the `dashpot-execute-issues` skill launches cannot

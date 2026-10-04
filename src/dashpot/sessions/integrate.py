@@ -81,7 +81,49 @@ SKILL_FILE = Path("SKILL.md")
 
 
 class IntegrationError(DashpotError):
-    """A hook or skill installation refused with the file left as it was."""
+    """A hook or skill installation refused, or one left incomplete."""
+
+
+class IncompleteIntegrationError(IntegrationError):
+    """An installation that wrote every destination it could, past those it could not.
+
+    Its message names each destination that failed; ``messages`` reports
+    what the installation did, as a complete one's return value would
+    (ADR 0110).
+    """
+
+    def __init__(
+        self, harness: Harness, failures: Sequence[str], messages: Sequence[str]
+    ) -> None:
+        super().__init__(
+            f"{'; '.join(failures)}; the rest of the integration is written, and "
+            f"rerunning 'dashpot integrate {harness}' once that is fixed finishes it"
+        )
+        self.messages = tuple(messages)
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingWrite:
+    """One destination ``integrate`` changes, checked before any is written."""
+
+    # A refusal names the destination, such as "the Dashpot Issue work skill
+    # at <path>", so one error can list every destination refused.
+    subject: str
+    # A file is replaced by renaming a temporary beside it, and removed by
+    # unlinking it, so the directories alone decide whether the write can be
+    # made, whatever the files' own modes.
+    directories: tuple[Path, ...]
+    # Deferred, so nothing is written until every destination is checked;
+    # raises ``IntegrationError``.
+    perform: Callable[[], str]
+
+    def refusal(self) -> str | None:
+        """Why this write cannot be made; ``None`` when every directory allows it."""
+        for directory in self.directories:
+            reason = _unwritable(directory)
+            if reason is not None:
+                return f"cannot install {self.subject}: {reason}"
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,10 +436,13 @@ def install_integration(
 
     OpenCode's plugin is refused while the ``opencode`` on PATH, which
     ``version_probe`` asks by default, is a v1 release (ADR 0090). OpenCode
-    also gets the bundled agent definitions (ADR 0093). Every skill's and
-    agent's destination is checked before anything is written, so a
-    directory of a bundled skill's name, or a file of a bundled agent's,
-    that Dashpot does not manage refuses the whole installation.
+    also gets the bundled agent definitions (ADR 0093). Every destination is
+    checked before anything is written: a directory of a bundled skill's
+    name, or a file of a bundled agent's, that Dashpot does not manage, and
+    a destination that needs writing where Dashpot cannot write, refuse the
+    whole installation. A write that fails once the checks have passed does
+    not stop the others, and raises ``IncompleteIntegrationError`` naming
+    every failure once they are done (ADR 0110).
     """
     spec = integration(harness)
     home = home or spec.default_home
@@ -418,6 +463,7 @@ def install_integration(
             f"cannot bind the {spec.display} hooks to {command}: "
             f"{_linked_worktree_consequence(spec, binding)}"
         )
+    planned: list[str | _PendingWrite]
     if spec.plugin:
         reported = (version_probe or _opencode_version)()
         release = None if reported is None else opencode_release(reported)
@@ -427,15 +473,36 @@ def install_integration(
                 f"OpenCode v2 only; install OpenCode {OPENCODE_ACCEPTED_VERSION} "
                 "and retry"
             )
-        return [
+        planned = [
             *_opencode_release_status("OpenCode release on PATH", reported),
-            *install_plugin(spec, home, command),
+            _plan_plugin(spec, home, command),
             f"hook publisher: {command}",
-            *(_install_skill(skill, target) for skill, target in destinations),
-            *(_install_agent(agent, target) for agent, target in agent_destinations),
+            *(_plan_skill(skill, target) for skill, target in destinations),
+            *(_plan_agent(agent, target) for agent, target in agent_destinations),
             *_opencode_skill_copies(destinations),
         ]
+    else:
+        planned = [
+            _plan_hooks(spec, home, command),
+            f"hook publisher: {command}",
+            *(_plan_skill(skill, target) for skill, target in destinations),
+            *_config_toml_coexistence_warning(spec, home),
+        ]
+    return _write_planned(harness, planned)
+
+
+def _plan_hooks(
+    spec: HarnessIntegration, home: Path, command: Path
+) -> str | _PendingWrite:
+    """The pending write of the hooks bound to ``command``, unless they are current."""
     path = home / spec.hooks_file
+    # A hooks path holding anything but a file would be read as absent and
+    # then fail only at the write, after the other destinations are written.
+    if os.path.lexists(path) and not path.is_file():
+        raise IntegrationError(
+            f"cannot install the {spec.display} lifecycle hooks in {path}: the "
+            "path is not a file; move it and retry"
+        )
     document = _load_hooks_document(spec, path)
     original = json.dumps(document, sort_keys=True)
     hooks = document.setdefault("hooks", {})
@@ -467,16 +534,78 @@ def install_integration(
                 group = {"matcher": matcher, **group}
             kept.append(group)
         hooks[event] = kept
+    if json.dumps(document, sort_keys=True) == original:
+        return f"{spec.display} lifecycle hooks already installed in {path}"
+
+    def write() -> str:
+        try:
+            _write_json(path, document)
+        except OSError as exc:
+            raise IntegrationError(
+                f"could not install the {spec.display} lifecycle hooks in {path}: {exc}"
+            ) from exc
+        return f"installed {spec.display} lifecycle hooks in {path}"
+
+    return _PendingWrite(
+        subject=f"the {spec.display} lifecycle hooks in {path}",
+        directories=(path.parent,),
+        perform=write,
+    )
+
+
+def _write_planned(
+    harness: Harness, planned: Sequence[str | _PendingWrite]
+) -> list[str]:
+    """Check every pending write, then make each, carrying on past one that fails.
+
+    Nothing is written while any destination is refused, so a destination
+    Dashpot cannot write leaves the installation as it was. A check can pass
+    and its write still fail, as when the destination changes in between or
+    a filesystem refuses only the write; the others are written regardless,
+    and every failure is named together once they are (ADR 0110).
+    """
+    refusals = [
+        refusal
+        for item in planned
+        if isinstance(item, _PendingWrite) and (refusal := item.refusal()) is not None
+    ]
+    if refusals:
+        raise IntegrationError("; ".join(refusals))
     messages: list[str] = []
-    if json.dumps(document, sort_keys=True) != original:
-        _write_json(path, document)
-        messages.append(f"installed {spec.display} lifecycle hooks in {path}")
-    else:
-        messages.append(f"{spec.display} lifecycle hooks already installed in {path}")
-    messages.append(f"hook publisher: {command}")
-    messages.extend(_install_skill(skill, target) for skill, target in destinations)
-    messages.extend(_config_toml_coexistence_warning(spec, home))
+    failures: list[str] = []
+    for item in planned:
+        if isinstance(item, str):
+            messages.append(item)
+            continue
+        try:
+            messages.append(item.perform())
+        except IntegrationError as exc:
+            failures.append(str(exc))
+    if failures:
+        raise IncompleteIntegrationError(harness, failures, messages)
     return messages
+
+
+def _unwritable(directory: Path) -> str | None:
+    """Why a file cannot be written in ``directory``, or ``None`` when it can be.
+
+    A directory not there yet is created inside its nearest existing
+    ancestor, so that ancestor is the one checked. The check reads
+    permissions alone: a write it passes may still fail.
+    """
+    for candidate in (directory, *directory.parents):
+        try:
+            mode = _file_mode(candidate)
+        except OSError as exc:
+            return f"could not inspect {candidate}: {exc}; fix it and retry"
+        if mode is None:
+            continue
+        if not stat.S_ISDIR(mode):
+            return f"{candidate} is not a directory; move it and retry"
+        if not os.access(candidate, os.W_OK | os.X_OK):
+            return f"{candidate} is not writable; make it writable and retry"
+        return None
+    return None  # pragma: no cover - the filesystem root always exists.
 
 
 def remove_integration(
@@ -818,18 +947,9 @@ def _remove_files(destination: Path, files: Sequence[Path]) -> None:
     put there, is never followed.
     """
     root = destination.resolve()
-
-    def inside(path: Path) -> bool:
-        # A link loop is never followed: Python 3.12 raises ``RuntimeError``
-        # for one where later releases leave the path unresolved.
-        try:
-            return path.parent.resolve().is_relative_to(root)
-        except (OSError, RuntimeError):
-            return False
-
     for relative in files:
         path = destination / relative
-        if inside(path) and path.is_file():
+        if _resolves_inside(path, root) and path.is_file():
             path.unlink()
     nested = {
         ancestor
@@ -841,26 +961,64 @@ def _remove_files(destination: Path, files: Sequence[Path]) -> None:
         # Removing rather than listing first keeps a directory that cannot be
         # listed prunable; one still holding the user's files refuses.
         directory = destination / relative
-        if inside(directory):
+        if _resolves_inside(directory, root):
             with contextlib.suppress(OSError):
                 directory.rmdir()
 
 
-def _install_skill(skill: BundledSkill, destination: Path) -> str:
+def _plan_skill(skill: BundledSkill, destination: Path) -> str | _PendingWrite:
+    """The pending write of one skill's copy, unless it is current."""
     if _is_current(skill, destination):
         return f"Dashpot {skill.label} already installed in {destination}"
     # An empty directory, as a first installation cut short leaves, is
     # installed into, not updated.
     existed = _is_managed(skill, destination)
+
+    def write() -> str:
+        try:
+            _write_skill(skill, destination, managed=existed)
+        except OSError as exc:
+            action = "update" if existed else "install"
+            raise IntegrationError(
+                f"could not {action} the Dashpot {skill.label} in {destination}: {exc}"
+            ) from exc
+        verb = "updated" if existed else "installed"
+        return f"{verb} Dashpot {skill.label} in {destination}"
+
+    return _PendingWrite(
+        subject=f"the Dashpot {skill.label} at {destination}",
+        directories=_skill_write_directories(skill, destination, managed=existed),
+        perform=write,
+    )
+
+
+def _skill_write_directories(
+    skill: BundledSkill, destination: Path, *, managed: bool
+) -> tuple[Path, ...]:
+    """Every directory an update of a copy writes a file in or removes one from.
+
+    The copy itself holds its manifest. A file an earlier Dashpot wrote that
+    this one no longer ships is removed only where its directory resolves
+    inside the copy, so only there is its directory checked.
+    """
+    shipped = frozenset(skill.files)
+    directories = {destination, *((destination / path).parent for path in shipped)}
+    if managed:
+        root = destination.resolve()
+        for relative in _written_files(skill, destination) - shipped:
+            if _resolves_inside(destination / relative, root):
+                directories.add((destination / relative).parent)
+    return tuple(sorted(directories))
+
+
+def _resolves_inside(path: Path, root: Path) -> bool:
+    """Whether the directory holding ``path`` resolves inside the resolved ``root``."""
+    # A link loop is never followed: Python 3.12 raises ``RuntimeError``
+    # for one where later releases leave the path unresolved.
     try:
-        _write_skill(skill, destination, managed=existed)
-    except OSError as exc:
-        action = "update" if existed else "install"
-        raise IntegrationError(
-            f"could not {action} the Dashpot {skill.label} in {destination}: {exc}"
-        ) from exc
-    verb = "updated" if existed else "installed"
-    return f"{verb} Dashpot {skill.label} in {destination}"
+        return path.parent.resolve().is_relative_to(root)
+    except (OSError, RuntimeError):
+        return False
 
 
 def _write_skill(skill: BundledSkill, destination: Path, *, managed: bool) -> None:
@@ -975,20 +1133,35 @@ def _is_current_agent(agent: BundledAgent, destination: Path) -> bool:
     )
 
 
-def _install_agent(agent: BundledAgent, destination: Path) -> str:
+def _plan_agent(agent: BundledAgent, destination: Path) -> str | _PendingWrite:
+    """The pending write of the shipped agent definition, unless it is current."""
     if _is_current_agent(agent, destination):
         return f"Dashpot {agent.label} already installed in {destination}"
     existed = os.path.lexists(destination)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    # The temporary's name ends in random characters, not ``.md``, so
-    # OpenCode never reads it as a definition while it is written.
-    replace_atomically(
-        destination,
-        agent.source.read_text(encoding="utf-8"),
-        temporary_prefix=f".{destination.name}.",
+
+    def write() -> str:
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            # The temporary's name ends in random characters, not ``.md``,
+            # so OpenCode never reads it as a definition while it is written.
+            replace_atomically(
+                destination,
+                agent.source.read_text(encoding="utf-8"),
+                temporary_prefix=f".{destination.name}.",
+            )
+        except OSError as exc:
+            action = "update" if existed else "install"
+            raise IntegrationError(
+                f"could not {action} the Dashpot {agent.label} in {destination}: {exc}"
+            ) from exc
+        verb = "updated" if existed else "installed"
+        return f"{verb} Dashpot {agent.label} in {destination}"
+
+    return _PendingWrite(
+        subject=f"the Dashpot {agent.label} at {destination}",
+        directories=(destination.parent,),
+        perform=write,
     )
-    verb = "updated" if existed else "installed"
-    return f"{verb} Dashpot {agent.label} in {destination}"
 
 
 def _remove_agent(agent: BundledAgent, destination: Path) -> str:
@@ -1357,17 +1530,33 @@ def _managed_plugin(path: Path) -> str | None:
     return text
 
 
-def install_plugin(spec: HarnessIntegration, home: Path, command: Path) -> list[str]:
-    """Write the managed plugin bound to ``command``, unless it already is."""
+def _plan_plugin(
+    spec: HarnessIntegration, home: Path, command: Path
+) -> str | _PendingWrite:
+    """The pending write of the plugin bound to ``command``, unless it is current."""
     path = home / spec.hooks_file
     current = _managed_plugin(path)
     rendered = render_plugin(command)
     if current == rendered:
-        return [f"{spec.display} plugin already installed in {path}"]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    replace_atomically(path, rendered, temporary_prefix=f".{path.name}.")
-    verb = "installed" if current is None else "updated"
-    return [f"{verb} the {spec.display} plugin in {path}"]
+        return f"{spec.display} plugin already installed in {path}"
+    action = "install" if current is None else "update"
+
+    def write() -> str:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            replace_atomically(path, rendered, temporary_prefix=f".{path.name}.")
+        except OSError as exc:
+            raise IntegrationError(
+                f"could not {action} the {spec.display} plugin in {path}: {exc}"
+            ) from exc
+        verb = "installed" if current is None else "updated"
+        return f"{verb} the {spec.display} plugin in {path}"
+
+    return _PendingWrite(
+        subject=f"the {spec.display} plugin at {path}",
+        directories=(path.parent,),
+        perform=write,
+    )
 
 
 def remove_plugin(spec: HarnessIntegration, home: Path) -> str:

@@ -26,6 +26,7 @@ from dashpot.sessions.integrate import (
     SKILL_MANIFEST,
     BundledSkill,
     HarnessIntegration,
+    IncompleteIntegrationError,
     IntegrationError,
     install_integration,
     integration,
@@ -50,19 +51,26 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return home
 
 
-@pytest.fixture
-def second(tmp_path: Path) -> BundledSkill:
-    """A second bundled skill, with a reference file two directories deep."""
-    source = tmp_path / "bundled" / "fixture-second-skill"
+def fixture_skill(tmp_path: Path, ordinal: str) -> BundledSkill:
+    """A bundled skill, with a reference file two directories deep."""
+    source = tmp_path / "bundled" / f"fixture-{ordinal}-skill"
     (source / "references" / "deep").mkdir(parents=True)
     skill = BundledSkill(
-        name="fixture-second-skill", label="Second skill", source=source
+        name=f"fixture-{ordinal}-skill",
+        label=f"{ordinal.capitalize()} skill",
+        source=source,
     )
     (source / "SKILL.md").write_text(
-        f"---\nname: {skill.name}\n---\n\n{skill.marker}\n\nThe second skill.\n"
+        f"---\nname: {skill.name}\n---\n\n{skill.marker}\n\nThe {ordinal} skill.\n"
     )
     (source / "references" / "deep" / "notes.md").write_text("Notes.\n")
     return skill
+
+
+@pytest.fixture
+def second(tmp_path: Path) -> BundledSkill:
+    """A second bundled skill, beside the Issue work skill."""
+    return fixture_skill(tmp_path, "second")
 
 
 def config_home(harness: Harness) -> Path:
@@ -720,14 +728,14 @@ def test_a_shipped_file_it_cannot_read_is_an_update_not_a_traceback(
     )
 
 
-def fail_writing(monkeypatch: pytest.MonkeyPatch, copy: Path, relative: str) -> None:
-    """Make writing one file of a copy fail, as a full disk or a crash would."""
+def fail_writing(monkeypatch: pytest.MonkeyPatch, *paths: Path) -> None:
+    """Make writing each of these files fail, as a full disk or a crash would."""
     write = integrate_module.replace_atomically
 
     def failing(
         path: Path, content: str, *, temporary_prefix: str, durable: bool = False
     ) -> None:
-        if path == copy / relative:
+        if path in paths:
             raise OSError(28, "No space left on device")
         write(path, content, temporary_prefix=temporary_prefix, durable=durable)
 
@@ -740,13 +748,15 @@ def test_a_first_install_cut_short_leaves_a_directory_free_to_install_into(
     skills = (ISSUE_WORK_SKILL, second)
     copy = copy_of("codex", second)
     with monkeypatch.context() as patch:
-        fail_writing(patch, copy, "SKILL.md")
+        fail_writing(patch, copy / "SKILL.md")
         with pytest.raises(IntegrationError) as refused:
             install("codex", tmp_path, skills)
 
     assert str(refused.value) == (
         f"could not install the Dashpot Second skill in {copy}: "
-        "[Errno 28] No space left on device"
+        "[Errno 28] No space left on device; the rest of the integration is "
+        "written, and rerunning 'dashpot integrate codex' once that is fixed "
+        "finishes it"
     )
     assert f"Second skill not installed: no {copy / 'SKILL.md'}" in status(
         "codex", tmp_path, skills
@@ -767,7 +777,7 @@ def test_an_update_cut_short_leaves_every_file_dashpot_wrote_to_remove(
     retire(second, retired)
     added = ship(second, "references/added.md")
     with monkeypatch.context() as patch:
-        fail_writing(patch, copy, "references/deep/notes.md")
+        fail_writing(patch, copy / "references" / "deep" / "notes.md")
         with pytest.raises(IntegrationError, match="could not update the Dashpot"):
             install("codex", tmp_path, skills)
     assert (copy / added[0]).is_file()
@@ -818,7 +828,7 @@ def test_remove_never_follows_a_link_loop_inside_a_copy(
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
-def test_a_managed_copy_it_cannot_write_is_reported_not_raised(
+def test_a_managed_copy_it_cannot_write_refuses_the_install_and_is_kept(
     tmp_path: Path, second: BundledSkill
 ) -> None:
     skills = (ISSUE_WORK_SKILL, second)
@@ -826,6 +836,7 @@ def test_a_managed_copy_it_cannot_write_is_reported_not_raised(
     copy = copy_of("codex", second)
     with (copy / "SKILL.md").open("a") as stream:
         stream.write("An edit.\n")
+    edited = (copy / "SKILL.md").read_bytes()
     copy.chmod(0o511)
     try:
         with pytest.raises(IntegrationError) as refused:
@@ -834,20 +845,242 @@ def test_a_managed_copy_it_cannot_write_is_reported_not_raised(
     finally:
         copy.chmod(0o755)
 
-    assert str(refused.value).startswith(
-        f"could not update the Dashpot Second skill in {copy}: "
+    assert str(refused.value) == (
+        f"cannot install the Dashpot Second skill at {copy}: {copy} is not "
+        "writable; make it writable and retry"
     )
     assert any(
         message.startswith(f"could not remove Dashpot Second skill from {copy}: ")
         for message in messages
     )
-    # What the attempt left is still Dashpot's to remove once it can.
-    assert (copy / "SKILL.md").is_file()
+    # The refused install wrote nothing; the copy is still Dashpot's to
+    # remove once it can be.
+    assert (copy / "SKILL.md").read_bytes() == edited
     assert (copy / SKILL_MANIFEST).is_file()
     assert "removed the Dashpot Second skill from" in "\n".join(
         remove_integration("codex", config_home("codex"), skills=skills)
     )
     assert not copy.exists()
+
+
+def other_publisher(tmp_path: Path, harness: Harness) -> Path:
+    """A publisher at another path, as an upgraded installation would have."""
+    command = tmp_path / "upgraded" / integration(harness).command_name
+    command.parent.mkdir(parents=True, exist_ok=True)
+    command.write_text("#!/bin/sh\n")
+    command.chmod(0o755)
+    return command
+
+
+def snapshot(*directories: Path) -> dict[Path, bytes]:
+    """Every file under these directories, by path, with its contents."""
+    return {
+        path: path.read_bytes()
+        for directory in directories
+        for path in directory.rglob("*")
+        if path.is_file()
+    }
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
+@pytest.mark.parametrize("harness", HARNESSES)
+def test_an_unwritable_copy_among_the_skills_refuses_before_anything_is_written(
+    harness: Harness, tmp_path: Path
+) -> None:
+    skills = tuple(
+        fixture_skill(tmp_path, ordinal) for ordinal in ("first", "second", "third")
+    )
+    install(harness, tmp_path, skills)
+    for skill in skills:
+        ship(skill, "references/added.md")
+    first, second, third = (copy_of(harness, skill) for skill in skills)
+    home = config_home(harness)
+    before = snapshot(home, first, second, third)
+    second.chmod(0o555)
+    try:
+        with pytest.raises(IntegrationError) as refused:
+            install_integration(
+                harness,
+                home,
+                command_path=other_publisher(tmp_path, harness),
+                version_probe=accepted,
+                skills=skills,
+            )
+    finally:
+        second.chmod(0o755)
+
+    assert not isinstance(refused.value, IncompleteIntegrationError)
+    assert str(refused.value) == (
+        f"cannot install the Dashpot Second skill at {second}: {second} is not "
+        "writable; make it writable and retry"
+    )
+    # Neither the hooks or plugin nor the copy before the unwritable one
+    # changed, so every destination is still at the same release.
+    assert snapshot(home, first, second, third) == before
+    report = status(harness, tmp_path, skills)
+    for skill, copy in zip(skills, (first, second, third), strict=True):
+        assert (
+            f"{skill.label} update available at {copy}; run "
+            f"'dashpot integrate {harness}' to repair"
+        ) in report
+
+    messages = install(harness, tmp_path, skills)
+
+    for skill, copy in zip(skills, (first, second, third), strict=True):
+        assert f"updated Dashpot {skill.label} in {copy}" in messages
+        assert files_in(copy) == {*skill.files, SKILL_MANIFEST}
+
+
+def test_a_write_that_fails_past_the_checks_carries_on_and_names_every_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skills = tuple(
+        fixture_skill(tmp_path, ordinal) for ordinal in ("first", "second", "third")
+    )
+    first, second, third = (copy_of("codex", skill) for skill in skills)
+    hooks = integration_file("codex")
+    with monkeypatch.context() as patch:
+        fail_writing(patch, hooks, second / "SKILL.md")
+        with pytest.raises(IncompleteIntegrationError) as incomplete:
+            install("codex", tmp_path, skills)
+
+    assert str(incomplete.value) == (
+        f"could not install the Codex lifecycle hooks in {hooks}: [Errno 28] No "
+        f"space left on device; could not install the Dashpot Second skill in "
+        f"{second}: [Errno 28] No space left on device; the rest of the "
+        "integration is written, and rerunning 'dashpot integrate codex' "
+        "once that is fixed finishes it"
+    )
+    assert incomplete.value.messages == (
+        f"hook publisher: {publisher(tmp_path, integration('codex'))}",
+        f"installed Dashpot First skill in {first}",
+        f"installed Dashpot Third skill in {third}",
+    )
+    assert not hooks.exists()
+    assert files_in(first) == {*skills[0].files, SKILL_MANIFEST}
+    assert files_in(third) == {*skills[2].files, SKILL_MANIFEST}
+    assert f"Second skill not installed: no {second / 'SKILL.md'}" in status(
+        "codex", tmp_path, skills
+    )
+
+    messages = install("codex", tmp_path, skills)
+
+    assert f"installed Codex lifecycle hooks in {hooks}" in messages
+    assert f"installed Dashpot Second skill in {second}" in messages
+
+
+def test_an_opencode_write_that_fails_past_the_checks_names_the_plugin_and_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, second: BundledSkill
+) -> None:
+    skills = (second,)
+    home = config_home("opencode")
+    plugin = integration_file("opencode")
+    agent = home / "agent" / "dashpot-worker.md"
+    with monkeypatch.context() as patch:
+        fail_writing(patch, plugin, agent)
+        with pytest.raises(IncompleteIntegrationError) as incomplete:
+            install("opencode", tmp_path, skills)
+
+    assert str(incomplete.value).startswith(
+        f"could not install the OpenCode plugin in {plugin}: [Errno 28] No space "
+        f"left on device; could not install the Dashpot worker agent in {agent}: "
+        "[Errno 28] No space left on device; "
+    )
+    assert (
+        f"installed Dashpot Second skill in {copy_of('opencode', second)}"
+        in incomplete.value.messages
+    )
+    assert not plugin.exists()
+    assert not agent.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
+def test_an_unwritable_agent_directory_refuses_the_opencode_install(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (second,)
+    agents = config_home("opencode") / "agent"
+    agents.mkdir()
+    agents.chmod(0o555)
+    try:
+        with pytest.raises(IntegrationError) as refused:
+            install("opencode", tmp_path, skills)
+    finally:
+        agents.chmod(0o755)
+
+    assert str(refused.value) == (
+        f"cannot install the Dashpot worker agent at {agents / 'dashpot-worker.md'}: "
+        f"{agents} is not writable; make it writable and retry"
+    )
+    assert not integration_file("opencode").exists()
+    assert not copy_of("opencode", second).exists()
+
+
+def test_a_skill_directory_under_a_file_refuses_before_anything_is_written(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (second,)
+    config_home("codex")
+    shared = copy_of("codex", second).parent.parent
+    shared.parent.mkdir(parents=True, exist_ok=True)
+    shared.write_text("not a directory\n")
+
+    with pytest.raises(IntegrationError) as refused:
+        install("codex", tmp_path, skills)
+
+    assert str(refused.value) == (
+        f"cannot install the Dashpot Second skill at {copy_of('codex', second)}: "
+        f"{shared} is not a directory; move it and retry"
+    )
+    assert not integration_file("codex").exists()
+
+
+@pytest.mark.parametrize("harness", ["codex", "claude-code"])
+def test_a_hooks_path_that_is_no_file_refuses_before_anything_is_written(
+    harness: Harness, tmp_path: Path, second: BundledSkill
+) -> None:
+    hooks = integration_file(harness)
+    config_home(harness)
+    hooks.mkdir()
+
+    with pytest.raises(IntegrationError) as refused:
+        install(harness, tmp_path, (second,))
+
+    assert str(refused.value) == (
+        f"cannot install the {integration(harness).display} lifecycle hooks in "
+        f"{hooks}: the path is not a file; move it and retry"
+    )
+    assert not copy_of(harness, second).exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root searches any directory")
+def test_a_copy_directory_it_cannot_search_refuses_before_anything_is_written(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (second,)
+    install("codex", tmp_path, skills)
+    copy = copy_of("codex", second)
+    ship(second, "references/deep/added.md")
+    before = integration_file("codex").read_bytes()
+    references = copy / "references"
+    references.chmod(0o600)
+    try:
+        with pytest.raises(IntegrationError) as refused:
+            install_integration(
+                "codex",
+                config_home("codex"),
+                command_path=other_publisher(tmp_path, "codex"),
+                skills=skills,
+            )
+    finally:
+        references.chmod(0o755)
+
+    assert str(refused.value).startswith(
+        f"cannot install the Dashpot Second skill at {copy}: could not inspect "
+        f"{references / 'deep'}: "
+    )
+    assert integration_file("codex").read_bytes() == before
+    assert not (copy / "references" / "deep" / "added.md").exists()
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root searches any directory")
