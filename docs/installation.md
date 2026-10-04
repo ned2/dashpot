@@ -686,8 +686,8 @@ dashpot integrate --status
 ([Integrate several harnesses](#integrate-several-harnesses)); then check
 their `--status` and restart the harnesses. The hooks contain absolute
 publisher paths, and the managed skill must match the installed version.
-`uv tool upgrade` respects the original version constraint; an installation pinned to an exact release must be
-reinstalled with the desired version. Within `0.1.x`, documented commands,
+`uv tool upgrade` respects the original version constraint; an installation
+pinned to an exact release must be reinstalled with the desired version. Within `0.1.x`, documented commands,
 JSON, and user configuration remain compatible; a breaking change requires a
 new minor release and release notes. Downgrades across changed Work Store
 versions are not promised.
