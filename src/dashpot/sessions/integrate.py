@@ -437,9 +437,6 @@ def install_integration(
         messages.append(f"{spec.display} lifecycle hooks already installed in {path}")
     messages.append(f"hook publisher: {command}")
     messages.extend(_install_skill(skill, target) for skill, target in destinations)
-    messages.extend(
-        _install_agent(agent, target) for agent, target in agent_destinations
-    )
     messages.extend(_config_toml_coexistence_warning(spec, home))
     return messages
 

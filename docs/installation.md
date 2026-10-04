@@ -448,9 +448,10 @@ installs a managed plugin,
 `agent/dashpot-worker.md`, in OpenCode's global
 configuration directory (`$XDG_CONFIG_HOME/opencode`, by default
 `~/.config/opencode`). The `dashpot-worker` agent is the one the
-`dashpot-execute-issues` skill launches each worker as. Its permissions deny
-`*session_move`, so a worker cannot move its lead's session, or its own, by
-mistake; the deny is no security boundary, since a shell can still move a
+`dashpot-execute-issues` skill launches each worker Sub-agent as. Its
+permissions deny `*session_move`, so a worker Sub-agent cannot move its lead
+session, or its own, by mistake. The deny is no security boundary, since a
+shell can still move a
 session through OpenCode's HTTP API
 ([ADR 0093](adr/0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md)).
 Codex and Claude Code get no agent definition. A plugin or an agent file of
@@ -471,10 +472,9 @@ and an `OPENCODE_PURE` setting that keeps every plugin out. OpenCode loads
 the plugin when it sets up a plugin instance. A running 2.0.22 server sets
 its instances up again when installing or updating changes the plugin file;
 after removing the plugin, run `opencode reload`, or restart the OpenCode
-service, so that no instance keeps it. The server also watches its agent
-directory, so it picks up an installed or updated worker agent without a
-reload; the same reload or restart drops one that a server still lists after
-its removal. The supported ways to run OpenCode, and what each one's
+service, so that no instance keeps it. A 2.0.22 server also reloads its
+agents when a file in its agent directory changes; if it still lists the
+worker agent after its removal, the same reload or restart drops it. The supported ways to run OpenCode, and what each one's
 state means, are in
 [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes).
 

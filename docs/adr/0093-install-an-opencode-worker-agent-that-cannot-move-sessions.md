@@ -35,7 +35,8 @@ agent is `dashpot-worker`. Its frontmatter holds:
 
 - a description saying that it is the agent the `dashpot-execute-issues`
   skill launches each worker as, and that it cannot move any session;
-- `mode: subagent`;
+- `mode: subagent`, as #421's measured definition had it, so the agent is
+  offered for Sub-agents only and never as a primary agent;
 - `permissions` with the one deny of `*session_move`.
 
 It sets no model, no tools, and no system prompt, so the user's model and
@@ -81,6 +82,11 @@ rule of ADR 0079 and the bundled skills:
   not installed, as it reports each skill.
 - `--remove` deletes the managed file, and leaves the `agent/` directory and
   every other file in it.
+- Only that one path is checked. OpenCode also reads agents from `agents/`,
+  from project `.opencode` directories, and from the `agents` map in
+  `opencode.json`, and merges every definition of one name. A user's own
+  `dashpot-worker` defined in one of those places is neither reported nor
+  touched, and is merged with Dashpot's, which can undo the deny.
 
 **Only OpenCode.** Claude Code and Codex install no agent file. Their
 worker-mechanics experiments, for
@@ -89,7 +95,8 @@ worker-mechanics experiments, for
 cannot move its lead's session with any tool it is offered, so there is
 nothing to deny.
 
-**The consumer.** ADR 0092 records the `dashpot-execute-issues` skill, which
+**The consumer.** ADR 0092, which lands with the skill half of #422, records
+the `dashpot-execute-issues` skill, which
 launches every OpenCode worker as `agent: "dashpot-worker"` and says what to
 do when the agent is not installed. The name is the contract between the
 two.
@@ -138,9 +145,13 @@ misled.
 
 - Upgrading Dashpot requires rerunning `dashpot integrate opencode`, which
   repairs the agent with the plugin and the skills.
-- OpenCode 2.0.22 watches its agent directories, and a running server listed
-  an agent file written while it ran, with no reload, in #421's run. A server
-  that still lists a removed agent forgets it on `opencode reload` or a
-  restart.
+- OpenCode 2.0.22 reloads its agents when a file under an agent directory
+  changes
+  ([`config/plugin/agent.ts#L66-L67`](https://github.com/anomalyco/opencode/blob/v2.0.22/packages/core/src/config/plugin/agent.ts#L66-L67)).
+  #421's run never measured that directly. Its
+  [retained trace](../spikes/measurements/issue-421-opencode-trace.jsonl#L491-L492)
+  shows a running server listing an agent file written during the `guard`
+  scenario, with no reload recorded in between. Where a server still lists a
+  removed agent, `opencode reload` or a restart drops it.
 - An edit to the managed file is undone by the next `integrate`, and
   `--status` reports it beforehand as an update available.
