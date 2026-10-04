@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-04
+amended-by: 0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md, 0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md
 ---
 
 # Keep an ended session's sub-agents listed until they stop

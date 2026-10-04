@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-04
+amended-by: 0100-keep-a-compacted-sessions-turn-state.md, 0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md
 ---
 
 # Carry a live session's sub-agents through its own SessionStart

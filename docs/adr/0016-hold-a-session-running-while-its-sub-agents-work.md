@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md
+amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md, 0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md
 ---
 
 # Hold a session running while its sub-agents work
