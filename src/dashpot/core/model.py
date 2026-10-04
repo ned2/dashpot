@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypeIs
 
 from pydantic import Field, model_validator
-from typing_extensions import TypeIs
 
 from .issue_profile import IssueProfile
 from .pydantic import (

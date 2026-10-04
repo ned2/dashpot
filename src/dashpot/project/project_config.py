@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from warnings import deprecated
 
 from pydantic import AfterValidator, Field, FiniteFloat, ValidationError
-from typing_extensions import deprecated
 
 from ..core.errors import DashpotError
 from ..core.pydantic import (
