@@ -43,9 +43,11 @@ EVENT_STATES: dict[str, ActiveState] = {
 }
 SUBAGENT_EVENTS = frozenset({"SubagentStart", "SubagentStop"})
 # The ``source`` Claude Code and Codex give the ``SessionStart`` they publish
-# when they compact a live session, which goes on in the same turn or wait
-# (ADR 0100).
+# when they compact a live session, which goes on in the same turn, or goes on
+# waiting (ADR 0100).
 COMPACTION_SOURCE = "compact"
+# The states a live record holds; an ended record holds ``ended``.
+LIVE_STATES = frozenset({"running", "waiting"})
 # Where a record places its session; a Sub-agent's event keeps its parent's.
 LOCATION_FIELDS = ("cwd", "repositoryRoot", "branch")
 
@@ -298,15 +300,16 @@ def continues_turn(current: Mapping[str, Any], previous: Mapping[str, Any]) -> b
     A compaction's ``SessionStart`` names the live session and the Host
     Process its record names, and begins no turn: an automatic one runs
     inside a turn whose ``Stop`` follows, and a manual Claude Code
-    ``/compact`` publishes neither a prompt nor a ``Stop``. Every other
-    ``SessionStart``, and one that follows an ended record, records the
-    session running (ADR 0100).
+    ``/compact`` publishes neither a prompt nor a ``Stop``. No other
+    ``SessionStart`` continues the turn: not a Sub-agent's, nor one that
+    follows an ended record or a record of another or unnamed Host Process
+    (ADR 0100).
     """
     return (
         (current.get("event"), current.get("source"))
         == ("SessionStart", COMPACTION_SOURCE)
         and not is_child_record(current)
-        and previous.get("state") in {"running", "waiting"}
+        and previous.get("state") in LIVE_STATES
         and _same_named_process(current, previous)
     )
 
@@ -333,7 +336,7 @@ def carried_state(
     # A parent record whose state cannot be read is taken as busy: its
     # Sub-agent is evidently at work.
     recorded = None if previous is None else previous.get("state")
-    return str(recorded) if recorded in {"running", "waiting"} else "running"
+    return str(recorded) if recorded in LIVE_STATES else "running"
 
 
 def observed_state(current: Mapping[str, Any]) -> str:

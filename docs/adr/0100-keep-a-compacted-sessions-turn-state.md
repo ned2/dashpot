@@ -38,7 +38,8 @@ live record it follows names, keeps the main turn's state: `running` if that
 record's turn clock (`turnStartedAt`) runs, `waiting` if it does not. Every
 other `SessionStart` records `running`, as before. That includes a
 compaction from another Host Process or one Dashpot cannot name, and a
-compaction that follows an ended record or none.
+compaction that follows an ended record or none, unless a fresher live record
+of the same Host Process in another store is the one it carries from.
 
 - **The turn clock, not the recorded state.** A record's `state` already
   counts its sub-agents: a waiting session whose worker still works is
@@ -58,8 +59,8 @@ compaction that follows an ended record or none.
   as ADR 0097 decides. A kept turn keeps its clock; a waiting compaction has
   none.
 - **One place decides.** `continues_turn` in `sessions/hook_records.py` is
-  the only reader of a `SessionStart`'s `source`, and `carried_state` is the
-  only place that applies it.
+  the only rule that decides on a `SessionStart`'s `source`, and
+  `carried_state` is the only place that applies it.
 
 Auto-compaction reads `running` until its turn's `Stop`, and then reads
 `waiting` unless a sub-agent still works. A manual Claude Code `/compact`
@@ -107,5 +108,9 @@ that turn's clock now starts at the prompt rather than at the
   to (`running` for every `SessionStart`), as it already does for a `Stop`
   whose sub-agents keep the record `running`. The hook record and the
   dashboard read the kept state.
+- A compaction with no live record of its Host Process to follow, such as
+  the first event after hooks were installed partway through a session,
+  still reads `running` until the session's next `Stop`: nothing says
+  which turn state it would keep.
 - A later rule for other `SessionStart` sources extends `continues_turn`,
   which reads `source` in one place.

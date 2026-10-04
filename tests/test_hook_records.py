@@ -1076,8 +1076,6 @@ CLAUDE_448_TRACE = (
     Path(__file__).resolve().parents[1]
     / "docs/spikes/measurements/issue-448-claude-trace.jsonl"
 )
-# The release's Host Process start, which the trace does not record.
-CLAUDE_448_STARTED = "Sun Oct  4 12:58:03 2026"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1086,10 +1084,12 @@ class MeasuredHook:
 
     receipt: int
     payload: dict[str, Any]
-    host_pid: int
+    # The Host Process the publisher identified, as the stored record names it.
+    host: ProcessIdentity
 
     @property
     def agent(self) -> str | None:
+        """The Sub-agent whose event this is, if it is one's."""
         return cast("str | None", self.payload.get("agent_id"))
 
 
@@ -1101,6 +1101,9 @@ def measured_hooks(scenario: str) -> list[MeasuredHook]:
     """
     hooks: list[MeasuredHook] = []
     current: str | None = None
+    # The start each stored record names for its process; the SessionEnd that
+    # removes the last record names none, so a host keeps its first start.
+    starts: dict[int, str] = {}
     for line in CLAUDE_448_TRACE.read_text().splitlines():
         entry = json.loads(line)
         if entry["kind"] == "scenario":
@@ -1108,9 +1111,11 @@ def measured_hooks(scenario: str) -> list[MeasuredHook]:
         elif (
             entry["kind"] == "hook" and current == scenario and not entry["observeOnly"]
         ):
-            hooks.append(
-                MeasuredHook(entry["receipt"], entry["payload"], entry["hostPid"])
-            )
+            for record in entry["store"]:
+                starts.setdefault(record["processPid"], record["processStartedAt"])
+            pid = cast("int", entry["hostPid"])
+            host = ProcessIdentity(pid, 1, "claude", starts[pid])
+            hooks.append(MeasuredHook(entry["receipt"], entry["payload"], host))
     assert hooks, f"no hooks recorded for scenario {scenario!r}"
     return hooks
 
@@ -1137,11 +1142,10 @@ def replay(
     for hook in hooks:
         if without and hook.agent in without:
             continue
-        process = ProcessIdentity(hook.host_pid, 1, "claude", CLAUDE_448_STARTED)
         written = publish_hook_event(
             {**hook.payload, "cwd": "/repo"},
             directory,
-            process=process,
+            process=hook.host,
             harness="claude-code",
         ).path
         # The session's SessionEnd at the scenario's close removes its record.
@@ -1193,16 +1197,19 @@ def test_a_measured_manual_compaction_of_a_waiting_session_reads_waiting(
     runs, diagnostics = observe_agent_runs(
         {"project:example": [observation_target()]},
         tmp_path,
-        lookup=present(
-            ProcessIdentity(hooks[0].host_pid, 1, "claude", CLAUDE_448_STARTED)
-        ),
+        lookup=present(hooks[0].host),
     )
     assert diagnostics == []
     assert [run.state for run in runs] == ["waiting"]
 
 
+# The measured `auto-compact`: its compaction's SessionStart, the turn's Stop
+# that follows it, and its worker's stop.
+AUTO_COMPACTION, AUTO_COMPACTED_STOP, AUTO_WORKER_STOP = 115, 119, 131
+
+
 def test_a_measured_auto_compaction_runs_until_its_turn_stops(tmp_path: Path) -> None:
-    # Automatic compaction runs inside a turn whose Stop (#119) follows it.
+    # Automatic compaction runs inside a turn, whose Stop follows it.
     hooks = measured_hooks("auto-compact")
     (worker,) = worker_agents(hooks)
     prompt = next(
@@ -1213,18 +1220,19 @@ def test_a_measured_auto_compaction_runs_until_its_turn_stops(tmp_path: Path) ->
 
     stored = replay(hooks, tmp_path)
 
-    compacted = stored[115]
+    compacted = stored[AUTO_COMPACTION]
     assert (compacted["source"], compacted["state"]) == ("compact", "running")
     assert compacted["turnStartedAt"] == stored[prompt]["turnStartedAt"]
     assert compacted["liveSubagents"] == [worker]
     # The turn's Stop leaves the worker holding the session running.
-    assert (stored[119]["state"], stored[119]["turnStartedAt"]) == ("running", None)
-    assert stored[131]["state"] == "waiting"
+    stopped = stored[AUTO_COMPACTED_STOP]
+    assert (stopped["state"], stopped["turnStartedAt"]) == ("running", None)
+    assert stored[AUTO_WORKER_STOP]["state"] == "waiting"
 
     alone = replay(hooks, tmp_path / "alone", without={worker})
 
-    assert alone[115]["state"] == "running"
-    assert alone[119]["state"] == "waiting"
+    assert alone[AUTO_COMPACTION]["state"] == "running"
+    assert alone[AUTO_COMPACTED_STOP]["state"] == "waiting"
 
 
 def claude_event(
@@ -1322,3 +1330,79 @@ def test_a_compaction_takes_its_state_from_the_sessions_fresher_record(
 
     assert (compacted["cwd"], compacted["state"]) == (str(a), "waiting")
     assert compacted["turnStartedAt"] is None
+
+
+def test_a_compaction_after_an_ended_record_keeps_a_fresher_records_turn(
+    tmp_path: Path,
+) -> None:
+    # The ended record here kept its sub-agent (ADR 0095); the session's
+    # fresher live record of the same Host Process, elsewhere, is waiting.
+    here = HookRecordStore(tmp_path / "here")
+    here.write(claude_event("UserPromptSubmit"))
+    here.write(claude_event("SubagentStart", agent_id="agent-1"))
+    here.write(claude_event("SessionEnd"))
+    elsewhere = HookRecordStore(tmp_path / "elsewhere")
+    elsewhere.write(claude_event("UserPromptSubmit"))
+    fresher = json.loads(elsewhere.write(claude_event("Stop")).read_text())
+
+    written = here.write(claude_event("SessionStart", source="compact"), seed=fresher)
+
+    record = json.loads(written.read_text())
+    # Waiting, as the fresher record is; the kept sub-agent holds it running.
+    assert (record["state"], record["liveSubagents"]) == ("running", ["agent-1"])
+    assert record["turnStartedAt"] is None
+
+
+def codex_event(event_name: str, **fields: str) -> dict[str, Any]:
+    """The record a Codex hook event of the session ``compacting`` builds."""
+    return build_hook_record(
+        {
+            "session_id": "compacting",
+            "cwd": "/repo",
+            "hook_event_name": event_name,
+            **fields,
+        },
+        process=CODEX,
+        harness="codex",
+    )
+
+
+def test_a_codex_manual_compaction_waits_for_the_prompt_that_follows_it(
+    tmp_path: Path,
+) -> None:
+    # Codex 0.160.0 publishes a manual compaction's SessionStart at the next
+    # turn's start, just before its UserPromptSubmit (#448, `compact`).
+    store = HookRecordStore(tmp_path)
+    store.write(codex_event("UserPromptSubmit"))
+    store.write(codex_event("Stop"))
+
+    compacted = json.loads(
+        store.write(codex_event("SessionStart", source="compact")).read_text()
+    )
+    prompted = json.loads(store.write(codex_event("UserPromptSubmit")).read_text())
+
+    assert (compacted["state"], compacted["turnStartedAt"]) == ("waiting", None)
+    assert (prompted["state"], prompted["turnStartedAt"]) == (
+        "running",
+        prompted["lastActivityAt"],
+    )
+
+
+def test_a_codex_automatic_compaction_keeps_its_turn_until_it_stops(
+    tmp_path: Path,
+) -> None:
+    # Codex 0.160.0 publishes an automatic compaction's SessionStart inside
+    # the turn, whose Stop follows (#448, `auto-compact`).
+    store = HookRecordStore(tmp_path)
+    turn = json.loads(store.write(codex_event("UserPromptSubmit")).read_text())
+
+    compacted = json.loads(
+        store.write(codex_event("SessionStart", source="compact")).read_text()
+    )
+    stopped = json.loads(store.write(codex_event("Stop")).read_text())
+
+    assert (compacted["state"], compacted["turnStartedAt"]) == (
+        "running",
+        turn["turnStartedAt"],
+    )
+    assert stopped["state"] == "waiting"
