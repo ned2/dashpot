@@ -283,9 +283,11 @@ In this Repository:
   arc; otherwise the operator merges, as
   [ADR 0089](docs/adr/0089-leave-the-pr-merge-to-the-operator.md) decides.
 - Reserve ADR numbers per Issue, with a spare, before dispatch. Scan
-  `origin/main`, open PRs, the Remote-Tracking Branches after a fetch, and
-  every local Worktree's Branch: the operator's own Worktrees take numbers
-  too.
+  `origin/main`, open PRs, the Remote-Tracking Branches after a fetch,
+  every local Worktree's Branch, and every open Arc's tracking Issue: the
+  operator's own Worktrees take numbers too. ADR numbers may have gaps, so
+  while another Arc is open, start your block ten above the highest number
+  it holds, which leaves its later reservations clear of yours.
 - Every checkout shares one `.git/hooks`, installed from the main checkout
   ([quality gates](README.md#quality-gates)). Never run `pre-commit install`
   from a linked Worktree, whose `.venv` is removed with it, and after
@@ -298,7 +300,16 @@ In this Repository:
   ([independent review](#independent-review-before-integration)).
 - Give each Worker a share of the cores with `review_coverage.py --workers
   N`; [development setup](README.md#development-setup) records sixteen
-  pytest workers failing where eight passed.
+  pytest workers failing where eight passed. Live Arcs split the machine's
+  cores evenly unless the operator sets other shares, and each Worker's
+  `N` comes out of its Arc's share: with two Arcs on 32 cores, each runs
+  two Workers at `--workers 8`, or four at `--workers 4`.
+- CI checks out a PR's head alone, not its merge with `main`
+  ([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)),
+  so a green run's tested base is `git merge-base <head> origin/main`. The
+  `PR_BASE_SHA` in its `ci-revision-*` artifact
+  (`gh run download <run> -p 'ci-revision-*'`) records only where `main`
+  stood when the run began, not what the head contains.
 - `code-review` reads the Issue itself
   ([issue tracker](docs/agents/issue-tracker.md)), so a brief gives it the
   Issue number, the review base and the evidence.
