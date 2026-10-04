@@ -16,14 +16,12 @@ resuming the workflow.
 Run `<dashpot> integrate <harness> --status` and inspect the `Agent Session
 identity claimed here` line. A shell tool's `cd`, a sub-agent working elsewhere,
 or a prompt that merely names a path does not move the Agent Session. Use
-Claude Code's `EnterWorktree` or the sequential Codex resume flow in
-[dispatch](dispatch.md), then retry `work show` only after fresh hook evidence
-places the session there. Run `work start` only when no preserved run is shown.
-If `EnterWorktree` is refused, follow "Claude Code refuses `EnterWorktree`"
-below.
-Do not move an OpenCode session yourself: hand the work to a new OpenCode
-session in the Worktree, as in [dispatch](dispatch.md), which runs these checks
-itself.
+Claude Code's `EnterWorktree`, OpenCode's session move, or the sequential
+Codex resume flow in [dispatch](dispatch.md), then retry `work show` only
+after fresh hook evidence places the session there. Run `work start` only when
+no preserved run is shown. If `EnterWorktree` is refused, follow "Claude Code
+refuses `EnterWorktree`" below; if the OpenCode move fails, hand the work to a
+new OpenCode session in the Worktree as [dispatch](dispatch.md) describes.
 
 ## Issue work recorded elsewhere
 
@@ -35,8 +33,8 @@ the directory the shell is already in. Return with `cd` to the Worktree that
 holds the run. Only when the work belongs in the new Worktree, run
 `<dashpot> work start <reference>` there, which switches the run, and confirm
 it with `work show`. For OpenCode it follows a move of the session to another
-Repository or outside every Project; tell the user, who can move it back to the
-Worktree that holds the run.
+Repository or outside every Project, which this skill never makes; tell the
+user, who can move it back to the Worktree that holds the run.
 
 ## Claude Code refuses `EnterWorktree`
 

@@ -27,6 +27,13 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   metacharacters. `dashpot integrate` refuses to bind the hooks to a publisher
   inside a linked Worktree, whose removal would break every hook event, and
   `--status` warns about such a binding while its file still exists.
+- The Issue-work skill has a root OpenCode session move itself into the
+  Issue's Worktree with OpenCode's own session move, carrying a bound Agent
+  Run, and back to the main Worktree when the work is done, freeing the
+  Issue Worktree for Cleanup. It confirms each move in its next step and
+  hands off to a fresh session when a move fails. `integrate --status` now
+  reports an Agent Session identity whose freshest hook record is in another
+  Worktree as `elsewhere`, not confirmed.
 - `dashpot integrate <harness>` installs, updates and removes every agent
   skill Dashpot bundles, and `--status` reports each one as installed,
   missing, or with an update available. A directory of a bundled skill's name

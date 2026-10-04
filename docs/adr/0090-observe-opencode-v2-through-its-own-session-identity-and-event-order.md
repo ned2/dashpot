@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-03
+amended-by: 0094-let-a-root-opencode-session-move-itself-for-issue-work.md
 ---
 
 # Observe OpenCode v2 through its own session identity and event order
@@ -382,6 +383,10 @@ it.
 
 ## Consequences
 
+- Amended by [ADR 0094](0094-let-a-root-opencode-session-move-itself-for-issue-work.md):
+  a root session may move itself within its Repository for Issue work the
+  person asked for, so who may trigger a move stays #148's question only
+  for a move made by anyone other than the session itself.
 - **Supersessions.** This ADR supersedes ADR 0078 and ADR 0081, and amends:
   - ADR 0077: generations no longer fence publication; OpenCode's sequence
     orders it; the Publisher Record is per hook store; the translation

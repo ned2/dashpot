@@ -71,14 +71,46 @@ Claude Code sessions from the main checkout, from which a session can always
 return and enter the next Worktree. Do not continue the Issue's work in this
 session after handing it over.
 
-## Start an OpenCode session in the Worktree
+## Move an OpenCode session
 
-A shell `cd` or a prompt naming a path does not move an OpenCode session, and
-one resumed from another directory still runs, and keeps its Agent Run, where
-it last was. Work in another Worktree is a new Agent Session there, started by
-a plain `opencode` in that Worktree, which runs it in the user's shared
-OpenCode service. Do not suggest `--server <url>`: Dashpot does not support a
-session on a server named that way.
+A root OpenCode Agent Session moves itself with OpenCode's own move tool. The
+user's request to work on the Issue, with the Worktree they selected or
+`worktree create` reported, is the authority for the move; name the
+destination as you make it. Only OpenCode's move relocates a session: a shell
+`cd`, a prompt naming a path, or `opencode <directory> --session <id>` leaves
+it, and its Agent Run, where it was. A Sub-agent moves no session, its own or
+another's.
+
+1. Move once every Sub-agent, background shell, and other work this session
+   started has ended; until then, wait for it. Run `<dashpot> work show`,
+   which also lists a bound session's Sub-agents still reported as working.
+   An active Agent Run moves with the session, so it must be on the intended
+   Issue: a run on another Issue ends first, as
+   [Finish the engagement](../SKILL.md#finish-the-engagement) requires, which
+   returns the session to the main Worktree.
+2. Call `tools.opencode.session_move({ directory: "<worktree-path>" })`
+   through `execute`, with the exact absolute path and no `sessionID`, alone:
+   no other code in that `execute` and no other tool call in the same step.
+   Its result already reports the move, but the move takes effect when the
+   step ends, so the result is a request, not evidence. If OpenCode asks the
+   user to allow the move, the answer is theirs.
+3. In the next step, run `pwd` and `<dashpot> integrate opencode --status` as
+   one shell command, without `cd` or `workdir`. Continue only when `pwd`
+   prints the Worktree path and the status confirms this session's Agent
+   Session identity claimed there. Until then, run nothing in the Worktree.
+4. Run `<dashpot> work show`. If it reports this Agent Session working on the
+   intended Issue at that Worktree, retain that Agent Run. Otherwise run
+   `<dashpot> work start <reference>` and verify it with `<dashpot> work show`.
+
+## Hand off when the OpenCode move fails
+
+The move has failed when the tool fails or is unknown, the user declines it,
+or step 3 still places the session elsewhere. Do not retry, change directory
+with the shell, or run `work start` where the session is. Work in the
+Worktree becomes a new Agent Session there, started by a plain `opencode` in
+that Worktree, which runs it in the user's shared OpenCode service. Do not
+suggest `--server <url>`: Dashpot does not support a session on a server
+named that way.
 
 1. If `<dashpot> work show` reports an active Agent Run for this session on the
    same Issue, run `<dashpot> work stop` first once its delegated work is done.

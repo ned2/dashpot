@@ -94,6 +94,7 @@ of date.
 | 0085 | [Return a Claude Code session before entering another Issue Worktree](0085-return-a-claude-code-session-before-entering-another-issue-worktree.md) | accepted | — |
 | 0086 | [Orphan the runs of a stopped or restarted managed Codex daemon](0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md) | accepted | — |
 | 0089 | [Leave the PR merge to the operator](0089-leave-the-pr-merge-to-the-operator.md) | accepted | — |
-| 0090 | [Observe OpenCode v2 through its own session identity and event order](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) | accepted | — |
+| 0090 | [Observe OpenCode v2 through its own session identity and event order](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) | amended | [0094](0094-let-a-root-opencode-session-move-itself-for-issue-work.md) |
 | 0092 | [Ship a user-invoked execute-issues skill for every harness](0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md) | accepted | — |
 | 0093 | [Install an OpenCode worker agent that cannot move sessions](0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md) | accepted | — |
+| 0094 | [Let a root OpenCode session move itself for Issue work](0094-let-a-root-opencode-session-move-itself-for-issue-work.md) | accepted | — |

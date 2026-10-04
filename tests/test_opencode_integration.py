@@ -128,10 +128,17 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
     assert f"const HELPER = {json.dumps(str(command))};" in installed
     assert "__DASHPOT_OPENCODE_HELPER__" not in installed
     skill = home / "skills" / "dashpot-issue-work"
-    assert ISSUE_WORK_SKILL.marker in (skill / "SKILL.md").read_text()
-    # An OpenCode session cannot leave its directory, so the skill hands Issue
-    # work in another Worktree to a new session there.
+    text = (skill / "SKILL.md").read_text()
+    assert ISSUE_WORK_SKILL.marker in text
+    # A root session moves itself into the Worktree and back to the main
+    # Worktree once its run has stopped (ADR 0094), and hands the work to a
+    # new session there only when the move fails.
+    assert "Move the session to the Repository's main Worktree" in text
     dispatch = (skill / "references" / "dispatch.md").read_text()
+    assert 'tools.opencode.session_move({ directory: "<worktree-path>" })' in dispatch
+    assert "the result is a request, not evidence" in dispatch
+    assert "<dashpot> integrate opencode --status" in dispatch
+    assert "A Sub-agent moves no session" in dispatch
     assert "opencode <worktree-path> --prompt" in dispatch
     assert messages == [
         f"OpenCode release on PATH: {ACCEPTED}, the accepted release",
