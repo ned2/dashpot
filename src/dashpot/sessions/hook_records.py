@@ -243,21 +243,6 @@ def turn_started_at(
     return optional_string(current.get("lastActivityAt"))
 
 
-def live_subagents(
-    current: Mapping[str, Any],
-    previous: Mapping[str, Any] | None,
-    living_hosts: Collection[ProcessKey] = (),
-) -> list[str]:
-    """Which sub-agents of the session are alive after this event.
-
-    ``SubagentStart`` adds the agent, ``SubagentStop`` removes it, and every
-    other event carries the set, by the Host Process each sub-agent runs in
-    (see ``carried_subagents``). An event that names no agent changes
-    nothing rather than guessing.
-    """
-    return sorted(carried_subagents(current, previous, living_hosts))
-
-
 def carried_subagents(
     current: Mapping[str, Any],
     previous: Mapping[str, Any] | None,
@@ -274,6 +259,9 @@ def carried_subagents(
     named might have restarted unseen (ADR 0097). A starting sub-agent's
     process is the event's. The value is the raw ``sessionProcess`` of the
     sub-agent's Host Process, None where none is named.
+
+    ``SubagentStart`` adds the agent and ``SubagentStop`` removes it; an
+    event that names no agent changes nothing rather than guessing.
     """
     hosts = (
         {}
