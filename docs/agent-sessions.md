@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-04
 ---
 
 # Agent sessions
@@ -17,10 +17,10 @@ Installing Dashpot provides the no-stdout `dashpot-codex-hook` and
 automatically; register the lifecycle hooks once per user with:
 
 ```bash
-dashpot integrate codex                 # hooks plus ~/.agents/skills/dashpot-issue-work
-dashpot integrate claude-code           # hooks plus ~/.claude/skills/dashpot-issue-work
-dashpot integrate <harness> --status    # diagnose hooks, skill, records, identity
-dashpot integrate <harness> --remove    # remove Dashpot's hooks and managed skill
+dashpot integrate codex                 # hooks plus the bundled skills in ~/.agents/skills/
+dashpot integrate claude-code           # hooks plus the bundled skills in ~/.claude/skills/
+dashpot integrate <harness> --status    # diagnose hooks, skills, records, identity
+dashpot integrate <harness> --remove    # remove Dashpot's hooks and managed skills
 ```
 
 Installation performs a surgical merge of the harness's user-level hook file:
@@ -32,10 +32,12 @@ observes, run `integrate` from the Repository's main working tree or an
 installed tool environment: a publisher inside a linked Worktree's `.venv`
 disappears with the Worktree, so `integrate` refuses to bind one and
 `--status` warns about an existing binding while the file still exists.
-The same command installs Dashpot's model-invoked
-`dashpot-issue-work` skill from that installed version. Removal deletes only
-the Dashpot handlers and files marked as its managed skill; a different skill
-at the same path is reported and left untouched. If Codex hooks are also
+The same command installs every agent skill Dashpot bundles, among them the
+model-invoked `dashpot-issue-work` skill, from that installed version. Each
+copy is Dashpot's to manage only while its `SKILL.md` carries that skill's own
+marker. Removal deletes only the Dashpot handlers and the files of each
+managed skill; a different skill at the same path is reported and left
+untouched, and installation is refused while one is there. If Codex hooks are also
 defined inline in `~/.codex/config.toml`, Dashpot leaves that file alone and
 points out that Codex merges both layers.
 [`examples/codex-hooks.json`](../examples/codex-hooks.json) shows the equivalent
@@ -385,7 +387,7 @@ the [plugin protocol experiment](spikes/opencode-v2-plugin-protocol-spike.md).
 OpenCode has no command hooks. `dashpot integrate opencode` instead writes a
 managed plugin, `plugins/dashpot.js`, to OpenCode's global configuration
 directory, bound to this environment's `dashpot-opencode-hook` helper, and
-the Issue work skill to that directory's `skills/`
+the bundled skills to that directory's `skills/`
 ([ADR 0079](adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)).
 The plugin is thin: it reports OpenCode's own session events, in each
 session's own order, to the helper, once per event under a 3 s deadline, and

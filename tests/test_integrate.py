@@ -17,20 +17,20 @@ from dashpot.repository.cleanup.obstacles import session_exit
 from dashpot.sessions.harnesses import HarnessError
 from dashpot.sessions.hook_records import write_hook_record
 from dashpot.sessions.integrate import (
+    BUNDLED_SKILL_VERSION,
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
-    ISSUE_WORK_SKILL_MARKER,
-    ISSUE_WORK_SKILL_VERSION,
+    ISSUE_WORK_SKILL,
     IntegrationError,
     codex_integration_status,
     install_codex_integration,
     install_integration,
     integration,
     integration_status,
-    issue_work_skill_directory,
     remove_codex_integration,
     remove_integration,
     resolve_hook_command,
+    skill_directory,
 )
 from factories import (
     CODEX,
@@ -73,7 +73,7 @@ def read_hooks(home: Path) -> dict[str, Any]:
 
 
 def installed_skill(home: Path, harness: Harness = "codex") -> Path:
-    return issue_work_skill_directory(integration(harness), home)
+    return skill_directory(integration(harness), home, ISSUE_WORK_SKILL)
 
 
 def test_fresh_install_registers_every_lifecycle_event(tmp_path: Path) -> None:
@@ -120,8 +120,8 @@ def test_install_distributes_the_versioned_issue_work_skill(tmp_path: Path) -> N
     skill = installed_skill(home)
     text = (skill / "SKILL.md").read_text()
     assert skill == tmp_path / ".agents" / "skills" / "dashpot-issue-work"
-    assert ISSUE_WORK_SKILL_MARKER in text
-    assert f"written for Dashpot {ISSUE_WORK_SKILL_VERSION}" in text
+    assert ISSUE_WORK_SKILL.marker in text
+    assert f"written for Dashpot {BUNDLED_SKILL_VERSION}" in text
     dispatch = (skill / "references" / "dispatch.md").read_text()
     assert "codex resume <session-id> -C <worktree-path>" in dispatch
     assert "work relocate <worktree-path>" in dispatch
@@ -129,7 +129,7 @@ def test_install_distributes_the_versioned_issue_work_skill(tmp_path: Path) -> N
     assert "cannot complete a Relocation Intent" in dispatch
     assert "the model cannot invoke it" in dispatch
     assert (skill / "references" / "recovery.md").is_file()
-    assert version("dashpot") == ISSUE_WORK_SKILL_VERSION
+    assert version("dashpot") == BUNDLED_SKILL_VERSION
     assert any(f"installed Dashpot Issue work skill in {skill}" in m for m in messages)
 
 

@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-11
+date: 2026-10-04
 ---
 
 # Release Dashpot
@@ -37,7 +37,7 @@ attestations using the same OIDC identity. Only its top-level publish jobs have
 
 - Confirm the release scope, supported environments, and all outstanding
   acceptance evidence in [#5](https://github.com/ned2/dashpot/issues/5).
-- Keep `pyproject.toml`'s version, `ISSUE_WORK_SKILL_VERSION` in
+- Keep `pyproject.toml`'s version, `BUNDLED_SKILL_VERSION` in
   [integrate.py](../src/dashpot/sessions/integrate.py), and the two version occurrences in
   [the bundled skill](../src/dashpot/skills/dashpot-issue-work/SKILL.md) aligned.
   A version or dependency change requiring `uv.lock` is its own explicitly

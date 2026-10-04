@@ -16,16 +16,16 @@ from pathlib import Path
 import pytest
 
 from dashpot.sessions.integrate import (
-    ISSUE_WORK_SKILL_MARKER,
-    ISSUE_WORK_SKILL_VERSION,
+    BUNDLED_SKILL_VERSION,
+    ISSUE_WORK_SKILL,
     OPENCODE,
     OPENCODE_ACCEPTED_VERSION,
     IntegrationError,
     install_integration,
     integration_status,
-    issue_work_skill_directory,
     remove_integration,
     render_plugin,
+    skill_directory,
 )
 from dashpot.sessions.processes import (
     ProcessAbsent,
@@ -109,7 +109,7 @@ def test_the_default_home_is_opencodes_global_configuration_directory(
 
     assert OPENCODE.default_home == tmp_path / "xdg" / "opencode"
     assert OPENCODE.default_skills_home == tmp_path / "xdg" / "opencode" / "skills"
-    assert issue_work_skill_directory(OPENCODE, OPENCODE.default_home) == (
+    assert skill_directory(OPENCODE, OPENCODE.default_home, ISSUE_WORK_SKILL) == (
         tmp_path / "xdg" / "opencode" / "skills" / "dashpot-issue-work"
     )
 
@@ -128,7 +128,7 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
     assert f"const HELPER = {json.dumps(str(command))};" in installed
     assert "__DASHPOT_OPENCODE_HELPER__" not in installed
     skill = home / "skills" / "dashpot-issue-work"
-    assert ISSUE_WORK_SKILL_MARKER in (skill / "SKILL.md").read_text()
+    assert ISSUE_WORK_SKILL.marker in (skill / "SKILL.md").read_text()
     # An OpenCode session cannot leave its directory, so the skill hands Issue
     # work in another Worktree to a new session there.
     dispatch = (skill / "references" / "dispatch.md").read_text()
@@ -262,7 +262,7 @@ def test_remove_takes_only_what_opencodes_integration_owns(
     install_integration("opencode", home, command_path=helper(tmp_path))
     claude_skill = _home / ".claude" / "skills" / "dashpot-issue-work"
     claude_skill.mkdir(parents=True)
-    (claude_skill / "SKILL.md").write_text(f"{ISSUE_WORK_SKILL_MARKER}\n")
+    (claude_skill / "SKILL.md").write_text(f"{ISSUE_WORK_SKILL.marker}\n")
 
     messages = remove_integration("opencode", home)
 
@@ -301,7 +301,7 @@ def test_status_of_a_current_installation(tmp_path: Path) -> None:
         f"plugin installed in {plugin_file(home)}",
         f"hook publisher: {command}",
         f"Issue work skill installed in {home / 'skills' / 'dashpot-issue-work'} "
-        f"for Dashpot {ISSUE_WORK_SKILL_VERSION}",
+        f"for Dashpot {BUNDLED_SKILL_VERSION}",
     ]
     assert f"OpenCode release on PATH: {ACCEPTED}, the accepted release" in messages
     service = tmp_path / "home" / ".local" / "state" / "opencode" / "service.json"

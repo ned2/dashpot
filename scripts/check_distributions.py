@@ -12,13 +12,18 @@ from email.parser import BytesParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = ROOT / "src" / "dashpot"
+# Every file of every bundled skill ships, so a new skill's directory needs
+# no entry here.
 ASSETS = (
     "dashpot.tcss",
     "plugins/opencode.js",
     "py.typed",
-    "skills/dashpot-issue-work/SKILL.md",
-    "skills/dashpot-issue-work/references/dispatch.md",
-    "skills/dashpot-issue-work/references/recovery.md",
+    *sorted(
+        path.relative_to(PACKAGE).as_posix()
+        for path in (PACKAGE / "skills").rglob("*")
+        if path.is_file()
+    ),
 )
 
 
@@ -74,7 +79,11 @@ def validate(directory: Path) -> list[Path]:
             if not target.startswith((b"https://", b"#")):
                 raise ValueError(f"Relative package-description link: {target!r}")
     for name in ASSETS:
-        if wheel_files[f"dashpot/{name}"] != source_files[f"src/dashpot/{name}"]:
+        wheel_asset = wheel_files.get(f"dashpot/{name}")
+        source_asset = source_files.get(f"src/dashpot/{name}")
+        if wheel_asset is None or source_asset is None:
+            raise ValueError(f"Missing packaged asset: {name}")
+        if wheel_asset != source_asset:
             raise ValueError(f"Wheel/source asset mismatch: {name}")
     skill = wheel_files["dashpot/skills/dashpot-issue-work/SKILL.md"].decode()
     if f"written for Dashpot {version}." not in skill or f"`{version}`" not in skill:
