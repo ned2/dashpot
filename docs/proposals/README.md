@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-02
+date: 2026-10-05
 ---
 
 # Proposals
@@ -13,6 +13,12 @@ wins.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Lead and Worker design](lead-worker-design.md) | proposal | 2026-10-05 |
+| [Lead and Worker design analysis](lead-worker-design-analysis.md) | research | 2026-10-05 |
+| [Claude Code evidence for Lead and Worker mechanisms](lead-worker-claude-code-evidence.md) | research | 2026-10-05 |
+| [Codex evidence for Lead and Worker mechanisms](lead-worker-codex-evidence.md) | research | 2026-10-05 |
+| [OpenCode evidence for Lead and Worker mechanisms](lead-worker-opencode-evidence.md) | research | 2026-10-05 |
+| [Prior art for Lead and Worker coordination](lead-worker-prior-art.md) | research | 2026-10-05 |
 | [OpenCode integration design](opencode-integration-design.md) | superseded | 2026-10-02 |
 | [Agent runtime lifecycle design](agent-runtime-lifecycle-design.md) | proposal | 2026-10-01 |
 | [Codex relocation and handoff design](codex-relocation-handoff-design.md) | proposal | 2026-09-13 |
