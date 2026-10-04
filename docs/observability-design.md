@@ -44,8 +44,8 @@ import, no Textual `log`, no debug flag.
   ([installation guide](installation.md#event-log)).
 - **Events first, no counters.** Code records Runtime Events; every metric
   is an aggregation over recorded events, computed when read. Nothing keeps
-  a running total, not even the Runtime Stats screen, which aggregates an
-  in-memory buffer of recent events.
+  a running total, not even Runtime Stats, which aggregates an in-memory
+  buffer of recent events.
 
 ## Runtime Events
 
@@ -233,7 +233,7 @@ output.
   force changed, and is written at whichever of the two levels records more.
 - **Choosing the level.** The `event_level` setting in `config.toml`
   ([ADR 0052](adr/0052-read-machine-local-settings-as-toml.md)), overridden
-  by `DASHPOT_EVENT_LEVEL`, and a toggle in the Runtime Stats screen for a
+  by `DASHPOT_EVENT_LEVEL`, and a toggle in the Runtime screen for a
   running dashboard that lasts for that run and never rewrites
   `config.toml`. There is no command-line flag. A settings file that fails
   to load leaves `standard`, silently in hooks and commands.
@@ -379,12 +379,32 @@ output.
 
 ## Reading
 
-- **Runtime Stats** ([#315](https://github.com/ned2/dashpot/issues/315)), a
-  screen on `s` laid out like the Legend screen, aggregating the dashboard's
-  in-memory buffer when it draws, about once a second while open; it sends
-  no request of its own. The buffer keeps the last hour's events at full
-  detail whatever the level in force, and at most 10,000 of them; a buffer
-  full before the hour is up says how far back it reaches. Its sections:
+- **The Runtime screen**
+  ([ADR 0098](adr/0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md)),
+  a full-screen temporary screen with two tabs, Events and Stats, opened from
+  a Peer Screen by `e` or `s` or by the command palette's Runtime Events and
+  Runtime Stats, and closed by `Escape` alone. Both tabs read the dashboard's
+  in-memory buffer, which keeps the last hour's events at full detail
+  whatever the level in force, and at most 10,000 of them. A shared header
+  names the level, whose events these are, how far back the buffer reaches —
+  saying so when it filled before the hour was up — and how many it holds.
+  The screen redraws about once a second while open and sends no request of
+  its own. `l` moves the level through `off`, `standard` and `full` for the
+  rest of the run from either tab.
+- **Runtime Events** ([#451](https://github.com/ned2/dashpot/issues/451)),
+  the Events tab: the buffered events, newest last, by local time, level,
+  kind (a span by its name), Project, outcome, duration and a one-line
+  summary per kind, with every field of the selected event, its stored UTC
+  time included, beside the table, or below it under 90 columns. Rows keep
+  the buffer's order, so a span is listed where it ended but timed from
+  when it started. Show (every buffered event, those the level in force
+  records, or `standard` only), Kind and Errors only filters last until the
+  dashboard exits. Errors only keeps failed spans and dropped writes; a
+  non-zero exit the caller read as an answer shows its code but is no
+  error. The table follows the newest event until a person moves back
+  through it; `End` follows again.
+- **Runtime Stats** ([#315](https://github.com/ned2/dashpot/issues/315)), the
+  Stats tab, aggregating the buffer when it draws. Its sections:
   - **GitHub allowance:** `remaining`, `limit` and `resetAt` from the latest
     reading the Query Sources share, and the points the rest of the account
     spent: within each rate limit window, the change in points used between
@@ -408,8 +428,7 @@ output.
     failures.
   - **This process:** version, commit and uncommitted changes from
     `process.start`, uptime, memory, the Event Log's path, size, level and
-    dropped writes, and `l`, which moves the level through `off`, `standard`
-    and `full` for the rest of the run. Memory is the current resident set
+    dropped writes. Memory is the current resident set
     size from `/proc/self/statm` on Linux; elsewhere it is the peak
     `getrusage` reports, labelled as the peak, so drawing the screen starts
     no process.

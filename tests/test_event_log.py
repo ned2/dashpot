@@ -324,6 +324,10 @@ def test_the_recent_buffer_keeps_every_event_whatever_the_level(tmp_path: Path) 
     assert log.recent_limit == 2
     assert [event.body.name for event in log.recent_events()] == ["span", "process.end"]
     assert not tmp_path.joinpath("events-2026-09-27.jsonl").exists()
+    # The start was the process's first event, so the oldest kept is its second.
+    first, events = log.numbered_recent_events()
+    assert first == 1
+    assert events == log.recent_events()
 
 
 def test_the_recent_buffer_lets_go_of_events_older_than_its_window() -> None:

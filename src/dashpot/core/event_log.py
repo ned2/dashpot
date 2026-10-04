@@ -339,6 +339,8 @@ class EventLog:
         self.forward: Callable[[str], None] | None = None
         self._recent: deque[RuntimeEvent] = deque(maxlen=keep_recent)
         self._recent_window = recent_window
+        # How many events the buffer has ever kept, which numbers each one.
+        self._kept = 0
         self.write_failure: str | None = None
         self._level: EventLevel = level
         self._facts_source = facts
@@ -386,6 +388,16 @@ class EventLog:
         """The buffer of recent events as it stands, oldest first."""
         with self._recent_lock:
             return tuple(self._recent)
+
+    def numbered_recent_events(self) -> tuple[int, tuple[RuntimeEvent, ...]]:
+        """The buffer as it stands, oldest first, and the number of its oldest event.
+
+        Every event kept is numbered one after the event kept before it, so
+        a reader holding a number knows which events it has not seen and
+        which have left the buffer.
+        """
+        with self._recent_lock:
+            return self._kept - len(self._recent), tuple(self._recent)
 
     def set_level(self, level: EventLevel) -> None:
         """Change the level in force for the rest of the run, marking the change.
@@ -555,6 +567,7 @@ class EventLog:
             return
         with self._recent_lock:
             self._recent.append(event)
+            self._kept += 1
             if self._recent_window is None:
                 return
             # Stamps are fixed-width UTC, so they order as text. A span is

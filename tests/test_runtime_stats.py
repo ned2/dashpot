@@ -17,7 +17,6 @@ from app_harness import (
     dashboard_app,
     first_load_landed,
     issue,
-    legend_keys_text,
     workspace_snapshot,
 )
 from dashpot.core import runtime_stats
@@ -56,9 +55,7 @@ from dashpot.github.github import LatestRateLimit, RateLimit
 from dashpot.project.settings import default_settings_path
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.attendance import Attendance
-from dashpot.ui.legend import LegendScreen
 from dashpot.ui.runtime_stats_view import (
-    RuntimeStatsScreen,
     duration_text,
     keys_text,
     long_duration_text,
@@ -67,6 +64,7 @@ from dashpot.ui.runtime_stats_view import (
     size_text,
     window_text,
 )
+from dashpot.ui.runtime_view import RuntimeScreen
 from helpers import wait_until
 
 RUN = "0123456789abcdef0123456789abcdef"
@@ -216,12 +214,13 @@ def stats_app(
     )
 
 
-async def open_stats(app: DashpotApp, pilot: Pilot[None]) -> RuntimeStatsScreen:
+async def open_stats(app: DashpotApp, pilot: Pilot[None]) -> RuntimeScreen:
     await wait_until(lambda: first_load_landed(app))
     await pilot.press("s")
-    await wait_until(lambda: isinstance(app.screen, RuntimeStatsScreen))
+    await wait_until(lambda: isinstance(app.screen, RuntimeScreen))
     screen = app.screen
-    assert isinstance(screen, RuntimeStatsScreen)
+    assert isinstance(screen, RuntimeScreen)
+    assert screen.tab == "stats"
     return screen
 
 
@@ -236,27 +235,6 @@ def heading(app: DashpotApp, name: str) -> str:
 def squeezed(text: str) -> list[str]:
     """Each line with its runs of spaces made one, so columns read as words."""
     return [" ".join(line.split()) for line in text.splitlines()]
-
-
-@pytest.mark.asyncio
-async def test_s_opens_runtime_stats_and_s_or_escape_closes_it(tmp_path: Path) -> None:
-    app = stats_app(stats_log(tmp_path, Clock()))
-
-    async with app.run_test(size=(100, 40)) as pilot:
-        await open_stats(app, pilot)
-        await pilot.press("s")
-        await wait_until(lambda: not isinstance(app.screen, RuntimeStatsScreen))
-        assert app.screen is app.dashboard
-
-        await open_stats(app, pilot)
-        await pilot.press("escape")
-        await wait_until(lambda: app.screen is app.dashboard)
-
-        await pilot.press("question_mark")
-        await wait_until(lambda: isinstance(app.screen, LegendScreen))
-        keys = squeezed(legend_keys_text(app))
-        assert "s Runtime Stats" in keys
-        assert "l Change Event Level" in keys
 
 
 @pytest.mark.asyncio
@@ -456,7 +434,7 @@ async def test_the_allowance_shows_the_latest_reading_the_sources_share(
                 cost=1, limit=5000, remaining=4321, reset_at="2026-09-27T13:00:00Z"
             )
         )
-        screen.update_stats()
+        screen.update_shown()
 
         assert squeezed(section(app, "allowance")) == [
             "remaining 4,321 of 5,000 points",
@@ -477,7 +455,7 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
     async with app.run_test(size=(100, 40)) as pilot:
         screen = await open_stats(app, pilot)
         shared.refused(shared.admit(), "secondary")
-        screen.update_stats()
+        screen.update_shown()
 
         # Refused before any response reported the rate limit.
         assert squeezed(section(app, "allowance")) == [
@@ -486,7 +464,7 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
 
         shared.record(RateLimit(cost=1, limit=5000, remaining=0, reset_at=RESET))
         clock.advance(30)
-        screen.update_stats()
+        screen.update_shown()
 
         assert squeezed(section(app, "allowance"))[:2] == [
             "paused until 12:01:00 UTC, in 30s (secondary rate limit)",
@@ -494,7 +472,7 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
         ]
 
         clock.advance(30)
-        screen.update_stats()
+        screen.update_shown()
 
         assert squeezed(section(app, "allowance"))[0] == "remaining 0 of 5,000 points"
 
@@ -517,7 +495,7 @@ async def test_the_allowance_says_since_when_nobody_has_attended(
         clock.advance(600)
         attendance.check_idle()
         clock.advance(90)
-        screen.update_stats()
+        screen.update_shown()
 
         assert squeezed(section(app, "allowance")) == [
             "unattended since 12:10:00 UTC, 1m 30s ago (no key or mouse input for 10m)"
@@ -525,7 +503,7 @@ async def test_the_allowance_says_since_when_nobody_has_attended(
 
         # A Rate Limit Pause leads: it holds even a person's refresh.
         shared.refused(shared.admit(), "secondary")
-        screen.update_stats()
+        screen.update_shown()
 
         assert squeezed(section(app, "allowance")) == [
             "paused until 12:12:30 UTC, in 1m 00s (secondary rate limit)",

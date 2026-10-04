@@ -182,7 +182,8 @@ the management commands `init`, `integrate`,
 | Arrow keys | Move or scroll the focused list; `Down` at the last row and `Up` at the first row cycle within the active peer; the newly focused pane's cursor is where it was last left |
 | `Enter` | On an Issue, read it full-screen (`Escape` returns); opens a Worktree only from the Worktrees pane and is unbound on Sessions and Pull Requests |
 | `?` | Open the Legend: every column's description with its Glyphs, pane by pane, and the keys; `Escape` closes, `End` and `Home` scroll. Resting the mouse on any column header shows the same description as a tooltip |
-| `s` | Open Runtime Stats: the GitHub allowance and the points each operation spent, refresh health by trigger and by key, commands by program, and this dashboard's version, uptime, memory and Event Log, computed from its last hour of Runtime Events and updated while open ([design](docs/observability-design.md#reading)); `l` there changes the Event Level for this run only; `Escape` or `s` closes |
+| `e` on a Peer Screen | Open the full-screen Runtime screen on its Events tab: this dashboard's last hour of Runtime Events at every level, newest last, with every field of the selected event beside the table (below it under 90 columns). Show, Kind and Errors-only filters last until the dashboard exits; the table follows new events until you move back through it, and `End` follows again. The command palette (`Ctrl+P`) offers it as Runtime Events ([design](docs/observability-design.md#reading)) |
+| `s` on a Peer Screen | Open the Runtime screen on its Stats tab: the GitHub allowance and the points each operation spent, refresh health by trigger and by key, commands by program, and this dashboard's version, uptime, memory and Event Log, computed from its last hour of Runtime Events and updated while open; the palette offers it as Runtime Stats. Inside the screen `e` and `s` switch tabs, `l` changes the Event Level for this run only, and `Escape` alone closes it |
 | `q` | Quit |
 
 Dashboard is the default peer. Its Sessions, Worktrees and Branches panes are
@@ -190,9 +191,9 @@ separate from the Pull Requests and Issues query peer. Each long-lived peer
 keeps its focused control, row cursors, scroll positions, lifecycle choices,
 submitted queries and unsubmitted search text while the other is active; a
 pane's first entry starts at its first row. Passive refreshes preserve selected
-row identity. Issue Detail, Legend, Runtime Stats and Cleanup cover their
-originating peer, and `Escape` returns there; all Peer Screen keys are inactive
-on those temporary screens. `1` and `2` insert text normally while an editable input has focus;
+row identity. Issue Detail, Legend, Runtime and Cleanup cover their
+originating peer, and `Escape` returns there; all Peer Screen keys, `e` and `s`
+included, are inactive on those temporary screens. `1` and `2` insert text normally while an editable input has focus;
 `Ctrl+Shift+Left` and `Ctrl+Shift+Right` remain global screen navigation there
 rather than selecting query text by words.
 

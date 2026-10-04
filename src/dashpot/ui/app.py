@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import replace
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, ClassVar, cast, override
 
 from textual import events, on
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Vertical
 from textual.content import Content
@@ -103,7 +103,8 @@ from .panes import (
     PaneSpec,
 )
 from .refresh_spans import Refresh, refresh_trigger
-from .runtime_stats_view import RuntimeStatsScreen
+from .runtime_events_view import EventFilter, EventTable
+from .runtime_view import RuntimeScreen, RuntimeTab
 from .session_table import SessionTable
 from .status_bar import PEER_ORDER, PeerName, PeerSelected, PeerStatusBar
 from .worktree_table import WorktreeTable
@@ -868,6 +869,7 @@ class DashpotApp(App[None]):
         ("q", "quit", "Quit"),
         ("question_mark", "legend", "Legend"),
         ("r", "refresh", "Refresh"),
+        ("e", "runtime_events", "Runtime Events"),
         ("s", "runtime_stats", "Runtime Stats"),
     ]
 
@@ -899,9 +901,12 @@ class DashpotApp(App[None]):
             keep_recent=DASHBOARD_RECENT_EVENTS, recent_window=DASHBOARD_RECENT_WINDOW
         )
         # The GitHub rate limit reading the Query Sources share, which Runtime
-        # Stats shows, and how often that screen redraws while open.
+        # Stats shows, and how often the Runtime screen redraws while open.
         self.rate_limit = rate_limit
         self.runtime_stats_seconds = runtime_stats_seconds
+        # The Events tab's filter, kept for the rest of the run so the
+        # Runtime screen opens as it was left; never written to disk.
+        self.runtime_event_filter = EventFilter()
         # Whether anyone attends the dashboard, which holds automatic GitHub
         # refreshes while nobody does (ADR 0068); without one they never pause.
         self.attendance = attendance
@@ -979,6 +984,10 @@ class DashpotApp(App[None]):
         """Both long-lived peers in direct-navigation order."""
         return self.dashboard, self.query_screen
 
+    def is_peer_screen(self, screen: Screen[Any] | None = None) -> bool:
+        """Whether ``screen``, the active screen by default, is a Peer Screen."""
+        return (self.screen if screen is None else screen) in self.peer_screens()
+
     def show_peer(self, peer: PeerName) -> None:
         """Replace the active peer directly without adding Back history."""
         if self.screen not in self.peer_screens():
@@ -1027,7 +1036,27 @@ class DashpotApp(App[None]):
             if action in direct_actions:
                 available = available and not isinstance(peer.focused, Input)
             return True if available else None
+        if action in {"runtime_events", "runtime_stats"}:
+            # The Runtime screen opens over a Peer Screen, never a temporary one.
+            return self.is_peer_screen()
         return True
+
+    @override
+    def get_system_commands(self, screen: Screen[Any]) -> Iterable[SystemCommand]:
+        """Add the Runtime screen's two tabs to the palette on a Peer Screen."""
+        yield from super().get_system_commands(screen)
+        if not self.is_peer_screen(screen):
+            return
+        yield SystemCommand(
+            "Runtime Events",
+            "This dashboard's recent Runtime Events, filtered, with every field",
+            self.action_runtime_events,
+        )
+        yield SystemCommand(
+            "Runtime Stats",
+            "What this dashboard spends on GitHub and how its refreshes run",
+            self.action_runtime_stats,
+        )
 
     @override
     def get_css_variables(self) -> dict[str, str]:
@@ -1068,11 +1097,26 @@ class DashpotApp(App[None]):
             return
         self.push_screen(LegendScreen(legend_keys()))
 
+    def action_runtime_events(self) -> None:
+        """Show this run's recent Runtime Events."""
+        self.open_runtime("events")
+
     def action_runtime_stats(self) -> None:
-        """Show what this run spends and how it runs; the screen's own ``s`` closes it."""
+        """Show what this run spends and how it runs."""
+        self.open_runtime("stats")
+
+    def open_runtime(self, tab: RuntimeTab) -> None:
+        """Open the Runtime screen on ``tab`` over a Peer Screen, and nowhere else."""
+        if not self.is_peer_screen():
+            return
         self.push_screen(
-            RuntimeStatsScreen(self, update_seconds=self.runtime_stats_seconds)
+            RuntimeScreen(self, tab=tab, update_seconds=self.runtime_stats_seconds)
         )
+
+    def project_label(self, project_id: str) -> str:
+        """The Project's label, or its identity when it is no longer observed."""
+        project = self.store.project(project_id)
+        return project_id if project is None else project.display_label
 
     async def on_ready(self) -> None:
         self.main_loop = asyncio.get_running_loop()
@@ -1260,9 +1304,7 @@ class DashpotApp(App[None]):
             return entry
         # A Project no longer observed, whose failure is still shown, is
         # named by its identity rather than not at all.
-        project = self.store.project(entry.project_id)
-        label = entry.project_id if project is None else project.display_label
-        return replace(entry, project_label=label)
+        return replace(entry, project_label=self.project_label(entry.project_id))
 
     def update_diagnostics(self) -> None:
         """Redraw the diagnostics readout after a flow recorded a failure."""
@@ -1652,5 +1694,5 @@ def legend_keys() -> tuple[KeyGroup, ...]:
         KeyGroup("Cleanup preview", tuple(CleanupScreen.BINDINGS)),
         KeyGroup("Cleanup report", tuple(CleanupReportScreen.BINDINGS)),
         KeyGroup("Legend", tuple(LegendScreen.BINDINGS)),
-        KeyGroup("Runtime Stats", tuple(RuntimeStatsScreen.BINDINGS)),
+        KeyGroup("Runtime", (*RuntimeScreen.BINDINGS, *EventTable.BINDINGS)),
     )

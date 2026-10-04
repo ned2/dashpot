@@ -22,6 +22,11 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   an Agent Session's recent outcomes in `dashpot work show`; and remove old
   Event Log files with `dashpot events remove --before DATE`. The dashboard
   warns with an `event-log-large` Diagnostic past 200 MB.
+- See a running dashboard's own recent Runtime Events on the Runtime screen,
+  opened with `e` or from the command palette: filter them by kind, level or
+  errors, follow new events or read back through them, and see every field
+  of one. Its Stats tab, on `s`, shows what the dashboard spends on GitHub
+  and how its refreshes run.
 - Install as an isolated Python application with `uv tool install dashpot`.
   Hook publishers work when their installation path contains spaces or shell
   metacharacters. `dashpot integrate` refuses to bind the hooks to a publisher

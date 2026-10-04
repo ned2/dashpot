@@ -196,7 +196,8 @@ an hour. While it lasts:
 
 - The Diagnostics show one `github-rate-limit-paused` warning naming when
   queries resume.
-- Runtime Stats (`s`) leads its GitHub allowance section with the pause.
+- Runtime Stats (`s`, the Runtime screen's Stats tab) leads its GitHub
+  allowance section with the pause.
 - The Event Log records a `rate_limit_pause.changed` event when the pause
   starts, and when it lapses or is lifted.
 - A GitHub refresh sends nothing. `r` lifts the pause for one attempt: the
