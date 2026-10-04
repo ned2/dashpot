@@ -86,7 +86,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
-          python - <<'PYREVISION'
+          uv run --no-project python - <<'PYREVISION'
           import json, os
           from pathlib import Path
           record = {name: os.environ[name] for name in (
@@ -198,7 +198,7 @@ jobs:
           uvx --from twine==7.0.0 twine check --strict release-artifacts/dist/*
           version=$(uv run --locked python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
           uv run --locked python scripts/check_release.py "v$version" --main-ref HEAD --notes release-artifacts/release-notes.md
-          python - <<'PYBUILD'
+          uv run --no-project python - <<'PYBUILD'
           import json, os, platform, subprocess
           from pathlib import Path
           report = {

@@ -41,7 +41,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.candidate-tag }}
         run: |
-          python scripts/check_release.py "$RELEASE_TAG" --notes release-notes.md
+          uv run --no-project python scripts/check_release.py "$RELEASE_TAG" --notes release-notes.md
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
   verify:
