@@ -247,8 +247,8 @@ store ([`hook_records.py`](../src/dashpot/sessions/hook_records.py)) derives
 the live sub-agents, the turn clock, and a compaction's turn state
 ([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)) from its own
 previous record, or from the session's fresher record in another store when
-the same Host Process moved it here, so a move never forgets a live sub-agent; `lastSessionStartAt`
-it carries from its own previous record alone. A child-scoped event with no
+the same Host Process moved it here, so a move never forgets a live
+sub-agent; `lastSessionStartAt` it carries from its own previous record alone. A child-scoped event with no
 parent record to join writes nothing but a sub-agent boundary. Reconciliation
 ([`work_reconciliation.py`](../src/dashpot/sessions/work_reconciliation.py))
 then runs in one order: an ended event first continues an orphaned run the

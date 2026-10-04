@@ -1114,6 +1114,7 @@ def measured_hooks(scenario: str) -> list[MeasuredHook]:
             for record in entry["store"]:
                 starts.setdefault(record["processPid"], record["processStartedAt"])
             pid = cast("int", entry["hostPid"])
+            assert pid in starts, f"no recorded start for #{entry['receipt']}'s host"
             host = ProcessIdentity(pid, 1, "claude", starts[pid])
             hooks.append(MeasuredHook(entry["receipt"], entry["payload"], host))
     assert hooks, f"no hooks recorded for scenario {scenario!r}"
