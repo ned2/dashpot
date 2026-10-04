@@ -32,7 +32,6 @@ from dashpot.core.event_log_files import (
     remove_event_logs,
 )
 from dashpot.core.model import Harness
-from dashpot.core.project_state import project_state_directory
 from dashpot.core.runtime_events import (
     CommandAttributes,
     EventBody,
@@ -41,7 +40,7 @@ from dashpot.core.runtime_events import (
     ProcessIdentity,
     ProcessStart,
 )
-from dashpot.core.state_paths import machine_state_directory
+from dashpot.core.state_paths import machine_state_directory, project_state_directory
 from dashpot.event_logs import LEVEL_VARIABLE
 from factories import git, init_repository, write_project_config
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .core.git import GitError
 from .core.model import Diagnostic
+from .core.state_paths import is_configured_checkout
 from .core.worktree_paths import worktree_root
 from .github.github import LatestRateLimit
 from .observation.collect import ObservationCoordinator
@@ -160,7 +161,7 @@ def cleanup_protection() -> list[Path]:
         root = worktree_root(current)
     except GitError:
         root = None
-    if root is not None and (root / PROJECT_CONFIG_NAME).is_file():
+    if root is not None and is_configured_checkout(root):
         protected.append(root)
     inventory = default_workspace_config()
     if inventory.is_file():
@@ -204,7 +205,7 @@ def create_collector(
         except GitError:
             project_root = current
             in_repository = False
-        if (project_root / PROJECT_CONFIG_NAME).is_file():
+        if is_configured_checkout(project_root):
             workspaces = [
                 Workspace(
                     project_root.name,

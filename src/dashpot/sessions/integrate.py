@@ -21,6 +21,7 @@ from ..core.git import GitError
 from ..core.model import HARNESS_DISPLAY, Harness
 from ..core.pydantic import PublishedModel, describe_validation_error
 from ..core.record_store import replace_atomically
+from ..core.state_paths import is_configured_checkout
 from ..core.worktree_paths import (
     main_worktree,
     same_path,
@@ -885,7 +886,7 @@ def _record_store_status(
         root = worktree_root(current or Path.cwd())
     except GitError:
         root = None
-    if root is not None and (root / ".dashpot" / "config.json").is_file():
+    if root is not None and is_configured_checkout(root):
         local = session_directory(root)
         messages.extend(
             _describe_records(

@@ -15,7 +15,7 @@ import pytest
 from dashpot.core.model import Harness
 from dashpot.repository.cleanup.obstacles import session_exit
 from dashpot.sessions.harnesses import HarnessError
-from dashpot.sessions.hook_records import write_hook_record
+from dashpot.sessions.hook_records import HookRecordStore
 from dashpot.sessions.integrate import (
     BUNDLED_SKILL_VERSION,
     CLAUDE_CODE_HOOK_EVENTS,
@@ -426,8 +426,8 @@ def test_status_lists_stale_session_records_without_pruning(tmp_path: Path) -> N
     home = codex_home(tmp_path)
     install_codex_integration(home, command_path=publisher(tmp_path))
     state = tmp_path / "state"
-    write_hook_record(session_record("0199-stale"), state)
-    write_hook_record(session_record("0199-live"), state)
+    HookRecordStore(state).write(session_record("0199-stale"))
+    HookRecordStore(state).write(session_record("0199-live"))
 
     messages = codex_integration_status(
         home, state_dir=state, current=tmp_path, lookup=absent()
@@ -454,7 +454,7 @@ def test_status_shows_unknown_liveness_reasons(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     install_codex_integration(home, command_path=publisher(tmp_path))
     state = tmp_path / "state"
-    write_hook_record(session_record("sandboxed"), state)
+    HookRecordStore(state).write(session_record("sandboxed"))
 
     messages = codex_integration_status(
         home,
@@ -767,7 +767,7 @@ def test_claude_code_status_and_missing_home(tmp_path: Path) -> None:
 
     state = tmp_path / "state"
     stale = {**session_record("claude-stale"), "harness": "claude-code"}
-    write_hook_record(stale, state)
+    HookRecordStore(state).write(stale)
     messages = integration_status(
         "claude-code", home, state_dir=state, current=tmp_path, lookup=absent()
     )
@@ -802,7 +802,7 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     tmp_path: Path,
 ) -> None:
     from dashpot.sessions.harnesses import SESSION_OVERRIDE_VARIABLE
-    from dashpot.sessions.hook_records import session_directory
+    from dashpot.sessions.hook_records import project_session_store
 
     home = codex_home(tmp_path)
     root = tmp_path / "repo"
@@ -830,9 +830,8 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
         for message in missing
     )
 
-    write_hook_record(
-        {**session_record("thread-9", "running"), "repositoryRoot": str(root)},
-        session_directory(root),
+    project_session_store(root).write(
+        {**session_record("thread-9", "running"), "repositoryRoot": str(root)}
     )
     confirmed = codex_integration_status(
         home, state_dir=state, current=root, lookup=present(CODEX), environ=claimed
@@ -861,15 +860,14 @@ def test_status_confirms_an_identity_only_where_its_freshest_record_places_it(
 ) -> None:
     # A move whose record at the destination could not be written leaves the
     # freshest record behind, so a command at the destination is elsewhere.
-    from dashpot.sessions.hook_records import session_directory
+    from dashpot.sessions.hook_records import project_session_store
 
     home = codex_home(tmp_path)
     main, linked = linked_worktree(tmp_path)
     write_config_marker(main)
     write_config_marker(linked)
-    write_hook_record(
-        {**session_record("thread-9", "running"), "repositoryRoot": str(main)},
-        session_directory(main),
+    project_session_store(main).write(
+        {**session_record("thread-9", "running"), "repositoryRoot": str(main)}
     )
 
     def status(current: Path) -> list[str]:

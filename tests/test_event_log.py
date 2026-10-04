@@ -27,7 +27,6 @@ from dashpot.core.event_log import (
     unrecorded_event_log,
     use_span,
 )
-from dashpot.core.project_state import STATE_GITIGNORE
 from dashpot.core.runtime_events import (
     AgentSessionChanged,
     CommandAttributes,
@@ -38,6 +37,7 @@ from dashpot.core.runtime_events import (
     SpanEnded,
     read_runtime_event,
 )
+from dashpot.core.state_paths import STATE_GITIGNORE
 from factories import completed, fake_git
 
 RUN = "0123456789abcdef0123456789abcdef"
@@ -321,7 +321,8 @@ def test_the_recent_buffer_keeps_every_event_whatever_the_level(tmp_path: Path) 
     log.start_span("command").end()
     log.end(0)
 
-    assert [event.body.name for event in log.recent] == ["span", "process.end"]
+    assert log.recent_limit == 2
+    assert [event.body.name for event in log.recent_events()] == ["span", "process.end"]
     assert not tmp_path.joinpath("events-2026-09-27.jsonl").exists()
 
 
@@ -370,7 +371,7 @@ def test_an_event_longer_than_a_line_may_be_is_dropped_and_reported(
     monkeypatch.undo()
     assert failures == [EVENT_TOO_LARGE]
     assert log.write_failure == EVENT_TOO_LARGE
-    assert isinstance(log.recent[-1].body, EventLogWriteFailed)
+    assert isinstance(log.recent_events()[-1].body, EventLogWriteFailed)
     # Nothing reached the file, so the next event follows on without a
     # ``process.continued``, as if the dropped one had never been.
     log.end(1)
@@ -393,7 +394,7 @@ def test_a_failed_write_is_dropped_into_the_buffer_and_never_raised(
 
     assert failures == ["ENOTDIR", "ENOTDIR"]
     assert log.write_failure == "ENOTDIR"
-    assert [event.body.name for event in log.recent] == [
+    assert [event.body.name for event in log.recent_events()] == [
         "process.start",
         "event_log.write_failed",
         "process.end",
@@ -464,7 +465,7 @@ def test_a_log_with_no_destination_writes_nothing() -> None:
     log.end(0)
 
     assert log.path is None
-    assert [event.body.name for event in log.recent] == [
+    assert [event.body.name for event in log.recent_events()] == [
         "level.changed",
         "process.start",
         "process.end",

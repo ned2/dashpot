@@ -436,7 +436,7 @@ class RuntimeStatsScreen(ModalScreen[None]):
             buffered,
             now=now,
             window=DASHBOARD_RECENT_WINDOW,
-            limit=log.recent.maxlen,
+            limit=log.recent_limit,
         )
         window = events_since(buffered, since)
         covered = window_text(

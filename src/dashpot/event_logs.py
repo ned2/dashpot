@@ -24,14 +24,17 @@ from .core.event_log import (
     new_run_id,
 )
 from .core.model import Harness
-from .core.project_state import project_state_directory
 from .core.runtime_events import (
     EVENT_LEVELS,
     EventLevel,
     ProcessIdentity,
     fitting,
 )
-from .core.state_paths import configured_checkout, machine_state_directory
+from .core.state_paths import (
+    configured_checkout,
+    machine_state_directory,
+    project_state_directory,
+)
 from .project.settings import SettingsError, load_settings
 
 LEVEL_VARIABLE = "DASHPOT_EVENT_LEVEL"

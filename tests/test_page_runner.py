@@ -246,7 +246,7 @@ def spanned_runner() -> tuple[PageRunner, FakeHost, EventLog]:
 def query_spans(log: EventLog) -> list[SpanEnded]:
     return [
         event.body
-        for event in log.recent
+        for event in log.recent_events()
         if isinstance(event.body, SpanEnded) and event.body.span_name == "query"
     ]
 

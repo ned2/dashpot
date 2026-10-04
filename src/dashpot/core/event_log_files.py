@@ -27,7 +27,6 @@ from pydantic import BaseModel, computed_field
 from .errors import DashpotError
 from .event_log import EVENTS_DIRECTORY, EventLogDestination, event_log_file_day
 from .model import Diagnostic, Harness
-from .project_state import project_state_directory
 from .pydantic import LaxSequence, PublishedModel
 from .runtime_events import (
     EventBody,
@@ -38,7 +37,11 @@ from .runtime_events import (
     SpanEnded,
     read_runtime_event,
 )
-from .state_paths import enclosing_checkout, machine_state_directory
+from .state_paths import (
+    enclosing_checkout,
+    machine_state_directory,
+    project_state_directory,
+)
 from .timestamps import observed_instant
 from .worktree_paths import repository_worktrees
 

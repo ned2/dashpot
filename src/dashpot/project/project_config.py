@@ -16,8 +16,10 @@ from ..core.pydantic import (
     repository_relative,
     translate_validation_error,
 )
+from ..core.state_paths import PROJECT_CONFIG_PATH
 
-PROJECT_CONFIG_NAME = ".dashpot/config.json"
+# The configuration's path as text, for a message or a path within a commit.
+PROJECT_CONFIG_NAME = PROJECT_CONFIG_PATH.as_posix()
 DEFAULT_RECONCILIATION_SECONDS = 300.0
 
 

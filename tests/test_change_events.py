@@ -369,7 +369,7 @@ def test_a_dashboard_that_cannot_write_still_follows_changes(tmp_path: Path) -> 
     changes.observe([session()])
     changes.observe([])
 
-    assert [type(event.body).__name__ for event in log.recent][-4:] == [
+    assert [type(event.body).__name__ for event in log.recent_events()][-4:] == [
         "AgentSessionChanged",
         "EventLogWriteFailed",
         "AgentSessionChanged",

@@ -11,7 +11,7 @@ from unittest import mock
 
 from dashpot.core.model import Harness, ObservationTarget
 from dashpot.sessions.agents import observe_agent_runs
-from dashpot.sessions.hook_records import write_hook_record
+from dashpot.sessions.hook_records import HookRecordStore
 from dashpot.sessions.processes import (
     ProcessIdentity,
     ProcessPresent,
@@ -42,7 +42,7 @@ class HookObserverTests(unittest.TestCase):
         cwd: str = "/repo",
         repository_root: str = "/repo",
     ) -> None:
-        write_hook_record(
+        HookRecordStore(self.state_dir).write(
             hook_record_document(
                 repository_root,
                 session_id,
@@ -52,8 +52,7 @@ class HookObserverTests(unittest.TestCase):
                 at="2026-08-24T15:00:00Z",
                 cwd=cwd,
                 event="Stop" if state == "waiting" else "PreToolUse",
-            ),
-            self.state_dir,
+            )
         )
 
     def test_live_record_is_returned(self) -> None:
@@ -278,7 +277,7 @@ class HookObserverTests(unittest.TestCase):
 
     def test_claude_code_record_is_observed_with_its_own_identity(self) -> None:
         claude = ProcessIdentity(77, 1, "claude", "Tue Aug 25 02:00:00 2026")
-        write_hook_record(
+        HookRecordStore(self.state_dir).write(
             {
                 "version": 2,
                 "sessionId": "claude-live",
@@ -290,8 +289,7 @@ class HookObserverTests(unittest.TestCase):
                 "event": "UserPromptSubmit",
                 "lastActivityAt": "2026-08-24T15:00:00Z",
                 "sessionProcess": claude.as_record(),
-            },
-            self.state_dir,
+            }
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -312,7 +310,7 @@ class HookObserverTests(unittest.TestCase):
         claude = ProcessIdentity(77, 1, "claude", "Tue Aug 25 02:00:00 2026")
         lookup = {42: self.process, 77: claude}
         self.write("codex-live", "waiting", self.process)
-        write_hook_record(
+        HookRecordStore(self.state_dir).write(
             {
                 "version": 2,
                 "sessionId": "claude-live",
@@ -324,8 +322,7 @@ class HookObserverTests(unittest.TestCase):
                 "event": "UserPromptSubmit",
                 "lastActivityAt": "2026-08-24T15:00:00Z",
                 "sessionProcess": claude.as_record(),
-            },
-            self.state_dir,
+            }
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -384,7 +381,7 @@ class WorkObserverTests(unittest.TestCase):
         return work
 
     def write_hook(self, session_id: str, state: str, cwd: str) -> None:
-        write_hook_record(
+        HookRecordStore(self.state_dir).write(
             hook_record_document(
                 cwd,
                 session_id,
@@ -393,8 +390,7 @@ class WorkObserverTests(unittest.TestCase):
                 state=state,
                 at="2026-08-24T15:00:00Z",
                 event="Stop" if state == "waiting" else "PreToolUse",
-            ),
-            self.state_dir,
+            )
         )
 
     def targets(self) -> dict[str, list[ObservationTarget]]:
@@ -656,7 +652,7 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         state: str = "running",
         at: str = "2026-08-24T15:00:00Z",
     ) -> None:
-        write_hook_record(
+        HookRecordStore(self.state_dir).write(
             hook_record_document(
                 self.worktree,
                 session_id,
@@ -664,8 +660,7 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
                 process,
                 state=state,
                 at=at,
-            ),
-            self.state_dir,
+            )
         )
 
     def record_work(

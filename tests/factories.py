@@ -31,7 +31,11 @@ from dashpot.core.model import (
     TargetRole,
     WorkspaceSnapshot,
 )
-from dashpot.sessions.hook_records import session_directory, write_hook_record
+from dashpot.sessions.hook_records import (
+    HookRecordStore,
+    project_session_store,
+    session_directory,
+)
 from dashpot.sessions.processes import ProcessIdentity
 
 NOW = "2026-08-27T03:00:00Z"
@@ -298,9 +302,9 @@ def hook_record(
     It lands in ``root``'s own store unless ``store`` names another, as the
     global store does for a Worktree whose checkout predates configuration.
     """
-    return write_hook_record(
-        hook_record_document(root, session_id, harness, process, state=state, at=at),
-        store if store is not None else session_directory(root),
+    target = project_session_store(root) if store is None else HookRecordStore(store)
+    return target.write(
+        hook_record_document(root, session_id, harness, process, state=state, at=at)
     )
 
 

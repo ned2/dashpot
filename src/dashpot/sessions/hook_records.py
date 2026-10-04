@@ -14,10 +14,9 @@ from pydantic import AfterValidator, BeforeValidator, Field, ValidationError
 from ..core.git import Git, GitError
 from ..core.json_records import HookRecordError, optional_string, require_string
 from ..core.model import Harness
-from ..core.project_state import project_state_directory
 from ..core.pydantic import NonEmptyString, PersistedRecord
 from ..core.record_store import LockedRecordStore
-from ..core.state_paths import machine_state_directory
+from ..core.state_paths import machine_state_directory, project_state_directory
 from ..core.timestamps import observed_instant, utc_now
 from .harnesses import SESSION_ID, HarnessName, HookSessionIdentity, delegate_id
 from .processes import ProcessIdentity, ProcessKey, SessionProcessRecord
@@ -309,10 +308,6 @@ def _process_key(raw: object) -> ProcessKey | None:
         return SessionProcessRecord.model_validate(raw).identity.key
     except ValidationError:
         return None
-
-
-def write_hook_record(record: dict[str, Any], directory: Path) -> Path:
-    return HookRecordStore(directory).write(record)
 
 
 class HookRecordStore(LockedRecordStore):

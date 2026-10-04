@@ -21,7 +21,7 @@ from dashpot.core.commands import (
     run_command,
 )
 from dashpot.core.git import Git, GitError
-from dashpot.core.project_state import ensure_state_directory
+from dashpot.core.state_paths import ensure_state_directory
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     SUB_AGENT_SCOPE,
@@ -50,9 +50,10 @@ from dashpot.repository.worktrees.removability import check_worktree
 from dashpot.serialization import cleanup_preview_document, cleanup_report_document
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
+    HookRecordStore,
+    project_session_store,
     session_directory,
     state_directory,
-    write_hook_record,
 )
 from dashpot.sessions.processes import (
     ProcessIdentity,
@@ -435,7 +436,7 @@ def test_dirty_locked_and_occupied_worktree_is_blocked(tmp_path: Path) -> None:
     (worktree / "scratch.txt").write_text("")
     git(root, "worktree", "lock", "--reason", "claude pid 4242", str(worktree))
     live = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
-    write_hook_record(
+    project_session_store(worktree).write(
         {
             "version": 2,
             "sessionId": "01c7192b-2990-4f83-ad33-290ac22eb4d1",
@@ -447,8 +448,7 @@ def test_dirty_locked_and_occupied_worktree_is_blocked(tmp_path: Path) -> None:
             "event": "UserPromptSubmit",
             "lastActivityAt": "2026-08-30T03:40:00.000000Z",
             "sessionProcess": live.as_record(),
-        },
-        session_directory(worktree),
+        }
     )
 
     preview = preview_worktree(
@@ -530,7 +530,7 @@ def occupied_worktree(
         record["sessionProcess"] = process.as_record()
     if unobservable_reason is not None:
         record["sessionProcessUnobservable"] = unobservable_reason
-    write_hook_record(record, session_directory(worktree))
+    project_session_store(worktree).write(record)
     return worktree.resolve(), (root.resolve(), worktree.resolve())
 
 
@@ -839,7 +839,7 @@ def publish_subagent(
     works in, as measured on Claude Code 2.1.285; the store derives the live
     set from the event.
     """
-    write_hook_record(
+    HookRecordStore(store).write(
         {
             "version": 2,
             "sessionId": session,
@@ -852,8 +852,7 @@ def publish_subagent(
             "agentId": agent,
             "lastActivityAt": f"2026-08-30T03:{minute:02d}:00.000000Z",
             "sessionProcess": process.as_record(),
-        },
-        store,
+        }
     )
 
 
@@ -954,7 +953,7 @@ def test_a_sub_agent_still_blocks_after_its_parent_moves_to_another_worktree(
     publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
     # The parent then enters the sibling, whose store has no previous record
     # of the session and so no sub-agents to carry.
-    write_hook_record(
+    project_session_store(sibling).write(
         {
             "version": 2,
             "sessionId": PARENT_SESSION,
@@ -966,8 +965,7 @@ def test_a_sub_agent_still_blocks_after_its_parent_moves_to_another_worktree(
             "event": "UserPromptSubmit",
             "lastActivityAt": "2026-08-30T03:45:00.000000Z",
             "sessionProcess": PARENT.as_record(),
-        },
-        session_directory(sibling),
+        }
     )
 
     preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))

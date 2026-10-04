@@ -35,9 +35,8 @@ from typing import Any, Literal, Self
 from pydantic import ConfigDict, Field, ValidationError, model_validator
 
 from ..core.git import Git, GitError
-from ..core.project_state import ensure_state_directory
 from ..core.pydantic import NonEmptyString, PublishedModel
-from ..core.state_paths import is_configured_checkout
+from ..core.state_paths import ensure_state_directory, is_configured_checkout
 from ..core.worktree_paths import repository_worktrees, same_path
 from .harnesses import HookSessionIdentity
 from .hook_publish import HookPublication, publish_hook_event
