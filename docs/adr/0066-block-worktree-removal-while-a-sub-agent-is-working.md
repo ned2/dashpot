@@ -163,3 +163,9 @@ might be working in it.
   the session's own Host Process, as a compaction publishes, keeps its
   sub-agents listed, so they keep blocking removal. Only one from another
   process, or one that names none, starts with no sub-agents.
+- Amended by [ADR 0102](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md)
+  ([#427](https://github.com/ned2/dashpot/issues/427)): a sub-agent's stop
+  also removes it from the live records its session left behind at other
+  Worktrees of the Repository, so a session that moved while its sub-agent
+  worked stops blocking removal once that sub-agent stops. The union over
+  every record of the session still holds for one still working.

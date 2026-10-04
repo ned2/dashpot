@@ -35,7 +35,7 @@ from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.source_queries import QueryRequest
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
-from dashpot.sessions.hook_records import state_directory
+from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessLookup
 from dashpot.sessions.work import (
     IssueWorkError,
@@ -817,13 +817,18 @@ def test_assignment_refuses_a_worker_only_a_stale_record_lists(
     tmp_path: Path,
 ) -> None:
     # The Lead moved to another Worktree's store, carrying its Worker, and
-    # the Worker's stop reached only the record there: the record left
-    # behind still lists it, but the Lead's freshest record does not.
+    # the Worker stopped there. Its stop now clears the record left behind
+    # too (ADR 0102), so this simulates a record a publisher before ADR 0102
+    # left listing the Worker: the Lead's freshest record does not list it.
     main, first, _second = arc(tmp_path)
     leading(main, WORKER)
     publish(first, "UserPromptSubmit")
     publish(first, "SubagentStop", WORKER)
-    assert (stored(main) or {}).get("liveSubagents") == [WORKER]
+    left = stored(main)
+    assert left is not None
+    assert left["liveSubagents"] == []
+    path = session_directory(main) / f"{CODEX_SESSION}.json"
+    path.write_text(json.dumps({**left, "liveSubagents": [WORKER]}))
 
     with pytest.raises(IssueWorkError, match="lists no Sub-agent"):
         assign(main, "first", WORKER, first)

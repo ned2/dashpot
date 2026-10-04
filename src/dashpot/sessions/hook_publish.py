@@ -89,10 +89,11 @@ def publish_hook_event(
     A Sub-agent's event is written to the store that holds its parent's
     freshest record, with that record's location, and reconciles nothing: it
     changes only the parent's live sub-agents (ADR 0067); a stop also leaves
-    every ended record of its Host Process that kept it (ADR 0095, ADR 0101).
-    A Conversation Switch's ``SessionStart`` takes over the sub-agents of the
-    session its Host Process switched from, which stop listing them once the
-    new record does (ADR 0101). ``SessionEnd`` first
+    every ended record of its Host Process that kept it (ADR 0095, ADR 0101),
+    and every live record its session left behind at another Worktree
+    (ADR 0102). A Conversation Switch's ``SessionStart`` takes over the
+    sub-agents of the session its Host Process switched from, which stop
+    listing them once the new record does (ADR 0101). ``SessionEnd`` first
     continues an orphaned run the session holds here (ADR 0075), then ends the
     session's run before its record is removed, and removes its older records
     elsewhere in the Repository; a ``SessionEnd`` from a managed Codex daemon
@@ -192,7 +193,9 @@ def publish_hook_event(
         )
     if child:
         if record.get("event") == "SubagentStop":
-            _stop_kept_elsewhere(record, identity, worktrees, directory)
+            _stop_kept_elsewhere(
+                record, identity, worktrees, directory, written_to=destination
+            )
         return HookPublication(destination, state=state)
     relocated = complete_session_work_relocation(
         record, identity, lookup, directory=destination.parent, worktrees=worktrees
@@ -234,8 +237,12 @@ def _stop_kept_elsewhere(
     identity: ProcessIdentity | None,
     worktrees: list[Path],
     directory: Path | None,
+    written_to: Path,
 ) -> None:
-    """Remove a stopped Sub-agent from every ended record of its Host Process.
+    """Remove a stopped Sub-agent from the other records of its Host Process that keep it.
+
+    Those are the process's ended records and the records the stop's own
+    session left behind.
 
     A session that ended at one Worktree and started again at another routes
     its Sub-agents' events to its live record there, while the record its
@@ -243,18 +250,25 @@ def _stop_kept_elsewhere(
     Conversation Switch moves a working sub-agent to another session of the
     same process, so the stop may name a session other than the one whose
     ended record kept it (ADR 0101): an agent id names one sub-agent, so its
-    stop clears it from every ended record of the process. Only ended
-    records: a live session's other records are not this rule's to change.
-    Each store re-reads its record under its lock.
+    stop clears it from every ended record of the process. A session that
+    moved to another Worktree carried its sub-agents to the record there,
+    and the record it left behind lists them too, so the stop clears it from
+    the session's own live records as well (ADR 0102); another live
+    session's records are left as they are. The record the stop was written
+    to is skipped: a start of the same agent may already have listed it
+    there again. Each store re-reads its record under its lock.
     """
     agent = record.get("agentId")
     if identity is None or not isinstance(agent, str):
         return
     for item in _process_records(record, identity, worktrees, directory):
-        if item.record.state == "ended" and agent in item.record.live_subagents:
-            HookRecordStore(item.store).release_subagents(
-                item.path.stem, [agent], record
-            )
+        if agent not in item.record.live_subagents or same_path(item.path, written_to):
+            continue
+        store = HookRecordStore(item.store)
+        if item.record.state == "ended":
+            store.release_subagents(item.path.stem, [agent], record)
+        elif item.record.session_id == record.get("sessionId"):
+            store.release_left_behind(item.path.stem, [agent], record)
 
 
 def _records_switched_from(

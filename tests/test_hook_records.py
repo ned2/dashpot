@@ -1842,3 +1842,50 @@ def test_releasing_sub_agents_changes_only_an_ended_record_of_the_same_process(
     records = stored_records(tmp_path)
     assert records.keys() == {"live"}
     assert records["live"]["liveSubagents"] == ["agent-1"]
+
+
+def test_releasing_a_left_behind_sub_agent_changes_only_the_sessions_own_live_record(
+    tmp_path: Path,
+) -> None:
+    store = HookRecordStore(tmp_path)
+    for agent in ("agent-1", "agent-2"):
+        store.write(
+            build_hook_record(
+                switch_event("moved", "SubagentStart", agent_id=agent),
+                CLAUDE,
+                "claude-code",
+            )
+        )
+    left_with_worker(tmp_path)
+    before = stored_records(tmp_path)["moved"]
+
+    def stop(session_id: str, process: ProcessIdentity | None = CLAUDE) -> Any:
+        return build_hook_record(
+            switch_event(session_id, "SubagentStop", agent_id="agent-1"),
+            process,
+            "claude-code",
+        )
+
+    by = stop("moved")
+    assert not store.release_left_behind("left", ["agent-1"], stop("left"))
+    assert not store.release_left_behind("missing", ["agent-1"], by)
+    assert not store.release_left_behind("moved", ["agent-1"], stop("other"))
+    assert not store.release_left_behind(
+        "moved", ["agent-1"], {**by, "harness": "codex"}
+    )
+    assert not store.release_left_behind(
+        "moved", ["agent-1"], stop("moved", OTHER_CLAUDE)
+    )
+    assert not store.release_left_behind("moved", ["agent-1"], stop("moved", None))
+    assert not store.release_left_behind("moved", ["agent-3"], by)
+    assert stored_records(tmp_path)["moved"] == before
+
+    assert store.release_left_behind("moved", ["agent-1"], by)
+    assert stored_records(tmp_path)["moved"] == {**before, "liveSubagents": ["agent-2"]}
+    assert store.release_left_behind("moved", ["agent-2"], by)
+
+    # A live record listing none stays: only its session's end or a prune
+    # removes it.
+    records = stored_records(tmp_path)
+    assert records["moved"] == {**before, "liveSubagents": []}
+    assert records["left"]["liveSubagents"] == ["agent-1"]
