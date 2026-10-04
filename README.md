@@ -1,10 +1,12 @@
 # Dashpot
 
-_Useful damping for agent-driven projects._
+_Useful damping for agent-assisted projects._
 
-Dashpot is a passive terminal view of declared work, repository state, and active
-coding-agent runs. It makes the small but important project-management pause
-visible before another prompt or agent adds more motion.
+A terminal dashboard for agent-assisted projects that brings your Issues, Pull
+Requests, Branches, Worktrees, and live Codex, Claude Code, and OpenCode Agent
+Sessions together in one view. Issues can come from GitHub or from Local Issue
+Markdown in the repository. Dashpot makes the small but important project-management
+pause visible before another prompt or agent adds more motion.
 
 Like its [mechanical namesake](https://en.wikipedia.org/wiki/Dashpot), Dashpot is
 intended to reduce oscillation without stopping progress. Observation never
@@ -46,6 +48,26 @@ refresh, for example, retains its last good collection without degrading a
 healthy Issue Source or hiding repository facts. A Local Issue Markdown
 Project reports Pull Requests as not configured rather than inferring a host
 from its Git remotes.
+
+## Supported harnesses
+
+Dashpot observes Agent Sessions of three coding-agent harnesses. Each is
+supported at the release its [acceptance run](#harness-acceptance-runs) last
+passed on, on Linux. These are accepted releases, not minimum versions: other
+releases are unsupported until that run passes on them, and no lower bound has
+been established yet. Supporting newer releases without a new acceptance run,
+and finding each harness's real lower bound, is tracked in
+[#416](https://github.com/ned2/dashpot/issues/416).
+
+| Harness | Observed through | Accepted release | Other releases |
+| --- | --- | --- | --- |
+| [Codex](docs/agent-sessions.md#codex-hosting-modes) | Lifecycle hooks | `codex-cli` 0.160.0 | Not checked: Dashpot does not read the Codex release |
+| [Claude Code](docs/agent-sessions.md#claude-code-hosting-modes) | Lifecycle hooks | 2.1.287 | Not checked: Dashpot does not read the Claude Code release |
+| [OpenCode](docs/agent-sessions.md#opencode-hosting-modes) | A plugin | 2.0.22 | 1.x is refused; another 2.x release is observed with a warning; a later major release is warned about and not observed ([details](docs/installation.md#observe-agent-sessions)) |
+
+Install a harness's integration with `dashpot integrate codex`,
+`dashpot integrate claude-code`, or `dashpot integrate opencode`; see
+[Agent session observation](#agent-session-observation).
 
 ## Installation
 

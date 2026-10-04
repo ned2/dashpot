@@ -1,6 +1,6 @@
 # Dashpot
 
-_Useful damping for agent-driven projects._
+_Useful damping for agent-assisted projects._
 
 Dashpot is a terminal view of GitHub or Local Markdown Issues, Pull Requests,
 Git Branches and Worktrees, and active Codex, Claude Code and OpenCode
