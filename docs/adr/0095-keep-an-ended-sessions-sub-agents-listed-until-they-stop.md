@@ -189,3 +189,11 @@ anything for long:
   Worktree it moved on from keeps only what its records of the ending Host
   Process list. ADR 0066's union over every record of the session still
   holds while that session lives.
+- Amended by [ADR 0097](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md)
+  ([#448](https://github.com/ned2/dashpot/issues/448)): a `SessionStart` of
+  the same Host Process carries a live record's sub-agents too, so this
+  decision's carry of an ended record is one case of that rule. #448 also
+  measured a Claude Code `/clear`, `/resume` and `/branch` with a worker
+  running: each ends the session and moves the worker to another session
+  id in the same process, so the ended record keeps it listed until the
+  process exits, as this decision expected.

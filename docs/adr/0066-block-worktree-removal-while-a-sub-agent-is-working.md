@@ -158,3 +158,8 @@ might be working in it.
   Their `sub-agent` blocker says the session ended with them listed and
   names `dashpot work forget-subagents <session-id>` as the way out once
   none still works.
+- Amended by [ADR 0097](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md)
+  ([#448](https://github.com/ned2/dashpot/issues/448)): a `SessionStart` from
+  the session's own Host Process, as a compaction publishes, keeps its
+  sub-agents listed, so they keep blocking removal. Only one from another
+  process, or one that names none, starts with no sub-agents.

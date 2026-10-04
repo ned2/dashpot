@@ -17,6 +17,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [SessionStart on a live session experiment](session-start-on-a-live-session-spike.md) | research | 2026-10-04 |
 | [OpenCode v2 self-relocation acceptance run](opencode-v2-self-relocation-acceptance.md) | research | 2026-10-04 |
 | [OpenCode v2 worker mechanics experiment](opencode-v2-worker-mechanics-spike.md) | research | 2026-10-04 |
 | [Claude Code worker mechanics experiment](claude-code-worker-mechanics-spike.md) | research | 2026-10-04 |

@@ -174,13 +174,15 @@ What each harness reports bounds what Dashpot can claim:
   after its last client leaves, which ends its run and its assignments while
   its Workers may still work (ADR 0095). From then until the Lead resumes and
   assigns again, those Workers' Issues show nothing.
-- **A Lead's own `SessionStart`.** A session's hook record starts its
-  Sub-agent listing over, empty, on a `SessionStart` that does not follow
-  its own end. Claude Code publishes one when it compacts the Lead's
-  context. Workers working then drop off the listing until they start again,
-  so their Issues show nothing and `work assign` refuses them. Cleanup's
-  `sub-agent` blocker loses them the same way. This predates this decision;
-  [#448](https://github.com/ned2/dashpot/issues/448) follows it up.
+- **A Lead's own `SessionStart`.** Claude Code and Codex publish one when
+  they compact the Lead's context. Since
+  [ADR 0097](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md)
+  ([#448](https://github.com/ned2/dashpot/issues/448)), one from the Lead's
+  own Host Process keeps its Workers listed, so their Issues stay `running`
+  and `work assign` accepts them. One from another process, such as a
+  `claude --resume`, or from a process the hook cannot name, starts with
+  none. A Claude Code `/clear`, `/resume` or
+  `/branch` ends the Lead's session, and its run and assignments with it.
 - **Resumed and relaunched Workers.** A Claude Code `SendMessage` to a
   finished Worker resumes it under the same `agent_id`, which publishes
   `SubagentStart` again. Its assignment counts it running again. Codex v2's

@@ -115,3 +115,11 @@ hold the session running while any sub-agent it started is alive:
   because a managed Codex daemon unloads a lead while its worker still works.
   A `SessionStart` on that Host Process carries them into the new
   incarnation.
+- Amended by [ADR 0097](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md)
+  ([#448](https://github.com/ned2/dashpot/issues/448)): a `SessionStart`
+  begins with none only from another Host Process, or one it cannot name. One
+  from the process the previous record names carries its sub-agents, because
+  Claude Code and Codex publish a `SessionStart` when they compact a live
+  session whose sub-agents keep working. An undelivered `SubagentStop` is
+  then bounded by the process's exit rather than the session's next
+  `SessionStart`.

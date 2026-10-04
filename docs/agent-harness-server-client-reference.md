@@ -86,6 +86,20 @@ itself establish inter-agent collaboration, lower model costs, or safe parallel
 edits. Distinct Worktrees isolate ordinary checked-out files while retaining
 shared Git metadata; process isolation does not supply file isolation.
 
+### Compaction and conversation switches with a sub-agent working
+
+Measured under [#448](https://github.com/ned2/dashpot/issues/448) at Claude
+Code 2.1.289, Codex 0.160.0 and OpenCode 2.0.22, each with a sub-agent
+holding a command open across the action
+([spike](spikes/session-start-on-a-live-session-spike.md)). In every case the
+sub-agent kept working.
+
+| Action | Claude Code | Codex | OpenCode |
+| --- | --- | --- | --- |
+| Compaction, by command or automatic | `PreCompact`, a `SubagentStop` for the summarizer with no `SubagentStart`, `SessionStart` `compact` on the same session and process, `PostCompact`; no `SessionEnd`, and no `Stop` for a manual `/compact` | `PreCompact`, `PostCompact`; `SessionStart` `compact` on the same session and process at the next turn, or mid-turn for automatic compaction; no `SessionEnd` | Runs as, or inside, an execution of the root; compaction events of its own, and no `session.created` |
+| Clear or new conversation | `/clear`: `SessionEnd` `clear`, then `SessionStart` `clear` with a new id in the same process; the sub-agent reports under the new id | `/clear`: `SessionStart` `clear` on a new thread, `/new`: `SessionStart` `startup`; the old thread gets no `SessionEnd` then, and its sub-agent stops on it | Not measured |
+| Switch conversation | `/resume <id>`: `SessionEnd` `resume`, then `SessionStart` `resume` naming the other session; `/branch`: `SessionEnd` `resume`, then `SessionStart` `fork`; the sub-agent follows to the new session | A second client resuming a loaded thread publishes no `SessionStart` | A client or TUI attaching to the root publishes no `session.created` |
+
 ## Codex CLI and App Server
 
 ### Entry points and hosting choices

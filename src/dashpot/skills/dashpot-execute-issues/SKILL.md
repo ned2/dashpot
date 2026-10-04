@@ -231,9 +231,6 @@ your Issue work. Maintain them as workers come and go:
 - **After you bind again**, as after a fork or an unloaded Codex lead,
   assign every live worker again. Any `work start` ends your assignments,
   even one on the arc's own Issue.
-- **After your context is compacted**, Dashpot may stop listing workers
-  that are still working until they start again: their Issues go quiet and
-  `work assign` refuses them. Nothing is lost; carry on.
 
 ## 4. Handle each hand-back
 

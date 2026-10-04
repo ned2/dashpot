@@ -100,3 +100,4 @@ of date.
 | 0094 | [Let a root OpenCode session move itself for Issue work](0094-let-a-root-opencode-session-move-itself-for-issue-work.md) | accepted | — |
 | 0095 | [Keep an ended session's sub-agents listed until they stop](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md) | accepted | — |
 | 0096 | [Attribute a Lead's Workers to their Issues by explicit assignment](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md) | accepted | — |
+| 0097 | [Carry a live session's sub-agents through its own SessionStart](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md) | accepted | — |
