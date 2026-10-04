@@ -42,7 +42,9 @@ skill copy those are the copy itself, which holds `SKILL.md` and the
 manifest, the directory of each shipped file, and the directory of each
 file an earlier Dashpot wrote that this one no longer ships, where that
 directory resolves inside the copy. For the hooks file, the plugin and an
-agent, it is the directory holding the file. One that fails the check
+agent, it is the directory holding the file; anything but a file at the
+hooks path is refused too, as the plugin's and an agent's paths already
+were, since it would read as absent and fail only at the write. One that fails the check
 refuses the whole installation, with a line per refused destination
 ("cannot install the Dashpot Issue work skill at …: … is not writable; make
 it writable and retry"), all of them in one error, and nothing is written.
@@ -56,8 +58,15 @@ attempt.
 writes the remaining destinations regardless, then ends with an error
 naming every destination that failed ("could not install …", "could not
 update …"), followed by "the rest of the integration is written, and
-rerunning 'dashpot integrate <harness>' finishes it". The command prints
-what it did write first, then the error, and exits 2 as any refusal does. A
+rerunning 'dashpot integrate <harness>' once that is fixed finishes it".
+The command prints what it did write first, then the error, and exits 2 as
+any refusal does. The error is an `IncompleteIntegrationError`, a subclass
+of the refusal `IntegrationError` that also carries those printed lines, as
+`GitError` carries its command beside the
+[ADR 0046](0046-raise-every-refusal-as-a-dashpoterror-subclass.md) contract.
+The Event Log records the command as refused, and its error type,
+`IncompleteIntegrationError`, tells an incomplete installation from one that
+wrote nothing. A
 skill copy cut short is left as ADR 0103 describes: its manifest still
 names every file Dashpot wrote, so the rerun or `--remove` finishes it.
 This residual case does leave a mixed install, but only the destinations

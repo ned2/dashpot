@@ -81,7 +81,7 @@ SKILL_FILE = Path("SKILL.md")
 
 
 class IntegrationError(DashpotError):
-    """A hook or skill installation refused with the file left as it was."""
+    """A hook or skill installation refused, or one left incomplete."""
 
 
 class IncompleteIntegrationError(IntegrationError):
@@ -97,7 +97,7 @@ class IncompleteIntegrationError(IntegrationError):
     ) -> None:
         super().__init__(
             f"{'; '.join(failures)}; the rest of the integration is written, and "
-            f"rerunning 'dashpot integrate {harness}' finishes it"
+            f"rerunning 'dashpot integrate {harness}' once that is fixed finishes it"
         )
         self.messages = tuple(messages)
 
@@ -106,11 +106,15 @@ class IncompleteIntegrationError(IntegrationError):
 class _PendingWrite:
     """One destination ``integrate`` changes, checked before any is written."""
 
-    # What a refusal names, such as "the Dashpot Issue work skill at <path>".
+    # A refusal names the destination, such as "the Dashpot Issue work skill
+    # at <path>", so one error can list every destination refused.
     subject: str
-    # Every directory the write creates, replaces or removes a file in.
+    # A file is replaced by renaming a temporary beside it, and removed by
+    # unlinking it, so the directories alone decide whether the write can be
+    # made, whatever the files' own modes.
     directories: tuple[Path, ...]
-    # Write the destination and report it; raises ``IntegrationError``.
+    # Deferred, so nothing is written until every destination is checked;
+    # raises ``IntegrationError``.
     perform: Callable[[], str]
 
     def refusal(self) -> str | None:
@@ -490,8 +494,15 @@ def install_integration(
 def _plan_hooks(
     spec: HarnessIntegration, home: Path, command: Path
 ) -> str | _PendingWrite:
-    """The hooks file with Dashpot's handlers bound to ``command``, unless it already is."""
+    """The pending write of the hooks bound to ``command``, unless they are current."""
     path = home / spec.hooks_file
+    # A hooks path holding anything but a file would be read as absent and
+    # then fail only at the write, after the other destinations are written.
+    if os.path.lexists(path) and not path.is_file():
+        raise IntegrationError(
+            f"cannot install the {spec.display} lifecycle hooks in {path}: the "
+            "path is not a file; move it and retry"
+        )
     document = _load_hooks_document(spec, path)
     original = json.dumps(document, sort_keys=True)
     hooks = document.setdefault("hooks", {})
@@ -956,7 +967,7 @@ def _remove_files(destination: Path, files: Sequence[Path]) -> None:
 
 
 def _plan_skill(skill: BundledSkill, destination: Path) -> str | _PendingWrite:
-    """The shipped files of one skill, written into its copy unless it is current."""
+    """The pending write of one skill's copy, unless it is current."""
     if _is_current(skill, destination):
         return f"Dashpot {skill.label} already installed in {destination}"
     # An empty directory, as a first installation cut short leaves, is
@@ -1123,7 +1134,7 @@ def _is_current_agent(agent: BundledAgent, destination: Path) -> bool:
 
 
 def _plan_agent(agent: BundledAgent, destination: Path) -> str | _PendingWrite:
-    """The shipped agent definition, written to its file unless it is current."""
+    """The pending write of the shipped agent definition, unless it is current."""
     if _is_current_agent(agent, destination):
         return f"Dashpot {agent.label} already installed in {destination}"
     existed = os.path.lexists(destination)
@@ -1522,7 +1533,7 @@ def _managed_plugin(path: Path) -> str | None:
 def _plan_plugin(
     spec: HarnessIntegration, home: Path, command: Path
 ) -> str | _PendingWrite:
-    """The managed plugin bound to ``command``, written unless it already is."""
+    """The pending write of the plugin bound to ``command``, unless it is current."""
     path = home / spec.hooks_file
     current = _managed_plugin(path)
     rendered = render_plugin(command)

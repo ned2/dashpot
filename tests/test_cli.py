@@ -1807,7 +1807,7 @@ def test_an_incomplete_integrate_reports_what_it_wrote_then_what_failed(
     assert captured.err == (
         "dashpot: could not install the Dashpot Second skill in /x: disk full; "
         "the rest of the integration is written, and rerunning 'dashpot "
-        "integrate codex' finishes it\n"
+        "integrate codex' once that is fixed finishes it\n"
     )
 
 

@@ -755,7 +755,8 @@ def test_a_first_install_cut_short_leaves_a_directory_free_to_install_into(
     assert str(refused.value) == (
         f"could not install the Dashpot Second skill in {copy}: "
         "[Errno 28] No space left on device; the rest of the integration is "
-        "written, and rerunning 'dashpot integrate codex' finishes it"
+        "written, and rerunning 'dashpot integrate codex' once that is fixed "
+        "finishes it"
     )
     assert f"Second skill not installed: no {copy / 'SKILL.md'}" in status(
         "codex", tmp_path, skills
@@ -827,7 +828,7 @@ def test_remove_never_follows_a_link_loop_inside_a_copy(
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
-def test_a_managed_copy_it_cannot_write_is_reported_not_raised(
+def test_a_managed_copy_it_cannot_write_refuses_the_install_and_is_kept(
     tmp_path: Path, second: BundledSkill
 ) -> None:
     skills = (ISSUE_WORK_SKILL, second)
@@ -914,7 +915,7 @@ def test_an_unwritable_copy_among_the_skills_refuses_before_anything_is_written(
         "writable; make it writable and retry"
     )
     # Neither the hooks or plugin nor the copy before the unwritable one
-    # changed, so every copy is still the same release.
+    # changed, so every destination is still at the same release.
     assert snapshot(home, first, second, third) == before
     report = status(harness, tmp_path, skills)
     for skill, copy in zip(skills, (first, second, third), strict=True):
@@ -948,7 +949,7 @@ def test_a_write_that_fails_past_the_checks_carries_on_and_names_every_failure(
         f"space left on device; could not install the Dashpot Second skill in "
         f"{second}: [Errno 28] No space left on device; the rest of the "
         "integration is written, and rerunning 'dashpot integrate codex' "
-        "finishes it"
+        "once that is fixed finishes it"
     )
     assert incomplete.value.messages == (
         f"hook publisher: {publisher(tmp_path, integration('codex'))}",
@@ -1032,6 +1033,24 @@ def test_a_skill_directory_under_a_file_refuses_before_anything_is_written(
         f"{shared} is not a directory; move it and retry"
     )
     assert not integration_file("codex").exists()
+
+
+@pytest.mark.parametrize("harness", ["codex", "claude-code"])
+def test_a_hooks_path_that_is_no_file_refuses_before_anything_is_written(
+    harness: Harness, tmp_path: Path, second: BundledSkill
+) -> None:
+    hooks = integration_file(harness)
+    config_home(harness)
+    hooks.mkdir()
+
+    with pytest.raises(IntegrationError) as refused:
+        install(harness, tmp_path, (second,))
+
+    assert str(refused.value) == (
+        f"cannot install the {integration(harness).display} lifecycle hooks in "
+        f"{hooks}: the path is not a file; move it and retry"
+    )
+    assert not copy_of(harness, second).exists()
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root searches any directory")

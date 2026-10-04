@@ -515,7 +515,7 @@ installation, naming each one it cannot write, so an unwritable copy never
 leaves some copies updated and others not. A write that fails after that
 check, such as on a full disk, does not stop the others: `integrate` prints
 what it wrote, names every destination that failed, and exits with an
-error, and rerunning it finishes the installation
+error; rerunning it once the cause is fixed finishes the installation
 ([ADR 0110](adr/0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md)).
 `--status` also reports each bundled skill as installed, missing, or with an
 update available. An Agent Session declares Issue work with `dashpot work start`
