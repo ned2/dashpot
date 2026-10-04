@@ -6,7 +6,9 @@ Measured on Claude Code 2.1.287 (#419,
 headless SDK interrupt (scenario ``headless-interrupt``) each end the worker
 without a ``SubagentStop``. Each test replays one order through the hook
 publisher, then reads what ``dashpot work show`` and the ``sub-agent``
-Cleanup blocker say of the worker, and what the session's end clears.
+Cleanup blocker say of the worker, and what the session's end clears. A
+session that ends while its process lives keeps the stopped worker listed in
+its ended record (ADR 0095), and the blocker names it the same way (#493).
 """
 
 from __future__ import annotations
@@ -17,7 +19,11 @@ import pytest
 
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions.hook_publish import publish_hook_event
-from dashpot.sessions.work import show_issue_work, start_issue_work
+from dashpot.sessions.work import (
+    forget_session_subagents,
+    show_issue_work,
+    start_issue_work,
+)
 from dashpot.sessions.work_store import WorkStore
 from factories import CLAUDE
 from helpers import absent, present
@@ -30,6 +36,16 @@ WAY_OUT = (
     "Dashpot lists a sub-agent until Claude Code reports that it stopped, "
     "which one that was stopped or interrupted may never do, so if none is "
     "still working, end that session"
+)
+
+# What the blocker says of an ended session's sub-agents after its count and
+# identity.
+ENDED_WAY_OUT = (
+    "Dashpot lists a sub-agent of an ended session until Claude Code reports "
+    "that it stopped or the session's process exits, which one that was "
+    "stopped, was interrupted or ended with its session may never do, so if "
+    "none is still working, run dashpot work forget-subagents "
+    f"{CLAUDE_SESSION} --harness claude-code"
 )
 
 # The lead's hook events after its worker's ``SubagentStart``, as #419
@@ -97,3 +113,42 @@ def test_a_stopped_worker_is_named_as_one_that_may_never_report(
         "no active Issue work at this worktree"
     ]
     assert assess_worktree_occupancy(b, [a, b], absent()) == []
+
+
+@pytest.mark.parametrize("order", STRANDING_ORDERS.values(), ids=STRANDING_ORDERS)
+def test_an_ended_session_names_its_stopped_worker_as_one_that_may_never_report(
+    tmp_path: Path, order: list[str]
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    publish(a, "SessionStart")
+    publish(a, "UserPromptSubmit")
+    start_issue_work(
+        a, "build-observer", lookup=present(CLAUDE), environ=CLAUDE_ENVIRON
+    )
+    publish(a, "SubagentStart", WORKER)
+    for event in order:
+        publish(a, event)
+
+    # The session ends while its process lives: its run ends, but its ended
+    # record keeps the worker no SubagentStop ever cleared (ADR 0095).
+    publish(a, "SessionEnd")
+    assert WorkStore(a).active() == ([], [])
+    (blocker,) = assess_worktree_occupancy(b, [a, b], present(CLAUDE))
+    assert blocker.kind == "sub-agent"
+    assert blocker.detail == (
+        f"Claude Code session {CLAUDE_SESSION} at {a} ended with 1 sub-agent "
+        f"listed as working ({WORKER}). Dashpot cannot tell which Worktree a "
+        f"sub-agent works in, so one may be working here: wait for it to "
+        f"finish. {ENDED_WAY_OUT}."
+    )
+    assert blocker.command == (
+        f"cd {b} && dashpot work forget-subagents {CLAUDE_SESSION} "
+        f"--harness claude-code"
+    )
+
+    # The way out the sentence names forgets the worker.
+    assert forget_session_subagents(b, CLAUDE_SESSION, harness="claude-code") == [
+        f"forgot 1 sub-agent listed as working ({WORKER}) of ended session "
+        f"{CLAUDE_SESSION} at {a}"
+    ]
+    assert assess_worktree_occupancy(b, [a, b], present(CLAUDE)) == []

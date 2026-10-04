@@ -202,8 +202,9 @@ session the record belongs to, so a stop that arrives before the switch's
 `SessionStart` still clears it. Another live session's records are never
 changed this way; the stopping session's own records left behind are
 (above).
-Here the blocker says the session *ended with* its sub-agents listed, and names the way out for one that ended with its session
-or was interrupted and will never report: once none is still working, run
+Here the blocker says the session *ended with* its sub-agents listed, and
+names the way out for one that was stopped, was interrupted or ended with its
+session and may never report: once none is still working, run
 `dashpot work forget-subagents SESSION_ID` from a Worktree of the
 Repository. That management command removes only the named session's ended
 records that list sub-agents, through the store's compare-and-delete, and
