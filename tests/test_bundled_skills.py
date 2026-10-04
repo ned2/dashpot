@@ -22,6 +22,7 @@ from dashpot.sessions.integrate import (
     BUNDLED_SKILLS_ROOT,
     ISSUE_WORK_SKILL,
     OPENCODE_ACCEPTED_VERSION,
+    SKILL_MANIFEST,
     BundledSkill,
     HarnessIntegration,
     IntegrationError,
@@ -118,6 +119,32 @@ def integration_file(harness: Harness) -> Path:
     return spec.default_home / spec.hooks_file
 
 
+def files_in(directory: Path) -> set[Path]:
+    """Every file under a directory, relative to it."""
+    return {
+        path.relative_to(directory) for path in directory.rglob("*") if path.is_file()
+    }
+
+
+def ship(skill: BundledSkill, *relatives: str) -> list[Path]:
+    """Add files to a bundled skill's source, as a release that ships them would."""
+    shipped = [Path(relative) for relative in relatives]
+    for relative in shipped:
+        (skill.source / relative).parent.mkdir(parents=True, exist_ok=True)
+        (skill.source / relative).write_text(f"Shipped {relative}.\n")
+    return shipped
+
+
+def retire(skill: BundledSkill, shipped: list[Path]) -> None:
+    """Drop files from a bundled skill's source, as a newer release would."""
+    for relative in shipped:
+        (skill.source / relative).unlink()
+        for parent in relative.parents:
+            directory = skill.source / parent
+            if parent != Path(".") and not any(directory.iterdir()):
+                directory.rmdir()
+
+
 @pytest.mark.parametrize("harness", HARNESSES)
 def test_install_writes_every_bundled_skill_once(
     harness: Harness, tmp_path: Path, second: BundledSkill
@@ -133,6 +160,7 @@ def test_install_writes_every_bundled_skill_once(
             assert (copy / relative).read_bytes() == (
                 skill.source / relative
             ).read_bytes()
+        assert files_in(copy) == {*skill.files, SKILL_MANIFEST}
 
     again = install(harness, tmp_path, skills)
 
@@ -461,4 +489,231 @@ def test_status_reads_a_copy_it_cannot_list_by_its_marker(
     assert (
         f"Second skill installed in {copy} for Dashpot {BUNDLED_SKILL_VERSION}"
         in report
+    )
+
+
+@pytest.mark.parametrize("harness", HARNESSES)
+def test_an_update_leaves_exactly_the_shipped_files_and_the_users_own(
+    harness: Harness, tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    retired = ship(second, "references/retired.md", "retired/only.md")
+    install(harness, tmp_path, skills)
+    copy = copy_of(harness, second)
+    mine = copy / "references" / "mine.md"
+    mine.write_text("keep me\n")
+    retire(second, retired)
+
+    report = status(harness, tmp_path, skills)
+    messages = install(harness, tmp_path, skills)
+
+    assert (
+        f"Second skill update available at {copy}; run "
+        f"'dashpot integrate {harness}' to repair"
+    ) in report
+    assert f"updated Dashpot Second skill in {copy}" in messages
+    assert files_in(copy) == {
+        *second.files,
+        SKILL_MANIFEST,
+        Path("references/mine.md"),
+    }
+    assert not (copy / "retired").exists()
+    assert mine.read_text() == "keep me\n"
+    assert f"Second skill installed in {copy} for Dashpot " in "\n".join(
+        status(harness, tmp_path, skills)
+    )
+
+
+@pytest.mark.parametrize("harness", HARNESSES)
+@pytest.mark.parametrize("users", [(), ("references/mine.md",)])
+def test_remove_takes_what_an_earlier_dashpot_shipped_and_never_the_users_files(
+    harness: Harness, tmp_path: Path, second: BundledSkill, users: tuple[str, ...]
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    retired = ship(second, "references/retired.md", "retired/only.md")
+    install(harness, tmp_path, skills)
+    copy = copy_of(harness, second)
+    for relative in users:
+        (copy / relative).write_text("keep me\n")
+    retire(second, retired)
+
+    messages = remove_integration(harness, config_home(harness), skills=skills)
+
+    assert f"removed the Dashpot Second skill from {copy}" in messages
+    if users:
+        assert files_in(copy) == {Path(relative) for relative in users}
+    else:
+        assert not copy.exists()
+
+
+@pytest.mark.parametrize("harness", HARNESSES)
+def test_a_copy_written_before_the_manifest_is_updated_and_keeps_the_users_files(
+    harness: Harness, tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install(harness, tmp_path, (ISSUE_WORK_SKILL,))
+    # Every earlier revision wrote the files it shipped and nothing beside them.
+    earlier = copy_of(harness, second)
+    shutil.copytree(second.source, earlier)
+    mine = earlier / "notes" / "mine.md"
+    mine.parent.mkdir()
+    mine.write_text("keep me\n")
+
+    report = status(harness, tmp_path, skills)
+    messages = install(harness, tmp_path, skills)
+
+    assert (
+        f"Second skill update available at {earlier}; run "
+        f"'dashpot integrate {harness}' to repair"
+    ) in report
+    assert f"updated Dashpot Second skill in {earlier}" in messages
+    assert files_in(earlier) == {*second.files, SKILL_MANIFEST, Path("notes/mine.md")}
+    assert f"Second skill installed in {earlier} for Dashpot " in "\n".join(
+        status(harness, tmp_path, skills)
+    )
+
+
+@pytest.mark.parametrize("harness", HARNESSES)
+def test_remove_takes_the_shipped_files_of_a_copy_written_before_the_manifest(
+    harness: Harness, tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install(harness, tmp_path, (ISSUE_WORK_SKILL,))
+    earlier = copy_of(harness, second)
+    shutil.copytree(second.source, earlier)
+    mine = earlier / "references" / "mine.md"
+    mine.write_text("keep me\n")
+
+    messages = remove_integration(harness, config_home(harness), skills=skills)
+
+    assert f"removed the Dashpot Second skill from {earlier}" in messages
+    assert files_in(earlier) == {Path("references/mine.md")}
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        '{"files": ["SKILL.md", "../outside.md"]}',
+        '{"files": "SKILL.md"}',
+        "not JSON\n",
+    ],
+)
+def test_an_invalid_manifest_stands_for_the_shipped_files(
+    tmp_path: Path, second: BundledSkill, manifest: str
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install("codex", tmp_path, skills)
+    copy = copy_of("codex", second)
+    outside = copy.parent / "outside.md"
+    outside.write_text("theirs\n")
+    (copy / SKILL_MANIFEST).write_text(manifest)
+
+    assert (
+        f"Second skill update available at {copy}; run "
+        "'dashpot integrate codex' to repair"
+    ) in status("codex", tmp_path, skills)
+    assert f"updated Dashpot Second skill in {copy}" in install(
+        "codex", tmp_path, skills
+    )
+    assert files_in(copy) == {*second.files, SKILL_MANIFEST}
+
+    (copy / SKILL_MANIFEST).write_text(manifest)
+    messages = remove_integration("codex", config_home("codex"), skills=skills)
+
+    assert f"removed the Dashpot Second skill from {copy}" in messages
+    assert not copy.exists()
+    assert outside.read_text() == "theirs\n"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists any directory")
+@pytest.mark.parametrize("harness", HARNESSES)
+def test_a_directory_it_cannot_list_is_reported_and_left_alone(
+    harness: Harness, tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install(harness, tmp_path, (ISSUE_WORK_SKILL,))
+    before = integration_file(harness).read_bytes()
+    theirs = copy_of(harness, second)
+    theirs.mkdir()
+    kept = theirs / "notes.md"
+    kept.write_text("mine\n")
+    theirs.chmod(0o311)
+    try:
+        with pytest.raises(IntegrationError) as refused:
+            install(harness, tmp_path, skills)
+        after = integration_file(harness).read_bytes()
+        report = status(harness, tmp_path, skills)
+        messages = remove_integration(harness, config_home(harness), skills=skills)
+    finally:
+        theirs.chmod(0o755)
+
+    refusal = str(refused.value)
+    assert refusal.startswith(
+        f"cannot install the Dashpot Second skill at {theirs}: could not inspect it: "
+    )
+    assert refusal.endswith("; move it and retry")
+    assert after == before
+    assert any(
+        message.startswith(f"Second skill unreadable at {theirs}: ")
+        for message in report
+    )
+    assert any(
+        message.startswith(f"could not inspect Dashpot Second skill at {theirs}: ")
+        for message in messages
+    )
+    assert files_in(theirs) == {Path("notes.md")}
+    assert kept.read_text() == "mine\n"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists any directory")
+def test_a_managed_copy_it_cannot_list_is_updated_and_removed_by_its_manifest(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    retired = ship(second, "references/retired.md")
+    install("codex", tmp_path, skills)
+    copy = copy_of("codex", second)
+    retire(second, retired)
+    copy.chmod(0o311)
+    try:
+        updated = install("codex", tmp_path, skills)
+    finally:
+        copy.chmod(0o755)
+    updated_files = files_in(copy)
+    copy.chmod(0o311)
+    try:
+        removed = remove_integration("codex", config_home("codex"), skills=skills)
+    finally:
+        if copy.exists():
+            copy.chmod(0o755)
+
+    assert f"updated Dashpot Second skill in {copy}" in updated
+    assert updated_files == {*second.files, SKILL_MANIFEST}
+    assert f"removed the Dashpot Second skill from {copy}" in removed
+    assert not copy.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_a_shipped_file_it_cannot_read_is_an_update_not_a_traceback(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install("codex", tmp_path, skills)
+    copy = copy_of("codex", second)
+    unreadable = copy / "references" / "deep" / "notes.md"
+    unreadable.chmod(0o200)
+    try:
+        report = status("codex", tmp_path, skills)
+        messages = install("codex", tmp_path, skills)
+    finally:
+        unreadable.chmod(0o644)
+
+    assert (
+        f"Second skill update available at {copy}; run "
+        "'dashpot integrate codex' to repair"
+    ) in report
+    assert f"updated Dashpot Second skill in {copy}" in messages
+    assert (
+        unreadable.read_bytes()
+        == (second.source / "references" / "deep" / "notes.md").read_bytes()
     )

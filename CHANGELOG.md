@@ -48,7 +48,10 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
 - `dashpot integrate <harness>` installs, updates and removes every agent
   skill Dashpot bundles, and `--status` reports each one as installed,
   missing, or with an update available. A directory of a bundled skill's name
-  that Dashpot did not write is reported and never overwritten or removed.
+  that Dashpot did not write, or one it cannot inspect, is reported and never
+  overwritten or removed. A manifest in each managed copy keeps it to exactly
+  the files this Dashpot ships across updates, and lets `--remove` take every
+  file an earlier release shipped and none the user added.
 - `dashpot integrate opencode` also installs, updates, checks and removes the
   `dashpot-worker` OpenCode agent, whose permissions deny `*session_move` so
   that a worker Sub-agent the `dashpot-execute-issues` skill launches cannot

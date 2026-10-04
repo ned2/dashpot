@@ -438,9 +438,16 @@ each as a managed copy marked as Dashpot's. It
 preserves unrelated settings; repeated installation refreshes its own entries.
 A directory of a bundled skill's name that Dashpot did not write is never
 overwritten or removed: installation is refused until it is moved, `--status`
-reports it as a conflict, and `--remove` leaves it in place. `--status` also
-reports each bundled skill as installed, missing, or with an update
-available. An Agent Session declares Issue work with `dashpot work start`
+reports it as a conflict, and `--remove` leaves it in place. One that cannot
+be inspected, such as a directory that cannot be listed, is refused and
+reported the same way. Each managed copy keeps a manifest,
+`.dashpot-manifest.json`, of the files Dashpot wrote into it: an update
+leaves the copy holding exactly the files this Dashpot ships, removing one an
+earlier release shipped, and `--remove` deletes every file the manifest
+names. A file you add inside a managed copy is never touched
+([ADR 0103](adr/0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md)).
+`--status` also reports each bundled skill as installed, missing, or with an
+update available. An Agent Session declares Issue work with `dashpot work start`
 from inside that session, as described in [Agent sessions](agent-sessions.md).
 
 Dashpot observes OpenCode v2 only
