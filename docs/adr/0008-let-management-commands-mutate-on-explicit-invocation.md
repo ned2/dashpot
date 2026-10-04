@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-30
-amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0058-record-runtime-events-locally-and-send-none.md, 0059-keep-an-append-only-event-log-in-each-checkout.md
+amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0058-record-runtime-events-locally-and-send-none.md, 0059-keep-an-append-only-event-log-in-each-checkout.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md
 ---
 
 # Let named management commands mutate on explicit invocation
@@ -106,3 +106,8 @@ mutation of the targets a person selects.
   Neither touches the Git Repository, and
   [ADR 0058](0058-record-runtime-events-locally-and-send-none.md) keeps
   what they record on the machine.
+- [ADR 0095](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)
+  adds `dashpot work forget-subagents <session-id>`, which removes only the
+  named session's ended hook records that still list sub-agents, through a
+  compare-and-delete. It touches no live session's record, no Agent Run and
+  no Work Store record.

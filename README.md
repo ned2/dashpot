@@ -13,8 +13,8 @@ intended to reduce oscillation without stopping progress. Observation never
 mutates: the view, every refresh, and `dashpot --json` never assign or edit
 Issues, change the Git Repository, or control agent sessions. Dashpot's named
 management commands — `init`, `integrate`, `work start`, `work relocate`,
-`work stop`, `branch delete`, `worktree remove`, and `events remove` — and its two mutating
-keys — `f`, which fetches Git remotes, and `x`, which deletes a Branch or
+`work stop`, `work forget-subagents`, `branch delete`, `worktree remove`, and
+`events remove` — and its two mutating keys — `f`, which fetches Git remotes, and `x`, which deletes a Branch or
 removes a Worktree — mutate only what their name says, on explicit invocation,
 and report what they changed
 ([ADR 0008](docs/adr/0008-let-management-commands-mutate-on-explicit-invocation.md),
@@ -228,8 +228,8 @@ confirm button always reads `Remove Worktree` or `Delete Branch`; a callout at
 the end of the preview states exactly what confirming removes and deletes.
 Occupied, dirty, locked, protected, and otherwise blocked Worktrees remain
 unavailable, and hold their Branches unavailable with them. That includes
-every Worktree of a Repository while a Claude Code session in it has a
-live sub-agent, since Dashpot cannot tell which Worktree a sub-agent works in
+every Worktree of a Repository while an Agent Session in it lists a
+live sub-agent, even after that session ended, since Dashpot cannot tell which Worktree a sub-agent works in
 ([sub-agents and Worktree Cleanup](docs/agent-sessions.md#sub-agents-and-worktree-cleanup)).
 A Branch blocked as unintegrated against a Remote-Tracking Branch says that
 `f` checks again if the work has since merged
@@ -868,8 +868,10 @@ Agent Runs recorded there (an Orphaned Agent Run, whose session is gone,
 names its `dashpot work stop --session` command), a `sub-agent` that an Agent
 Session elsewhere in the Repository still lists as working, which may be
 working here because Dashpot cannot tell which Worktree a sub-agent works in
-(it names how to end that session if none is still working:
-[ADR 0066](docs/adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md)),
+(it names how to end that session if none is still working, or for a session
+that has already ended, its `dashpot work forget-subagents` command:
+[ADR 0066](docs/adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md),
+[ADR 0095](docs/adr/0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)),
 and commits not on the upstream or the Integration Branch. A removable
 Worktree's text report adds that sub-agents of Agent Sessions outside the
 Repository are not checked. `check` removes nothing.

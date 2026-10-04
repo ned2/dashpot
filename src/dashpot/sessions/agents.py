@@ -555,9 +555,12 @@ def observe_hook_sessions(
                 )
                 continue
             if record.outcome == "ended":
-                # Cleanup failures are not observations.
-                with contextlib.suppress(OSError):
-                    store.prune(scanned.path.stem, scanned.raw)
+                # An ended session is never observed; its record is kept only
+                # while it holds sub-agents the session left working (ADR
+                # 0095), and Cleanup failures are not observations.
+                if not record.retains_subagents:
+                    with contextlib.suppress(OSError):
+                        store.prune(scanned.path.stem, scanned.raw)
                 continue
             diagnostics.extend(
                 Diagnostic(

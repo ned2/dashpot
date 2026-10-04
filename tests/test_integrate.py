@@ -450,6 +450,33 @@ def test_status_lists_stale_session_records_without_pruning(tmp_path: Path) -> N
     assert "(2 live, 0 unknown, 0 stale, 0 unreadable)" in "\n".join(messages)
 
 
+def test_status_names_the_sub_agents_that_keep_an_ended_record(
+    tmp_path: Path,
+) -> None:
+    home = codex_home(tmp_path)
+    install_codex_integration(home, command_path=publisher(tmp_path))
+    state = tmp_path / "state"
+    state.mkdir()
+    HookRecordStore(state).replace(
+        "0199-ended",
+        {
+            **session_record("0199-ended", state="ended"),
+            "event": "SessionEnd",
+            "liveSubagents": ["0199-worker"],
+        },
+    )
+
+    messages = codex_integration_status(
+        home, state_dir=state, current=tmp_path, lookup=present(CODEX)
+    )
+
+    assert (
+        "  stale: Codex session 0199-ended last event SessionEnd at "
+        "2026-08-24T15:00:00Z, ended by SessionEnd, kept for its 1 sub-agent "
+        "listed as working (0199-worker) until they stop or pid 4242 exits"
+    ) in "\n".join(messages)
+
+
 def test_status_shows_unknown_liveness_reasons(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     install_codex_integration(home, command_path=publisher(tmp_path))

@@ -493,8 +493,13 @@ A child-scoped event is written to the store of its parent's freshest record,
 with that record's location; it never binds, ends, places or moves the
 parent, and a Sub-agent's own claim never authorizes Issue work
 ([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)). A fork is a separate Agent Session, not a Sub-agent.
+A Sub-agent can outlive its parent: a session that ends while it lists live
+Sub-agents keeps them in an ended record until each one's stop, until their
+Host Process is gone, or until a person runs `dashpot work forget-subagents`
+([ADR 0095](adr/0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)).
 _Avoid_: child session for a fork; treating a Sub-agent's location as its
-parent's Observation Location
+parent's Observation Location; treating a session's end as its Sub-agents'
+end
 
 **Lead**:
 The Agent Session that runs the bundled `dashpot-execute-issues` skill to

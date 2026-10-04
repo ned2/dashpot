@@ -112,7 +112,7 @@ def publish_hook_event(
     state = cast("HookRecordState", record["state"])
     child = is_child_record(record)
     worktrees = event_worktrees(record)
-    freshest = _freshest_elsewhere(record, worktrees, directory)
+    freshest = _freshest_elsewhere(record, worktrees, directory, child=child)
     if directory is not None:
         store = HookRecordStore(directory)
     elif child and freshest is not None:
@@ -212,13 +212,19 @@ def publish_hook_event(
 
 
 def _freshest_elsewhere(
-    record: dict[str, Any], worktrees: list[Path], directory: Path | None
+    record: dict[str, Any],
+    worktrees: list[Path],
+    directory: Path | None,
+    *,
+    child: bool,
 ) -> StoredSessionRecord | None:
     """The session's freshest readable record across the stores it could be in.
 
     Those are the stores of its Repository's Worktrees and the global one (or
     ``directory``); no process is probed. It routes a Sub-agent's event and
-    seeds a session-scoped event that moves the session to another store.
+    seeds a session-scoped event that moves the session to another store. An
+    ended record seeds nothing, but one kept for the sub-agents its session
+    left working routes their events to it (ADR 0095).
     """
     records, _unreadable = stored_session_records(
         reachable_hook_stores(worktrees, directory),
@@ -226,5 +232,7 @@ def _freshest_elsewhere(
         str(record["sessionId"]),
     )
     return freshest_stored_record(
-        item for item in records if item.record.state != "ended"
+        item
+        for item in records
+        if item.record.state != "ended" or (child and item.record.live_subagents)
     )

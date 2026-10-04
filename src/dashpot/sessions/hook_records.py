@@ -104,7 +104,8 @@ class HookRecord(PersistedRecord):
     session_process_unobservable: OptionalText = None
     turn_started_at: OptionalText = None
     # The session's sub-agents observed started and not yet stopped; a
-    # session whose main turn has ended is still running while any is alive.
+    # session whose main turn has ended is still running while any is alive,
+    # and an ended record lists those its session left working (ADR 0095).
     live_subagents: list[str] = Field(default_factory=list)
     # When this store last saw the session begin an incarnation (its latest
     # ``SessionStart``), so a live move can be told from a restart (ADR
@@ -217,15 +218,7 @@ def live_subagents(
     event that names no agent changes nothing rather than guessing.
     """
     event = current.get("event")
-    if event == "SessionStart" or previous is None:
-        alive: list[str] = []
-    else:
-        recorded: Any = previous.get("liveSubagents")
-        alive = (
-            [str(item) for item in recorded if isinstance(item, str)]
-            if isinstance(recorded, list)
-            else []
-        )
+    alive = [] if event == "SessionStart" or previous is None else _listed(previous)
     agent = current.get("agentId")
     if not isinstance(agent, str) or not agent:
         return alive
@@ -234,6 +227,36 @@ def live_subagents(
     if event == "SubagentStop":
         return [item for item in alive if item != agent]
     return alive
+
+
+def _listed(record: Mapping[str, Any]) -> list[str]:
+    """The sub-agents a stored record lists as live; a malformed list lists none."""
+    recorded: Any = record.get("liveSubagents")
+    if not isinstance(recorded, list):
+        return []
+    return [str(item) for item in recorded if isinstance(item, str)]
+
+
+def _retained_subagents(
+    ending: Mapping[str, Any],
+    previous: Mapping[str, Any] | None,
+    seed: Mapping[str, Any] | None,
+) -> list[str]:
+    """The sub-agents a ``SessionEnd`` keeps listed in its ended record (ADR 0095).
+
+    A session's end does not end the sub-agents it delegated to: a Codex
+    thread the daemon unloads leaves its worker running. They stay listed
+    until their ``SubagentStop``, or until the Host Process the end names is
+    gone, so only an end that names one keeps any: nothing else could ever
+    clear them. They are those the session's records of that process list.
+    """
+    if ending.get("sessionProcess") is None:
+        return []
+    kept: set[str] = set()
+    for record in (previous, seed):
+        if record is not None and _same_host_process(record, ending):
+            kept.update(_listed(record))
+    return sorted(kept)
 
 
 def last_session_start_at(
@@ -314,8 +337,9 @@ class HookRecordStore(LockedRecordStore):
     """Own the lifecycle of hook Agent Session records in one directory.
 
     Events are published atomically, a graceful ``SessionEnd`` removes the
-    session's record, and confirmed stale records can be pruned without
-    racing a concurrent hook write. A Project-local store names its
+    session's record, or keeps it ended for the sub-agents it still lists
+    (ADR 0095), and confirmed stale records can be pruned without racing a
+    concurrent hook write. A Project-local store names its
     ``checkout`` (see ``project_session_store``).
     """
 
@@ -339,7 +363,10 @@ class HookRecordStore(LockedRecordStore):
         this store, so a move never forgets a live Sub-agent (ADR 0067). A
         child-scoped event instead keeps this store's previous record's
         location, never ends it, and writes nothing but a sub-agent's start
-        where there is no record.
+        where there is no record. A ``SessionEnd`` whose session still lists
+        live sub-agents keeps them in an ended record of its Host Process,
+        which only their boundaries change and which a ``SessionStart`` of
+        that process carries on (ADR 0095).
         """
         session_id = require_string(record.get("sessionId"), "sessionId")
         harness = require_string(record.get("harness"), "harness")
@@ -377,7 +404,28 @@ class HookRecordStore(LockedRecordStore):
                     > observed_instant(record.get("lastActivityAt"))
                 ):
                     return destination
-                destination.unlink(missing_ok=True)
+                retained = _retained_subagents(record, previous, seed)
+                if retained:
+                    self.replace(key, {**record, "liveSubagents": retained})
+                else:
+                    destination.unlink(missing_ok=True)
+                return destination
+            if (
+                previous is not None
+                and previous.get("state") == "ended"
+                and not _same_host_process(previous, record)
+            ):
+                # An ended record another Host Process kept for its sub-agents
+                # says nothing about this one's (ADR 0095).
+                previous = None
+            if child and previous is not None and previous.get("state") == "ended":
+                # Only the sub-agent boundaries change a retained record: none
+                # of its sub-agents' events revives the ended session.
+                remaining = live_subagents(record, previous)
+                if not remaining:
+                    destination.unlink(missing_ok=True)
+                elif remaining != previous.get("liveSubagents"):
+                    self.replace(key, {**previous, "liveSubagents": remaining})
                 return destination
             if child and previous is None and record.get("event") != "SubagentStart":
                 # With no parent record here, only a starting Sub-agent has
@@ -417,6 +465,12 @@ class HookRecordStore(LockedRecordStore):
                 origin = seed
             current["state"] = carried_state(current, previous)
             current["liveSubagents"] = live_subagents(current, origin)
+            if previous is not None and previous.get("state") == "ended":
+                # The session starts again in the Host Process that kept its
+                # ended record's sub-agents, which may still be working.
+                current["liveSubagents"] = sorted(
+                    {*current["liveSubagents"], *_listed(previous)}
+                )
             current["turnStartedAt"] = turn_started_at(current, origin)
             started = last_session_start_at(current, previous)
             if started is not None:

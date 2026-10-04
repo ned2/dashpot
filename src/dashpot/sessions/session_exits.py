@@ -96,3 +96,26 @@ def unreported_subagent_stop(harness: Harness) -> str:
         f"is still working, "
         f"{session_exit(harness).end.replace('{session_id}', '<session id>')}"
     )
+
+
+def forget_subagents_command(session_id: str) -> str:
+    """The command that forgets the sub-agents an ended session still lists."""
+    return f"dashpot work forget-subagents {session_id}"
+
+
+def ended_session_subagent_stop(harness: Harness, session_id: str) -> str:
+    """Why a sub-agent an ended session lists may not be working, and the way out.
+
+    An ended record keeps the sub-agents its session left working until each
+    ``SubagentStop`` or until the Host Process is gone (ADR 0095). A Codex
+    worker whose lead is deleted ends with it and reports nothing, as does a
+    child interrupted through its own thread (#374), so the sentence names
+    the command that forgets them once a person has checked.
+    """
+    return (
+        f"Dashpot lists a sub-agent of an ended session until "
+        f"{HARNESS_DISPLAY[harness]} reports that it stopped or the "
+        f"session's process exits, which one that ended with its session or "
+        f"was interrupted may never do, so if none is still working, run "
+        f"{forget_subagents_command(session_id)}"
+    )

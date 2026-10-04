@@ -146,7 +146,7 @@ also says that a sub-agent stays listed until its harness reports that it
 stopped, which an interrupted one may never do, so if none is still working,
 the way out is to end that session, in the
 [harness's words](#agent-sessions-and-worktree-cleanup). It clears
-when the last sub-agent's `SubagentStop` arrives, when the session ends or
+when the last sub-agent's `SubagentStop` arrives, when a live session
 starts again, or when the session's process is gone. A sub-agent
 dispatched before its session entered another Worktree stays in the record
 left behind, so it holds the block until that Worktree
@@ -154,11 +154,33 @@ records the session's end or the session's process exits, even after the
 session has left the Repository. A session at the Worktree itself is
 reported as that Worktree's `agent-session` occupant instead.
 
+A session's end does not clear its sub-agents
+([ADR 0095](adr/0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)).
+A `SessionEnd` while the session lists live sub-agents ends the session and
+its Agent Run as before, but keeps an ended hook record listing those
+sub-agents, and that record holds the block while the session's process is
+live or its liveness unknown. Each `SubagentStop` from that process removes
+its agent, and the record goes with the last one; any other event of a
+sub-agent neither revives the session nor lists it as waiting. A
+`SessionStart` of the session on the same process carries the list into the
+new incarnation. Here the blocker says the session *ended with* its
+sub-agents listed, and names the way out for one that ended with its session
+or was interrupted and will never report: once none is still working, run
+`dashpot work forget-subagents SESSION_ID` from a Worktree of the
+Repository. That management command removes only the named session's ended
+records that list sub-agents, through the store's compare-and-delete, and
+touches no live session, Agent Run or Work Store record; `--harness` chooses
+between two harnesses' ended sessions that share the id.
+`dashpot integrate <harness> --status` reports such a record as stale,
+naming the sub-agents that keep it and the process it waits for.
+
 A Codex session's sub-agents block the same way: the 0.159.3 trace of
 [#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) and its 0.160.0
 rerun show the blocker naming live Codex children. A Codex child whose own
 turn is interrupted publishes no hook, so it keeps the block up until the
-session's next `SessionStart` or `SessionEnd`. That was measured for a
+session's next `SessionStart` while it lives, until the session's process
+exits, or until `dashpot work forget-subagents` after the session has ended.
+That was measured for a
 controller's interrupt of the child's turn; upstream reports the same for
 the parent model's `interrupt_agent` tool
 ([openai/codex#38142](https://github.com/openai/codex/issues/38142)), which
@@ -587,6 +609,7 @@ dashpot work relocate ../target-worktree  # preserve this Codex run across resum
 dashpot work relocate .        # cancel a pending move after resuming here
 dashpot work stop              # end this session's run; the session stays alive
 dashpot work stop --session KEY  # end the orphaned run of a session that is gone
+dashpot work forget-subagents SESSION_ID  # forget an ended session's sub-agents
 ```
 
 A bare number and its `#`-prefixed form resolve to the same Issue; Local

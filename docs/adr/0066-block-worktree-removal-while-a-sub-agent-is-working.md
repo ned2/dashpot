@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-01
-amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
+amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md
 ---
 
 # Block Worktree removal while a sub-agent is working
@@ -151,3 +151,10 @@ might be working in it.
   The blocker therefore says that the session has sub-agents listed as
   working, that one may have been interrupted, and that if none is still
   working, the way out is to end the session in its harness's words.
+- Amended by [ADR 0095](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)
+  ([#431](https://github.com/ned2/dashpot/issues/431)): a `SessionEnd` no
+  longer ends the evidence. An ended session's sub-agents block removal
+  while their Host Process is live or unknown, until each `SubagentStop`.
+  Their `sub-agent` blocker says the session ended with them listed and
+  names `dashpot work forget-subagents <session-id>` as the way out once
+  none still works.

@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
+amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md
 ---
 
 # Hold a session running while its sub-agents work
@@ -107,3 +107,11 @@ hold the session running while any sub-agent it started is alive:
   [ADR 0066](0066-block-worktree-removal-while-a-sub-agent-is-working.md),
   says one may have been interrupted and names the harness's way to end the
   session.
+- Amended by [ADR 0095](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)
+  ([#431](https://github.com/ned2/dashpot/issues/431)): a `SessionEnd` no
+  longer clears the live set. The session's ended record keeps the
+  sub-agents it still lists until each `SubagentStop`, until their Host
+  Process is gone, or until a person runs `dashpot work forget-subagents`,
+  because a managed Codex daemon unloads a lead while its worker still works.
+  A `SessionStart` on that Host Process carries them into the new
+  incarnation.

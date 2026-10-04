@@ -767,6 +767,33 @@ def test_work_relocate_dispatches_with_the_target_worktree(
     assert "prepared relocation" in capsys.readouterr().out
 
 
+def test_work_forget_subagents_dispatches_with_the_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        cli, "forget_session_subagents", return_value=["forgot 1 sub-agent"]
+    ) as forget:
+        assert cli.main(["work", "forget-subagents", "0199-lead"]) == 0
+        assert (
+            cli.main(
+                ["work", "forget-subagents", "0199-lead", "--harness", "claude-code"]
+            )
+            == 0
+        )
+
+    assert forget.call_args_list == [
+        mock.call(Path.cwd().resolve(), "0199-lead", harness=None, outcome=mock.ANY),
+        mock.call(
+            Path.cwd().resolve(), "0199-lead", harness="claude-code", outcome=mock.ANY
+        ),
+    ]
+    assert "forgot 1 sub-agent" in capsys.readouterr().out
+
+
 def test_work_stop_and_show_dispatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
