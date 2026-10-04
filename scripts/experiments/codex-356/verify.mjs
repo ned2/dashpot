@@ -203,10 +203,13 @@ assert.deepEqual(outcomesOf(u2)[0], ["unchanged", null]);
 assert.deepEqual(labelled("processes", "after-restart").daemons, [secondDaemon]);
 assert.deepEqual(labelled("processes", "after-restart").settlers, []);
 
-// The replacement reloaded every thread with no hook. R1's next turn runs on
-// it, publishing SessionStart `resume`, and binds nothing: R1 is listed
-// unbound beside its orphaned run until `work start` recovers Issue 1 there,
-// as a new run.
+// The replacement reloaded every thread with no hook. The runner's own
+// `thread/resume` of R1 runs no hook either, but R1's next turn on the
+// replacement then publishes SessionStart `resume` before its prompt: that
+// SessionStart is the resume's, not the reload's, since without a resume a
+// reloaded thread's next hook is UserPromptSubmit (#380). The turn binds
+// nothing: R1 is listed unbound beside its orphaned run until `work start`
+// recovers Issue 1 there, as a new run.
 const reloaded = one("reload.loaded");
 assert.deepEqual([...reloaded.loaded].sort(), [r1, r2, u2, r4].sort());
 assert.equal(reloaded.newHooks, 0);
