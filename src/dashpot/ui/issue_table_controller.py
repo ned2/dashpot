@@ -19,7 +19,7 @@ from ..observation.list_result import ListResult
 from ..queries.page_navigation import PageDetail, page_text
 from ..queries.source_queries import QueryRequest
 from .glyphs import ACTIVITY_WIDTH
-from .issue_cells import TableCell
+from .issue_cells import TableCell, cells_match
 from .issue_table import (
     COLUMNS_BY_KEY,
     ColumnKey,
@@ -32,7 +32,7 @@ from .issue_table import (
     searchable_columns,
     shown_columns,
 )
-from .keyed_table import restore_selection
+from .keyed_table import cursor_row_key, restore_selection
 from .list_rows import column_help
 
 if TYPE_CHECKING:
@@ -145,21 +145,50 @@ class IssueTableController:
         contexts, cells_by_key = build_rows(
             result, columns=shown, dark=app.current_theme.dark
         )
-        # Provider order can change with identical row identities. Rebuild the
-        # small page so keyed-table insertion history never becomes ordering;
-        # the cursor returns to its Issue by key, else to the first row.
+        # A rebuild clears the table's scroll offset and moves its cursor, so
+        # a page with the rows already shown, in the order shown, only has
+        # its changed cells replaced. Provider order can change with
+        # identical row identities, so any other page is rebuilt and
+        # keyed-table insertion history never becomes ordering; the cursor
+        # returns to its Issue by key, else to the first row.
+        in_place = [str(row.key.value) for row in table.ordered_rows] == list(
+            cells_by_key
+        )
         with app.batch_update():
-            table.clear()
-            for key, cells in cells_by_key.items():
-                table.add_row(*cells, key=key)
+            if in_place:
+                self.update_changed_cells(cells_by_key)
+            else:
+                table.clear()
+                for key, cells in cells_by_key.items():
+                    table.add_row(*cells, key=key)
         self.update_sort_headers()
         self.rows_by_key = contexts
-        selected_key = restore_selection(table, self.selected_row_key, 0, contexts)
+        if in_place and table.row_count:
+            selected_key = cursor_row_key(table)
+        else:
+            selected_key = restore_selection(table, self.selected_row_key, 0, contexts)
         if selected_key is None:
             self.selected_row_key = None
             return result
         self.show_row(selected_key)
         return result
+
+    def update_changed_cells(
+        self, cells_by_key: dict[str, tuple[TableCell, ...]]
+    ) -> None:
+        """Replace the cells that render differently, leaving cursor and scroll alone.
+
+        The rows and their order are the ones the table already shows, under
+        the columns it shows. A replaced cell is measured again, as a rebuilt
+        one would be, so a longer value widens its column.
+        """
+        table = self.table
+        for key, cells in cells_by_key.items():
+            for column, shown, cell in zip(
+                table.ordered_columns, table.get_row(key), cells, strict=True
+            ):
+                if not cells_match(shown, cell):
+                    table.update_cell(key, column.key, cell, update_width=True)
 
     def show_row(self, key: str) -> None:
         """Select the Issue under the cursor, when the store can still detail it."""
