@@ -92,14 +92,14 @@ from there. Finishing never happens implicitly.
 
 **Failure.** The move has failed when the tool fails or is unknown, the
 person declines it, or the next step's check places the session elsewhere.
-The session does not retry, change directory, or touch Dashpot's state. A
-move that took effect without Dashpot recording it, as when the next step's
-`pwd` prints the destination but `--status` does not confirm the session
-there, leaves the session where Cleanup cannot see it, so the session first
-moves back to where it came from, with the same check, or tells the person
-it is there unrecorded. For dispatch it then falls back to the fresh-session
-handoff, after `work stop` for a run on the same Issue. For finish it tells the person what still holds the
-Worktree, as before.
+The session does not retry the move, change directory with the shell, or
+touch Dashpot's state. A move that took effect without Dashpot recording it,
+as when the next step's `pwd` prints the destination but `--status` does not
+confirm the session there, leaves the session where Cleanup cannot see it,
+so the session first moves back to where it came from, with the same check,
+or tells the person it is there unrecorded. For dispatch it then falls back
+to the fresh-session handoff, after `work stop` for a run on the same Issue.
+For finish it tells the person what still holds the Worktree, as before.
 
 **Where `--status` places the session.** Until now, `integrate --status`
 confirmed a claimed identity against its freshest hook record wherever that

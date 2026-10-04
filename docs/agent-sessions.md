@@ -514,9 +514,9 @@ command, which does not promise working `gh` credentials there
 session moves itself with OpenCode's `opencode.session_move` tool, on the
 authority of the person's request to work on the Issue in that Worktree
 (ADR 0094). It moves only once every Sub-agent and background command it
-started has ended, calls the tool alone in its step, and does no Dashpot or
-Issue work in the Worktree until the next step's `pwd` and `integrate opencode --status`
-confirm it arrived: the move takes effect when the step ends, and the tool
+started has ended, calls the tool alone in its step, and runs no `work`
+command and none of the Issue's work in the Worktree until the next step's
+`pwd` and `integrate opencode --status` confirm it arrived: the move takes effect when the step ends, and the tool
 reports it before then. A bound run moves with it as a Live Relocation, so
 `work show` there retains it; an unbound session runs `work start`. A refused
 or unconfirmed move falls back to a new OpenCode session started in the
