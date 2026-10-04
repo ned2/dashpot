@@ -1,12 +1,12 @@
 // Independent verifier for the Issue #421 trace: checks each measured claim
-// docs/spikes/opencode-worker-mechanics-spike.md makes about OpenCode 2.0.22's
+// docs/spikes/opencode-v2-worker-mechanics-spike.md makes about OpenCode 2.0.22's
 // worker mechanics against the recorded model requests, shell commands,
 // API answers, hook records, observations and Cleanup reports.
 //
 // Usage: node verify.mjs <trace.jsonl> [--strict]
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,12 +66,22 @@ const environment = one("environment");
 // Dashpot's sources keep changing after the trace is retained, so a
 // difference is reported, and fails only under --strict.
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
+// A directory's digest, as the runner takes it: each file's relative name and
+// content, in sorted order.
+const treeDigestOf = (directory) => {
+  if (!existsSync(directory)) return null;
+  const hash = createHash("sha256");
+  for (const name of readdirSync(directory, { recursive: true }).map(String).toSorted()) {
+    try { hash.update(name + "\0" + readFileSync(path.join(directory, name))); } catch {}
+  }
+  return hash.digest("hex");
+};
 for (const file of ["run.mjs", "verify.mjs", "command.mjs", "api.mjs", "ancestry.mjs"]) {
   assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
 }
 const checkout = path.resolve(here, "..", "..", "..");
-const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.startsWith("src/") && !file.endsWith("/"))
-  .filter((file) => digestOf(path.join(checkout, file)) !== environment.sourceSHA256[file]);
+const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.startsWith("src/"))
+  .filter((file) => (file.endsWith("/") ? treeDigestOf : digestOf)(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot sources differ from the run's: ${drifted.join(", ")}`);
 
 const known = one("known").sessions;

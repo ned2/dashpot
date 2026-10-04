@@ -75,7 +75,8 @@ The run takes about four minutes and is done when its log prints
 
 - **Versions.** OpenCode 2.0.22 on Linux x64 (binary SHA-256
   `32cf5aa0…5ad122`), Node 24.18.0.
-- **Dashpot.** Dashpot at `8e42212`, so after multi-skill `integrate`
+- **Dashpot.** The run's checkout was at `206803b`, this branch's first
+  commit, whose `src/` is `8e42212`'s: after multi-skill `integrate`
   ([#418](https://github.com/ned2/dashpot/issues/418)). The run installs the
   only bundled skill, `dashpot-issue-work`.
 - **Service and models.**
@@ -104,7 +105,7 @@ The run takes about four minutes and is done when its log prints
 - **External skills.** Skills in `~/.claude/skills` and `~/.agents/skills` exist
   in the `skills` scenario only.
 - **Shell timeout.** A worker's shell keeps OpenCode's default timeout,
-  2 minutes, except in the timeout case of question 2.
+  2 minutes by the 2.0.22 source, except in the timeout case of question 2.
 
 ## Findings
 
@@ -117,13 +118,14 @@ The run takes about four minutes and is done when its log prints
   inputs are `model` and `sessionID`.
   - The call returns at once with `The subagent is working in the background
     (sessionID: ses_…)` and instructions not to poll.
-  - The child's first prompt is the lead's text, after the line `You are a
-    subagent spawned by another session.`
-  - A prompt such as `read your brief at <path>` reaches the worker
-    unchanged.
+  - Each worker ran the sequence its prompt named, so the lead's prompt
+    reaches the worker; a `read your brief at <path>` prompt was not sent.
+  - The child's first prompt is the lead's text after the line `You are a
+    subagent spawned by another session.` (documented, from the 2.0.22
+    source; the fixture model records only the prompt's label).
 - **The lead keeps control.**
   - Three `subagent` calls made in one step ran at once. Two workers'
-    shells started within 2 ms of the lead's next shell, a 9 s hold. The
+    shells started within 8 ms of the lead's next shell, a 9 s hold. The
     third worker reached its hold 1 s later, after two earlier commands.
   - All three finished while the lead's shell still held.
   - A turn that only launches a worker ended in about 50 ms, before the
@@ -155,19 +157,20 @@ make.
 lead's ID from its brief. Delivery depends on the lead's state:
 
 - **Lead idle.** The message starts a new lead execution. The call returned in
-  292 ms with the lead's reply on stdout.
+  290 ms with the lead's reply on stdout.
 - **Lead busy.** The message is steered into the running execution at its
   next step, and no new execution starts. The worker's call blocks until the
   lead's turn ends: 9.0 s here, behind a 9 s hold.
-  - With OpenCode's default 2-minute shell timeout, a lead busy for longer
-    makes the worker's shell time out.
+  - A foreground shell's default timeout is 2 minutes (documented, from the
+    2.0.22 source), so a lead busy for longer would time the worker's shell
+    out.
   - Under a 3 s `timeout`, the worker's shell got `Command exceeded timeout of
     3000 ms`, and the lead still received the message.
 - **Non-blocking forms.**
   - A `background: true` shell returns at once. The worker went on while its
     report waited 9.0 s, and was notified when the report finished.
   - The HTTP API's `POST /api/session/<lead>/prompt` admits the message
-    (`"delivery":"steer"`) and returns in 26 ms. It needs the service
+    (`"delivery":"steer"`) and returns in 22 ms. It needs the service
     password from `$XDG_STATE_HOME/opencode/service.json`.
   - `opencode run` has no flag for not waiting (documented).
 - **Side effects in Dashpot: none.**
@@ -214,15 +217,17 @@ fallback the lead reads.
 
 ### 5. Shared Agent Session
 
-**Measured.**
+**Measured.** Yes: Dashpot attributes a worker's hooks and shells to its
+lead's Agent Session. The lead's hook record lists the workers as its live
+sub-agents, and a worker's `work show` reports the lead's run with them.
 
 - **`work start` is refused.** A worker's `dashpot work start`, run from
   another Worktree, was refused with `(delegated-session): it is a child
   session of <lead>, whose Agent Run its work belongs to`. A grandchild's was
   refused naming the root lead.
-- **The lead reads `running`.** The lead's run read `running` while its
-  workers ran, even after its own turn had ended, and `waiting` once they
-  ended.
+- **The lead reads `running`.** The lead's Agent Run showed its session
+  `running` while its workers ran, even after its own turn had ended, and
+  `waiting` once they ended.
 - **The Cleanup blocker.** The `sub-agent` blocker held every other Worktree
   of the Repository ("has 3 sub-agents listed as working") while the
   workers ran, and cleared when they ended.
@@ -292,9 +297,10 @@ The table below is measured unless marked:
     killed the lead's own running shell.
   - The background worker kept running and finished, and its notice woke the
     lead.
-  - The lead's run read `running` until then.
+  - The lead's Agent Run showed its session `running` until then.
 - **The lead's TUI quit.**
-  - The worker kept running, and the lead's run stayed live and `running`.
+  - The worker kept running, and the lead's Agent Run showed its session
+    live and `running`.
   - The notice woke the client-less lead.
 - **The lead deleted.**
   - Its running worker was deleted with it (`404`): its hold never finished,
@@ -345,8 +351,8 @@ only when the user asks.
 
 ## Dashpot finding: a relocated lead keeps a finished worker listed
 
-**Measured.** A Dashpot defect against ADR 0066's blocker, reported to the
-lead agent of #403 for a follow-up; not fixed here.
+**Measured.** A Dashpot defect against ADR 0066's blocker, filed as
+[#427](https://github.com/ned2/dashpot/issues/427) and not fixed here.
 
 **Sequence** (scenario `move-while-working`):
 

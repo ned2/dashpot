@@ -188,7 +188,8 @@ env.SPIKE_SINK = sink.url;
 // restarts nor ends the sequence it arrives in.
 const commandScript = path.join(here, "command.mjs");
 const known = {};
-const shell = (command) => ({ name: "shell", arguments: { command } });
+// A shell call; options are the tool's own `workdir`, `timeout` and `background`.
+const shell = (command, options = {}) => ({ name: "shell", arguments: { command, ...options } });
 const report = (label, hold = 0) => shell(`node ${commandScript} ${label} ${hold}`);
 const work = (label, ...args) => shell(`node ${commandScript} ${label} 0 -- work ${args.join(" ")}`);
 const exec = (label, ...args) => shell(`node ${commandScript} ${label} 0 -- exec ${args.join(" ")}`);
@@ -218,15 +219,15 @@ const sequences = {
   "rep-busy-launch": () => [subagent("w6"), report("rep-busy-hold", 10000)],
   "w6": () => [report("w6-start", 1000), exec("w6-report-busy", "opencode", "run", "--session", known.rep, "PROBE:report-busy"), report("w6-end")],
   "rep-busy-launch-background": () => [subagent("w16"), report("rep-busy-hold-background", 10000)],
-  "w16": () => [report("w16-start", 1000), { name: "shell", arguments: { command: `node ${commandScript} w16-report-background 0 -- exec opencode run --session ${known.rep} PROBE:report-background`,
-    background: true } }, report("w16-after")],
+  "w16": () => [report("w16-start", 1000), shell(`node ${commandScript} w16-report-background 0 -- exec opencode run --session ${known.rep} PROBE:report-background`,
+    { background: true }), report("w16-after")],
   // The worker's report from another directory, and one its shell's timeout
   // cuts short while the lead is busy.
   "rep-cd-launch": () => [subagent("w18")],
   "w18": () => [shell(`cd ${treeB} && node ${commandScript} w18-report-cd 0 -- exec opencode run --session ${known.rep} PROBE:report-cd`), report("w18-after")],
   "rep-timeout-launch": () => [subagent("w19"), report("rep-timeout-hold", 12000)],
-  "w19": () => [report("w19-start", 1000), { name: "shell", arguments: { command: `node ${commandScript} w19-report-timeout 0 -- exec opencode run --session ${known.rep} PROBE:report-timeout`,
-    timeout: 3000 } }, report("w19-after")],
+  "w19": () => [report("w19-start", 1000), shell(`node ${commandScript} w19-report-timeout 0 -- exec opencode run --session ${known.rep} PROBE:report-timeout`,
+    { timeout: 3000 }), report("w19-after")],
   "rep-api-launch": () => [subagent("w25"), report("rep-api-hold", 8000)],
   "w25": () => [report("w25-start", 1000), callApi("w25-report-api", "POST", `/api/session/${known.rep}/prompt`, { text: "PROBE:report-api" }), report("w25-after")],
   "rep-resume": () => [subagent("w5-resumed", { sessionID: known.w5 })],
@@ -237,7 +238,7 @@ const sequences = {
   "loc-bind": () => bind("loc", "issue-5"),
   "loc-launch": () => [subagent("w8")],
   "w8": () => [report("w8-start"), shell(`cd ${treeB} && node ${commandScript} w8-cd 0 -- work show`),
-    { name: "shell", arguments: { command: `node ${commandScript} w8-workdir 0`, workdir: treeC } }, moveSession(treeA), report("w8-after-self-move"),
+    shell(`node ${commandScript} w8-workdir 0`, { workdir: treeC }), moveSession(treeA), report("w8-after-self-move"),
     work("w8-after-self-move-show", "show")],
   "loc-launch-parent": () => [subagent("w9")],
   "w9": () => [moveSession(treeC, known.loc), report("w9-after-parent-move")],
@@ -377,11 +378,11 @@ const observe = (label, cwd = fixture) => {
 // What Cleanup says about one linked Worktree.
 const check = (label, worktree) => {
   const result = run(dashpot, ["worktree", "check", worktree, "--json"]);
-  let report = null;
-  try { report = JSON.parse(result.stdout); } catch {}
+  let assessment = null;
+  try { assessment = JSON.parse(result.stdout); } catch {}
   return trace("cleanup", { label, worktree, status: result.status,
-    obstacles: report ? (report.obstacles ?? []).map(({ kind, detail }) => ({ kind, detail: String(detail ?? "").slice(0, 400) })) : null,
-    error: report ? undefined : (result.stdout + result.stderr).slice(0, 1500) });
+    obstacles: assessment ? (assessment.obstacles ?? []).map(({ kind, detail }) => ({ kind, detail: String(detail ?? "").slice(0, 400) })) : null,
+    error: assessment ? undefined : (result.stdout + result.stderr).slice(0, 1500) });
 };
 const storeOf = (worktree) => path.join(worktree, ".dashpot", "state", "sessions");
 const readJson = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; } };
@@ -681,7 +682,7 @@ try {
   await sessionInfo("rep-after-idle-report", known.rep);
   stateFiles("rep-after-idle-report");
   observe("rep-after-idle-report");
-  const busy = (async () => { await send(known.rep, "rep-busy-launch"); })();
+  const busy = send(known.rep, "rep-busy-launch");
   await waitFor(() => command("rep-busy-hold", "start"), "reporter holding", 30000);
   await busy;
   await waitFor(() => command("w6-report-busy", "start"), "w6 reporting", 60000);
@@ -693,7 +694,7 @@ try {
   await waitFor(() => noticed(known.rep, known.w6), "reporter noticed w6", 30000);
   await settle(2000);
   await idle(known.rep, "rep-busy-notice");
-  const busyBackground = (async () => { await send(known.rep, "rep-busy-launch-background"); })();
+  const busyBackground = send(known.rep, "rep-busy-launch-background");
   await waitFor(() => command("rep-busy-hold-background", "start"), "reporter holding again", 30000);
   await busyBackground;
   await waitFor(() => command("w16-after"), "w16 went on", 60000);
@@ -715,7 +716,7 @@ try {
   observe("rep-after-cd-report");
   if (cdInfo.location !== fixture) await move(known.rep, fixture, "rep-cd-back");
   // Cut short by the worker's shell timeout while the lead is busy.
-  const timing = (async () => { await send(known.rep, "rep-timeout-launch"); })();
+  const timing = send(known.rep, "rep-timeout-launch");
   await waitFor(() => command("rep-timeout-hold", "start"), "reporter holding for the timeout", 30000);
   await timing;
   await waitFor(() => command("w19-after"), "w19 went on", 60000);
@@ -727,7 +728,7 @@ try {
   await idle(known.rep, "rep-timeout-notice");
   trace("delivered", { label: "report-timeout", seen: records.some((record) => record.kind === "model.request" && record.sessionID === known.rep && record.probes?.includes("report-timeout")) });
   // Through the HTTP API, which admits the message and returns.
-  const viaApi = (async () => { await send(known.rep, "rep-api-launch"); })();
+  const viaApi = send(known.rep, "rep-api-launch");
   await waitFor(() => command("rep-api-hold", "start"), "reporter holding for the API report", 30000);
   await viaApi;
   await waitFor(() => command("w25-after"), "w25 went on", 60000);
@@ -976,7 +977,7 @@ try {
   skillFile(external[1], "fixture-external-agents", "name: fixture-external-agents\ndescription: A fixture skill in the shared agents directory.");
   const listed = async () => (await request("GET", "/api/skill", undefined, { directory: fixture })).body;
   const ids = (list) => (Array.isArray(list) ? list : []).map((item) => item.id).toSorted();
-  try { await waitFor(() => false, "never", 3000); } catch {}
+  await delay(3000);
   let skills = await listed();
   if (!ids(skills).includes("fixture-external-agents")) {
     trace("reload", { label: "skills", ...cli(["reload"]) });
