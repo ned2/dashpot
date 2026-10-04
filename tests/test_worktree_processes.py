@@ -223,7 +223,8 @@ def test_a_performed_removal_states_the_check_it_went_ahead_on(
     lines = describe_cleanup_report(removed)
     deleted = next(index for index, line in enumerate(lines) if "deleted" in line)
     assert lines[deleted + 1] == f"      removed {worktree}"
-    assert f"      {SANDBOXED}" in lines[deleted + 2 :]
+    assert lines[deleted + 2].startswith("      recover: git worktree add ")
+    assert lines[deleted + 3] == f"      {SANDBOXED}"
 
 
 def test_a_sandboxed_scan_still_blocks_on_the_processes_it_sees(

@@ -75,9 +75,10 @@ working directory inside it.
   state it beneath a removable Worktree, beside the sub-agent scope ADR 0066
   states, and a blocked Worktree claims nothing to qualify. A performed
   `worktree remove` states it beneath the removed Worktree's result. Whether
-  the scan was complete is part of the preview's fingerprint, so a scan
-  that falls short only at confirmation refuses the removal as changed, and
-  the revised preview states the gap. It is a
+  the scan was complete is part of the preview's fingerprint, so a change
+  in it at confirmation, either way, refuses the removal as changed: a scan
+  that falls short only at confirmation is refused, and the revised preview
+  states the gap. It is a
   statement, not a blocker, because the check is a positive safety net: an
   unsupported host gets the Cleanup it had before this decision, and is
   told so. A sandboxed scan still blocks on every process it does see.
