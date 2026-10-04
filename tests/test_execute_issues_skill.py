@@ -347,8 +347,8 @@ def test_a_merge_lands_only_what_ci_tested() -> None:
     assert "Record the merge with the SHA you broadcast, at once" in merge
     record = section(shipped("references/run-records.md"), "A merge")
     assert (
-        "the merge SHA and the SHA you broadcast are posted at once, since the "
-        "next broadcast starts from it"
+        "the merge SHA and the SHA you broadcast are posted at once: the next "
+        "broadcast starts from the SHA you broadcast."
     ) in record
     assert "how you checked that CI tested what lands" in record
 

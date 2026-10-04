@@ -325,7 +325,7 @@ launch a fresh worker on the same brief, assigned in the old one's place.
    user it is ready and continue from step 5 once it shows `MERGED`.
 5. **Broadcast** to every live worker. First `git fetch` and list what
    landed since the integration-branch SHA you last broadcast, which your
-   latest merge record holds (before the first broadcast, the arc's base):
+   latest merge record holds (before the first broadcast, the first wave's base):
    `git log --oneline <last-broadcast>..origin/<integration-branch>`.
    The broadcast names every merge in that range, whoever made it (you,
    the user, or another arc's lead); the new integration-branch SHA; what

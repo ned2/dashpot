@@ -57,7 +57,10 @@ Posted at dispatch:
 
 Posted when each PR lands. When merges come close together, the rest of the
 record can wait for the wave's close-out, but the merge SHA and the SHA you
-broadcast are posted at once, since the next broadcast starts from it:
+broadcast are posted at once: the next broadcast starts from the SHA you
+broadcast.
+
+The record holds:
 
 - the PR, its merge SHA and time, and who merged it;
 - how you checked that CI tested what lands, and any trial merge or new
