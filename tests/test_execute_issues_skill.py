@@ -270,9 +270,9 @@ def test_the_lead_finds_every_other_open_arc_by_its_opening_line() -> None:
     assert opening is not None
     # GitHub's search ignores the backticks the opening line carries.
     assert opening.group(1).replace("`", "").startswith(search.group(1))
-    assert "For an epic, add it at the top of the epic's body" in " ".join(
-        records.split()
-    )
+    flowed_records = " ".join(records.split())
+    assert "For an epic, add it at the top of the epic's body" in flowed_records
+    assert "The record Issue's body opens with this line" in flowed_records
     assert (
         "note the files its collision plan owns, the numbers it reserved, "
         "and its share of the machine's cores"
@@ -288,20 +288,26 @@ def test_the_lead_finds_every_other_open_arc_by_its_opening_line() -> None:
 def test_reservations_and_cores_are_shared_with_every_live_arc() -> None:
     setup = section(shipped("SKILL.md"), "2. Set up")
     assert "and the reservations of every other open arc" in setup
-    assert "A clash found before dispatch: take the next free numbers." in setup
     assert (
-        "A clash found after dispatch: the arc that dispatched the number later "
-        "renumbers, and its lead broadcasts the new number to its workers."
+        "A clash found before dispatch: the arc whose arc map posted later "
+        "takes the next free numbers. A clash found after dispatch: the arc "
+        "that dispatched the number later renumbers, and its lead broadcasts "
+        "the new number to its workers."
     ) in setup
     assert "Divide the machine's cores between every live arc, yours included" in setup
     assert "record yours in the arc map" in setup
-    assert "before you create the first Worktree" in setup
+    assert "who asks the other lead to shrink its share" in setup
+    assert "create the first Worktree: until it is posted" in setup
+    dispatch = section(shipped("SKILL.md"), "3. Dispatch a wave")
+    assert "re-split the cores between the live arcs" in dispatch
     arc_map = section(shipped("references/run-records.md"), "The arc map")
     assert "Posted once, at setup, before you create the first Worktree:" in arc_map
     assert "your share of the machine's cores" in arc_map
-    wave = shipped("references/brief-template.md").split("## The wave block", 1)[1]
-    assert "Other arcs hold <numbers, by tracking Issue>: never take them." in wave
-    assert "- Another arc, tracking Issue #<t>: <files>." in wave
+    wave = " ".join(
+        shipped("references/brief-template.md").split("## The wave block", 1)[1].split()
+    )
+    assert "Other arcs hold <numbers, by record Issue>: never take them." in wave
+    assert "- Another arc, record Issue #<t>: <files>." in wave
 
 
 def test_each_worktree_is_cut_from_a_freshly_fetched_tip() -> None:
@@ -314,43 +320,54 @@ def test_each_worktree_is_cut_from_a_freshly_fetched_tip() -> None:
         "Check that the `baseCommit` it reports is "
         "`git rev-parse origin/<integration-branch>`"
     ) in dispatch
+    assert "`git -C <path> merge --ff-only origin/<integration-branch>`" in dispatch
     assert "including each one a merge unblocks" in dispatch
 
 
-def test_a_merge_lands_only_on_the_base_ci_tested() -> None:
+def test_a_merge_lands_only_what_ci_tested() -> None:
     merge = section(shipped("SKILL.md"), "4. Handle each hand-back")
     assert "several merges behind" not in merge
-    assert "**Check that CI tested what will land.**" in merge
-    assert "`git merge-base <headRefOid> origin/<integration-branch>`" in merge
+    check = merge.index("**Check that CI tested what will land.**")
+    assert check < merge.index("--match-head-commit")
     assert (
-        "Merge directly only when the tested base is the integration branch's "
-        "current tip. Otherwise, whoever moved the branch, do one of these:"
+        "`git merge-base --is-ancestor origin/<integration-branch> <headRefOid>` "
+        "succeeds: the head already contains the integration branch's tip."
+    ) in merge
+    assert "it also did when the run's **tested base** is that tip" in merge
+    assert "Where CI checks out the head alone, only the first test applies." in merge
+    assert (
+        "Merge directly only when one test holds. Otherwise, whoever moved the "
+        "branch, do one of these:"
     ) in merge
     assert "Re-running the old run tests the old revision again." in merge
-    assert merge.index("Check that CI tested what will land") < merge.index(
-        "--match-head-commit"
-    )
     assert (
         "`git log --oneline <last-broadcast>..origin/<integration-branch>`"
     ) in merge
     assert "names every merge in that range, whoever made it" in merge
-    assert "Record the merge with the SHA you broadcast" in merge
+    assert "Record the merge with the SHA you broadcast, at once" in merge
     record = section(shipped("references/run-records.md"), "A merge")
-    assert "the integration-branch SHA you broadcast" in record
-    assert "the tested base you checked" in record
+    assert (
+        "the merge SHA and the SHA you broadcast are posted at once, since the "
+        "next broadcast starts from it"
+    ) in record
+    assert "how you checked that CI tested what lands" in record
 
 
 def test_close_out_waits_for_another_sessions_sub_agents() -> None:
     close_out = section(shipped("SKILL.md"), "5. Close out")
     assert "**A removal refused for another session's sub-agents** waits" in close_out
-    assert "tell the user which session the blocker names" in close_out
-    assert "wait for its sub-agents to finish, and retry the dry run" in close_out
+    assert "tell the user which sessions the blockers name" in close_out
+    assert "wait for their sub-agents to finish, and retry the dry run" in close_out
+    assert (
+        "A blocker that says its session ended never clears by waiting: give the "
+        "user the command it names, and leave running it to them"
+    ) in close_out
     assert "Bypass Dashpot only when the user explicitly tells you to" in close_out
     for check in (
         "`git -C <path> status --porcelain` prints nothing",
         "its PR shows `MERGED`",
         "no process has its working directory inside it",
-        "the dry run lists no blocker but that session's `sub-agent` ones",
+        "the dry run lists no blocker but those sessions' `sub-agent` ones",
     ):
         assert check in close_out, check
     # One sentence names the bypass, so a Dashpot override can replace it.

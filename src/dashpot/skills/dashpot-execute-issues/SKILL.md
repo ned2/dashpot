@@ -108,7 +108,7 @@ step 2.
   remove them. If your session already sits in a Worktree, check whether
   its work has merged (`gh pr list --state all --head <branch>`).
 - Read the **other open arcs**: another lead may be landing its own arc in
-  this repository at the same time. Every arc's tracking Issue opens with
+  this repository at the same time. Every arc's record Issue opens with
   the same line ([run-records.md](references/run-records.md)), so
   `gh issue list --state open --search '"Tracking Issue for a dashpot-execute-issues arc" in:body'`
   finds them all. From each one's arc map and wave comments, note the files
@@ -151,14 +151,16 @@ and every other open arc with the files, numbers and cores it holds.
    every local Worktree's Branch, and the reservations of every other open
    arc, read while mapping the arc: the user's own Worktrees take
    numbers too, and another arc's numbers are taken long before any branch
-   holds them. A clash found before dispatch: take the next free numbers. A
-   clash found after dispatch: the arc that dispatched the number later
-   renumbers, and its lead broadcasts the new number to its workers. When
-   that is the other arc, tell the user, who passes it on.
+   holds them. A clash found before dispatch: the arc whose arc map posted
+   later takes the next free numbers. A clash found after dispatch: the arc
+   that dispatched the number later renumbers, and its lead broadcasts the
+   new number to its workers. When the other arc must change, tell the
+   user, who passes it on.
 5. **Size the waves.** Divide the machine's cores between every live arc,
    yours included: take the share the repository's instructions name, or
    what the other arcs' recorded shares leave, and record yours in the arc
-   map. Find your harness's worker limit in
+   map. When they leave too little, tell the user, who asks the other lead
+   to shrink its share. Find your harness's worker limit in
    [harnesses.md](references/harnesses.md), and split your share between
    your workers' test runs. A documentation-only Issue runs no suite and
    costs almost nothing alongside the others.
@@ -167,14 +169,16 @@ and every other open arc with the files, numbers and cores it holds.
    directory and fill its per-arc placeholders, which that file lists.
    Render briefs with a script or a quoted heredoc (`<<'EOF'`): an unquoted
    heredoc runs backtick spans as commands.
-7. **Post the arc map** comment ([run-records.md](references/run-records.md))
-   before you create the first Worktree: until it is posted, no other lead
-   can see your reservations or your share of the cores. Then read the
-   other open arcs once more, in case one posted while you set up. Settle
-   any clash as step 4 above says, and post each number you change.
+7. **Post the arc map** comment on the record Issue, whose body opens with
+   the line [run-records.md](references/run-records.md) gives, before you
+   create the first Worktree: until it is posted, no other lead can see
+   your reservations or your share of the cores. Then read the other open
+   arcs once more, in case one posted while you set up. Settle any clash as
+   step 4 above says, and post each number you change.
 
-Done when the session is bound, the reservations and the arc map are
-posted with no clash outstanding, and the filled template exists.
+Done when the session is bound, the record Issue opens with that line,
+the reservations and the arc map are posted with no clash outstanding, and
+the filled template exists.
 
 ## 3. Dispatch a wave
 
@@ -184,7 +188,11 @@ covers starting before a blocker merges, splitting a large Issue, stacking
 on an open PR, pairing a measurement with its consumers, and paying down a
 flaky check.
 
-Before dispatching, look for collisions between the wave's Issues:
+Before dispatching, run the open-arc search from step 1 again. When an arc
+has started or ended since your last wave, settle its files and numbers as
+in steps 1 and 2, re-split the cores between the live arcs, and record your
+new share in the wave comment. Then look for collisions between the wave's
+Issues:
 
 - **Shared files and functions.** Give every file, function and document
   section one owner. A change to a shared core goes through you first. A
@@ -207,10 +215,11 @@ For each Issue in the wave:
    adding `--branch <name>` for the second half of a split Issue. Without
    the fetch and the remote-tracking ref as its base, a Worktree created
    just after a merge is cut from a tip one merge behind. Check that the
-   `baseCommit` it reports is `git rev-parse origin/<integration-branch>`,
-   and fast-forward the new Branch to that tip before its worker launches
-   if it is not. Every Worktree follows this, including each one a merge
-   unblocks. Use the path, Branch and base it reports. Prepare the
+   `baseCommit` it reports is `git rev-parse origin/<integration-branch>`.
+   If it is not, fast-forward the new Branch before its worker launches
+   (`git -C <path> merge --ff-only origin/<integration-branch>`), and use
+   that tip as its base. Every Worktree follows this, including each one a
+   merge unblocks. Use the path and Branch it reports. Prepare the
    Worktree with the repository's own setup command. Do not install git
    hooks from a Worktree when every checkout shares the repository's hooks
    directory: that repoints every checkout at an environment removed with
@@ -289,16 +298,16 @@ launch a fresh worker on the same brief, assigned in the old one's place.
    any model that enforces a content or security rule, and for recorded
    evidence, that what it records matches the PR head.
    Tests and docs ride on the worker's independent review.
-3. **Check that CI tested what will land.** After a `git fetch`, find the
-   green run's **tested base**: the newest integration-branch commit the
-   code it tested contains. Where CI tests the head merged with the
-   integration branch, as a pull-request run does by default, that is the
-   base the run records; where the repository keeps no such record, treat
-   the base as stale. Where CI checks out the head alone, it is
-   `git merge-base <headRefOid> origin/<integration-branch>`. The
-   repository's instructions or its CI workflow say which applies. Merge
-   directly only when the tested base is the integration branch's current
-   tip. Otherwise, whoever moved the branch, do one of these:
+3. **Check that CI tested what will land.** After a `git fetch`, it did
+   when `git merge-base --is-ancestor origin/<integration-branch> <headRefOid>`
+   succeeds: the head already contains the integration branch's tip. Where
+   CI tests the head merged with the integration branch, as a pull-request
+   run does by default, it also did when the run's **tested base** is that
+   tip: the base a record of the run gives, such as a revision artifact the
+   repository publishes. Where CI checks out the head alone, only the first
+   test applies. The repository's instructions or its CI workflow say how
+   its CI checks out. Merge directly only when one test holds. Otherwise,
+   whoever moved the branch, do one of these:
    - Check the merge with today's integration branch in a detached check
      Worktree (`git worktree add --detach <path> origin/<integration-branch>`,
      prepared like any other), running the touched tests and then the full
@@ -316,7 +325,7 @@ launch a fresh worker on the same brief, assigned in the old one's place.
    user it is ready and continue from step 5 once it shows `MERGED`.
 5. **Broadcast** to every live worker. First `git fetch` and list what
    landed since the integration-branch SHA you last broadcast, which your
-   latest merge record holds (before the first merge, the wave's base):
+   latest merge record holds (before the first broadcast, the arc's base):
    `git log --oneline <last-broadcast>..origin/<integration-branch>`.
    The broadcast names every merge in that range, whoever made it (you,
    the user, or another arc's lead); the new integration-branch SHA; what
@@ -325,9 +334,9 @@ launch a fresh worker on the same brief, assigned in the old one's place.
    whether they must rebase now, with any regeneration that now falls to
    them. This curbs merge skew: siblings building on a stale base, and
    changes that pass alone but break together.
-6. Record the merge with the SHA you broadcast
-   ([run-records.md](references/run-records.md)), and dispatch whatever the
-   merge unblocked (step 3).
+6. Record the merge with the SHA you broadcast, at once
+   ([run-records.md](references/run-records.md)): the next broadcast starts
+   from it. Then dispatch whatever the merge unblocked (step 3).
 
 Merge in order of readiness, not of plan. When the PR planned to land
 second is ready first, land it and move the follow-on work to the worker
@@ -380,25 +389,29 @@ every Issue has merged:
    `--delete-ignored` alone. Confirm afterwards that the shared git hooks
    still point where they did.
 3. **A removal refused for another session's sub-agents** waits for that
-   session. Dashpot's `sub-agent` blocker holds every Worktree of the
-   repository while any session's sub-agents are listed as working: another
-   arc's lead, or any session of the user's. When the dry run's only
-   blockers name a session other than yours, tell the user which session
-   the blocker names (its harness, ID and location), wait for its
-   sub-agents to finish, and retry the dry run. Bypass Dashpot only when
-   the user explicitly tells you to, and only for a Worktree that passes
-   every check:
+   session. The `sub-agent` blocker holds every Worktree for any session's
+   sub-agents, not only your workers: another arc's lead, or any session
+   of the user's. When the dry run's only blockers name sessions other than
+   yours, tell the user which sessions the blockers name (each one's
+   harness, ID and location), wait for their sub-agents to finish, and
+   retry the dry run. A blocker that says its session ended never clears by
+   waiting: give the user the command it names, and leave running it to
+   them, since it changes another session's records. Bypass Dashpot only
+   when the user explicitly tells you to, and only for a Worktree that
+   passes every check:
    - its working tree is clean: `git -C <path> status --porcelain` prints
      nothing;
    - its PR shows `MERGED`, and its local Branch and Remote-Tracking Branch
-     each point at the merged PR's head or an earlier commit of that PR;
+     each point at the merged PR's head or an earlier commit of that PR. A
+     detached check Worktree has no PR or Branch, so this check is waived
+     for it;
    - no process has its working directory inside it (on Linux, read each
      `/proc/<pid>/cwd`);
-   - the dry run lists no blocker but that session's `sub-agent` ones.
+   - the dry run lists no blocker but those sessions' `sub-agent` ones.
 
-   The bypass is plain git: `git worktree remove <path>`,
-   `git branch -D <branch>`, and, for a Branch still at the remote,
-   `git push <remote> --force-with-lease=refs/heads/<branch>:<tip> --delete <branch>`.
+   The bypass is plain git: `git worktree remove <path>`, then for a Branch
+   `git branch -D <branch>` and, while it is still at the remote,
+   `git push origin --force-with-lease=refs/heads/<branch>:<tip> --delete <branch>`.
    Record the bypass, the user's instruction and each check's result in the
    close-out record.
 4. Post each Issue's closing comment (workers draft them), including on

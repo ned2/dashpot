@@ -55,11 +55,13 @@ Posted at dispatch:
 
 ## A merge
 
-Posted when each PR lands, or batched into the wave's close-out when merges
-come close together:
+Posted when each PR lands. When merges come close together, the rest of the
+record can wait for the wave's close-out, but the merge SHA and the SHA you
+broadcast are posted at once, since the next broadcast starts from it:
 
 - the PR, its merge SHA and time, and who merged it;
-- the tested base you checked, and any trial merge or new run it needed;
+- how you checked that CI tested what lands, and any trial merge or new
+  run it needed;
 - the integration-branch SHA you broadcast, and every merge since the
   previous broadcast: the next broadcast lists what landed after it;
 - the worker's wall-clock time, and its tool calls and tokens if the harness

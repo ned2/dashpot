@@ -284,7 +284,7 @@ In this Repository:
   [ADR 0089](docs/adr/0089-leave-the-pr-merge-to-the-operator.md) decides.
 - Reserve ADR numbers per Issue, with a spare, before dispatch. Scan
   `origin/main`, open PRs, the Remote-Tracking Branches after a fetch,
-  every local Worktree's Branch, and every open Arc's tracking Issue: the
+  every local Worktree's Branch, and every open Arc's record Issue: the
   operator's own Worktrees take numbers too. ADR numbers may have gaps, so
   while another Arc is open, start your block ten above the highest number
   it holds, which leaves its later reservations clear of yours.
@@ -306,7 +306,8 @@ In this Repository:
   two Workers at `--workers 8`, or four at `--workers 4`.
 - CI checks out a PR's head alone, not its merge with `main`
   ([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)),
-  so a green run's tested base is `git merge-base <head> origin/main`. The
+  so a green run tested what will land only when the head contains
+  `origin/main` (`git merge-base --is-ancestor origin/main <head>`). The
   `PR_BASE_SHA` in its `ci-revision-*` artifact
   (`gh run download <run> -p 'ci-revision-*'`) records only where `main`
   stood when the run began, not what the head contains.
