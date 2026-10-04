@@ -214,6 +214,12 @@ file `execute-issues-status` in your Worktree's Git directory
 (`git -C <path> rev-parse --absolute-git-dir`), which is never committed.
 Your final message is your hand-back."
 
+**A report's turn.** A lead turn that a worker's report starts cannot ask
+the person: the report's `opencode run` rejects every permission ask the
+turn raises, and the turn goes on without the action. While a report runs,
+an ask any worker raises is rejected too. Act on a report that needs an
+approval in a turn the person can answer.
+
 **Completion.** A `<subagent sessionID="…" state="completed">` message
 carrying the worker's final text wakes you, whether you were idle, busy or
 interrupted. A state of `error` or `cancelled` is a blocker.
@@ -223,9 +229,12 @@ history. Only you, its parent, can. A prompt to a running worker steers it.
 
 **Long commands.** A foreground shell times out after 2 minutes, so a
 worker runs its gates and CI watches in background shells, or with
-`timeout: 0`. A shell that runs for about an hour with no other session
-event is interrupted, so a gate that long runs outside OpenCode. Add both
-to the brief's gotchas.
+`timeout: 0`. A foreground shell that runs for about an hour with no other
+session event is interrupted, and what that hour does to a background
+shell is unmeasured, so a gate that long runs outside OpenCode. A
+background shell outlives the turn that started it, and neither Dashpot
+nor Cleanup sees it, so a worker waits for its background shells before
+handing back. Add these to the brief's gotchas.
 
 **Stopping.** Deleting your session deletes its running workers. Stopping
 the OpenCode service stops every session.

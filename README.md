@@ -546,6 +546,13 @@ Each supported harness release is pinned by an acceptance run: a runner that dri
   [verifier](scripts/experiments/opencode-423/verify.mjs) and
   [trace](docs/spikes/measurements/issue-423-opencode-trace.jsonl)
   ([acceptance](docs/spikes/opencode-v2-self-relocation-acceptance.md)).
+  An experiment on the same release measures background commands,
+  `opencode run` under default permissions, and retried and failed
+  executions:
+  [runner](scripts/experiments/opencode-379/run.mjs),
+  [verifier](scripts/experiments/opencode-379/verify.mjs) and
+  [trace](docs/spikes/measurements/issue-379-opencode-trace.jsonl)
+  ([experiment](docs/spikes/opencode-v2-background-permissions-spike.md)).
 
 #### Local review gate
 

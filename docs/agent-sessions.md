@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-04
+date: 2026-10-05
 ---
 
 # Agent sessions
@@ -414,6 +414,9 @@ foreground and the background, forks, moves, plugin edits, repairs and
 reloads, deletion, and the service replaced, stopped and killed. The measured
 detail is in the [OpenCode v2 experiment](spikes/opencode-v2-spike.md) and
 the [plugin protocol experiment](spikes/opencode-v2-plugin-protocol-spike.md).
+Background shell commands, `opencode run` under a person's default
+permissions, and retried and failed executions are measured on 2.0.22 by the
+[background, permissions and failures experiment](spikes/opencode-v2-background-permissions-spike.md).
 
 OpenCode has no command hooks. `dashpot integrate opencode` instead writes a
 managed plugin, `plugins/dashpot.js`, to OpenCode's global configuration
@@ -446,7 +449,9 @@ In the dashboard, an OpenCode session's state means:
 
 - **Running or waiting.** Its server is live, and the state is that of its
   current execution: started reads running, and succeeded, failed or
-  interrupted reads waiting. A child session, one with a `parentID`, is a
+  interrupted reads waiting. An execution stays running while OpenCode
+  retries a provider error, and while a tool waits for a person to answer
+  a permission ask. A child session, one with a `parentID`, is a
   Sub-agent of its root and holds it running, a background child past its
   root's execution included; a fork is a root of its own, and inherits no
   run.
@@ -465,8 +470,10 @@ In the dashboard, an OpenCode session's state means:
   session and its run. A deletion that reached no live instance is
   recovered when an instance is next set up at the session's location.
 
-A session moves when OpenCode moves it: by the model's move tool, the API,
-or, by the source, the TUI changing directory. Within the Repository its
+A session moves when OpenCode moves it: by the model's move tool or the API.
+By the source, the TUI changing directory moves its session too; that is
+documented, not measured, and the Issue-work skill moves a session with the
+model's own tool instead. Within the Repository its
 hook record and a bound run move with it, as a Live Relocation. A move
 requested while the session works takes effect when its execution ends. A
 move to another Repository, or outside every Project, leaves the run where
@@ -501,11 +508,46 @@ running command publishes one only when it starts
 ([idle eviction](spikes/opencode-v2-spike.md#idle-eviction)). A validation
 gate longer than that is lost; split it, or run it outside OpenCode.
 
-Not supported, because they were not measured: `opencode web`, ACP
-(`opencode acp`), the SDK's own server, the desktop app and editor
-extensions; a client pointed at a server with `--server <url>`, and a
-remote server ([#379](https://github.com/ned2/dashpot/issues/379)); and
-every operating system other than Linux.
+**Background commands.** A model's shell command run with `background:
+true` outlives the execution that started it, and Dashpot observes the
+session, not the command: the session reads waiting while the command
+runs, and the command's end wakes it with a new execution. Neither the
+dashboard nor `dashpot work show` lists the command, and Cleanup does not
+see it: a session that moves out of its Worktree, or is deleted, while its
+command runs frees the Worktree for Cleanup with the command still running
+there. OpenCode lists a running command with `GET /api/shell` at the
+location it started in, named by the `x-opencode-directory` header.
+Interrupting the session leaves the command running; stopping the service,
+or quitting a `--standalone` client, kills it.
+
+**`opencode run` and permission asks.** Under OpenCode's default rules,
+which ask before reading `.env` files or a path outside the session's
+location, `opencode run` never waits for a person: without `--auto` it
+rejects every ask in its session, and by the source in the session's
+Sub-agents, and the turn goes on without the action; with `--auto` it
+approves each ask no rule denies. So a Lead turn that a Worker's
+`opencode run --session <lead>` report starts has its asks rejected, as
+measured without a TUI attached to the Lead, and while the report runs, by
+the source, so do the Lead's Workers. An ask no client answers keeps the
+session running until it is answered; a TUI shows it to the person.
+
+Not supported, each for its reason:
+
+- **`--server <url>`, local or remote, ACP (`opencode acp`), and the web,
+  desktop and editor clients.** Not measured yet;
+  [#455](https://github.com/ned2/dashpot/issues/455) tracks supporting
+  them. `opencode web` is a v1 entry point.
+- **The SDK's own embedded server.** No user need, and whether it loads the
+  plugin, and which process is its Host Process, is unknown.
+- **Workspaces**, a location with a `workspaceID`. No user need.
+- **Two Host Processes serving one session at once.** A Worker's
+  `opencode run --session` report to a `--standalone` Lead would make the
+  shared service run the lead's session beside its private server, by the
+  source; [#454](https://github.com/ned2/dashpot/issues/454) restricts
+  leading workers to the shared service, so that no supported arrangement
+  causes it, and #455 revisits it for the servers it adds.
+- **Every operating system other than Linux.** No test environment, as for
+  Codex and Claude Code.
 An OpenCode started with `--pure` or `OPENCODE_PURE` loads no plugin and
 publishes nothing.
 

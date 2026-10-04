@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-04
+date: 2026-10-05
 ---
 
 # Let a root OpenCode session move itself for Issue work
@@ -144,7 +144,7 @@ requires "confirmed" at the intended Worktree, mean what it says.
 - A session started at a `--server <url>`, or an OpenCode release that
   changes the move's timing or result, is outside what the acceptance run
   measured
-  ([#379](https://github.com/ned2/dashpot/issues/379),
+  ([#455](https://github.com/ned2/dashpot/issues/455),
   [#416](https://github.com/ned2/dashpot/issues/416)).
 - Amends ADR 0090: who may trigger a move is #148's question only for a move
   made by anyone other than the session itself.

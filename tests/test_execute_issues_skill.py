@@ -301,6 +301,11 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     assert "It does not stop a determined process" in opencode
     assert 'opencode run --session <lead-session-id> "<message>"' in opencode
     assert "A foreground shell times out after 2 minutes" in opencode
+    flowed = " ".join(opencode.split())
+    assert "rejects every permission ask the turn raises" in flowed
+    assert "waits for its background shells before handing back" in flowed
+    assert "an ask any worker raises is rejected too" in flowed
+    assert "what that hour does to a background shell is unmeasured" in flowed
     assert "nesting depth defaults to 1" in opencode
     assert "`opencode/autoinvoke: false`" in opencode
 
