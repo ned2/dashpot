@@ -57,7 +57,7 @@ amends ADR 0034's Python target.
 **3.14 is not the floor yet.** A 3.14 floor would let PEP 649 and PEP 749
 deferred annotations replace `from __future__ import annotations` in every
 module that imports it. That is a separate change with its own churn, and
-the maintainer deferred it to a later Issue.
+the maintainer deferred it to [#500](https://github.com/ned2/dashpot/issues/500).
 
 ## Consequences
 
@@ -73,5 +73,5 @@ interpreter. `uv tool install --python 3.14 dashpot`, the recommended install,
 already selects one, as does `pipx install --python`.
 
 A symlink loop under `Path.resolve` raises `RuntimeError` only on Python 3.12;
-the handlers that catch it for that release are now unreachable, and removing
-them is left to a later change.
+the handlers that catch it for that release are now unreachable, and
+[#501](https://github.com/ned2/dashpot/issues/501) removes them.

@@ -491,8 +491,8 @@ uv run pytest -q -n 0
 ```
 
 Tests run in parallel by default, reserving half the available CPUs and using
-at most eight workers (at least one). Linux uses the current CPU affinity;
-other platforms use the reported CPU count. Override with `-n N`, or `-n 0`
+at most eight workers (at least one). The count is `os.process_cpu_count()`,
+which respects CPU affinity where the platform reports it. Override with `-n N`, or `-n 0`
 for serial execution. CI explicitly uses two workers. Higher counts require
 measurement: sixteen failed locally despite eight passing repeatedly; see
 [CI and test performance](docs/ci-performance.md).
@@ -1102,9 +1102,9 @@ why the dashboard screen stays one Textual adapter.
 [ADR 0105](docs/adr/0105-raise-the-python-floor-to-3-13.md)
 records why the Python floor is 3.13, superseding the typing backports
 [ADR 0048](docs/adr/0048-adopt-python-3-13-typing-backports-on-the-3-12-baseline.md)
-adopted on the 3.12 baseline,
+adopted on the 3.12 baseline.
 [ADR 0049](docs/adr/0049-interrupt-observation-commands-at-dashboard-exit.md)
-why quitting interrupts the observation commands in flight, and
+records why quitting interrupts the observation commands in flight,
 [ADR 0050](docs/adr/0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md)
 why every pane column describes itself once for both its header tooltip and
 the Legend, and
