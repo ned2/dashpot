@@ -57,10 +57,11 @@ from .work_store import ActiveWork
 class HookPublication:
     """Where one hook event was published, and what it did to its session's Agent Run.
 
-    ``state`` is the state the store stored the session's record with, not
-    the one the hook event maps to, and None when it stored nothing of the
-    event; ``work`` names the Work Store change, with the Issue of the run it
-    changed.
+    ``state`` is the state the session's record was stored with, which may
+    differ from the one the hook event maps to, and None when the store kept
+    nothing of the event; a deferred end's settler reports ``ended`` without
+    writing a record. ``work`` names the Work Store change, with the Issue of
+    the run it changed.
     """
 
     path: Path
@@ -128,8 +129,8 @@ def publish_hook_event(
         store = hook_store_at(freshest.store, worktrees)
     else:
         store = route_record_store(record)
-    # A built record names the state its hook event maps to, which decides
-    # the route; the store may store another, which the publication reports.
+    # The state the hook event maps to decides whether this is an end that
+    # reconciles the Work Store; the publication reports the stored state.
     ending = record["state"] == "ended" and not child
     # The runs this end ended, or left to a settler when it is ``deferred``.
     reconciled: list[tuple[Path, ActiveWork]] = []

@@ -459,9 +459,10 @@ class HookRecordWrite:
     """Where the store published one hook event, and the state it stored.
 
     ``state`` is the state the session's record was stored with, which may
-    differ from the one the event maps to; ``ended`` when the event ended the
-    session, whether its record was removed or kept for its sub-agents; None
-    when the store kept nothing of the event.
+    differ from the one the event maps to. It is ``ended`` when the event
+    ended the session, whether its record was removed or kept for its
+    sub-agents, and when a sub-agent's boundary changed or removed such a
+    kept record (ADR 0095); None when the store kept nothing of the event.
     """
 
     path: Path
@@ -469,7 +470,7 @@ class HookRecordWrite:
 
 
 def _stored_state(record: Mapping[str, Any]) -> ActiveState:
-    """The state ``record`` is about to be stored with."""
+    """The state ``record`` names, refused unless a hook record may hold it."""
     return cast("ActiveState", _active_state(record.get("state")))
 
 
@@ -576,6 +577,7 @@ class HookRecordStore(LockedRecordStore):
                 elif remaining != previous.get("liveSubagents"):
                     self.replace(key, {**previous, "liveSubagents": remaining})
                 else:
+                    # The record is as it was: the store kept nothing.
                     return HookRecordWrite(destination, None)
                 return HookRecordWrite(destination, "ended")
             if child and previous is None and record.get("event") != "SubagentStart":
@@ -632,8 +634,11 @@ class HookRecordStore(LockedRecordStore):
             if started is not None:
                 current["lastSessionStartAt"] = started
             current["state"] = observed_state(current)
+            # Narrowed before the write, so a state no record may hold is
+            # refused rather than stored.
+            stored = _stored_state(current)
             self.replace(key, current)
-            return HookRecordWrite(destination, _stored_state(current))
+            return HookRecordWrite(destination, stored)
 
     def release_subagents(
         self, key: str, agents: Iterable[str], by: Mapping[str, Any]
