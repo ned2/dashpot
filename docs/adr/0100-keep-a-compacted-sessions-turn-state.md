@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-05
+amended-by: 0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md, 0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md
 ---
 
 # Keep a compacted session's turn state
@@ -123,4 +124,7 @@ that turn's clock now starts at the prompt rather than at the
 - Amended by [ADR 0106](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md)
   ([#488](https://github.com/ned2/dashpot/issues/488)): every `SessionStart`
   other than a compaction's now records `waiting` with no turn clock, not
-  `running`. The rules for a compaction are unchanged.
+  `running`. The rules for a compaction are unchanged. The later rule for
+  other sources that this ADR expected to extend `continues_turn` is instead
+  `SessionStart`'s base state in `EVENT_STATES`; `continues_turn` still
+  answers for a compaction only.

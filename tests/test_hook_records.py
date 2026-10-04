@@ -1082,6 +1082,7 @@ MEASUREMENTS = Path(__file__).resolve().parents[1] / "docs/spikes/measurements"
 CLAUDE_448_TRACE = MEASUREMENTS / "issue-448-claude-trace.jsonl"
 CLAUDE_458_TRACE = MEASUREMENTS / "issue-458-claude-trace.jsonl"
 CLAUDE_488_TRACE = MEASUREMENTS / "issue-488-claude-trace.jsonl"
+CODEX_448_TRACE = MEASUREMENTS / "issue-448-codex-trace.jsonl"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1269,7 +1270,7 @@ def claude_event(
         pytest.param(None, id="no-process"),
     ],
 )
-def test_a_compaction_with_no_turn_of_its_process_to_follow_runs(
+def test_a_compaction_with_no_live_record_of_its_process_runs(
     tmp_path: Path, process: ProcessIdentity | None
 ) -> None:
     # Nothing says which turn state it keeps; an automatic one falls inside a
@@ -1468,9 +1469,6 @@ def test_a_codex_automatic_compaction_keeps_its_turn_until_it_stops(
     assert stopped["state"] == "waiting"
 
 
-CODEX_448_TRACE = MEASUREMENTS / "issue-448-codex-trace.jsonl"
-
-
 def test_a_measured_codex_session_start_waits_only_until_its_prompt(
     tmp_path: Path,
 ) -> None:
@@ -1628,7 +1626,14 @@ def test_a_measured_conversation_switch_moves_its_worker_to_the_new_session(
         switch.worker not in record["liveSubagents"]
         for record in stored[switch.stop].values()
     )
-    assert stored[switch.stop][switch.entered]["liveSubagents"] == []
+    # It stops before the new session is prompted, so its own turn has not
+    # begun and the session waits (ADR 0106).
+    after = stored[switch.stop][switch.entered]
+    assert (after["state"], after["liveSubagents"], after["turnStartedAt"]) == (
+        "waiting",
+        [],
+        None,
+    )
 
 
 @pytest.mark.parametrize("scenario", MEASURED_SWITCHES)
@@ -1789,14 +1794,17 @@ def test_a_measured_fork_runs_in_another_session_and_takes_nothing_over(
 ) -> None:
     # `/fork` publishes no SessionEnd: the copy starts as a new session in the
     # background daemon's process, and the worker goes on, and stops, in the
-    # lead's session (#490, ADR 0106).
+    # forking session (#490, ADR 0106).
     hooks = measured_hooks("fork-worker", CLAUDE_488_TRACE)
-    (lead_start, fork_start) = (
+    (forking_start, fork_start) = (
         hook for hook in hooks if hook.payload["hook_event_name"] == "SessionStart"
     )
-    lead, fork = lead_start.payload["session_id"], fork_start.payload["session_id"]
+    forking, fork = (
+        forking_start.payload["session_id"],
+        fork_start.payload["session_id"],
+    )
     assert fork_start.payload["source"] == "fork"
-    assert fork_start.host != lead_start.host
+    assert fork_start.host != forking_start.host
     fork_end = next(
         hook
         for hook in hooks
@@ -1804,35 +1812,36 @@ def test_a_measured_fork_runs_in_another_session_and_takes_nothing_over(
         and hook.payload["session_id"] == fork
     )
     assert fork_end.payload["reason"] == "other"
-    # The lead ends only when the scenario closes it, after its daemon stopped.
-    (lead_end,) = (
+    # The forking session ends only when the scenario closes it, after the
+    # daemon stopped.
+    (forking_end,) = (
         hook
         for hook in hooks
         if hook.payload["hook_event_name"] == "SessionEnd"
-        and hook.payload["session_id"] == lead
+        and hook.payload["session_id"] == forking
     )
-    assert lead_end.receipt > fork_end.receipt
-    worker = next(iter(worker_agents(hooks)))
+    assert forking_end.receipt > fork_end.receipt
+    (worker,) = worker_agents(hooks)
     stop = next(
         hook for hook in hooks if hook.payload["hook_event_name"] == "SubagentStop"
     )
     assert (stop.payload["session_id"], stop.agent, stop.host) == (
-        lead,
+        forking,
         worker,
-        lead_start.host,
+        forking_start.host,
     )
 
     stored = replay_store(hooks, tmp_path)
 
     forked = stored[fork_start.receipt]
     assert (forked[fork]["state"], forked[fork]["liveSubagents"]) == ("waiting", [])
-    assert (forked[lead]["state"], forked[lead]["liveSubagents"]) == (
+    assert (forked[forking]["state"], forked[forking]["liveSubagents"]) == (
         "running",
         [worker],
     )
     stopped = stored[stop.receipt]
     assert all(worker not in record["liveSubagents"] for record in stopped.values())
-    assert (stopped[lead]["state"], stopped[fork]["state"]) == ("waiting", "waiting")
+    assert (stopped[forking]["state"], stopped[fork]["state"]) == ("waiting", "waiting")
 
 
 @pytest.mark.parametrize(

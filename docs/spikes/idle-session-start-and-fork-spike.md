@@ -65,30 +65,30 @@ trace's. Each idle wait lasted 20 s, with nothing typed or sent.
   session id from the same Host Process (#71), then no hook while idle (#73,
   #74). The new session was stored `waiting` with no turn clock.
 - **`fork-worker`, `/fork` while a background worker works.**
-  - **Setup.** An interactive lead started a background worker whose shell
+  - **Setup.** An interactive session started a background worker whose shell
     held on a gate (#86–#93). Its record read `running`, listing the worker,
     with no turn clock (#92). The command menu describes `/fork` as "Copy
     this conversation into a new background session and keep working here"
     (#95).
   - **The fork.** `/fork` and Enter (#96) published no `SessionEnd` for the
-    lead. They published one `SessionStart` with `source` `fork` and a new
+    forking session. They published one `SessionStart` with `source` `fork` and a new
     session id (#98). It came from another Host Process: a background
-    session under a transient daemon that the lead's process had started,
+    session under a transient daemon that the forking session's process had started,
     with a new entry under `/tmp/cc-daemon-<uid>/` (#101). `claude agents`
-    listed the lead as interactive and the fork as background, each with its
+    listed the forking session as interactive and the fork as background, each with its
     own pid (#103).
   - **The fork begins no turn.** No hook came while the fork was left idle
     (#104–#106). The fork published nothing more until the daemon stopped,
     and then ended with `reason` `other` (#132, #133).
   - **The worker.** It was still holding after the fork (#108). Once the
-    gate opened, its shells carried the lead's session id and Host Process,
-    and its model requests the lead's id (#111–#115). Its `SubagentStop`
-    named the lead's session and Host Process (#117), and its completion
-    reached the lead as a task notification (#119).
+    gate opened, its shells carried the forking session's id and Host Process,
+    and its model requests that session's id (#111–#115). Its `SubagentStop`
+    named the forking session and its Host Process (#117), and its
+    completion reached the forking session as a task notification (#119).
   - **Dashpot's store.** The fork's `SessionStart` was stored `waiting`
-    with no sub-agents. The lead's record still read `running` with the
+    with no sub-agents. The forking session's record still read `running` with the
     worker listed, because the fork took nothing over (#98). After the
-    worker's `SubagentStop`, no record listed it and the lead read `waiting`
+    worker's `SubagentStop`, no record listed it and the forking session read `waiting`
     (#117).
   - **Cleanup.** `claude daemon stop --any` stopped the fixture's daemon and
     removed its entry (#135). No fixture process outlived the run (#143).

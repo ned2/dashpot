@@ -34,7 +34,7 @@ working background Sub-agent for [#490](https://github.com/ned2/dashpot/issues/4
 - **`/clear` with no worker.** `SessionEnd` `clear`, then `SessionStart`
   `clear` for a new session id in the same Host Process (#70, #71), and
   nothing more while idle.
-- **`/fork` with a working worker.** `/fork` publishes no `SessionEnd` for
+- **`/fork` while a worker works.** `/fork` publishes no `SessionEnd` for
   the session it copies. It publishes one `SessionStart` with `source`
   `fork` and a new session id, from another Host Process: the background
   session that a transient daemon, started by the forking process, runs
@@ -52,8 +52,17 @@ The other harnesses, from existing traces:
   (for example #7–#8, #31–#32, #145–#146, #162–#163). A `/clear` or `/new`
   typed into a terminal publishes nothing until the next prompt is typed
   (#29–#31, #143–#145). A manual compaction behaves the same way (ADR 0100).
-  No Codex session that starts and is never prompted was measured. Codex was
-  not measured again, because the traces show the order this decision needs.
+  No Codex session that starts and is never prompted was measured.
+- **Codex `resume` and `fork`** (the [#160](../spikes/codex-identity-lifecycle-spike.md),
+  [#161](../agent-sessions.md#codex-hosting-modes),
+  [#269](../spikes/codex-declared-relocation-daemon-spike.md) and #356
+  traces, Codex 0.155.1 and 0.160.0). Each of their eleven `SessionStart`s
+  with `source` `resume` or `fork` is followed at once by its thread's
+  `UserPromptSubmit`: `issue-160-codex-trace.jsonl` #39–#40, #110–#111 and
+  #142–#143, `issue-161-codex-trace.jsonl` #56–#57, #217–#218, #291–#292
+  and #401–#402, `issue-269-codex-trace.jsonl` #25–#26, #71–#72 and
+  #113–#114, and `issue-356-codex-trace.jsonl` #143–#144. Codex was not
+  measured again, because these traces show the order this decision needs.
 - **OpenCode 2.0.22** ([#448's trace](../spikes/session-start-on-a-live-session-spike.md#opencode-2022),
   `issue-448-opencode-trace.jsonl`). Dashpot writes `SessionStart`, with no
   `source`, for a root's `session.created` and `session.forked`, and before
@@ -75,9 +84,9 @@ ADR 0100 still decides it.
 | `source` | Harness | Recorded state |
 | --- | --- | --- |
 | `startup` | Claude Code, Codex | `waiting` |
-| `resume` | Claude Code | `waiting` |
+| `resume` | Claude Code, Codex | `waiting` |
 | `clear` | Claude Code, Codex | `waiting` |
-| `fork` | Claude Code | `waiting` |
+| `fork` | Claude Code, Codex | `waiting` |
 | none | OpenCode (created, forked, or a first publication) | `waiting` |
 | `compact` | Claude Code, Codex | ADR 0100: the turn state of the live record it follows, or `running` with none to follow |
 | any other | any | `waiting` |

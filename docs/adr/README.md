@@ -103,8 +103,8 @@ of date.
 | 0097 | [Carry a live session's sub-agents through its own SessionStart](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md) | accepted | — |
 | 0098 | [Show Runtime Events and Stats as tabs of one temporary screen](0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md) | accepted | — |
 | 0099 | [Print Runtime Events as JSON Lines](0099-print-runtime-events-as-json-lines.md) | accepted | — |
-| 0100 | [Keep a compacted session's turn state](0100-keep-a-compacted-sessions-turn-state.md) | accepted | — |
-| 0101 | [Move a conversation switch's sub-agents to the session that runs them](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md) | accepted | — |
+| 0100 | [Keep a compacted session's turn state](0100-keep-a-compacted-sessions-turn-state.md) | amended | [0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md), [0106](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md) |
+| 0101 | [Move a conversation switch's sub-agents to the session that runs them](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md) | amended | [0102](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md), [0106](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md) |
 | 0102 | [Clear a stopped sub-agent from the records a moved session left behind](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md) | accepted | — |
 | 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | accepted | — |
 | 0104 | [Block Worktree removal while a process runs inside it](0104-block-worktree-removal-while-a-process-runs-inside-it.md) | accepted | — |

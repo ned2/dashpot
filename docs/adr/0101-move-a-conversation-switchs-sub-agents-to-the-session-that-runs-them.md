@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-05
+amended-by: 0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md, 0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md
 ---
 
 # Move a conversation switch's sub-agents to the session that runs them
