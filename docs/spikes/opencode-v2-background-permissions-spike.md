@@ -79,7 +79,7 @@ fails it when the Dashpot sources the run exercised have changed since.
 
 - **Versions.** OpenCode 2.0.22 on Linux x64 (binary SHA-256
   `32cf5aa0…5ad122`), Node 24.18.0.
-- **Dashpot.** The run's checkout was `b08e762` with this change's scripts.
+- **Dashpot.** The run's checkout was `9f7a1e9` with this change's scripts.
   The trace records the SHA-256 of every source the run exercised, and
   `verify.mjs --strict` fails unless the checkout's sources still match.
 - **Service and clients.**
