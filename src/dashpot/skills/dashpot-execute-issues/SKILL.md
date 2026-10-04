@@ -129,8 +129,8 @@ Worktrees.
 3. **Settle merge authority** now: see [Merge authority](#merge-authority).
 4. **Reserve** anything the repository's checks require to be unique, one
    set per Issue, plus a spare, before any dispatch. Scan the integration
-   branch, open PRs, remote branches, and every local Worktree's branch:
-   the user's own Worktrees take numbers too.
+   branch, open PRs, the Remote-Tracking Branches after a `git fetch`, and
+   every local Worktree's Branch: the user's own Worktrees take numbers too.
 5. **Size the waves.** Find your harness's worker limit in
    [harnesses.md](references/harnesses.md), and split the machine's cores
    between the workers' test runs. A documentation-only Issue runs no
@@ -209,10 +209,13 @@ launch a fresh worker on the same brief.
    evidence, that what it records matches the PR head.
    Tests and docs ride on the worker's independent review.
 3. When the branch is several merges behind and siblings touched the same
-   files, check its merge with today's integration branch in a temporary
-   detached Worktree, running the touched tests and then the full suite.
-   CI tests the PR head, not that merge. Remove the temporary Worktree
-   afterwards.
+   files, check its merge with today's integration branch in a detached
+   check Worktree (`git worktree add --detach <path> <integration-branch>`,
+   prepared like any other), running the touched tests and then the full
+   suite. CI tests the PR head, not that merge. Keep the check Worktree for
+   later checks, moving it with `git -C <path> checkout --detach <sha>`:
+   Dashpot refuses to remove it while a worker is live, so it goes at
+   close-out with the others.
 4. With authority, merge with the repository's merge method, pinned to the
    head you checked, for example
    `gh pr merge <pr> --squash --match-head-commit <full headRefOid>`. Paste
@@ -273,8 +276,12 @@ every Issue has merged:
 2. Once no worker is live, remove the Worktrees you created: `git fetch
    --prune`, then for each one
    `<dashpot> worktree remove <path> --delete-branch --delete-remote-branch --delete-ignored --dry-run`,
-   then the same without `--dry-run`. Confirm afterwards that the shared
-   git hooks still point where they did.
+   then the same without `--dry-run`. A detached check Worktree has no
+   Branch: check out the integration branch's tip in it first
+   (`git -C <path> checkout --detach <integration-branch>`), since Dashpot
+   refuses to drop a trial merge no ref reaches, then remove it with
+   `--delete-ignored` alone. Confirm afterwards that the shared git hooks
+   still point where they did.
 3. Post each Issue's closing comment (workers draft them), including on
    Issues their PRs closed automatically.
 4. File follow-ups batched from the hand-backs, each claim verified, with
@@ -330,11 +337,12 @@ Dashpot fixes it.
   worker's `work` commands as running outside any session, and its
   `work show` prints no session events. Workers run no `work` commands, so
   this only misleads; it is not a fault in your setup.
-- **A stopped Claude Code worker's wording.** A worker ended by `TaskStop`
-  publishes no stop, so the `sub-agent` blocker and your session's
-  `running` state hold until your session ends, and Dashpot's wording names
-  only an interrupted sub-agent. Let workers finish rather than stopping
-  them.
+- **A stopped Claude Code worker's wording.** When a worker's stop goes
+  unrecorded, as after Claude Code's `TaskStop`, Dashpot explains the held
+  `sub-agent` blocker as an interrupted sub-agent's. Read it as covering a
+  stopped worker too. Why to avoid `TaskStop` at all is Claude Code's own
+  behaviour ([harnesses.md](references/harnesses.md#claude-code)), and
+  stays when this gap closes.
 - **An unloaded Codex lead drops its workers' blocker.** A daemon-hosted
   Codex lead with no client attached is unloaded about 60 s later. Dashpot
   then ends its Issue work while its workers keep running, and no Cleanup

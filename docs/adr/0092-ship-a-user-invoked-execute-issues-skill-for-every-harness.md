@@ -78,7 +78,12 @@ The fallbacks the skill names:
 - **Codex v1.** A lead on a model without multi-agent v2 polls with
   `wait_agent`, and its workers, which have no message tool, write
   mid-flight reports to a status file in their Worktree's Git directory.
-  The skill tells the lead to run on a catalog-v2 model.
+  v1 holds 6 workers by default. The skill tells the lead to run on a
+  catalog-v2 model.
+- **Codex mail to a running worker.** The experiment measured `send_message`
+  only toward the lead and toward a finished worker, so a Codex lead also
+  writes each broadcast to a file in the worker's Worktree Git directory,
+  which the worker reads before each commit and push.
 - **A busy OpenCode lead.** A worker's `opencode run --session` blocks
   until the lead's turn ends, so it runs in a background shell, with the
   status file as the fallback.
@@ -137,13 +142,16 @@ directory, and on a skill `integrate` does not install.
 
 **Known Dashpot gaps by name.** Four open Dashpot defects shape what the
 lead must avoid. The skill names each by its behaviour, not its Issue, so
-its workaround can be dropped once the installed Dashpot fixes it:
+its workaround can be dropped once the installed Dashpot fixes it. A
+harness's own behaviour behind a gap, such as Claude Code's `TaskStop`
+publishing no stop, stays in `references/harnesses.md` after the gap
+closes:
 
 | Named in the skill | Issue | Workaround |
 | --- | --- | --- |
 | A relocated lead keeps a finished worker listed | [#427](https://github.com/ned2/dashpot/issues/427) | never move the lead while a worker runs |
 | A Codex worker's shell names no session | [#428](https://github.com/ned2/dashpot/issues/428) | workers run no `work` command |
-| A stopped Claude Code worker's wording | [#429](https://github.com/ned2/dashpot/issues/429) | let workers finish rather than `TaskStop` them |
+| A stopped Claude Code worker's wording | [#429](https://github.com/ned2/dashpot/issues/429) | read the interrupted-sub-agent wording as covering a stopped worker |
 | An unloaded Codex lead drops its workers' blocker | [#431](https://github.com/ned2/dashpot/issues/431) | keep a client attached to the lead |
 
 **Merge authority.** The lead merges only when the user grants merge

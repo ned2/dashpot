@@ -252,8 +252,9 @@ In this Repository:
   arc; otherwise the operator merges, as
   [ADR 0089](docs/adr/0089-leave-the-pr-merge-to-the-operator.md) decides.
 - Reserve ADR numbers per Issue, with a spare, before dispatch. Scan
-  `origin/main`, open PRs, remote branches and every local Worktree's
-  branch: the operator's own Worktrees take numbers too.
+  `origin/main`, open PRs, the Remote-Tracking Branches after a fetch, and
+  every local Worktree's Branch: the operator's own Worktrees take numbers
+  too.
 - Every checkout shares one `.git/hooks`, installed from the main checkout
   ([quality gates](README.md#quality-gates)). Never run `pre-commit install`
   from a linked Worktree, whose `.venv` is removed with it, and after

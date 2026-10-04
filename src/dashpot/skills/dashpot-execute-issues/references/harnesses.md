@@ -50,8 +50,9 @@ its whole transcript, and a second notification follows when it finishes
 again.
 
 **Stopping a worker.** Avoid `TaskStop`: it publishes no stop to Dashpot,
-which leaves the `sub-agent` blocker up until your session ends (see
-[Known Dashpot gaps](../SKILL.md#known-dashpot-gaps)). Message the worker
+which leaves the `sub-agent` blocker up until your session ends, and
+Dashpot's wording for that blocker is one of the
+[Known Dashpot gaps](../SKILL.md#known-dashpot-gaps). Message the worker
 to stop and hand back instead. A headless host that interrupts you stops
 your workers without telling you; treat a worker you never hear from again
 as a blocker.
@@ -61,8 +62,11 @@ stop tasks", or "Stay". "Move to background and exit" forks a new session
 that holds no Issue work, and stops the workers. In that fork, bind again
 with `dashpot-issue-work` and relaunch the workers on their briefs.
 
-**Location.** Claude Code refuses `EnterWorktree` and `ExitWorktree` from a
-worker, so a worker cannot move your session with them.
+**Location.** With you in the main checkout, Claude Code refuses a
+worker's `EnterWorktree` and `ExitWorktree`, so a worker cannot move your
+session with them. From a lead already inside a linked Worktree that was
+not measured, which is one more reason the brief forbids moving any
+session.
 
 **Reviewer.** A worker launches the reviewer as its own sub-agent with
 `Agent`. If its `Agent` tool is unavailable, it asks you, and you launch
@@ -107,8 +111,19 @@ handed back. When a wait times out or your turn was interrupted, call
 `list_agents`: it shows each resident worker's status and final text.
 
 **Worker reports (v2).** `{REPORTING}`: "To tell the lead something
-mid-flight, call `send_message` to `/root`, then carry on. Your final
-message is your hand-back."
+mid-flight, call `send_message` to `/root`, then carry on. Before each
+commit and each push, read the file `execute-issues-lead` in your
+Worktree's Git directory (`git -C <path> rev-parse --absolute-git-dir`) if
+it exists: the lead writes its broadcasts there. Your final message is your
+hand-back."
+
+**Messaging a worker (v2).** `send_message` to a running worker's path
+queues the message for it. Its delivery to a running worker was not
+measured: Codex delivers the lead's mail at its next model request, and
+mail to a finished worker only queues. So also write each broadcast to the
+file `execute-issues-lead` in the worker's Worktree Git directory
+(`git -C <path> rev-parse --absolute-git-dir`), which the worker reads
+before each commit and push.
 
 **Completion (v2).** The worker's final message reaches your history as a
 `FINAL_ANSWER` message from its path, and `list_agents` shows it
@@ -119,12 +134,16 @@ with its earlier context. `send_message` to a finished worker only queues.
 
 **Fallback: v1.** On a model without v2, `spawn_agent` returns an
 `agent_id`, and `wait_agent` takes `targets` and `timeout_ms` and returns
-each finished worker's final text. Workers have no tool to message you.
-`{REPORTING}`: "You cannot message the lead. Write anything it needs
+each finished worker's final text. A v1 session holds 6 workers by default,
+through the same `[agents] max_threads`. Workers have no tool to message
+you. `{REPORTING}`: "You cannot message the lead. Write anything it needs
 mid-flight to the file `execute-issues-status` in your Worktree's Git
 directory (`git -C <path> rev-parse --absolute-git-dir`), which is never
-committed. Your final message is your hand-back." Read those files between
-waits. Resume a worker with `send_input`.
+committed. Before each commit and each push, read the file
+`execute-issues-lead` beside it if it exists: the lead writes its
+broadcasts there. Your final message is your hand-back." Read the status
+files between waits, and broadcast through the `execute-issues-lead` files.
+Resume a finished worker with `send_input`.
 
 **Stopping a worker.** `interrupt_agent` on a worker mid-command publishes
 no stop, which leaves the `sub-agent` blocker up until your session ends.
@@ -144,18 +163,20 @@ v1 worker has no spawn tool, so you launch its reviewer.
 
 Dashpot supports OpenCode v2.
 
-**Invoke** the skill by naming it in your request. Its
-`opencode/autoinvoke: false` metadata hides it from the model's list.
+**Invoke** the skill by naming it in the prompt's `skills` input. Its
+`opencode/autoinvoke: false` metadata hides it from the model's list. How
+the TUI invokes a skill was not measured: there, name the skill in your
+request and confirm the model loaded it before going on.
 
 **Launch.** Call `subagent` with `agent: "dashpot-worker"`, a
 `description`, a short `prompt` pointing at the brief, and
 `background: true`. It returns at once with the worker's `sessionID`.
 
-`dashpot-worker` is the worker agent `dashpot integrate opencode` installs.
+`dashpot-worker` is the worker agent `<dashpot> integrate opencode` installs.
 It removes the session-move tool, so a worker cannot move your session by
 mistake. It does not stop a determined process, which can still move a
 session through OpenCode's HTTP API. If the agent is missing, ask the user
-to run `dashpot integrate opencode` from the environment that holds their
+to run `<dashpot> integrate opencode` from the environment that holds their
 hooks. Until then, launch workers with the `general` agent, add to each
 brief "Never move any session, your own or the lead's", and run
 `<dashpot> work show` after each worker ends to confirm your session and

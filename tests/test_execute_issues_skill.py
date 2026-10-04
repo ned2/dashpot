@@ -16,7 +16,6 @@ from dashpot.core.model import Harness
 from dashpot.sessions.integrate import (
     BUNDLED_SKILLS,
     OPENCODE_ACCEPTED_VERSION,
-    BundledSkill,
     install_integration,
     integration,
     integration_status,
@@ -50,11 +49,13 @@ REPOSITORY_SPECIFIC = {
 }
 
 
+def shipped(relative: str) -> str:
+    """One shipped file's text, by its path inside the skill."""
+    return (SKILL.source / relative).read_text(encoding="utf-8")
+
+
 def shipped_texts() -> dict[Path, str]:
-    return {
-        relative: (SKILL.source / relative).read_text(encoding="utf-8")
-        for relative in SKILL.files
-    }
+    return {relative: shipped(str(relative)) for relative in SKILL.files}
 
 
 def section(text: str, heading: str) -> str:
@@ -138,15 +139,14 @@ def test_integrate_installs_checks_and_removes_the_skill(
     assert not copy.exists()
 
 
-def test_the_skill_is_registered_with_its_own_marker() -> None:
-    assert isinstance(SKILL, BundledSkill)
-    text = (SKILL.source / "SKILL.md").read_text(encoding="utf-8")
+def test_the_marker_follows_the_frontmatter() -> None:
+    text = shipped("SKILL.md")
     assert SKILL.marker == "<!-- dashpot-managed-skill: dashpot-execute-issues -->"
     assert text.index("\n---\n") < text.index(SKILL.marker)
 
 
 def test_every_harness_hides_the_skill_from_the_model() -> None:
-    text = (SKILL.source / "SKILL.md").read_text(encoding="utf-8")
+    text = shipped("SKILL.md")
     front = frontmatter(text).splitlines()
 
     # Claude Code's flag, and OpenCode's metadata, which Codex's and Claude
@@ -158,7 +158,7 @@ def test_every_harness_hides_the_skill_from_the_model() -> None:
     assert len(description) - len("description: ") <= 1024
     assert "only when the user invokes it by name" in description
     # Codex reads its invocation policy from this file beside SKILL.md.
-    assert (SKILL.source / "agents" / "openai.yaml").read_text(encoding="utf-8") == (
+    assert shipped("agents/openai.yaml") == (
         "policy:\n  allow_implicit_invocation: false\n"
     )
     assert "Run this skill only when the user asked for it by name" in text
@@ -195,26 +195,16 @@ def test_the_repository_specific_patterns_catch_what_they_name() -> None:
 
 
 def test_every_link_in_the_skill_stays_inside_it() -> None:
+    # The documentation gate resolves each link and anchor; this only keeps
+    # every target inside the copy a harness installs.
     for relative, text in shipped_texts().items():
         for target in re.findall(r"\]\(([^)\s]+)\)", text):
             assert "://" not in target, (relative, target)
-            path, _, anchor = target.partition("#")
-            resolved = (
-                (SKILL.source / relative).parent / path
-                if path
-                else (SKILL.source / relative)
+            resolved = (SKILL.source / relative).parent / target.partition("#")[0]
+            assert resolved.resolve().is_relative_to(SKILL.source.resolve()), (
+                relative,
+                target,
             )
-            resolved = resolved.resolve()
-            assert resolved.is_relative_to(SKILL.source.resolve()), (relative, target)
-            assert resolved.is_file(), (relative, target)
-            if anchor:
-                headings = {
-                    re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
-                    for heading in re.findall(
-                        r"^#+ (.+)$", resolved.read_text(encoding="utf-8"), re.M
-                    )
-                }
-                assert anchor in headings, (relative, target)
 
 
 def test_the_only_skills_it_names_are_bundled() -> None:
@@ -225,7 +215,7 @@ def test_the_only_skills_it_names_are_bundled() -> None:
 
 
 def test_the_lead_binds_through_the_issue_work_skill_before_any_worktree() -> None:
-    text = (SKILL.source / "SKILL.md").read_text(encoding="utf-8")
+    text = shipped("SKILL.md")
     setup = section(text, "2. Set up")
     assert '`dashpot-issue-work`\'s "Establish the workflow"' in setup
     assert "Its version check confirms the installed skills" in setup
@@ -247,7 +237,7 @@ def test_the_lead_binds_through_the_issue_work_skill_before_any_worktree() -> No
 
 
 def test_the_lead_merges_only_with_granted_authority() -> None:
-    text = (SKILL.source / "SKILL.md").read_text(encoding="utf-8")
+    text = shipped("SKILL.md")
     authority = section(text, "Merge authority")
     assert "the user granted merge authority for this arc" in authority
     assert "the repository's instructions do not reserve merging for a person" in (
@@ -261,7 +251,7 @@ def test_the_lead_merges_only_with_granted_authority() -> None:
 
 
 def test_each_known_dashpot_gap_is_named_for_removal() -> None:
-    text = (SKILL.source / "SKILL.md").read_text(encoding="utf-8")
+    text = shipped("SKILL.md")
     gaps = section(text, "Known Dashpot gaps")
     # One entry per open Dashpot Issue, mapped in the skill's ADR; drop an
     # entry here and there when the installed Dashpot fixes its gap.
@@ -274,7 +264,7 @@ def test_each_known_dashpot_gap_is_named_for_removal() -> None:
 
 
 def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
-    text = (SKILL.source / "references" / "harnesses.md").read_text(encoding="utf-8")
+    text = shipped("references/harnesses.md")
     headings = re.findall(r"^## (.+)$", text, re.M)
     assert headings == ["Claude Code", "Codex", "OpenCode"]
 
@@ -295,13 +285,17 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     assert "`wait_agent`" in codex and "`list_agents`" in codex
     assert "`followup_task`" in codex
     assert "**Fallback: v1.**" in codex
+    assert "6 workers by default" in codex
+    # Mail to a running worker is unmeasured, so broadcasts also go by file.
+    assert "**Messaging a worker (v2).**" in codex
+    assert codex.count("`execute-issues-lead`") == 4
     assert "allow_implicit_invocation: false" in codex
 
     opencode = section(text, "OpenCode")
     assert '`agent: "dashpot-worker"`' in opencode
     assert "`background: true`" in opencode
     assert (
-        "If the agent is missing, ask the user to run `dashpot integrate opencode`"
+        "If the agent is missing, ask the user to run `<dashpot> integrate opencode`"
         in (opencode)
     )
     assert "It does not stop a determined process" in opencode
@@ -312,32 +306,28 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
 
 
 def test_every_brief_placeholder_is_explained() -> None:
-    text = (SKILL.source / "references" / "brief-template.md").read_text(
-        encoding="utf-8"
-    )
+    text = shipped("references/brief-template.md")
     explained, template = text.split("## The template\n", 1)
     used = set(re.findall(r"\{([A-Z_]+)\}", template.split("## The wave block")[0]))
     assert used == set(re.findall(r"`\{([A-Z_]+)\}`", explained))
     assert {"GATES", "REVIEW", "REPORTING", "MERGER", "WAVE", "EXTRA"} <= used
-    harnesses = (SKILL.source / "references" / "harnesses.md").read_text(
-        encoding="utf-8"
-    )
+    harnesses = shipped("references/harnesses.md")
     assert harnesses.count("`{REPORTING}`:") == 4
 
 
 def test_the_bundled_reviewer_runs_without_the_repositorys_own_process() -> None:
-    text = (SKILL.source / "references" / "reviewer.md").read_text(encoding="utf-8")
+    text = shipped("references/reviewer.md")
     flowed = " ".join(text.split())
     assert "only when the repository's instructions name no review process" in flowed
     assert "The reviewer must not be the agent that wrote the change" in flowed
     assert "**Spec.**" in text and "**Standards.**" in text
     assert "Read only." in text
-    skill = (SKILL.source / "SKILL.md").read_text(encoding="utf-8")
+    skill = shipped("SKILL.md")
     assert "[reviewer prompt](references/reviewer.md)" in skill
 
 
 def test_run_records_go_to_github_comments() -> None:
-    text = (SKILL.source / "references" / "run-records.md").read_text(encoding="utf-8")
+    text = shipped("references/run-records.md")
     headings = re.findall(r"^## (.+)$", text, re.M)
     assert headings == [
         "The arc map",

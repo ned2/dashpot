@@ -513,6 +513,16 @@ works in is where its commands run, never its Observation Location
 _Avoid_: worker for a Host Process, such as a Claude Code supervised worker
 process; reading a Worker's Issue Worktree as bound to its Issue
 
+**Arc**, **Wave**:
+An Arc is the set of Issues a Lead lands in one engagement: an epic's
+sub-issues, or a list the user gives, usually chosen to unblock a goal. Its
+Agent Run is bound to one of them, the epic or the list's critical-path
+root. A Wave is every Issue of the Arc whose ungated work can start at once,
+dispatched to Workers together
+([ADR 0092](adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
+_Avoid_: reading an Arc's other Issues as bound because the Lead's Issue
+Binding covers the Arc; sprint or batch
+
 **Session Liveness**:
 An observation of whether an Agent Session's recorded Host Process is live,
 gone, or unknown. Unknown means the process could not be observed, or that it
