@@ -150,7 +150,9 @@ class IssueTableController:
         # its changed cells replaced. Provider order can change with
         # identical row identities, so any other page is rebuilt and
         # keyed-table insertion history never becomes ordering; the cursor
-        # returns to its Issue by key, else to the first row.
+        # returns to its Issue by key, else to the first row. A change of
+        # shown columns rebuilds too: ``show_table_columns`` has already
+        # cleared the rows with the columns, so no key matches.
         in_place = [str(row.key.value) for row in table.ordered_rows] == list(
             cells_by_key
         )

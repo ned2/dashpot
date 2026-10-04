@@ -223,10 +223,10 @@ def cells_match(left: TableCell, right: TableCell) -> bool:
         return False
     if not isinstance(left, Text) or not isinstance(right, Text):
         return left == right
-    return _rendering(left) == _rendering(right)
+    return _render_key(left) == _render_key(right)
 
 
-def _rendering(text: Text) -> tuple[object, ...]:
+def _render_key(text: Text) -> tuple[object, ...]:
     return (
         text.plain,
         tuple(text.spans),
