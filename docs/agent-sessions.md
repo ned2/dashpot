@@ -174,6 +174,22 @@ sub-agents keep working across it. One from another process, or one that
 names none, starts with no sub-agents. A compaction's `SessionStart` also
 keeps the session's turn state rather than recording it running
 ([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)).
+A Claude Code Conversation Switch moves the list to the session that runs
+its sub-agents
+([ADR 0101](adr/0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md)).
+`/clear`, `/resume` (with an id or through the picker) and `/branch` end the
+session with `reason` `clear` or `resume`, then start another session id in
+the same process with `source` `clear`, `resume` or `fork`. A working
+sub-agent goes on under the new id, and its `SubagentStop` names it. That
+`SessionStart` takes over the sub-agents of every ended record of the same
+harness and process that ended with a switch `reason`. The new record lists
+them first, then the ended record stops listing them, and goes once it lists
+none. A Codex `/clear` follows no `SessionEnd`, and a thread a daemon unloads
+ends with `reason` `other`, so neither moves a listing. Each `SubagentStop`
+also removes its agent from every ended record of its process, whichever
+session the record belongs to, so a stop that arrives before the switch's
+`SessionStart` still clears it. A live session's records are never changed
+this way.
 Here the blocker says the session *ended with* its sub-agents listed, and names the way out for one that ended with its session
 or was interrupted and will never report: once none is still working, run
 `dashpot work forget-subagents SESSION_ID` from a Worktree of the

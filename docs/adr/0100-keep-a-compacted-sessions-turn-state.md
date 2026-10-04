@@ -114,3 +114,7 @@ that turn's clock now starts at the prompt rather than at the
   which turn state it would keep.
 - A later rule for other `SessionStart` sources extends `continues_turn`,
   which reads `source` in one place.
+- Amended by [ADR 0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md)
+  ([#458](https://github.com/ned2/dashpot/issues/458)): `session_start_kind` is now the one reader of a `SessionStart`'s
+  `source`, and `continues_turn` applies its compaction answer; this
+  decision is unchanged.

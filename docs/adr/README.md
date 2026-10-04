@@ -104,4 +104,5 @@ of date.
 | 0098 | [Show Runtime Events and Stats as tabs of one temporary screen](0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md) | accepted | — |
 | 0099 | [Print Runtime Events as JSON Lines](0099-print-runtime-events-as-json-lines.md) | accepted | — |
 | 0100 | [Keep a compacted session's turn state](0100-keep-a-compacted-sessions-turn-state.md) | accepted | — |
+| 0101 | [Move a conversation switch's sub-agents to the session that runs them](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md) | accepted | — |
 | 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | accepted | — |

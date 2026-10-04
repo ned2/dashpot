@@ -397,6 +397,36 @@ def stored_session_records(
     return found, unreadable
 
 
+def stored_process_records(
+    stores: Iterable[Path], harness: Harness, process: ProcessKey
+) -> list[StoredSessionRecord]:
+    """Every readable record of ``harness`` that names the Host Process ``process``.
+
+    The hook publisher reads these to move a Sub-agent listing between the
+    sessions one Host Process holds, whose records share no filename: a
+    Conversation Switch's new session takes over the sub-agents of the one
+    it left, and a sub-agent's stop leaves every ended record of its process
+    (ADR 0101). Like ``stored_session_records`` it probes no process. A
+    record that cannot be read or validated is no evidence and is skipped:
+    a caller changes a record only through its store, which re-reads it under
+    its own lock.
+    """
+    found: list[StoredSessionRecord] = []
+    for store in stores:
+        if not store.is_dir():
+            continue
+        for path in sorted(store.glob("*.json")):
+            try:
+                raw = read_hook_record(path)
+                record, _degraded = _validated_hook_record(raw, path.stem)
+            except (OSError, ValueError):
+                continue
+            stored = StoredSessionRecord(store, path, raw, record)
+            if record.harness == harness and stored.process_key == process:
+                found.append(stored)
+    return found
+
+
 def freshest_stored_record(
     records: Iterable[StoredSessionRecord],
 ) -> StoredSessionRecord | None:

@@ -501,6 +501,21 @@ _Avoid_: child session for a fork; treating a Sub-agent's location as its
 parent's Observation Location; treating a session's end as its Sub-agents'
 end
 
+**Conversation Switch**:
+A Host Process ending one Agent Session and starting another in its place,
+as Claude Code's `/clear`, `/resume` and `/branch` do: a `SessionEnd` whose
+`reason` is `clear` or `resume`, then a `SessionStart` whose `source` is
+`clear`, `resume` or `fork` for another session id from the same process.
+The Sub-agents the first session left working go on under the second, which
+takes over their listing
+([ADR 0101](adr/0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md)).
+A compaction keeps its session id and is not a Conversation Switch, and
+neither is a Codex `/clear` or `/new`, whose old thread keeps its own
+Sub-agents.
+_Avoid_: treating a Conversation Switch as one session going on; the
+session it starts is another Agent Session, even when `/resume` names one
+that ran before
+
 **Lead**:
 The Agent Session that runs the bundled `dashpot-execute-issues` skill to
 land an Arc of Issues through Workers. It alone holds the Arc's Agent Run
