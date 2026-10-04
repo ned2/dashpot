@@ -19,6 +19,7 @@ from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecordStore,
+    build_hook_record,
     project_session_store,
     session_directory,
     state_directory,
@@ -674,15 +675,51 @@ class SubagentBoundaryTests(unittest.TestCase):
 
         self.assertEqual("waiting", self.stored()["state"])
 
-    def test_a_new_session_starts_with_no_live_subagents(self) -> None:
+    def test_a_start_of_the_same_process_keeps_its_live_subagents(self) -> None:
+        # Claude Code compacts a live session with a SessionStart and no
+        # SessionEnd, while its sub-agents keep working (ADR 0097).
         self.publish("UserPromptSubmit")
         self.publish("SubagentStart", "agent-1")
+
+        self.publish("SessionStart")
+
+        self.assertEqual(["agent-1"], self.stored()["liveSubagents"])
+        self.publish("Stop")
+        self.assertEqual("running", self.stored()["state"])
+
+    def test_a_start_of_another_process_starts_with_no_live_subagents(self) -> None:
+        self.publish("UserPromptSubmit")
+        self.publish("SubagentStart", "agent-1")
+        self.process = ProcessIdentity(43, 1, "claude", "Tue Aug 25 02:00:00 2026")
 
         self.publish("SessionStart")
 
         self.assertEqual([], self.stored()["liveSubagents"])
         self.publish("Stop")
         self.assertEqual("waiting", self.stored()["state"])
+
+    def test_a_start_naming_no_process_starts_with_no_live_subagents(self) -> None:
+        # Nothing shows that an unnamed process is the one that started them.
+        store = HookRecordStore(self.state_dir)
+        for event_name, agent_id in (
+            ("UserPromptSubmit", None),
+            ("SubagentStart", "agent-1"),
+            ("SessionStart", None),
+        ):
+            event: dict[str, Any] = {
+                "session_id": "delegating",
+                "cwd": "/repo",
+                "hook_event_name": event_name,
+            }
+            if agent_id is not None:
+                event["agent_id"] = agent_id
+            store.write(
+                build_hook_record(
+                    event, harness="claude-code", process_unobservable="sandboxed"
+                )
+            )
+
+        self.assertEqual([], self.stored()["liveSubagents"])
 
     def test_a_subagent_event_naming_no_agent_changes_nothing(self) -> None:
         self.publish("UserPromptSubmit")

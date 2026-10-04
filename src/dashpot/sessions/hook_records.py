@@ -213,14 +213,18 @@ def live_subagents(
 ) -> list[str]:
     """Which sub-agents of the session are alive after this event.
 
-    ``SubagentStart`` adds the agent, ``SubagentStop`` removes it, a new
-    session starts with none, and every other event carries the set. An
-    event that names no agent changes nothing rather than guessing.
+    ``SubagentStart`` adds the agent, ``SubagentStop`` removes it, and every
+    other event carries the set. A ``SessionStart`` carries it only from a
+    record of the same Host Process, which still runs the sub-agents it
+    listed, as across a compaction; one from another process starts with
+    none (ADR 0097). An event that names no agent changes nothing rather
+    than guessing.
     """
     event = current.get("event")
     alive = (
         []
-        if event == "SessionStart" or previous is None
+        if previous is None
+        or (event == "SessionStart" and not _same_named_process(current, previous))
         else _recorded_subagents(previous)
     )
     agent = current.get("agentId")
@@ -336,6 +340,19 @@ def _same_host_process(one: Mapping[str, Any], other: Mapping[str, Any]) -> bool
     return first_key == second_key
 
 
+def _same_named_process(
+    current: Mapping[str, Any], previous: Mapping[str, Any]
+) -> bool:
+    """Whether an event names a Host Process, and the one ``previous`` names.
+
+    A session whose process cannot be named might have restarted unseen, so
+    its sub-agents are never taken to have survived its ``SessionStart``.
+    """
+    return current.get("sessionProcess") is not None and _same_host_process(
+        current, previous
+    )
+
+
 def _process_key(raw: object) -> ProcessKey | None:
     try:
         return SessionProcessRecord.model_validate(raw).identity.key
@@ -376,7 +393,8 @@ class HookRecordStore(LockedRecordStore):
         where there is no record. A ``SessionEnd`` whose session still lists
         live sub-agents keeps them in an ended record of its Host Process,
         which only their boundaries change and which a ``SessionStart`` of
-        that process carries on (ADR 0095).
+        that process carries on (ADR 0095), as it carries a live record's
+        (ADR 0097).
         """
         session_id = require_string(record.get("sessionId"), "sessionId")
         harness = require_string(record.get("harness"), "harness")
@@ -461,10 +479,10 @@ class HookRecordStore(LockedRecordStore):
                     current["lastActivityAt"] = recorded_at
             elif (
                 seed is not None
-                and current.get("event") != "SessionStart"
-                # Another process's sub-agents and turn are not this one's.
-                and current.get("sessionProcess") is not None
-                and _same_host_process(seed, current)
+                # Another process's sub-agents and turn are not this one's. A
+                # SessionStart seeds too, so a session that came back here
+                # without a hook carries what it lists now (ADR 0097).
+                and _same_named_process(current, seed)
                 and observed_instant(optional_string(seed.get("lastActivityAt")))
                 > observed_instant(
                     None
@@ -476,8 +494,9 @@ class HookRecordStore(LockedRecordStore):
             current["state"] = carried_state(current, previous)
             current["liveSubagents"] = live_subagents(current, origin)
             if previous is not None and _is_ended(previous):
-                # The session starts again in the Host Process that kept its
-                # ended record's sub-agents, which may still be working.
+                # The session goes on in the Host Process that kept its ended
+                # record's sub-agents, which may still be working, even where
+                # a fresher record elsewhere seeded this one.
                 current["liveSubagents"] = sorted(
                     {*current["liveSubagents"], *_recorded_subagents(previous)}
                 )

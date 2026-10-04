@@ -15,9 +15,11 @@ from typing import Any
 import pytest
 
 from dashpot.core.model import AgentRun
+from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
+from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work import (
     IssueWorkError,
     forget_session_subagents,
@@ -26,6 +28,7 @@ from dashpot.sessions.work import (
 )
 from dashpot.sessions.work_store import WorkStore
 from factories import CODEX
+from helpers import present
 from test_work import CODEX_SESSION, codex_lookup, target, two_worktrees
 
 # A second root thread on the same Codex Host Process, as on the managed daemon.
@@ -46,17 +49,20 @@ def publish(
     child: str | None = None,
     *,
     session: str = CODEX_SESSION,
+    host: ProcessIdentity = CODEX,
+    **fields: str,
 ) -> HookPublication:
     """Publish one Codex hook event of ``session``, child-scoped when ``child`` is given."""
     payload: dict[str, Any] = {
         "session_id": session,
         "cwd": str(at),
         "hook_event_name": event,
+        **fields,
     }
     if child is not None:
         payload["agent_id"] = child
     return publish_hook_event(
-        payload, process=CODEX, harness="codex", lookup=codex_lookup
+        payload, process=host, harness="codex", lookup=present(host)
     )
 
 
@@ -299,9 +305,31 @@ def test_an_interrupted_child_looks_like_a_working_one_until_the_session_ends(
     assert stored(a) is None
 
 
-def test_a_new_incarnation_clears_a_silently_interrupted_child(
+def test_a_compaction_mid_turn_keeps_the_working_child(tmp_path: Path) -> None:
+    # Measured on 0.160.0 (#448, scenario `auto-compact`): automatic
+    # compaction publishes SessionStart `compact` inside the turn, on the same
+    # thread and daemon, and the child's stop follows the turn's Stop.
+    a, b = two_worktrees(tmp_path)
+    bound_session(a)
+    publish(a, "SubagentStart", CHILD)
+
+    publish(a, "SessionStart", source="compact")
+    publish(a, "Stop")
+
+    assert recorded(a)["liveSubagents"] == [CHILD]
+    assert run_of(a).state == "running"
+    assert "sub-agent" in [
+        one.kind for one in assess_worktree_occupancy(b, [a, b], codex_lookup)
+    ]
+    publish(a, "SubagentStop", CHILD)
+    assert run_of(a).state == "waiting"
+
+
+def test_a_start_on_the_same_process_keeps_a_silently_interrupted_child(
     tmp_path: Path,
 ) -> None:
+    # The process that may still run the child is the one starting the
+    # session again, so the child stays listed until the client ends (ADR 0097).
     a, _b = two_worktrees(tmp_path)
     bound_session(a)
     publish(a, "SubagentStart", CHILD)
@@ -311,8 +339,10 @@ def test_a_new_incarnation_clears_a_silently_interrupted_child(
     publish(a, "SessionStart")
     publish(a, "Stop")
 
-    assert run_of(a).state == "waiting"
-    assert len(show_issue_work(a, lookup=codex_lookup)) == 1
+    assert run_of(a).state == "running"
+    assert show_issue_work(a, lookup=codex_lookup)[1:] == [
+        f"  codex pid 4242 has 1 sub-agent listed as working ({CHILD}). {CODEX_WAY_OUT}"
+    ]
 
 
 def test_work_show_names_only_the_sub_agents_of_each_runs_own_session(
@@ -431,16 +461,19 @@ def test_a_stop_for_a_child_never_seen_starting_changes_nothing(
     assert recorded(a)["liveSubagents"] == []
 
 
-def test_a_new_incarnation_forgets_its_previous_children(tmp_path: Path) -> None:
+def test_a_new_incarnation_in_another_process_forgets_its_previous_children(
+    tmp_path: Path,
+) -> None:
     a, _b = two_worktrees(tmp_path)
     bound_session(a)
     publish(a, "SubagentStart", CHILD)
     publish(a, "Stop")
+    resumed = ProcessIdentity(4243, 1, "codex", "Tue Aug 25 04:00:00 2026")
 
-    publish(a, "SessionStart")
-    publish(a, "Stop")
+    publish(a, "SessionStart", host=resumed, source="resume")
+    publish(a, "Stop", host=resumed)
 
-    assert run_of(a).state == "waiting"
+    assert (recorded(a)["state"], recorded(a)["liveSubagents"]) == ("waiting", [])
 
 
 # --- A child never binds, switches or moves its parent's work --------------------

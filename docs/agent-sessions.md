@@ -166,6 +166,12 @@ sub-agent neither revives the session nor lists it as waiting. A
 carries the list into the new incarnation; at another Worktree the kept
 record stays, and each `SubagentStop` still reaches it. An event of the
 session from another process replaces the kept record and drops its list.
+A `SessionStart` of a live session from the process its record names carries
+the list the same way
+([ADR 0097](adr/0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md)):
+Claude Code and Codex publish one when they compact a session, and its
+sub-agents keep working across it. One from another process, or one that
+names none, starts with no sub-agents.
 Here the blocker says the session *ended with* its sub-agents listed, and names the way out for one that ended with its session
 or was interrupted and will never report: once none is still working, run
 `dashpot work forget-subagents SESSION_ID` from a Worktree of the
@@ -180,7 +186,7 @@ A Codex session's sub-agents block the same way: the 0.159.3 trace of
 [#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) and its 0.160.0
 rerun show the blocker naming live Codex children. A Codex child whose own
 turn is interrupted publishes no hook, so it keeps the block up until the
-session's next `SessionStart` while it lives, until the session's process
+session starts again in another process, until the session's process
 exits, or until `dashpot work forget-subagents` after the session has ended.
 That was measured for a
 controller's interrupt of the child's turn; upstream reports the same for
@@ -735,10 +741,6 @@ What each harness reports bounds what the cell can claim:
   reads `running` until the Lead runs `work unassign` or its run ends.
 - **A Codex Lead the daemon unloads.** Its run ends, and its assignments with
   it, while its Workers may still work.
-- **A Lead that compacts.** Claude Code publishes a `SessionStart` when it
-  compacts the Lead's context, which starts the session's Sub-agent listing
-  over, so Workers working then read as not working until they start again
-  ([#448](https://github.com/ned2/dashpot/issues/448)).
 - **A followed-up Codex v2 Worker** may read as not working: whether
   `followup_task` publishes a new start is unmeasured.
 - **An OpenCode Worker between executions** reads as not working.
