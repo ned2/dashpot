@@ -440,8 +440,9 @@ A directory of a bundled skill's name that Dashpot did not write is never
 overwritten or removed: installation is refused until it is moved, `--status`
 reports it as a conflict, and `--remove` leaves it in place. One that cannot
 be inspected, such as a directory that cannot be listed, is refused too,
-`--status` reports it as unreadable, and `--remove` leaves it in place. Each managed copy keeps a manifest,
-`.dashpot-manifest.json`, of the files Dashpot wrote into it: an update
+`--status` reports it as unreadable, and `--remove` leaves it in place. Each
+managed copy keeps a manifest, `.dashpot-manifest.json`, of the files
+Dashpot wrote into it: an update
 leaves the copy holding exactly the files this Dashpot ships, removing one an
 earlier release shipped, and `--remove` deletes every file the manifest
 names. A file you add inside a managed copy is never touched

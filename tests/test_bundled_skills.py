@@ -798,6 +798,25 @@ def test_remove_never_follows_a_link_the_user_put_inside_a_copy(
     assert not (copy / "SKILL.md").exists()
 
 
+def test_remove_never_follows_a_link_loop_inside_a_copy(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install("codex", tmp_path, skills)
+    copy = copy_of("codex", second)
+    references = copy / "references"
+    shutil.rmtree(references / "deep")
+    (references / "deep").symlink_to(references / "loop", target_is_directory=True)
+    (references / "loop").symlink_to(references / "deep", target_is_directory=True)
+
+    messages = remove_integration("codex", config_home("codex"), skills=skills)
+
+    assert f"removed the Dashpot Second skill from {copy}" in messages
+    assert (references / "deep").is_symlink()
+    assert (references / "loop").is_symlink()
+    assert not (copy / "SKILL.md").exists()
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
 def test_a_managed_copy_it_cannot_write_is_reported_not_raised(
     tmp_path: Path, second: BundledSkill
@@ -822,7 +841,13 @@ def test_a_managed_copy_it_cannot_write_is_reported_not_raised(
         message.startswith(f"could not remove Dashpot Second skill from {copy}: ")
         for message in messages
     )
+    # What the attempt left is still Dashpot's to remove once it can.
     assert (copy / "SKILL.md").is_file()
+    assert (copy / SKILL_MANIFEST).is_file()
+    assert "removed the Dashpot Second skill from" in "\n".join(
+        remove_integration("codex", config_home("codex"), skills=skills)
+    )
+    assert not copy.exists()
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root searches any directory")

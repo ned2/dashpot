@@ -818,7 +818,12 @@ def _remove_files(destination: Path, files: Sequence[Path]) -> None:
     root = destination.resolve()
 
     def inside(path: Path) -> bool:
-        return path.parent.resolve().is_relative_to(root)
+        # A link loop is never followed: Python 3.12 raises ``RuntimeError``
+        # for one where later releases leave the path unresolved.
+        try:
+            return path.parent.resolve().is_relative_to(root)
+        except (OSError, RuntimeError):
+            return False
 
     for relative in files:
         path = destination / relative

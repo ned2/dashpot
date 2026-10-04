@@ -88,7 +88,10 @@ absent counts as absent: a destination Dashpot may not inspect is never
 reported as missing. A managed copy Dashpot can read but not change ends
 `integrate` with an error naming the copy ("could not update") and
 `--remove` with a message ("could not remove"), and the manifest still
-names whatever the attempt left.
+names whatever the attempt left. The hooks or plugin, and any skill
+installed before that copy, are already written when `integrate` stops
+there, and the skills and agents after it are not attempted; rerunning
+`integrate` once the copy can be changed finishes them.
 
 ## Considered options
 
