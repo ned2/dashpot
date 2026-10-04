@@ -910,7 +910,9 @@ and commits not on the upstream or the Integration Branch. A removable
 Worktree's text report adds that sub-agents of Agent Sessions outside the
 Repository are not checked. When the host's processes could not all be
 read, as inside a sandbox, it says so beneath that, and `--json` carries
-the sentence as `uncheckedProcesses`. `check` removes nothing.
+the sentence as `uncheckedProcesses`; `removable` stays true, so a caller
+that reads only `removable` should read `uncheckedProcesses` too. `check`
+removes nothing.
 
 `worktree remove PATH` and `branch delete NAME` are the Cleanup commands of
 [ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md).

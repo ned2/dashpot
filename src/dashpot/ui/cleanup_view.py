@@ -30,9 +30,9 @@ from ..repository.cleanup import (
     default_choices,
     describe_cleanup_report,
     primary_target,
-    process_scope,
     retained_choices,
     sub_agent_scope,
+    unchecked_processes_note,
 )
 from ..repository.repository import short_ref as ref_name
 from .branch_cells import fetch_age_text
@@ -452,7 +452,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 scope = sub_agent_scope(preview)
                 if scope is not None:
                     yield Static(scope, markup=False, id="cleanup-scope")
-                unchecked = process_scope(preview)
+                unchecked = unchecked_processes_note(preview)
                 if unchecked is not None:
                     yield Static(
                         unchecked, markup=False, id="cleanup-unchecked-processes"

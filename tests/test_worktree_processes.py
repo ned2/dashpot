@@ -24,7 +24,7 @@ from dashpot.repository.cleanup import (
     describe_cleanup_report,
     inspect_cleanup,
     perform_cleanup,
-    process_scope,
+    unchecked_processes_note,
 )
 from dashpot.repository.worktrees.removability import (
     check_worktree,
@@ -35,9 +35,11 @@ from dashpot.sessions import working_directories
 from dashpot.sessions.working_directories import (
     ProcessDirectory,
     ProcessScan,
+    ScanGap,
     WorkingDirectories,
 )
 from factories import git
+from helpers import scan_of
 
 SANDBOXED = (
     "Processes running inside this Worktree were not all checked: Dashpot runs "
@@ -60,11 +62,6 @@ def repository_with_worktree(tmp_path: Path) -> tuple[Path, Path]:
     worktree = tmp_path / "wt"
     git(root, "worktree", "add", "-q", str(worktree), "feat")
     return root, worktree.resolve()
-
-
-def scan_of(*processes: ProcessDirectory, incomplete: str | None = None) -> ProcessScan:
-    """A scan that sees exactly ``processes``."""
-    return lambda: WorkingDirectories(processes, incomplete)
 
 
 def preview(root: Path, worktree: Path, scan: ProcessScan) -> CleanupPreview:
@@ -174,7 +171,7 @@ def test_an_incomplete_scan_is_stated_beneath_a_removable_worktree(
 
     assert shown.targets[0].available is True
     assert shown.unchecked_processes == SANDBOXED
-    assert process_scope(shown) == SANDBOXED
+    assert unchecked_processes_note(shown) == SANDBOXED
     lines = describe_cleanup_preview(shown)
     scope = lines.index(f"      {SUB_AGENT_SCOPE}")
     assert lines[scope + 1] == f"      {SANDBOXED}"
@@ -188,6 +185,47 @@ def test_an_incomplete_scan_is_stated_beneath_a_removable_worktree(
     assert f"     {SANDBOXED}" in describe_cleanup_report(dry_run)
 
 
+def test_a_scan_that_falls_short_only_at_confirmation_refuses_the_removal(
+    tmp_path: Path,
+) -> None:
+    root, worktree = repository_with_worktree(tmp_path)
+    request = WorktreeCleanupRequest(root, worktree)
+    shown = inspect_cleanup(request, scan=scan_of())
+    confirmation = CleanupConfirmation(
+        request, shown.fingerprint, (shown.targets[0].identity,)
+    )
+
+    refused = perform_cleanup(confirmation, scan=scan_of(incomplete="lsof-timeout"))
+
+    assert refused.performed is False
+    assert refused.refusals == (CHANGED_SINCE_PREVIEW,)
+    assert refused.preview.unchecked_processes == (
+        "Processes running inside this Worktree were not all checked: lsof did "
+        "not answer in time."
+    )
+    assert worktree.exists()
+
+
+def test_a_performed_removal_states_the_check_it_went_ahead_on(
+    tmp_path: Path,
+) -> None:
+    root, worktree = repository_with_worktree(tmp_path)
+    request = WorktreeCleanupRequest(root, worktree)
+    gap = scan_of(incomplete="isolated-namespace")
+    shown = inspect_cleanup(request, scan=gap)
+
+    removed = perform_cleanup(
+        CleanupConfirmation(request, shown.fingerprint, (shown.targets[0].identity,)),
+        scan=gap,
+    )
+
+    assert removed.succeeded is True
+    lines = describe_cleanup_report(removed)
+    deleted = next(index for index, line in enumerate(lines) if "deleted" in line)
+    assert lines[deleted + 1] == f"      removed {worktree}"
+    assert f"      {SANDBOXED}" in lines[deleted + 2 :]
+
+
 def test_a_sandboxed_scan_still_blocks_on_the_processes_it_sees(
     tmp_path: Path,
 ) -> None:
@@ -198,7 +236,7 @@ def test_a_sandboxed_scan_still_blocks_on_the_processes_it_sees(
 
     assert shown.targets[0].blockers[0].kind == "process"
     # A blocked Worktree claims no absence of occupants, so says no gap.
-    assert process_scope(shown) is None
+    assert unchecked_processes_note(shown) is None
     assert SANDBOXED not in "\n".join(describe_cleanup_preview(shown))
 
 
@@ -212,7 +250,7 @@ def test_a_sandboxed_scan_still_blocks_on_the_processes_it_sees(
     ],
 )
 def test_each_reason_a_scan_falls_short_is_said_in_words(
-    tmp_path: Path, reason: str, why: str
+    tmp_path: Path, reason: ScanGap, why: str
 ) -> None:
     root, worktree = repository_with_worktree(tmp_path)
 

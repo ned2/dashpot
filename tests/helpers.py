@@ -26,6 +26,12 @@ from dashpot.sessions.processes import (
     ProcessPresent,
     ProcessUnobservable,
 )
+from dashpot.sessions.working_directories import (
+    ProcessDirectory,
+    ProcessScan,
+    ScanGap,
+    WorkingDirectories,
+)
 
 _CONFORMANCE_FIXTURES = Path(__file__).parents[1] / "conformance" / "issue" / "fixtures"
 _GITHUB_FIXTURE: dict[str, Any] = json.loads(
@@ -145,6 +151,13 @@ def absent() -> ProcessLookup:
 def unobservable(reason: str) -> ProcessLookup:
     """A process lookup that cannot observe any PID, for the given reason."""
     return lambda pid: ProcessUnobservable(pid, reason)
+
+
+def scan_of(
+    *processes: ProcessDirectory, incomplete: ScanGap | None = None
+) -> ProcessScan:
+    """A scan of process working directories that sees exactly ``processes``."""
+    return lambda: WorkingDirectories(processes, incomplete)
 
 
 def table_lookup(processes: Mapping[int, ProcessIdentity]) -> ProcessLookup:

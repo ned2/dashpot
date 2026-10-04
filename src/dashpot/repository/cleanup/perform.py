@@ -25,8 +25,8 @@ from .obstacles import counted
 from .preview import (
     describe_cleanup_preview,
     inspect_cleanup,
-    process_scope,
     sub_agent_scope,
+    unchecked_processes_note,
 )
 from .targets import (
     CleanupPreview,
@@ -465,7 +465,7 @@ def describe_cleanup_report(report: CleanupReport) -> list[str]:
                 and (scope := sub_agent_scope(report.preview))
             ):
                 lines.append(f"     {scope}")
-                if unchecked := process_scope(report.preview):
+                if unchecked := unchecked_processes_note(report.preview):
                     lines.append(f"     {unchecked}")
         return lines
     lines.append("Results")
@@ -478,6 +478,11 @@ def describe_cleanup_report(report: CleanupReport) -> list[str]:
         lines.append(f"      {result.detail}")
         if result.recovery and result.outcome == "deleted":
             lines.append(f"      recover: {result.recovery}")
+        # The check a removal went ahead on, said where its outcome is read.
+        if result.kind == "worktree" and (
+            unchecked := unchecked_processes_note(report.preview)
+        ):
+            lines.append(f"      {unchecked}")
     return lines
 
 

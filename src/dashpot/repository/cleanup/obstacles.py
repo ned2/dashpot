@@ -29,7 +29,7 @@ from ...sessions.session_exits import (
     unreported_subagent_stop,
 )
 from ...sessions.work_store import ActiveWork, WorkStore
-from ...sessions.working_directories import ProcessScan, processes_inside
+from ...sessions.working_directories import ProcessScan, ScanGap, processes_inside
 from ..repository import (
     LockHolderProbe,
     RefIndex,
@@ -308,7 +308,7 @@ NAMED_PROCESSES = 5
 
 # Why a scan of process working directories could not cover every process,
 # in the words a person reads beneath a removable Worktree.
-UNCHECKED_PROCESSES = {
+UNCHECKED_PROCESSES: Mapping[ScanGap, str] = {
     "isolated-namespace": "Dashpot runs inside a sandbox's process namespace "
     "and cannot see the processes outside it; check again from a shell "
     "outside the sandbox",
@@ -319,14 +319,16 @@ UNCHECKED_PROCESSES = {
 }
 
 
-def unchecked_processes(reason: str) -> str:
+def unchecked_processes(gap: ScanGap) -> str:
     """Say which processes the occupancy check could not read, and why."""
-    why = UNCHECKED_PROCESSES.get(reason, reason)
-    return f"Processes running inside this Worktree were not all checked: {why}."
+    return (
+        "Processes running inside this Worktree were not all checked: "
+        f"{UNCHECKED_PROCESSES[gap]}."
+    )
 
 
 def assess_processes_inside(
-    path: Path, scan: ProcessScan | None = None
+    located: LocatedWorktree, scan: ProcessScan | None = None
 ) -> tuple[list[CleanupBlocker], str | None]:
     """The ``process`` blocker of a Worktree some process runs inside, and any gap.
 
@@ -334,9 +336,13 @@ def assess_processes_inside(
     Worktree, so its count changing never changes the preview's blockers.
     The evidence is positive only: finding none clears no other blocker,
     and a scan that could not read every process says so in the returned
-    sentence instead of a blocker (ADR 0104).
+    sentence instead of a blocker (ADR 0104). The main Worktree is never
+    removable, and its tree may hold linked Worktrees whose occupants are
+    not its own, so it is not scanned.
     """
-    found = processes_inside(path, scan)
+    if located.role == "main":
+        return [], None
+    found = processes_inside(located.path, scan)
     unchecked = (
         unchecked_processes(found.incomplete) if found.incomplete is not None else None
     )

@@ -436,12 +436,8 @@ def _worktree_blockers(
     path = located.path
     blockers: list[CleanupBlocker] = assess_worktree_safety(located, lock_probe)
     blockers.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
-    unchecked: str | None = None
-    # The main Worktree is never removable, and its tree may hold linked
-    # Worktrees whose occupants are not its own.
-    if located.role == "linked":
-        found, unchecked = assess_processes_inside(path, scan)
-        blockers.extend(found)
+    found, unchecked = assess_processes_inside(located, scan)
+    blockers.extend(found)
     if located.detached:
         blockers.extend(assess_detached_head_preservation(located.git, located.head))
     if any(same_path(path, candidate.expanduser()) for candidate in protected):
@@ -491,8 +487,12 @@ def _preview(
         ]
         for target in targets
     ]
+    # Whether the processes inside were all checked is a fact too: a scan
+    # that falls short only at confirmation must not remove unannounced.
     digest = hashlib.sha256(
-        json.dumps([kind, subject, str(anchor), facts, list(ignored)]).encode()
+        json.dumps(
+            [kind, subject, str(anchor), facts, list(ignored), unchecked_processes]
+        ).encode()
     ).hexdigest()
     return CleanupPreview(
         kind=kind,
@@ -534,7 +534,7 @@ def sub_agent_scope(preview: CleanupPreview) -> str | None:
     return SUB_AGENT_SCOPE if worktree is not None and worktree.available else None
 
 
-def process_scope(preview: CleanupPreview) -> str | None:
+def unchecked_processes_note(preview: CleanupPreview) -> str | None:
     """The process check's gap a preview that would remove a Worktree states, or None.
 
     Like the sub-agent scope, it is said only of a Worktree the preview
@@ -572,7 +572,7 @@ def describe_cleanup_preview(preview: CleanupPreview) -> list[str]:
         lines.extend(f"      → {consequence}" for consequence in target.consequences)
         if target.kind == "worktree" and (scope := sub_agent_scope(preview)):
             lines.append(f"      {scope}")
-            if unchecked := process_scope(preview):
+            if unchecked := unchecked_processes_note(preview):
                 lines.append(f"      {unchecked}")
     if preview.ignored:
         lines.append(

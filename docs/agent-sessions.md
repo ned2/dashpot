@@ -283,13 +283,15 @@ Linux is read through `/proc`, and macOS through `lsof`. A scan that could
 not cover every visible process is stated rather than read as empty. That
 happens on a host with neither `/proc` nor a working `lsof`, when `lsof` fails
 or times out, or inside a sandbox's PID namespace, where the host's processes
-are hidden. Beneath a removable Worktree, the preview and the `worktree
-check` report then add, for example, "Processes running inside this Worktree
-were not all checked: Dashpot runs inside a sandbox's process namespace and
-cannot see the processes outside it; check again from a shell outside the
-sandbox." Their JSON carries the same sentence as `uncheckedProcesses`,
-`null` when the scan was complete. A sandboxed scan still blocks on the
-processes it does see.
+are hidden. Beneath a removable Worktree, the preview, the `worktree check`
+report, and a performed `worktree remove` then add, for example, "Processes
+running inside this Worktree were not all checked: Dashpot runs inside a
+sandbox's process namespace and cannot see the processes outside it; check
+again from a shell outside the sandbox." Their JSON carries the same
+sentence as `uncheckedProcesses`, `null` when the scan was complete. A scan
+that falls short only when a Cleanup is confirmed refuses it as changed, so
+the revised preview states the gap first. A sandboxed scan still blocks on
+the processes it does see.
 
 ### Codex hosting modes
 

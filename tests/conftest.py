@@ -63,7 +63,7 @@ def git_repository(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def no_host_processes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Read no host process's working directory unless a test passes a scan.
+    """Read no working directory of this host's processes unless a test passes a scan.
 
     Every Worktree preview and check scans the host for processes inside the
     Worktree (ADR 0104). Read for real, the scan depends on what else runs:
@@ -74,5 +74,5 @@ def no_host_processes(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr(
         "dashpot.sessions.working_directories.host_working_directories",
-        WorkingDirectories,
+        lambda: WorkingDirectories(),
     )

@@ -73,12 +73,8 @@ def check_worktree(
     branch = located.branch
     obstacles = assess_worktree_safety(located, lock_probe)
     obstacles.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
-    unchecked: str | None = None
-    # The main Worktree is never removable, and its tree may hold linked
-    # Worktrees whose occupants are not its own.
-    if located.role == "linked":
-        found, unchecked = assess_processes_inside(path, scan)
-        obstacles.extend(found)
+    found, unchecked = assess_processes_inside(located, scan)
+    obstacles.extend(found)
     content_integrated = False
     if branch is not None:
         branch_obstacles, content_integrated = assess_branch_preservation(

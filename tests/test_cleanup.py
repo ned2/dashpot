@@ -63,7 +63,7 @@ from dashpot.sessions.processes import (
 from dashpot.sessions.session_exits import SESSION_EXITS
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from factories import git
-from helpers import absent, table_lookup, unobservable
+from helpers import absent, scan_of, table_lookup, unobservable
 
 
 def repo(tmp_path: Path, *, origin: bool = True, ignore_state: bool = True) -> Path:
@@ -788,6 +788,24 @@ def test_a_session_with_no_recorded_host_process_cannot_be_verified(
     )
 
 
+def test_finding_no_process_inside_leaves_a_live_session_blocking(
+    tmp_path: Path,
+) -> None:
+    # The process check is positive only (ADR 0104): a session between tool
+    # calls runs nothing in the Worktree and still occupies it.
+    worktree, (root, _worktree) = occupied_worktree(
+        tmp_path, "claude-code", SESSION, CLAUDE
+    )
+
+    preview = inspect_cleanup(
+        WorktreeCleanupRequest(root, worktree),
+        lookup=table_lookup({CLAUDE.pid: CLAUDE}),
+        scan=scan_of(),
+    )
+
+    assert kinds(preview.targets[0]) == {"agent-session"}
+
+
 def test_a_gone_session_here_does_not_block(tmp_path: Path) -> None:
     worktree, worktrees = occupied_worktree(tmp_path, "codex", THREAD, CODEX)
 
@@ -867,6 +885,22 @@ def sub_agent_worktrees(tmp_path: Path) -> tuple[Path, Path, Path]:
     git(root, "worktree", "add", "-q", str(target), "feat")
     git(root, "worktree", "add", "-q", str(sibling), "other")
     return root, target, sibling
+
+
+def test_finding_no_process_inside_leaves_a_sub_agent_blocking(
+    tmp_path: Path,
+) -> None:
+    # A sub-agent between commands runs nothing in any Worktree (ADR 0104).
+    root, target, _sibling = sub_agent_worktrees(tmp_path)
+    publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
+
+    preview = inspect_cleanup(
+        WorktreeCleanupRequest(root, target),
+        lookup=table_lookup({PARENT.pid: PARENT}),
+        scan=scan_of(),
+    )
+
+    assert kinds(preview.targets[0]) == {"sub-agent"}
 
 
 def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(

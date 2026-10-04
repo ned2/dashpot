@@ -1,4 +1,4 @@
-"""Find the host processes whose working directory is inside a directory.
+"""Find the processes on this host whose working directory is inside a directory.
 
 Cleanup asks this at the moment it previews, checks, or re-inspects the
 removal of a Worktree, and retains nothing (ADR 0104). It reads ``/proc``
@@ -14,6 +14,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from ..core.commands import recording_command
 from .processes import process_namespace_is_isolated
@@ -26,6 +27,15 @@ MAX_ANCESTRY = 64
 LSOF_TIMEOUT = 5.0
 # Linux names a working directory that was removed with this suffix.
 DELETED_SUFFIX = " (deleted)"
+
+# Why a scan could not cover every process the person can see.
+ScanGap = Literal[
+    "isolated-namespace",
+    "proc-unreadable",
+    "lsof-unavailable",
+    "lsof-timeout",
+    "lsof-failed",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,29 +50,22 @@ class ProcessDirectory:
 
 @dataclass(frozen=True, slots=True)
 class WorkingDirectories:
-    """Every process a scan could read, and why it could not read them all.
+    """Processes a scan read, and why it could not read them all, if it could not.
 
-    ``incomplete`` is ``None`` when the scan covered every process the person
-    can see, or one of ``isolated-namespace``, ``proc-unreadable``,
-    ``lsof-unavailable``, ``lsof-timeout`` or ``lsof-failed``.
+    A host scan holds every process it could read; ``processes_inside``
+    narrows one to the processes inside a directory, keeping its gap.
+    ``incomplete`` is ``None`` when the scan covered every process the
+    person can see.
     """
 
     processes: tuple[ProcessDirectory, ...] = ()
-    incomplete: str | None = None
+    incomplete: ScanGap | None = None
 
 
 ProcessScan = Callable[[], WorkingDirectories]
 
 
-@dataclass(frozen=True, slots=True)
-class ProcessesInside:
-    """The processes found inside one directory, and the scan's gap if it had one."""
-
-    processes: tuple[ProcessDirectory, ...] = ()
-    incomplete: str | None = None
-
-
-def processes_inside(path: Path, scan: ProcessScan | None = None) -> ProcessesInside:
+def processes_inside(path: Path, scan: ProcessScan | None = None) -> WorkingDirectories:
     """Every visible process whose working directory is ``path`` or below it.
 
     The Dashpot process asking, and every process it started, are left out:
@@ -70,6 +73,8 @@ def processes_inside(path: Path, scan: ProcessScan | None = None) -> ProcessesIn
     count, so the shell a person runs Dashpot from inside the directory is
     found. Without ``scan`` the host is read, at call time.
     """
+    # Resolved here rather than bound as a default, so the suite can replace
+    # the host reader for every caller that passes no scan of its own.
     observed = (scan or host_working_directories)()
     target = path.resolve()
     parents = {process.pid: process.parent_pid for process in observed.processes}
@@ -80,7 +85,7 @@ def processes_inside(path: Path, scan: ProcessScan | None = None) -> ProcessesIn
         if process.cwd.is_relative_to(target)
         and not _descends_from(process.pid, own, parents)
     )
-    return ProcessesInside(inside, observed.incomplete)
+    return WorkingDirectories(inside, observed.incomplete)
 
 
 def _descends_from(pid: int, ancestor: int, parents: Mapping[int, int]) -> bool:

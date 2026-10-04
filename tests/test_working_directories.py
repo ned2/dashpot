@@ -18,8 +18,7 @@ import pytest
 from dashpot.sessions import working_directories
 from dashpot.sessions.working_directories import (
     ProcessDirectory,
-    ProcessesInside,
-    ProcessScan,
+    ScanGap,
     WorkingDirectories,
     host_working_directories,
     lsof_working_directories,
@@ -27,6 +26,7 @@ from dashpot.sessions.working_directories import (
     proc_working_directories,
     processes_inside,
 )
+from helpers import scan_of
 
 RUN = "dashpot.sessions.working_directories.subprocess.run"
 
@@ -143,7 +143,7 @@ def test_lsof_listing_some_processes_before_an_error_still_counts() -> None:
     ],
 )
 def test_a_host_lsof_cannot_answer_for_is_reported_incomplete(
-    outcome: BaseException | subprocess.CompletedProcess[str], reason: str
+    outcome: BaseException | subprocess.CompletedProcess[str], reason: ScanGap
 ) -> None:
     # A mock raises an exception it finds in its side effects, else returns it.
     with mock.patch(RUN, side_effect=[outcome]):
@@ -221,11 +221,6 @@ def test_the_host_reader_finds_a_real_process_in_its_directory(
 # --- processes inside a path ------------------------------------------------
 
 
-def scan_of(*processes: ProcessDirectory, incomplete: str | None = None) -> ProcessScan:
-    """A scan that sees exactly ``processes``."""
-    return lambda: WorkingDirectories(processes, incomplete)
-
-
 def test_processes_inside_a_directory_include_its_subdirectories_only(
     tmp_path: Path,
 ) -> None:
@@ -238,7 +233,7 @@ def test_processes_inside_a_directory_include_its_subdirectories_only(
 
     found = processes_inside(worktree, scan_of(here, below, sibling, above))
 
-    assert found == ProcessesInside((here, below))
+    assert found == WorkingDirectories((here, below))
 
 
 def test_processes_inside_resolve_the_directory_asked_about(tmp_path: Path) -> None:
@@ -296,4 +291,4 @@ def test_an_incomplete_scan_still_reports_what_it_found(tmp_path: Path) -> None:
 
     found = processes_inside(tmp_path, scan_of(shell, incomplete="isolated-namespace"))
 
-    assert found == ProcessesInside((shell,), "isolated-namespace")
+    assert found == WorkingDirectories((shell,), "isolated-namespace")
