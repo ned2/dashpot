@@ -183,8 +183,11 @@ the list the same way
 Claude Code and Codex publish one when they compact a session, and its
 sub-agents keep working across it. One from another process, or one that
 names none, starts with no sub-agents. A compaction's `SessionStart` also
-keeps the session's turn state rather than recording it running
-([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)).
+keeps the session's turn state
+([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)). Every other
+`SessionStart` begins no turn and records the session waiting, so only the
+sub-agents it lists hold it running
+([ADR 0106](adr/0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md)).
 A Claude Code Conversation Switch moves the list to the session that runs
 its sub-agents
 ([ADR 0101](adr/0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md)).
@@ -199,7 +202,9 @@ none. A Codex `/clear` follows no `SessionEnd`, and a thread a daemon unloads
 ends with `reason` `other`, so neither moves a listing. Each `SubagentStop`
 also removes its agent from every ended record of its process, whichever
 session the record belongs to, so a stop that arrives before the switch's
-`SessionStart` still clears it. Another live session's records are never
+`SessionStart` still clears it. `/fork` is no switch: it ends no session and
+starts its copy in another Host Process, a background session, while a
+working sub-agent stays with the session that started it and stops there. Another live session's records are never
 changed this way; the stopping session's own records left behind are
 (above).
 Here the blocker says the session *ended with* its sub-agents listed, and
@@ -324,7 +329,11 @@ In the dashboard, a Codex session's state means:
 - **Running or waiting.** Its Host Process is live, and the state is that of
   its current turn. Input typed during a turn joins that turn and its
   `UserPromptSubmit` arrives when Codex takes it, so the session stays
-  running until the joined input's turn stops. A sub-agent the turn spawned
+  running until the joined input's turn stops. A thread's `SessionStart`
+  arrives with its first turn, just before that turn's prompt, so the
+  thread reads waiting only until the prompt
+  ([ADR 0106](adr/0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md)).
+  A sub-agent the turn spawned
   holds the session running after the turn's `Stop` until its own
   `SubagentStop`, and its prompt does not restart the turn clock. Codex
   publishes no hook when a controller interrupts a sub-agent's own turn, so
@@ -420,7 +429,12 @@ In the dashboard, a Claude Code session's state means:
   `SubagentStop`. A compaction keeps the state: `/compact` publishes no
   prompt and no `Stop`, so a waiting session stays waiting, and automatic
   compaction runs inside a turn, which reads running until its `Stop`
-  ([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)).
+  ([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)). A session
+  that is opened, resumed, started headless or `/clear`ed reads waiting
+  until its first prompt, unless a sub-agent it lists is working, and the
+  copy `/fork` starts in the background reads waiting until someone prompts
+  it
+  ([ADR 0106](adr/0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md)).
 - **Moved.** `EnterWorktree`, and `ExitWorktree` with `action: keep`, move
   the session and carry a bound run with it, keeping its id, `startedAt` and
   Issue Binding. A Bash `cd` into another Worktree only places the session
@@ -534,7 +548,9 @@ In the dashboard, an OpenCode session's state means:
   a permission ask. A child session, one with a `parentID`, is a
   Sub-agent of its root and holds it running, a background child past its
   root's execution included; a fork is a root of its own, and inherits no
-  run.
+  run. A root that is created or forked reads waiting until its first
+  execution starts
+  ([ADR 0106](adr/0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md)).
 - **Unknown.** When the server's last plugin instance is cleaned up and none
   is set up again within a second, as when the plugin is removed, its running
   sessions, and those holding Sub-agents, read unknown while the server runs,

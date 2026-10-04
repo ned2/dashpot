@@ -969,9 +969,10 @@ def test_target_hook_completes_the_declared_relocation_as_the_same_run(
     )
 
     # The pending relocation outlives SessionEnd; the target hook moves it.
+    # The resumed session's start begins no turn (ADR 0106).
     assert ending.work == "unchanged"
     assert (publication.state, publication.work, publication.issue_id) == (
-        "running",
+        "waiting",
         "relocated",
         before.issue_id,
     )

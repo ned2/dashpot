@@ -27,7 +27,9 @@ from .session_matching import session_storage_key
 # graceful SessionEnd leaves, which the published ``RunState`` never shows.
 ActiveState = Literal["running", "waiting", "ended"]
 EVENT_STATES: dict[str, ActiveState] = {
-    "SessionStart": "running",
+    # A session's start begins no turn: its harness publishes the prompt
+    # that does, and a compaction keeps the turn it falls in (ADR 0106).
+    "SessionStart": "waiting",
     "UserPromptSubmit": "running",
     "PreToolUse": "running",
     "PostToolUse": "running",
@@ -383,15 +385,20 @@ def carried_state(
     A Sub-agent's own events (its prompt, tool calls, or an end of its own)
     say nothing about its parent's turn, so the parent keeps the state its
     previous record held; only the sub-agent boundaries change it (ADR 0016).
-    A child-scoped event never ends its parent. A compaction's
-    ``SessionStart`` keeps the main turn's state: running while the previous
-    record's turn clock runs, and waiting otherwise (ADR 0100).
+    A child-scoped event never ends its parent. A session's own
+    ``SessionStart`` begins no turn, so it waits (ADR 0106), save a
+    compaction's. That keeps the main turn's state: running while the
+    previous record's turn clock runs, and waiting otherwise. A compaction
+    with no live record of its Host Process to follow reads running, as an
+    automatic one inside a turn would (ADR 0100).
     """
     if previous is not None and continues_turn(current, previous):
         # The recorded state counts the sub-agents too; only the turn clock
         # says whether the main turn itself was in flight.
         in_turn = optional_string(previous.get("turnStartedAt")) is not None
         return "running" if in_turn else "waiting"
+    if session_start_kind(current) == "compaction":
+        return "running"
     if not is_child_record(current) or current.get("event") in SUBAGENT_EVENTS:
         return str(current.get("state"))
     # A parent record whose state cannot be read is taken as busy: its

@@ -631,7 +631,8 @@ def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
         publish_from_stream(io.StringIO(json.dumps(event)))
 
     record = json.loads((tmp_path / "state" / "session-7.json").read_text())
-    assert record["state"] == "running"
+    # A session's start begins no turn (ADR 0106).
+    assert record["state"] == "waiting"
     assert record["sessionProcess"]["pid"] == 42
 
 
