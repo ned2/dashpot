@@ -138,6 +138,7 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
         f"installed the OpenCode plugin in {plugin_file(home)}",
         f"hook publisher: {command}",
         f"installed Dashpot Issue work skill in {skill}",
+        f"installed Dashpot Issue arc skill in {home / 'skills' / 'dashpot-execute-issues'}",
         f"installed Dashpot worker agent in {home / 'agent' / 'dashpot-worker.md'}",
     ]
 
@@ -272,6 +273,7 @@ def test_remove_takes_only_what_opencodes_integration_owns(
     assert messages == [
         f"removed the OpenCode plugin {plugin_file(home)}",
         f"removed the Dashpot Issue work skill from {skill}",
+        f"removed the Dashpot Issue arc skill from {home / 'skills' / 'dashpot-execute-issues'}",
         f"removed the Dashpot worker agent from {home / 'agent' / 'dashpot-worker.md'}",
     ]
     assert not plugin_file(home).exists()

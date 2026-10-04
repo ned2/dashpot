@@ -36,6 +36,13 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   that a worker Sub-agent the `dashpot-execute-issues` skill launches cannot
   move its lead's session by mistake. An agent file of that name that Dashpot
   did not write is reported and never overwritten or removed.
+- Ship the user-invoked `dashpot-execute-issues` skill, which `integrate`
+  installs for Claude Code, Codex and OpenCode. A lead session lands an arc
+  of GitHub Issues through background workers, one Issue Worktree each,
+  quoting the repository's own gates and review process into each worker's
+  brief and recording the arc in Issue comments. It merges only when the
+  user grants it, and bundles a reviewer prompt for repositories that name
+  no review process.
 - Keep an Agent Run whose session ended without `SessionEnd` listed as
   orphaned (`orphaned`, `hostRestarted` in JSON) rather than as a Diagnostic,
   and continue it when its Claude Code session resumes at the same Worktree.

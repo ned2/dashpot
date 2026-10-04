@@ -106,7 +106,14 @@ ISSUE_WORK_SKILL = BundledSkill(
 
 # Every skill ``integrate`` installs, updates, checks and removes. Adding a
 # skill is an entry here and its directory under ``skills/``.
-BUNDLED_SKILLS: tuple[BundledSkill, ...] = (ISSUE_WORK_SKILL,)
+BUNDLED_SKILLS: tuple[BundledSkill, ...] = (
+    ISSUE_WORK_SKILL,
+    BundledSkill(
+        name="dashpot-execute-issues",
+        label="Issue arc skill",
+        source=BUNDLED_SKILLS_ROOT / "dashpot-execute-issues",
+    ),
+)
 
 
 @dataclass(frozen=True, slots=True)

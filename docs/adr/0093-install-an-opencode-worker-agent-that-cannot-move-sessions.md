@@ -96,9 +96,8 @@ worker-mechanics experiments, for
 cannot move its lead's session with any tool it is offered, so there is
 nothing to deny.
 
-**The consumer.** ADR 0092, which lands with the skill half of #422, records
-the `dashpot-execute-issues` skill, which
-launches every OpenCode worker as `agent: "dashpot-worker"` and says what to
+**The consumer.** [ADR 0092](0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md) records the
+`dashpot-execute-issues` skill, which launches every OpenCode worker as `agent: "dashpot-worker"` and says what to
 do when the agent is not installed. The name is the contract between the
 two.
 
