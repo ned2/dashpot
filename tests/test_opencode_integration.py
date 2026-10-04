@@ -140,6 +140,26 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
     assert "<dashpot> integrate opencode --status" in dispatch
     assert "A Sub-agent moves no session" in dispatch
     assert "opencode <worktree-path> --prompt" in dispatch
+    # The move applies when its step ends, so it is alone in that step and
+    # nothing runs in the Worktree before the next step confirms it.
+    flowed_dispatch = " ".join(dispatch.split())
+    assert (
+        "with the exact absolute path and no `sessionID`, alone: no other code "
+        "in that `execute` and no other tool call in the same step"
+    ) in flowed_dispatch
+    assert (
+        "Until then, run no `work` command and none of the Issue's work in the "
+        "Worktree."
+    ) in flowed_dispatch
+    assert (
+        "The move has failed when the tool fails or is unknown, the user "
+        "declines it, or step 3 does not confirm it."
+    ) in flowed_dispatch
+    # A move that applied without Dashpot's record leaves the session where
+    # Cleanup cannot see it, so it moves back before handing off.
+    assert (
+        "Move the session back first: steps 2 and 3 with the directory it came from"
+    ) in flowed_dispatch
     assert messages == [
         f"OpenCode release on PATH: {ACCEPTED}, the accepted release",
         f"installed the OpenCode plugin in {plugin_file(home)}",

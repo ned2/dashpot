@@ -713,7 +713,7 @@ def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
     assert "60 s after its last client leaves" in session_exit("codex").end
     opencode_case = text[opencode:follow_up]
     assert "Move the session to the Repository's main Worktree" in opencode_case
-    assert "with steps 2 and 3 of the OpenCode move" in opencode_case
+    assert "with steps 2 and 3 of the [OpenCode move]" in opencode_case
     assert "only after `show` reports no active Issue work" in opencode_case
     assert "Run no `work start` there" in opencode_case
     assert "If the move fails" in opencode_case
@@ -726,7 +726,9 @@ def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
     assert "quitting a client leaves it running" in opencode_case
     follow_up_text = text[follow_up:]
     assert "enters it again with `EnterWorktree`" in follow_up_text
-    assert "OpenCode moves there with the whole OpenCode move" in follow_up_text
+    assert "OpenCode moves there with every step of the [OpenCode move]" in (
+        follow_up_text
+    )
     assert "checks `<dashpot> work show` before any `work start`" in follow_up_text
     assert "continues from step 5" in follow_up_text
     assert (

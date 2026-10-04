@@ -64,7 +64,7 @@ fails it when the Dashpot sources the run exercised have changed since.
 - The [independent trace verifier](../../scripts/experiments/opencode-423/verify.mjs)
   checks each measured claim below.
 - The [retained trace](measurements/issue-423-opencode-trace.jsonl) holds
-  319 records. The first holds the SHA-256 hashes of the binary, the
+  324 records. The first holds the SHA-256 hashes of the binary, the
   runner's scripts and the Dashpot sources the run exercised, the skill
   included. Fixture and binary paths appear as `$ROOT` and `$BINARY_DIR`.
 
@@ -72,9 +72,10 @@ fails it when the Dashpot sources the run exercised have changed since.
 
 - **Versions.** OpenCode 2.0.22 on Linux x64 (binary SHA-256
   `32cf5aa0…5ad122`), Node 24.18.0.
-- **Dashpot.** The run's checkout was `243343f`, after the `dashpot-worker`
-  agent ([#422](https://github.com/ned2/dashpot/issues/422)), with this
-  change to the skill and `integrate --status` not yet committed. The trace
+- **Dashpot.** The run's checkout was `9a1edac`, this change's first commit
+  on `243343f`, which is after the `dashpot-worker` agent
+  ([#422](https://github.com/ned2/dashpot/issues/422)), with the fixes from
+  its review not yet committed. The trace
   records the SHA-256 of every source the run exercised, the skill included,
   and `verify.mjs --strict` fails unless the checkout's sources still match.
 - **Service and models.**
@@ -82,7 +83,7 @@ fails it when the Dashpot sources the run exercised have changed since.
     created through the HTTP API; a TUI, `--standalone` and `--server <url>`
     are not.
   - Every model turn is the fixture's. Whether a real model follows the
-    skill, keeps the move alone in its step, or waits for its workers is not
+    skill, keeps the move alone in its step, or waits for its Sub-agents is not
     measured.
 - **Configuration.** The global configuration allows every tool, except in
   `default-permissions`, which restarts the service with no permission rules.
@@ -164,8 +165,13 @@ session at the main Worktree.
 Before this change, `integrate --status` printed "confirmed" for that
 record from `e`. It now prints `elsewhere: its freshest hook record, live,
 places it at <main Worktree>, not here`, the skill's check fails, and the
-session hands off without `work start`. `work start` refused in this case
-already.
+session runs no `work start`. `work start` refused in this case already.
+
+A session left at `e` would be there without a record Cleanup reads, so a
+Cleanup preview of `e` would not name it. Since `pwd` printed `e`, the
+session moved back to the main Worktree with steps 2 and 3, confirmed it
+there, and then handed off. `session.moved` reported `e` and then the main
+Worktree, and the session ended at the main Worktree.
 
 ### Permission
 
@@ -174,23 +180,28 @@ already.
 - **Deny.** A session whose permissions deny `*session_move` does not have
   the tool: the call failed with `Unknown tool 'opencode.session_move'`, the
   session stayed put, and the flow handed off.
-- **Ask.** OpenCode asked the person nothing, under a rule whose effect is
-  `ask` and under a configuration with no rules; each session moved to `d`.
-  The runner was ready to reject any request for the move, and none came. So
-  a person's refusal of a move could not be exercised; the skill's
-  instruction for it covers a release that asks.
+- **Ask.** Under the two configurations tested, OpenCode asked the person
+  nothing and each session moved to `d`: a session rule whose effect is
+  `ask` for `*session_move`, over a global rule allowing every tool, and a
+  configuration with no rules at all. The runner was ready to reject any
+  request for the move, and none came, nor any `permission` event. How
+  OpenCode combines rules of different levels for a call made through
+  `execute` was not read from the source, so another configuration could
+  ask. A person's refusal of a move could not be exercised; the skill's
+  instruction for it covers a configuration or release that asks.
 
 ### Work the session started
 
-**Measured.** A bound lead launched a background worker as the
+**Measured.** A bound session launched a background Sub-agent as the
 `dashpot-worker` agent `integrate` installs
 ([ADR 0093](../adr/0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md)),
-then reached the dispatch. `work show` listed `1 sub-agent listed as working`, so the lead
-waited and did not move. When the worker ended, its notice woke the lead,
-whose next `work show` listed none; the lead then moved to `d`, confirmed it,
-and retained its run. No hook record of the lead kept a live sub-agent, and
-a Cleanup preview of `d` named no `sub-agent` obstacle. Moving while a worker
-runs, which leaves the worker recorded at the old location
+then reached the dispatch. `work show` listed `1 sub-agent listed as
+working`, so the session waited and did not move. When the Sub-agent ended,
+its notice woke the session, whose next `work show` listed none; the session
+then moved to `d`, confirmed it, and retained its run. No hook record of the
+session kept a live Sub-agent, and a Cleanup preview of `d` named no
+`sub-agent` obstacle. Moving while a Sub-agent runs, which leaves it
+recorded at the old location
 ([#427](https://github.com/ned2/dashpot/issues/427)), is not exercised.
 
 ## Not measured
@@ -198,7 +209,12 @@ runs, which leaves the worker recorded at the old location
 - A real model's behaviour, as above.
 - A TUI, `--standalone` or `--server <url>` session, a Sub-agent attempting
   a move, and a move across Git Repositories.
-- A person declining a move, since OpenCode 2.0.22 never asks.
+- A background command the session started, rather than a Sub-agent,
+  running at the move; `work show` does not list one, so the skill relies on
+  the session's own record of what it started.
+- A person declining a move, since OpenCode asked in neither configuration.
+- A finish move that is not confirmed, and a move back that is not
+  confirmed either.
 
 ## Validation
 

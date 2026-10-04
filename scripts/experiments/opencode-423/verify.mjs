@@ -194,22 +194,28 @@ check("refused destinations: a missing path and a file fail the tool at once, an
   assert.equal(info("file-after").location, main);
   assert.equal(runsAt("refused-after")["issue-4"][0].worktree, main);
 });
-check("missing evidence: a move Dashpot could not record reads elsewhere, so the session hands off and runs no work start", () => {
+check("missing evidence: a move Dashpot could not record reads elsewhere, so the session moves back, hands off and runs no work start", () => {
+  const unwritable = sessionOf("Unwritable");
+  assert.deepEqual(moves("unwritable-dispatch").map((move) => move.target), [tree("e"), main]);
   assert(moveAccepted(moves("unwritable-dispatch")[0].result, tree("e")));
-  assert.equal(info("unwritable-after").location, tree("e"));
+  assert(moveAccepted(moves("unwritable-dispatch")[1].result, main));
+  assert.deepEqual(kind("server.event").filter((record) => record.type === "session.moved" && record.sessionID === unwritable).map((record) => record.to), [tree("e"), main]);
   const confirm = shell("unwritable-check");
   assert.equal(confirm.cwd, tree("e"));
   assert.match(identity(confirm), new RegExp(`, elsewhere: its freshest hook record, live, places it at \\$ROOT/repository, not here$`));
-  assert.deepEqual(decisions("unwritable-dispatch"), ["unwritable: handoff, the move is not confirmed"]);
+  assert.deepEqual(ranLabels("unwritable-dispatch"), ["unwritable-show", "unwritable-check", "unwritable-back"]);
+  assert(confirmedAt(shell("unwritable-back"), main));
+  assert.deepEqual(decisions("unwritable-dispatch"), ["unwritable: handoff, moved back"]);
   assert.equal(shells("unwritable-start").length, 0);
-  assert.deepEqual(one("events").unsuccessful, [{ kind: "hook:opencode:event", result: "failed", reason: null, error: "EACCES", session: sessionOf("Unwritable") }]);
+  assert.equal(info("unwritable-after").location, main);
+  assert.deepEqual(one("events").unsuccessful, [{ kind: "hook:opencode:event", result: "failed", reason: null, error: "EACCES", session: unwritable }]);
 });
 check("a session whose permissions deny the move does not have the tool", () => {
   assert.match(moves("denied-dispatch")[0].result, /^Unknown tool 'opencode\.session_move'/);
   assert.deepEqual(decisions("denied-dispatch"), ["denied: handoff, the move failed"]);
   assert.equal(info("denied-after").location, main);
 });
-check("OpenCode asks the person nothing before a move: neither an ask rule nor a default configuration stops it", () => {
+check("in the configurations tested, OpenCode asks the person nothing before a move: neither an ask rule nor a default configuration stops it", () => {
   assert.deepEqual(labelled("permissions", "asked-dispatch").asked, []);
   assert.equal(info("asked-after").location, tree("d"));
   assert.deepEqual(labelled("permissions", "default-dispatch").asked, []);
@@ -218,7 +224,7 @@ check("OpenCode asks the person nothing before a move: neither an ask rule nor a
 });
 
 // Work the session started.
-check("workers: a lead waits while work show lists its worker, and moves once the worker has ended", () => {
+check("Sub-agents: a session waits while work show lists its Sub-agent, and moves once the Sub-agent has ended", () => {
   const [first, second] = shells("workers-show");
   assert.match(output(first), /has 1 sub-agent listed as working/);
   assert.doesNotMatch(output(second), /listed as working/);

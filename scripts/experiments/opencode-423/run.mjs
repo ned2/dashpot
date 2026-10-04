@@ -171,8 +171,14 @@ const body = async (req) => {
   for await (const chunk of req) raw += chunk;
   return raw ? JSON.parse(raw) : {};
 };
+// The sink takes only the shell reporter's records: a stray client of an
+// earlier experiment can still post to a reused loopback port, and its
+// payload holds paths and prompts the trace must not retain.
 const sink = await listen(async (req, res) => {
-  trace("command", await body(req));
+  let record = null;
+  try { record = await body(req); } catch {}
+  if (req.url === "/command" && typeof record?.label === "string" && ["start", "end"].includes(record.phase)) trace("command", record);
+  else trace("sink.foreign", { method: req.method, url: retained(String(req.url)).slice(0, 80) });
   res.end("{}");
 });
 env.SPIKE_SINK = sink.url;
@@ -215,13 +221,19 @@ const confirmedAt = (record, directory) => {
 };
 const holding = (record, issue) => output(record).split("\n").some((line) => line.includes(`: ${issue} (`));
 
-// Dispatch: steps 1 to 4 of the OpenCode move.
-const dispatch = (prefix, target, issue) => (last) => {
+// Dispatch: steps 1 to 4 of the OpenCode move. A move that took effect but
+// is not confirmed moves back to `origin` with steps 2 and 3 before the
+// handoff.
+const dispatch = (prefix, target, issue, origin = fixture) => (last) => {
   if (!last) return work(`${prefix}-show`, "show");
-  if (last.kind === "move") return moved(last.result) ? where(`${prefix}-check`) : end(`${prefix}: handoff, the move failed`);
+  if (last.kind === "move" && last.target === target) return moved(last.result) ? where(`${prefix}-check`) : end(`${prefix}: handoff, the move failed`);
+  if (last.kind === "move") return moved(last.result) ? where(`${prefix}-back`) : end(`${prefix}: tell the user, the session is in the Worktree unrecorded`);
   switch (last.label) {
     case `${prefix}-show`: return /listed as working/.test(output(last.record)) ? end(`${prefix}: waiting for this session's workers`) : moveSession(target);
-    case `${prefix}-check`: return confirmedAt(last.record, target) ? work(`${prefix}-arrived`, "show") : end(`${prefix}: handoff, the move is not confirmed`);
+    case `${prefix}-check`: return confirmedAt(last.record, target) ? work(`${prefix}-arrived`, "show")
+      : last.record?.cwd === target ? moveSession(origin) : end(`${prefix}: handoff, the move is not confirmed`);
+    case `${prefix}-back`: return confirmedAt(last.record, origin) ? end(`${prefix}: handoff, moved back`)
+      : end(`${prefix}: tell the user, the session is in the Worktree unrecorded`);
     case `${prefix}-arrived`: return holding(last.record, issue) ? end(`${prefix}: retained the Agent Run`) : work(`${prefix}-start`, "start", issue);
     case `${prefix}-start`: return work(`${prefix}-verify`, "show");
     case `${prefix}-verify`: return holding(last.record, issue) ? end(`${prefix}: bound`) : end(`${prefix}: not bound`);

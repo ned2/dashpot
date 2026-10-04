@@ -20,7 +20,8 @@ Each handoff dropped the conversation.
 an occupying session as part of a confirmed Cleanup. A session moving itself
 while it does Issue work the person asked for is a smaller question, and
 [#423](https://github.com/ned2/dashpot/issues/423) asked it on its own. The
-maintainer decided it on #423 on 2026-10-04, choosing the options below.
+maintainer chose the options below on 2026-10-04, in the session that worked
+#423; its pull request records the choices.
 
 The model moves its own session with OpenCode's `opencode.session_move`
 tool, reached through `execute`. OpenCode 2.0.22's source and the
@@ -37,9 +38,10 @@ tool, reached through `execute`. OpenCode 2.0.22's source and the
   directory whose location cannot be set up before it accepts the move
   ([`session/move.ts`](https://github.com/anomalyco/opencode/blob/v2.0.22/packages/core/src/session/move.ts#L74-L101)),
   and resolves a relative path against the session's own directory.
-- **Permission.** OpenCode asked the person nothing before a move, neither
-  under a rule whose effect is `ask` nor under a configuration with no rules.
-  Only a `deny` rule takes the tool away, as
+- **Permission.** Under the configurations the run tested, OpenCode asked
+  the person nothing before a move: a session rule whose effect is `ask`
+  over a global rule allowing every tool, and a configuration with no rules.
+  A `deny` rule takes the tool away, as
   [#421](https://github.com/ned2/dashpot/issues/421) measured.
 
 ## Decision
@@ -66,7 +68,7 @@ for a move that succeeded.
 
 **When.** The session moves once every Sub-agent, background command and
 other work it started has ended. A move under running work would leave a
-worker recorded at the place the session left
+Sub-agent recorded at the place the session left
 ([#427](https://github.com/ned2/dashpot/issues/427)). A bound run must be on
 the Issue of the destination: a run on another Issue finishes first, with its
 work delivered and its CI green, then `work stop`. So switching Issues means
@@ -90,9 +92,13 @@ from there. Finishing never happens implicitly.
 
 **Failure.** The move has failed when the tool fails or is unknown, the
 person declines it, or the next step's check places the session elsewhere.
-The session does not retry, change directory, or touch Dashpot's state. For
-dispatch it falls back to the fresh-session handoff, after `work stop` for a
-run on the same Issue. For finish it tells the person what still holds the
+The session does not retry, change directory, or touch Dashpot's state. A
+move that took effect without Dashpot recording it, as when the next step's
+`pwd` prints the destination but `--status` does not confirm the session
+there, leaves the session where Cleanup cannot see it, so the session first
+moves back to where it came from, with the same check, or tells the person
+it is there unrecorded. For dispatch it then falls back to the fresh-session
+handoff, after `work stop` for a run on the same Issue. For finish it tells the person what still holds the
 Worktree, as before.
 
 **Where `--status` places the session.** Until now, `integrate --status`
@@ -113,8 +119,9 @@ requires "confirmed" at the intended Worktree, mean what it says.
   while a handoff drops the conversation and cannot carry the run.
 - **Ask the person to confirm each move.** Rejected: the request to work on
   the Issue, with its Worktree, already names the destination. OpenCode
-  asks nothing itself, so a separate question would come only from the
-  skill, and Claude Code's `EnterWorktree` has none.
+  asked nothing itself in the configurations tested, so a separate question
+  would come only from the skill, and Claude Code's `EnterWorktree` has
+  none. Should OpenCode ask, the person's answer decides.
 - **Return to the checkout the session came from.** Rejected: it may be
   unknown, as for a session started in its Issue Worktree, or after context
   compaction. The main Worktree always exists, and a session there holds no
@@ -134,7 +141,7 @@ requires "confirmed" at the intended Worktree, mean what it says.
 - The skill relies on the model moving only when it should. A user who wants
   no self-moves can deny `*session_move` for their primary agent. The skill
   then reads the unknown tool as a refusal and hands off.
-- A session started at a `--server <url>`, or one OpenCode release that
+- A session started at a `--server <url>`, or an OpenCode release that
   changes the move's timing or result, is outside what the acceptance run
   measured
   ([#379](https://github.com/ned2/dashpot/issues/379),

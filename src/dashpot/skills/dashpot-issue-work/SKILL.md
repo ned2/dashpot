@@ -70,8 +70,8 @@ is the instruction to do so; do not wait for the user to ask:
   `codex resume <session-id> -C <directory>` continues it elsewhere after
   that. A daemon-hosted thread ends about 60 s after its last client leaves.
 - **OpenCode.** Move the session to the Repository's main Worktree, the
-  first entry of `git worktree list`, with steps 2 and 3 of the OpenCode
-  move in [dispatch](references/dispatch.md), and only after `show` reports
+  first entry of `git worktree list`, with steps 2 and 3 of the
+  [OpenCode move](references/dispatch.md#move-an-opencode-session), and only after `show` reports
   no active Issue work: an Agent Run still bound would move with the
   session. Run no `work start` there. If the move fails, tell the user the
   session keeps the Worktree from Cleanup until it is moved to another
@@ -83,7 +83,8 @@ If the user asks for follow-up changes afterwards, a session that left goes
 back to the same Worktree and checks `<dashpot> work show` before any
 `work start`: Claude Code enters it again with `EnterWorktree`, as steps 2
 and 3 of the Claude Code move in [dispatch](references/dispatch.md)
-describe, and OpenCode moves there with the whole OpenCode move. A session
+describe, and OpenCode moves there with every step of the
+[OpenCode move](references/dispatch.md#move-an-opencode-session). A session
 still in the Worktree, or resumed there, continues from step 5 of
 [Establish the workflow](#establish-the-workflow).
 

@@ -2,9 +2,10 @@
 // command's identity variables, location and ancestry to the runner's sink
 // when it starts, holds for the given time, and then either runs the given
 // Dashpot command from that shell, as the Issue-work skill does (`-- work
-// show`), or runs another program (`-- exec opencode run ...`), as a worker
-// sending its lead a message would; it reports the exit status, output and
-// duration when it ends.
+// show`), or runs another program (`-- exec ...`); it reports the exit
+// status, output and duration when it ends. Copied from opencode-421, whose
+// Sub-agents messaged their parent session with `-- exec opencode run`; this
+// run uses only the Dashpot form.
 //
 // Usage: node command.mjs <label> [holdMs] [-- dashpot arguments... | -- exec program arguments...]
 import { spawnSync } from "node:child_process";
