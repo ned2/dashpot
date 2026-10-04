@@ -9,14 +9,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..core.model import AgentRun, Diagnostic, Harness, ObservationTarget, RunState
+from ..core.model import (
+    AgentRun,
+    AssignedWorker,
+    Diagnostic,
+    Harness,
+    ObservationTarget,
+    RunState,
+    WorkerState,
+)
 from ..core.timestamps import observed_instant
 from ..core.worktree_paths import is_within, same_path
 from .hook_records import HookRecordStore
 from .hook_scan import (
+    SESSION_OVER,
     HookRecordClassification,
     reachable_hook_stores,
     scan_hook_stores,
+    session_histories,
     session_record_named,
 )
 from .liveness import LivenessObservation, LivenessProbe
@@ -28,7 +38,7 @@ from .processes import (
     process_started_at,
 )
 from .session_matching import SessionEvidence
-from .work_store import ActiveWork, SessionProcess, WorkStore
+from .work_store import ActiveWork, SessionProcess, WorkerAssignment, WorkStore
 
 # Diagnostics about hook Agent Session records are harness-neutral.
 SESSION_DIAGNOSTIC_SOURCE = "agent-sessions"
@@ -40,6 +50,8 @@ class HookSessionObservation:
     process_key: ProcessKey | None
     liveness: LivenessObservation
     session_id: str
+    # The sub-agents the session's freshest record lists as working.
+    live_subagents: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +165,7 @@ def observe_agent_runs(
     gone unbound session is stale observation state and is dropped silently.
     """
     probe = LivenessProbe(lookup)
-    sessions, gone, diagnostics = observe_hook_sessions(
+    sessions, gone, kept, diagnostics = observe_hook_sessions(
         targets_by_project, directory, probe
     )
     activity = ObservedActivityIndex(sessions)
@@ -165,6 +177,7 @@ def observe_agent_runs(
         directory,
         last_seen=last_seen,
         boot_time=boot_time,
+        workers=WorkerEvidence.observed(sessions, kept),
     )
     last_seen.prune_unclaimed(
         frozenset(
@@ -226,6 +239,150 @@ class ObservedActivityIndex:
         return None if located is None else Path(located)
 
 
+@dataclass(frozen=True, slots=True)
+class ListedSubagents:
+    """What one Agent Session's freshest live or unknown record lists."""
+
+    process_key: ProcessKey | None
+    live: bool
+    agents: frozenset[str]
+
+
+class WorkerEvidence:
+    """What each session's hook records report of its Sub-agents (ADR 0096).
+
+    An assigned Worker is working while its Lead's freshest live or unknown
+    record lists it and that record's Host Process is live, and unknown
+    while that record's process cannot be observed. A Worker is unknown too
+    while only a record the Lead kept when it ended with the Worker listed
+    (ADR 0095) lists it, whatever process wrote that record. A Worker no
+    record lists has nothing observed: its hooks reported it stopped, or
+    never started.
+    """
+
+    def __init__(
+        self,
+        current: Mapping[SessionIdentityKey, ListedSubagents],
+        kept: Mapping[SessionIdentityKey, frozenset[str]],
+    ) -> None:
+        self._current = current
+        self._kept = kept
+
+    @classmethod
+    def observed(
+        cls,
+        sessions: Sequence[HookSessionObservation],
+        kept: Mapping[SessionIdentityKey, frozenset[str]],
+    ) -> WorkerEvidence:
+        """The evidence of the sessions an observation pass placed."""
+        return cls(
+            {
+                (session.run.harness, session.session_id): ListedSubagents(
+                    session.process_key,
+                    session.liveness.liveness == "live",
+                    frozenset(session.live_subagents),
+                )
+                for session in sessions
+            },
+            kept,
+        )
+
+    @classmethod
+    def recorded(cls, stores: Sequence[Path], lookup: ProcessLookup) -> WorkerEvidence:
+        """The evidence of every session's records in ``stores``, pruning none.
+
+        A management command reads what the dashboard would report without
+        the observation pass's pruning.
+        """
+        current: dict[SessionIdentityKey, ListedSubagents] = {}
+        kept: dict[SessionIdentityKey, frozenset[str]] = {}
+        for history in session_histories(stores, lookup):
+            records = [location.record for location in history]
+            identity = (records[0].harness, records[0].session_id)
+            freshest = next(
+                (record for record in records if record.outcome not in SESSION_OVER),
+                None,
+            )
+            if freshest is not None:
+                current[identity] = ListedSubagents(
+                    freshest.process_key,
+                    freshest.outcome == "live",
+                    frozenset(freshest.live_subagents),
+                )
+            retained = frozenset(
+                agent
+                for record in records
+                if record.retains_subagents
+                for agent in record.live_subagents
+            )
+            if retained:
+                kept[identity] = retained
+        return cls(current, kept)
+
+    def state(
+        self,
+        harness: Harness,
+        session_id: str | None,
+        process_key: ProcessKey | None,
+        worker_id: str,
+    ) -> WorkerState | None:
+        """What the Lead's records say of one of its Sub-agents, or nothing."""
+        if session_id is None:
+            return None
+        identity = (harness, session_id)
+        listed = self._current.get(identity)
+        if (
+            listed is not None
+            # Another Host Process's record is not the run's session, as for
+            # the run's own activity.
+            and not (
+                process_key is not None
+                and listed.process_key is not None
+                and listed.process_key != process_key
+            )
+            and worker_id in listed.agents
+        ):
+            return "running" if listed.live else "unknown"
+        if worker_id in self._kept.get(identity, frozenset()):
+            return "unknown"
+        return None
+
+
+NO_WORKER_EVIDENCE = WorkerEvidence({}, {})
+
+
+def assigned_workers(
+    work: ActiveWork, evidence: WorkerEvidence
+) -> tuple[AssignedWorker, ...]:
+    """Each Worker the run assigned, with what its Lead's hooks report of it."""
+    return tuple(
+        assigned_worker(
+            worker,
+            evidence.state(
+                work.harness,
+                work.session_id,
+                work.evidence.process_key,
+                worker.worker_id,
+            ),
+        )
+        for worker in work.workers
+    )
+
+
+def assigned_worker(
+    worker: WorkerAssignment, state: WorkerState | None
+) -> AssignedWorker:
+    """Publish one Worker Assignment with its observed state."""
+    return AssignedWorker(
+        worker_id=worker.worker_id,
+        issue_id=worker.issue_id,
+        issue_reference_hint=worker.issue_reference,
+        worktree=worker.worktree,
+        assigned_at=worker.assigned_at,
+        state=state,
+    )
+
+
 def observe_work_runs(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     probe: LivenessProbe,
@@ -234,8 +391,14 @@ def observe_work_runs(
     *,
     last_seen: LastSeenIndex | None = None,
     boot_time: BootTime = host_boot_time,
+    workers: WorkerEvidence = NO_WORKER_EVIDENCE,
 ) -> tuple[list[AgentRun], list[Diagnostic]]:
-    """Turn each Worktree's active Work Store records into bound Agent Runs."""
+    """Turn each Worktree's active Work Store records into bound Agent Runs.
+
+    A Lead's run carries the Workers it assigned, each with what the hooks
+    report of it; an Orphaned Agent Run's Workers have nothing reported,
+    since no live process holds them.
+    """
     seen = last_seen if last_seen is not None else LastSeenIndex(())
     runs: list[AgentRun] = []
     diagnostics: list[Diagnostic] = []
@@ -290,7 +453,15 @@ def observe_work_runs(
                 # No hook has ever reported this run; the Work Store knows
                 # when the work began and nothing about what it has done.
                 observed = ObservedActivity("unknown", None, None)
-            run = work_to_run(work, target, project_id, observed)
+            run = work_to_run(
+                work,
+                target,
+                project_id,
+                observed,
+                assigned_workers(
+                    work, NO_WORKER_EVIDENCE if gone is not None else workers
+                ),
+            )
             if gone is not None:
                 run = run.model_copy(
                     update={
@@ -486,6 +657,7 @@ def work_to_run(
     target: ObservationTarget,
     project_id: str,
     observed: ObservedActivity,
+    workers: Sequence[AssignedWorker] = (),
 ) -> AgentRun:
     """Bind one active Work Store record to what the hooks saw it doing."""
     return AgentRun(
@@ -503,6 +675,7 @@ def work_to_run(
         last_activity_at=observed.last_activity_at,
         turn_started_at=observed.turn_started_at,
         started_at=work.started_at,
+        workers=tuple(workers),
     )
 
 
@@ -510,10 +683,17 @@ def observe_hook_sessions(
     targets_by_project: Mapping[str, Sequence[ObservationTarget]],
     directory: Path | None,
     probe: LivenessProbe,
-) -> tuple[list[HookSessionObservation], list[GoneHookRecord], list[Diagnostic]]:
+) -> tuple[
+    list[HookSessionObservation],
+    list[GoneHookRecord],
+    dict[SessionIdentityKey, frozenset[str]],
+    list[Diagnostic],
+]:
     """Read every visible hook store into live and unknown Agent Sessions.
 
-    Ended records are stale observation state and are pruned here. Gone
+    Ended records are stale observation state and are pruned here, except
+    one that keeps the sub-agents its session ended with (ADR 0095), whose
+    sub-agents come back by session for the Workers among them. Gone
     records are never reported as sessions either, but are returned for the
     Work Store pass, which keeps those an Orphaned Agent Run still needs and
     prunes the rest. Pruning is the only write observation performs, and it
@@ -530,6 +710,7 @@ def observe_hook_sessions(
     # an integration upgrade; the freshest observation per session wins.
     latest: dict[str, HookSessionObservation] = {}
     gone: list[GoneHookRecord] = []
+    kept: dict[SessionIdentityKey, frozenset[str]] = {}
     diagnostics: list[Diagnostic] = []
 
     def report_unreadable(path: Path, exc: Exception) -> None:
@@ -561,6 +742,11 @@ def observe_hook_sessions(
                 if not record.retains_subagents:
                     with contextlib.suppress(OSError):
                         store.prune(scanned.path.stem, scanned.raw)
+                    continue
+                identity = (record.harness, record.session_id)
+                kept[identity] = kept.get(identity, frozenset()) | frozenset(
+                    record.live_subagents
+                )
                 continue
             diagnostics.extend(
                 Diagnostic(
@@ -598,7 +784,7 @@ def observe_hook_sessions(
         )
         for reason, count in sorted(unknown_by_reason.items())
     )
-    return list(latest.values()), gone, diagnostics
+    return list(latest.values()), gone, kept, diagnostics
 
 
 def record_to_session(
@@ -656,6 +842,7 @@ def record_to_session(
                 "live" if record.outcome == "live" else "unknown", record.reason
             ),
             record.session_id,
+            tuple(record.live_subagents),
         ),
         diagnostics,
     )

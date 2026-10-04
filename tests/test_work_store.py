@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import json
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from dashpot.core.record_store import RecordKeyError
-from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
+from dashpot.sessions.work_store import (
+    ActiveWork,
+    SessionProcess,
+    WorkerAssignment,
+    WorkStore,
+)
 
 
 def work(
@@ -239,6 +245,7 @@ def test_the_persisted_record_keeps_its_wire_key_set(tmp_path: Path) -> None:
         "branch",
         "sessionId",
         "relocation",
+        "workers",
     ]
     assert document["sessionProcess"] == {
         "pid": 42,
@@ -246,6 +253,48 @@ def test_the_persisted_record_keeps_its_wire_key_set(tmp_path: Path) -> None:
     }
     assert document["sessionId"] is None
     assert document["relocation"] is None
+    assert document["workers"] == []
+
+
+def test_worker_assignments_round_trip_under_their_wire_keys(
+    tmp_path: Path,
+) -> None:
+    store = WorkStore(tmp_path)
+    assigned = WorkerAssignment(
+        worker_id="agent-1",
+        issue_id="I_first",
+        issue_reference="first",
+        worktree="/repo-first",
+        assigned_at="2026-10-04T00:00:00Z",
+    )
+    store.start(replace(work(), workers=(assigned,)))
+
+    document = json.loads((store.directory / "codex-42-abcd1234.json").read_text())
+
+    assert document["workers"] == [
+        {
+            "workerId": "agent-1",
+            "issueId": "I_first",
+            "issueReference": "first",
+            "worktree": "/repo-first",
+            "assignedAt": "2026-10-04T00:00:00Z",
+        }
+    ]
+    (read,) = store.active()[0]
+    assert read.workers == (assigned,)
+
+
+def test_a_record_written_before_assignments_reads_with_none(tmp_path: Path) -> None:
+    store = WorkStore(tmp_path)
+    store.start(work(session_key="codex-42-abcd1234"))
+    path = store.directory / "codex-42-abcd1234.json"
+    document = json.loads(path.read_text())
+    del document["workers"]
+    path.write_text(json.dumps(document))
+
+    (read,) = store.active()[0]
+
+    assert read.workers == ()
 
 
 def _rewrite(store: WorkStore, **changes: object) -> None:

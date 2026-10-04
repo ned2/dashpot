@@ -464,10 +464,10 @@ def locate_agent_session(
     return freshest
 
 
-_SESSION_OVER: frozenset[HookRecordOutcome] = frozenset({"ended", "gone"})
+SESSION_OVER: frozenset[HookRecordOutcome] = frozenset({"ended", "gone"})
 
 
-def _session_histories(
+def session_histories(
     stores: Sequence[Path], lookup: ProcessLookup
 ) -> list[list[SessionLocation]]:
     """Each Agent Session's readable records across ``stores``, freshest first.
@@ -504,8 +504,8 @@ def _freshest_sessions(
     """
     return [
         history[0]
-        for history in _session_histories(stores, lookup)
-        if history[0].record.outcome not in _SESSION_OVER
+        for history in session_histories(stores, lookup)
+        if history[0].record.outcome not in SESSION_OVER
     ]
 
 
@@ -541,13 +541,13 @@ def sessions_with_live_subagents(
     reported when it is the freshest.
     """
     found: list[SessionLocation] = []
-    for history in _session_histories(stores, lookup):
-        running = history[0].record.outcome not in _SESSION_OVER
+    for history in session_histories(stores, lookup):
+        running = history[0].record.outcome not in SESSION_OVER
         current = [
             location
             for location in history
             if location.record.retains_subagents
-            or (running and location.record.outcome not in _SESSION_OVER)
+            or (running and location.record.outcome not in SESSION_OVER)
         ]
         if not current:
             continue

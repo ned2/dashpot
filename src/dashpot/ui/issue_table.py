@@ -125,14 +125,16 @@ def _has_priority(row: IssueListRow) -> bool:
 
 # What each column shows, said once for the header tooltip and the Legend.
 # The agent-activity column here summarizes the Agent Runs bound to the
-# Issue, which is a different fact from the Sessions, Worktrees and
-# Branches columns of the same Glyph, so its description says so.
+# Issue and the Workers assigned to it, which is a different fact from the
+# Sessions, Worktrees and Branches columns of the same Glyph, so its
+# description says so.
 AGENT_STATE_DESCRIPTION = (
     "the liveliest Agent Run explicitly bound to this Issue by an accepted "
-    "Issue Binding, running before waiting before orphaned before unknown, "
-    "or blank when "
-    "none is; an Agent Session located on a Worktree or Branch named for the "
-    "Issue does not count until it opts in with work start"
+    "Issue Binding, or Worker its Lead assigned here with work assign and "
+    "reports working, running before waiting before orphaned before unknown, "
+    "or blank when none is; an Agent Session located on a Worktree or Branch "
+    "named for the Issue does not count until it opts in with work start, "
+    "and a Sub-agent no Lead assigned counts only toward its session's Issue"
 )
 ISSUE_STATE_DESCRIPTION = (
     "the Issue's state on its Issue Source, as a block in the state's colour: "

@@ -1,7 +1,9 @@
 """Declare, relocate, end, and show Issue work for the enclosing Agent Session.
 
-``work forget-subagents`` lives here too: it forgets the sub-agents an ended
-Agent Session still lists, which hold Worktree Cleanup as its Issue work did.
+A Lead's ``work assign`` and ``work unassign`` live here too, since a Worker
+Assignment belongs to the Lead's Agent Run (ADR 0096), as does ``work
+forget-subagents``: it forgets the sub-agents an ended Agent Session still
+lists, which hold Worktree Cleanup as its Issue work did.
 """
 
 from __future__ import annotations
@@ -21,13 +23,26 @@ from ..core.event_log_files import (
     recent_events,
 )
 from ..core.git import Git
-from ..core.model import HARNESS_DISPLAY, Diagnostic, Harness, harness_alternatives
+from ..core.model import (
+    HARNESS_DISPLAY,
+    Diagnostic,
+    Harness,
+    WorkerState,
+    harness_alternatives,
+)
 from ..core.timestamps import utc_now
 from ..core.worktree_paths import repository_worktrees, same_path, worktree_root
 from ..issues.issue_resolution import resolve_issue
+from .agents import (
+    NO_WORKER_EVIDENCE,
+    WorkerEvidence,
+    assigned_workers,
+)
 from .harnesses import (
+    SESSION_ID,
     SESSION_OVERRIDE_VARIABLE,
     SessionIdentityClaim,
+    adapter,
     native_claims,
     opencode_shell_refusal,
     override_claim,
@@ -67,6 +82,7 @@ from .work_store import (
     ActiveWork,
     RelocationIntent,
     SessionProcess,
+    WorkerAssignment,
     WorkStore,
 )
 
@@ -353,6 +369,16 @@ def start_issue_work(
         f"ended this session's earlier run on {work.issue_reference} at {worktree}"
         for worktree, work in elsewhere
     )
+    # A run's Worker Assignments end with it (ADR 0096): say so, since the
+    # Workers themselves may still be working.
+    messages.extend(
+        ended_assignments(work)
+        for work in (
+            *(() if previous is None else (previous,)),
+            *(work for _worktree, work in selected_elsewhere),
+        )
+        if work.workers
+    )
     # Other sessions' unreadable records do not block this start, but they
     # are surfaced rather than dropped, as `work show` already surfaces them.
     messages.extend(diagnostic.message for diagnostic in store_diagnostics)
@@ -538,6 +564,7 @@ def stop_issue_work(
         return [
             f"stopped work on {work.issue_reference}"
             + ("" if same_path(worktree, root) else f" at {worktree}")
+            + (f"; {ended_assignments(work)}" if work.workers else "")
             for worktree, work in stopped
         ] + warnings
     previous, diagnostics = _session_work_by_key(store, session_key)
@@ -568,7 +595,20 @@ def stop_issue_work(
     return [
         f"stopped orphaned work on {previous.issue_reference} for "
         f"{previous.session_label}"
+        + (f"; {ended_assignments(previous)}" if previous.workers else "")
     ]
+
+
+def ended_assignments(work: ActiveWork) -> str:
+    """Name the Worker Assignments that ended with a run (ADR 0096)."""
+    count = len(work.workers)
+    workers = ", ".join(
+        f"{worker.worker_id} on {worker.issue_reference}" for worker in work.workers
+    )
+    return (
+        f"ended {count} Worker Assignment{'' if count == 1 else 's'} of the run "
+        f"on {work.issue_reference} ({workers})"
+    )
 
 
 def _recorded_session_is_live(
@@ -670,6 +710,227 @@ def forget_session_subagents(
     return messages + warnings
 
 
+def assign_worker(
+    current: Path,
+    reference: str,
+    worker_id: str,
+    worktree: Path,
+    *,
+    timeout: float = 10,
+    lookup: ProcessLookup = host_process_lookup,
+    environ: Mapping[str, str] | None = None,
+    outcome: OutcomeNote | None = None,
+) -> list[str]:
+    """Assign one of this Lead's working Sub-agents, as a Worker, to an Issue.
+
+    The assignment joins the session's own active Agent Run, unchanged in
+    its Issue Binding, identity and location, and ends with it (ADR 0096).
+    The Worker must be a Sub-agent this session's hooks list as working, so
+    a mistyped or foreign identity is refused rather than recorded.
+    ``worktree`` is where the Lead intends the Worker's commands to run: it
+    must be a Worktree of this Repository, and is never taken as evidence
+    that the Worker is there. ``outcome`` hears the session, the Issue and
+    the Worktree once each is confirmed, and what the command did.
+    """
+    note = outcome if outcome is not None else OutcomeNote()
+    if not SESSION_ID.fullmatch(worker_id):
+        raise IssueWorkError(
+            f"{worker_id!r} is not a Sub-agent identity a harness publishes; "
+            "nothing was written"
+        )
+    root = worktree_root(current)
+    worktrees = repository_worktrees(root)
+    intended = next(
+        (
+            candidate
+            for candidate in worktrees
+            if same_path(candidate, worktree.expanduser().resolve())
+        ),
+        None,
+    )
+    if intended is None:
+        raise IssueWorkError(
+            f"{worktree} is not a Worktree of the current Git Repository; "
+            "nothing was written"
+        )
+    note.target_path = intended
+    stores = reachable_hook_stores(worktrees)
+    session = identify_agent_session(
+        lookup, environ=environ, worktree=root, stores=stores
+    )
+    note.identify(harness=session.harness, session_id=session.session_id)
+    store, work = _assigning_run(session, worktrees, lookup)
+    if work.evidence.process_key not in (None, session.process_key):
+        # The run is orphaned under a Host Process that is gone (the runtime
+        # check refused a live one), and observation reports none of an
+        # Orphaned Agent Run's Workers until this session continues it.
+        # Only a harness whose session owns its Host Process, or a declared
+        # relocation, has a hook event take the run over; any other run is
+        # recovered with ``work start``, which ends its assignments.
+        recovery = (
+            "assign once this session's next hook event has continued the run"
+            if work.relocation is not None
+            or adapter(work.harness).exclusive_session_process
+            else f"recover it with 'dashpot work start {work.issue_reference}' "
+            "from this session, which ends its Worker Assignments, then assign "
+            "each Worker again"
+        )
+        raise IssueWorkError(
+            "this session's Agent Run is still recorded under its earlier Host "
+            f"Process, which is gone; {recovery}, so nothing was written"
+        )
+    issue = resolve_issue(root, reference, timeout)
+    note.identify(issue_id=issue.id)
+    if (
+        WorkerEvidence.recorded(stores, lookup).state(
+            work.harness, work.session_id, work.evidence.process_key, worker_id
+        )
+        is None
+    ):
+        raise IssueWorkError(
+            f"{session.session_label} lists no Sub-agent {worker_id} as working; "
+            "assign a Worker once its harness has reported it started, by the "
+            "identity its launch returned, so nothing was written"
+        )
+    assigned = WorkerAssignment(
+        worker_id=worker_id,
+        issue_id=issue.id,
+        issue_reference=issue.reference,
+        worktree=str(intended),
+        assigned_at=utc_now(),
+    )
+    previous = next(
+        (item for item in work.workers if item.worker_id == worker_id), None
+    )
+    if previous is not None and (previous.issue_id, previous.worktree) == (
+        assigned.issue_id,
+        assigned.worktree,
+    ):
+        return [
+            f"Worker {worker_id} is already assigned to {issue.reference} "
+            f"({issue.id}) at {intended}"
+        ]
+    workers = (
+        *(item for item in work.workers if item.worker_id != worker_id),
+        assigned,
+    )
+    _replace_assigning_run(store, work, replace(work, workers=workers))
+    if previous is None:
+        note.action = "assigned"
+        return [
+            f"assigned Worker {worker_id} to {issue.reference} ({issue.id}) at {intended}"
+        ]
+    note.action = "reassigned"
+    return [
+        f"reassigned Worker {worker_id} from {previous.issue_reference} at "
+        f"{previous.worktree} to {issue.reference} ({issue.id}) at {intended}"
+    ]
+
+
+def unassign_worker(
+    current: Path,
+    worker_id: str,
+    *,
+    lookup: ProcessLookup = host_process_lookup,
+    environ: Mapping[str, str] | None = None,
+    outcome: OutcomeNote | None = None,
+) -> list[str]:
+    """End one Worker Assignment of this session's active Agent Run.
+
+    Nothing about the Worker is checked: one that finished, failed or was
+    stopped is unassigned the same way, and the run is otherwise unchanged.
+    """
+    note = outcome if outcome is not None else OutcomeNote()
+    root = worktree_root(current)
+    worktrees = repository_worktrees(root)
+    session = identify_agent_session(
+        lookup,
+        environ=environ,
+        worktree=root,
+        stores=reachable_hook_stores(worktrees),
+    )
+    note.identify(harness=session.harness, session_id=session.session_id)
+    store, work = _assigning_run(session, worktrees, lookup)
+    previous = next(
+        (item for item in work.workers if item.worker_id == worker_id), None
+    )
+    if previous is None:
+        note.action = "no-assignment"
+        return [f"this session's Agent Run assigns no Worker {worker_id}"]
+    note.identify(issue_id=previous.issue_id)
+    _replace_assigning_run(
+        store,
+        work,
+        replace(
+            work,
+            workers=tuple(item for item in work.workers if item.worker_id != worker_id),
+        ),
+    )
+    note.action = "unassigned"
+    return [f"unassigned Worker {worker_id} from {previous.issue_reference}"]
+
+
+def _assigning_run(
+    session: AgentSessionIdentity, worktrees: Sequence[Path], lookup: ProcessLookup
+) -> tuple[WorkStore, ActiveWork]:
+    """The session's one active Agent Run, wherever in the Repository it is."""
+    found: list[tuple[WorkStore, ActiveWork]] = []
+    diagnostics: list[Diagnostic] = []
+    for worktree in worktrees:
+        store = WorkStore(worktree)
+        work, store_diagnostics = _session_work(store, session)
+        diagnostics.extend(store_diagnostics)
+        if work is not None:
+            found.append((store, work))
+    if diagnostics:
+        raise IssueWorkError(
+            "; ".join(item.message for item in diagnostics)
+            + "; repair the Work Store before assigning Workers"
+        )
+    if not found:
+        raise IssueWorkError(
+            "this Agent Session has no active Issue work to assign Workers "
+            "under; a Lead binds its Arc with 'dashpot work start' first"
+        )
+    if len(found) > 1:
+        raise IssueWorkError(
+            "this Agent Session has Issue work recorded at more than one "
+            "Worktree; resolve the work-session-conflict before assigning Workers"
+        )
+    store, work = found[0]
+    _check_runtime(session, work, lookup)
+    return store, work
+
+
+def _orphaned(work: ActiveWork, lookup: ProcessLookup) -> bool:
+    """Whether observation reports the run as an Orphaned Agent Run."""
+    return (
+        work.relocation is None
+        and work.session_process is not None
+        and session_liveness(work.session_process.key, lookup).liveness == "gone"
+    )
+
+
+def _replace_assigning_run(
+    store: WorkStore, expected: ActiveWork, replacement: ActiveWork
+) -> None:
+    """Replace the run's assignments unless something changed the run first."""
+    if not store.replace_current(expected, replacement):
+        raise IssueWorkError(
+            "this Agent Run changed while its Workers were being assigned; "
+            "nothing was overwritten, so inspect it with 'dashpot work show'"
+        )
+
+
+# What ``work show`` says of an assigned Worker, by what the dashboard would
+# report of it (ADR 0096).
+WORKER_STATE_DESCRIPTION: Mapping[WorkerState | None, str] = {
+    "running": "listed as working",
+    "unknown": "listed as working, but its session's liveness is unknown",
+    None: "not listed as working",
+}
+
+
 def show_issue_work(
     current: Path, *, lookup: ProcessLookup = host_process_lookup
 ) -> list[str]:
@@ -678,15 +939,18 @@ def show_issue_work(
     A run whose session has sub-agents listed as working is followed by
     them: they hold the run running, and one that was interrupted may never
     be reported stopped, so the line names the harness's way out (#374).
+    Then come the Workers the run assigned (ADR 0096), each saying whether
+    its session lists it as working.
     """
     root = worktree_root(current)
     active, diagnostics = WorkStore(root).active()
     delegating: list[SessionLocation] = []
+    workers = NO_WORKER_EVIDENCE
     if active:
         worktrees = repository_worktrees(root)
-        delegating = sessions_with_live_subagents(
-            worktrees, reachable_hook_stores(worktrees), lookup
-        )
+        stores = reachable_hook_stores(worktrees)
+        delegating = sessions_with_live_subagents(worktrees, stores, lookup)
+        workers = WorkerEvidence.recorded(stores, lookup)
     messages: list[str] = []
     for work in active:
         messages.append(
@@ -714,6 +978,16 @@ def show_issue_work(
                 f"  {work.session_label} has {named_subagents(agents)}. "
                 f"{unreported_subagent_stop(work.harness)}"
             )
+        messages.extend(
+            f"  assigned Worker {worker.worker_id} to {worker.issue_reference_hint} "
+            f"({worker.issue_id}) at {worker.worktree}; "
+            + WORKER_STATE_DESCRIPTION[worker.state]
+            for worker in assigned_workers(
+                # Observation reports nothing of an Orphaned Agent Run's Workers.
+                work,
+                NO_WORKER_EVIDENCE if _orphaned(work, lookup) else workers,
+            )
+        )
     messages.extend(diagnostic.message for diagnostic in diagnostics)
     if not messages:
         messages = ["no active Issue work at this worktree"]

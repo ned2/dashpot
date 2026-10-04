@@ -99,3 +99,4 @@ of date.
 | 0093 | [Install an OpenCode worker agent that cannot move sessions](0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md) | accepted | — |
 | 0094 | [Let a root OpenCode session move itself for Issue work](0094-let-a-root-opencode-session-move-itself-for-issue-work.md) | accepted | — |
 | 0095 | [Keep an ended session's sub-agents listed until they stop](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md) | accepted | — |
+| 0096 | [Attribute a Lead's Workers to their Issues by explicit assignment](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md) | accepted | — |

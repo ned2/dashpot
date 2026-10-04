@@ -13,7 +13,8 @@ intended to reduce oscillation without stopping progress. Observation never
 mutates: the view, every refresh, and `dashpot --json` never assign or edit
 Issues, change the Git Repository, or control agent sessions. Dashpot's named
 management commands — `init`, `integrate`, `work start`, `work relocate`,
-`work stop`, `work forget-subagents`, `branch delete`, `worktree remove`, and
+`work stop`, `work forget-subagents`, `work assign`, `work unassign`,
+`branch delete`, `worktree remove`, and
 `events remove` — and its two mutating keys — `f`, which fetches Git remotes, and `x`, which deletes a Branch or
 removes a Worktree — mutate only what their name says, on explicit invocation,
 and report what they changed
@@ -763,6 +764,9 @@ epic's sub-issues or a list, through background workers that each take one
 Issue to a PR in its own Issue Worktree, under Claude Code, Codex or
 OpenCode; its record goes in Issue comments
 ([ADR 0092](docs/adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
+Its lead assigns each worker to its Issue with `dashpot work assign`, so the
+Issues pane shows that Issue running while the worker works
+([ADR 0096](docs/adr/0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)).
 A declared
 Codex resume can preserve the same Agent Run and `startedAt` across client
 processes; Claude Code continues to relocate its live client. The

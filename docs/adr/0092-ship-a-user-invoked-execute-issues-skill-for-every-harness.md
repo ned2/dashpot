@@ -207,3 +207,8 @@ release, and a second check that could only agree with the first.
   engagement" headings must update this skill, which names them.
 - [ADR 0093](0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md) records the OpenCode worker agent this skill
   launches.
+- Amended by
+  [ADR 0096](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md):
+  the lead still alone binds the arc's Issue, and it also assigns each worker
+  to its Issue with `dashpot work assign`, so that Issue shows the worker's
+  activity. Workers still run no `work` command.

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Self
 
-from pydantic import ValidationError, model_validator
+from pydantic import Field, ValidationError, model_validator
 
 from ..core.errors import DashpotError
 from ..core.model import Diagnostic, Harness
@@ -53,6 +53,16 @@ class RelocationIntentRecord(PublishedModel):
     requested_at: NonEmptyString
 
 
+class WorkerAssignmentRecord(PublishedModel):
+    """One Worker Assignment as its Lead's Work Store record persists it."""
+
+    worker_id: HookSessionIdentity
+    issue_id: NonEmptyString
+    issue_reference: NonEmptyString
+    worktree: NonEmptyString
+    assigned_at: NonEmptyString
+
+
 class WorkStoreRecord(PersistedRecord):
     """One Work Store record as persisted; the session key is its filename."""
 
@@ -71,6 +81,9 @@ class WorkStoreRecord(PersistedRecord):
     # recorded, or without a hook record to confirm it, carry ``None``.
     session_id: HookSessionIdentity | None = None
     relocation: RelocationIntentRecord | None = None
+    # The Workers this run's Lead assigned to Issues (ADR 0096); a record
+    # written before assignments existed carries none.
+    workers: list[WorkerAssignmentRecord] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _relocation_requires_version_two(self) -> Self:
@@ -100,6 +113,16 @@ class WorkStoreRecord(PersistedRecord):
                 if work.relocation is not None
                 else None
             ),
+            workers=[
+                WorkerAssignmentRecord(
+                    worker_id=worker.worker_id,
+                    issue_id=worker.issue_id,
+                    issue_reference=worker.issue_reference,
+                    worktree=worker.worktree,
+                    assigned_at=worker.assigned_at,
+                )
+                for worker in work.workers
+            ],
         )
 
     def active_work(self, session_key: str) -> ActiveWork:
@@ -123,6 +146,16 @@ class WorkStoreRecord(PersistedRecord):
                 if self.relocation is not None
                 else None
             ),
+            workers=tuple(
+                WorkerAssignment(
+                    worker_id=worker.worker_id,
+                    issue_id=worker.issue_id,
+                    issue_reference=worker.issue_reference,
+                    worktree=worker.worktree,
+                    assigned_at=worker.assigned_at,
+                )
+                for worker in self.workers
+            ),
         )
 
 
@@ -132,6 +165,24 @@ class RelocationIntent:
 
     target_worktree: str
     requested_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerAssignment:
+    """A Worker of the run's session its Lead assigned to one Issue (ADR 0096).
+
+    ``worker_id`` is the harness's own identity of the Sub-agent, the one its
+    sub-agent hooks publish as ``agent_id``. ``worktree`` is where the Lead
+    intends the Worker's commands to run: a declaration, never evidence
+    that the Worker is there. The assignment says nothing about whether the
+    Worker is working, which only its harness's hooks report.
+    """
+
+    worker_id: str
+    issue_id: str
+    issue_reference: str
+    worktree: str
+    assigned_at: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +201,7 @@ class ActiveWork:
     branch: str | None
     session_id: str | None = None
     relocation: RelocationIntent | None = None
+    workers: tuple[WorkerAssignment, ...] = ()
 
     @property
     def evidence(self) -> SessionEvidence:

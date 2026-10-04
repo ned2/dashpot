@@ -27,6 +27,7 @@ from .issue_list import (
     IssueListSummary,
     query_indexed_issue_list,
     row_key,
+    worker_states,
 )
 from .list_result import ListResult
 from .pull_request_list import (
@@ -454,9 +455,14 @@ def _issue_detail(
         for run_id in bound_run_ids
         if run_id in state.agent_runs
     )
+    observed_by = sum(1 for _project_id, indexed in state.issues if indexed == issue_id)
     session_states = tuple(
         state.agent_runs[run_id].activity if run_id in state.agent_runs else "unknown"
         for run_id in bound_run_ids
+    ) + (
+        # As no run binds to it, no Worker counts toward an Issue Identity
+        # more than one Project observes.
+        worker_states(state.agent_runs.values(), issue_id) if observed_by == 1 else ()
     )
     return IssueListRow(
         key=row.key,
@@ -502,6 +508,15 @@ def _store_change(before: StoreState, after: StoreState) -> StoreChange:
         for bindings in (before.issue_runs, after.issue_runs)
         for issue_id, run_ids in bindings.items()
         if any(run_id in agent_run_ids for run_id in run_ids)
+    )
+    # A changed run changes the activity of each Issue its Workers were, or
+    # now are, assigned to.
+    binding_issue_ids.update(
+        worker.issue_id
+        for runs in (before.agent_runs, after.agent_runs)
+        for run_id in agent_run_ids
+        if run_id in runs
+        for worker in runs[run_id].workers
     )
     issue_keys.update(key for key in after.issues if key[1] in binding_issue_ids)
     kinds: set[StoreChangeKind] = set()

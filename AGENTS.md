@@ -7,7 +7,8 @@ Guidance for AI coding agents working in this repository.
 Dashpot is a passive terminal view of declared Issues, repository state, and
 active coding-agent runs. Observation never mutates; the named management
 commands (`init`, `integrate`, `work start` / `work relocate` / `work stop` /
-`work forget-subagents`, `branch delete`, `worktree remove`, `events remove`)
+`work forget-subagents` / `work assign` / `work unassign`, `branch delete`,
+`worktree remove`, `events remove`)
 and the dashboard's
 mutating keys (`f`, a Remote Fetch;
 `x`, a Cleanup) mutate only what they name, on explicit invocation, and a
@@ -73,7 +74,9 @@ in a Worktree other than the session's is refused as running where the
 session is not
 ([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)),
 while `stop` is not refused, so the rule still matters. The `start` / `stop`
-calls belong to the main session only.
+calls belong to the main session only, as do `work assign` / `work unassign`,
+with which a Lead attributes each Worker to its own Issue
+([ADR 0096](docs/adr/0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)).
 
 ## Vocabulary
 

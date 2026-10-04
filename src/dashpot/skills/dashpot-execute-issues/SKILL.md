@@ -53,11 +53,13 @@ step 2.
 
 ## Rules for the whole arc
 
-- **Only you bind, unbind, create, remove and merge.** Workers share your
-  Agent Session: Dashpot attributes their hooks and shells to it. A worker's
-  `work start` or `work stop` would switch or end your Issue work, so the
-  brief forbids every `work` command, Worktree creation and removal, and
-  merging.
+- **Only you bind, unbind, assign, create, remove and merge.** Workers share
+  your Agent Session: Dashpot attributes their hooks and shells to it. A
+  worker's `work start` or `work stop` would switch or end your Issue work,
+  so the brief forbids every `work` command, Worktree creation and removal,
+  and merging. Your one Issue Binding covers the arc. You tell Dashpot which
+  Issue each worker works on with `work assign`
+  ([Assign each worker](#assign-each-worker)).
 - **Stay where you bound.** Never move your own session to another
   Worktree while a worker runs; see
   [Known Dashpot gaps](#known-dashpot-gaps). Workers work in their
@@ -185,8 +187,53 @@ For each Issue in the wave:
 3. Launch every worker of the wave at once, in the background, each with a
    short prompt that points at its brief. Record each worker's handle (its
    ID or task name) beside its Issue.
+4. Assign each worker to its Issue, as
+   [Assign each worker](#assign-each-worker) says.
 
-Post the wave comment. Done when every startable Issue has a live worker.
+Post the wave comment. Done when every startable Issue has a live, assigned
+worker.
+
+### Assign each worker
+
+Your Issue Binding names only the arc's Issue, so on its own Dashpot shows
+the arc running and the Issues your workers implement idle. An assignment
+tells Dashpot which Issue a worker works on. Run it from your own checkout,
+never from a worker:
+
+```bash
+<dashpot> work assign <n> --worker <worker-id> --worktree <path>
+```
+
+- **The worker's ID** is the one its launch returned, or for a Codex v2
+  worker the thread ID it reports first. Your harness's section of
+  [harnesses.md](references/harnesses.md) says which.
+- **`--worktree`** is the Issue Worktree from step 1.
+- **A refusal that lists no such sub-agent as working** means Dashpot has
+  not yet recorded the worker's start, or the worker already finished. Run
+  the same command again shortly, and assign each worker right after its
+  launch. Never assign an ID you did not get from the launch or the worker.
+
+The Issue then reads `running` in Dashpot's Issues pane while your hooks
+report the worker working, and goes quiet when its stop is recorded. The
+assignment changes nothing else: not your binding, your location, or
+Cleanup's `sub-agent` blocker. `<dashpot> work show` lists every assignment
+and whether its worker is still listed as working. Assignments end with
+your Issue work. Maintain them as workers come and go:
+
+- **A resumed worker** keeps its ID and its assignment.
+- **A relaunched worker** has a new ID. Assign it, then
+  `<dashpot> work unassign <old-id>`.
+- **A worker you stopped** without its stop being recorded (see your
+  harness's "Stopping") keeps its Issue reading `running`. Run
+  `<dashpot> work unassign <worker-id>`.
+- **A reviewer you launch as a separate worker** may be assigned to the
+  Issue it reviews, the same way.
+- **After you bind again**, as after a fork or an unloaded Codex lead,
+  assign every live worker again. Any `work start` ends your assignments,
+  even one on the arc's own Issue.
+- **After your context is compacted**, Dashpot may stop listing workers
+  that are still working until they start again: their Issues go quiet and
+  `work assign` refuses them. Nothing is lost; carry on.
 
 ## 4. Handle each hand-back
 
@@ -195,7 +242,7 @@ notice that a worker stopped while it still has background work running is
 not a hand-back: wait for its report. A worker that ended without a report
 (stopped, killed, failed, cancelled or errored, or silent after an
 interruption) is a blocker: check its Worktree and PR, then resume it or
-launch a fresh worker on the same brief.
+launch a fresh worker on the same brief, assigned in the old one's place.
 
 **PR ready.** Run the merge routine:
 
@@ -346,5 +393,6 @@ Dashpot fixes it.
 - **An unloaded Codex lead drops its workers' blocker.** A daemon-hosted
   Codex lead with no client attached is unloaded about 60 s later. Dashpot
   then ends its Issue work while its workers keep running, and no Cleanup
-  blocker covers them. Keep a client attached to the lead until every
-  worker has finished.
+  blocker covers them. Their assignments end with it, so their Issues stop
+  reading `running`. Keep a client attached to the lead until every worker
+  has finished.

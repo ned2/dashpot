@@ -50,6 +50,13 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   brief and recording the arc in Issue comments. It merges only when the
   user grants it, and bundles a reviewer prompt for repositories that name
   no review process.
+- A lead assigns each worker to the Issue it implements with `dashpot work
+  assign <issue> --worker <id> --worktree <path>`, and the Issues pane shows
+  that Issue running while the lead's hooks report the worker working,
+  without binding another Agent Run or changing the lead's. `work unassign`
+  ends an assignment, `work show` lists them, and they end with the lead's
+  run. The `dashpot-execute-issues` skill assigns its workers on every
+  harness.
 - Keep an Agent Run whose session ended without `SessionEnd` listed as
   orphaned (`orphaned`, `hostRestarted` in JSON) rather than as a Diagnostic,
   and continue it when its Claude Code session resumes at the same Worktree.

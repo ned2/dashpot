@@ -86,6 +86,23 @@ class IssueListSummary:
     closed_issue_count: int = 0
 
 
+def worker_states(
+    agent_runs: Iterable[AgentRun], issue_id: str
+) -> tuple[SessionActivity, ...]:
+    """The observed states of every Worker assigned to the Issue, by any Lead.
+
+    A Worker counts toward the Issue it was assigned to, never its Lead's,
+    and only while its Lead's hook records report it (ADR 0096): an
+    assignment alone shows nothing.
+    """
+    return tuple(
+        worker.state
+        for run in agent_runs
+        for worker in run.workers
+        if worker.issue_id == issue_id and worker.state is not None
+    )
+
+
 def query_indexed_issue_list(
     *,
     projects: Mapping[str, ProjectObservation],
@@ -134,6 +151,12 @@ def query_indexed_issue_list(
             session_states: tuple[SessionActivity, ...] = tuple(
                 agent_runs[run_id].activity if run_id in agent_runs else "unknown"
                 for run_id in bound_run_ids
+            ) + (
+                # As no run binds to it, no Worker counts toward an Issue
+                # Identity more than one Project observes.
+                worker_states(agent_runs.values(), issue.id)
+                if issue_id_counts[issue.id] == 1
+                else ()
             )
             rows.append(
                 IssueListRow(
