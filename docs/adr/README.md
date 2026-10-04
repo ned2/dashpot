@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-04
 ---
 
 # Architecture decision records
@@ -95,3 +95,4 @@ of date.
 | 0086 | [Orphan the runs of a stopped or restarted managed Codex daemon](0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md) | accepted | — |
 | 0089 | [Leave the PR merge to the operator](0089-leave-the-pr-merge-to-the-operator.md) | accepted | — |
 | 0090 | [Observe OpenCode v2 through its own session identity and event order](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) | accepted | — |
+| 0093 | [Install an OpenCode worker agent that cannot move sessions](0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md) | accepted | — |

@@ -122,8 +122,10 @@ def check_integrations(root: Path) -> None:
 def check_opencode_integration(root: Path) -> None:
     """Bind the managed OpenCode plugin to the installed helper and run it."""
     from dashpot.sessions.integrate import (
+        BUNDLED_AGENTS,
         OPENCODE,
         PLUGIN_HELPER,
+        agent_file,
         install_integration,
         integration_status,
         remove_integration,
@@ -136,6 +138,11 @@ def check_opencode_integration(root: Path) -> None:
     first = plugin.read_bytes()
     install_integration("opencode", config_home)
     assert plugin.read_bytes() == first
+    # Every bundled agent is installed from the installed package.
+    agents = [agent_file(OPENCODE, config_home, agent) for agent in BUNDLED_AGENTS]
+    for bundled, installed in zip(BUNDLED_AGENTS, agents, strict=True):
+        assert installed is not None, bundled.name
+        assert installed.read_bytes() == bundled.source.read_bytes()
     bound = PLUGIN_HELPER.search(plugin.read_text())
     assert bound is not None
     helper = json.loads(bound.group(1))
@@ -157,6 +164,7 @@ def check_opencode_integration(root: Path) -> None:
     assert not any("publisher missing" in message for message in messages)
     remove_integration("opencode", config_home)
     assert not plugin.exists()
+    assert not any(installed is not None and installed.exists() for installed in agents)
 
 
 def check_installed(root: Path, expected: str) -> None:

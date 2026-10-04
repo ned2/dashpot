@@ -389,6 +389,13 @@ managed plugin, `plugins/dashpot.js`, to OpenCode's global configuration
 directory, bound to this environment's `dashpot-opencode-hook` helper, and
 the bundled skills to that directory's `skills/`
 ([ADR 0079](adr/0079-install-opencode-as-one-managed-plugin-and-keep-it-unsupported-until-acceptance.md)).
+It also writes the managed `dashpot-worker` agent to `agent/dashpot-worker.md`
+there: the agent the `dashpot-execute-issues` skill launches each worker
+Sub-agent as, whose permissions deny `*session_move`. A worker can otherwise
+move its lead's session, and Dashpot would relocate the lead's Agent Run with
+it. The deny guards against a worker's mistake, not a determined process,
+which can still move a session through OpenCode's HTTP API
+([ADR 0093](adr/0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md)).
 The plugin is thin: it reports OpenCode's own session events, in each
 session's own order, to the helper, once per event under a 3 s deadline, and
 every decision is the helper's.

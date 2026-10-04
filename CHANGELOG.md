@@ -31,6 +31,11 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   skill Dashpot bundles, and `--status` reports each one as installed,
   missing, or with an update available. A directory of a bundled skill's name
   that Dashpot did not write is reported and never overwritten or removed.
+- `dashpot integrate opencode` also installs, updates, checks and removes the
+  `dashpot-worker` OpenCode agent, whose permissions deny `*session_move` so
+  that a worker the `dashpot-execute-issues` skill launches cannot move its
+  lead's session by mistake. An agent file of that name that Dashpot did not
+  write is reported and never overwritten or removed.
 - Keep an Agent Run whose session ended without `SessionEnd` listed as
   orphaned (`orphaned`, `hostRestarted` in JSON) rather than as a Diagnostic,
   and continue it when its Claude Code session resumes at the same Worktree.

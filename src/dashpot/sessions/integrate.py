@@ -56,10 +56,11 @@ HOOK_TIMEOUT = 3
 # Codex also keeps its hook trust ledger under ``[hooks.state...]``, which is
 # not a definition and must not trigger the coexistence note.
 CONFIG_HOOKS_TABLE = re.compile(r"^\s*\[+\s*hooks\s*(?:\]|\.(?!state\b))", re.MULTILINE)
-# The Dashpot release the bundled skills are written for, kept aligned with
-# the package version (docs/releasing.md).
+# The Dashpot release the bundled skills and agents are written for, kept
+# aligned with the package version (docs/releasing.md).
 BUNDLED_SKILL_VERSION = "0.1.0"
 BUNDLED_SKILLS_ROOT = Path(__file__).parents[1] / "skills"
+BUNDLED_AGENTS_ROOT = Path(__file__).parents[1] / "agents"
 
 
 class IntegrationError(DashpotError):
@@ -109,6 +110,45 @@ BUNDLED_SKILLS: tuple[BundledSkill, ...] = (ISSUE_WORK_SKILL,)
 
 
 @dataclass(frozen=True, slots=True)
+class BundledAgent:
+    """One OpenCode agent definition Dashpot ships, which ``integrate`` installs.
+
+    The definition is one Markdown file named for the agent. An installed
+    file is Dashpot's to manage only while it carries this agent's own
+    marker: a file of the same name without it is the user's, and is never
+    overwritten or removed (ADR 0093).
+    """
+
+    name: str
+    # What ``integrate``'s messages call the agent, such as "worker agent".
+    label: str
+    source: Path
+
+    @property
+    def marker(self) -> str:
+        """The line that marks an installed copy as Dashpot's to manage.
+
+        It is a YAML comment inside the frontmatter. OpenCode 2.0.22 reads a
+        definition with any frontmatter key it does not know as a v1 one, and
+        takes the body as the agent's system prompt, so neither can carry it.
+        """
+        return f"# dashpot-managed-agent: {self.name}"
+
+
+# The agent a ``dashpot-execute-issues`` lead launches each worker as, which
+# cannot move its lead's session (ADR 0093).
+WORKER_AGENT = BundledAgent(
+    name="dashpot-worker",
+    label="worker agent",
+    source=BUNDLED_AGENTS_ROOT / "dashpot-worker.md",
+)
+
+# Every agent definition ``integrate`` installs, updates, checks and removes
+# for a harness that loads them: OpenCode alone.
+BUNDLED_AGENTS: tuple[BundledAgent, ...] = (WORKER_AGENT,)
+
+
+@dataclass(frozen=True, slots=True)
 class HarnessIntegration:
     """One supported harness's opt-in lifecycle hook installation."""
 
@@ -128,6 +168,9 @@ class HarnessIntegration:
     # which loads a managed plugin at ``hooks_file`` instead of reading hook
     # definitions from it: OpenCode (ADR 0079).
     plugin: bool = False
+    # Where, inside its configuration directory, the harness reads the agent
+    # definitions Dashpot bundles; ``None`` for a harness that installs none.
+    agents_home: Path | None = None
 
     @property
     def default_home(self) -> Path:
@@ -218,6 +261,7 @@ OPENCODE = HarnessIntegration(
     events=(),
     checks_config_toml=False,
     plugin=True,
+    agents_home=Path("agent"),
 )
 
 INTEGRATIONS: dict[Harness, HarnessIntegration] = {
@@ -306,14 +350,16 @@ def install_integration(
     command_path: Path | None = None,
     version_probe: Callable[[], str | None] | None = None,
     skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
 ) -> list[str]:
-    """Idempotently register one harness's lifecycle hooks and bundled skills.
+    """Idempotently register one harness's lifecycle hooks, bundled skills and agents.
 
     OpenCode's plugin is refused while the ``opencode`` on PATH, which
-    ``version_probe`` asks by default, is a v1 release (ADR 0090). Every
-    skill's destination is checked before anything is written, so a
-    directory of a bundled skill's name that Dashpot does not manage refuses
-    the whole installation.
+    ``version_probe`` asks by default, is a v1 release (ADR 0090). OpenCode
+    also gets the bundled agent definitions (ADR 0093). Every skill's and
+    agent's destination is checked before anything is written, so a
+    directory of a bundled skill's name, or a file of a bundled agent's,
+    that Dashpot does not manage refuses the whole installation.
     """
     spec = integration(harness)
     home = home or spec.default_home
@@ -323,7 +369,8 @@ def install_integration(
             f"and run {spec.display} once before integrating"
         )
     destinations = _skill_copies(spec, home, skills)
-    _validate_skill_destinations(destinations)
+    agent_destinations = _agent_copies(spec, home, agents)
+    _validate_destinations(destinations, agent_destinations)
     command = command_path or resolve_hook_command(spec)
     # Refuse before anything is loaded or written: the binding would outlive
     # the environment it names, so the file is left exactly as it was.
@@ -347,6 +394,7 @@ def install_integration(
             *install_plugin(spec, home, command),
             f"hook publisher: {command}",
             *(_install_skill(skill, target) for skill, target in destinations),
+            *(_install_agent(agent, target) for agent, target in agent_destinations),
             *_opencode_skill_copies(destinations),
         ]
     path = home / spec.hooks_file
@@ -389,6 +437,9 @@ def install_integration(
         messages.append(f"{spec.display} lifecycle hooks already installed in {path}")
     messages.append(f"hook publisher: {command}")
     messages.extend(_install_skill(skill, target) for skill, target in destinations)
+    messages.extend(
+        _install_agent(agent, target) for agent, target in agent_destinations
+    )
     messages.extend(_config_toml_coexistence_warning(spec, home))
     return messages
 
@@ -398,8 +449,9 @@ def remove_integration(
     home: Path | None = None,
     *,
     skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
 ) -> list[str]:
-    """Remove exactly Dashpot's hooks and managed skills for one harness."""
+    """Remove exactly Dashpot's hooks, managed skills and agents for one harness."""
     spec = integration(harness)
     home = home or spec.default_home
     path = home / spec.hooks_file
@@ -445,6 +497,10 @@ def remove_integration(
         _remove_skill(skill, target)
         for skill, target in _skill_copies(spec, home, skills)
     )
+    messages.extend(
+        _remove_agent(agent, target)
+        for agent, target in _agent_copies(spec, home, agents)
+    )
     return messages
 
 
@@ -458,6 +514,7 @@ def integration_status(
     environ: Mapping[str, str] | None = None,
     version_probe: Callable[[], str | None] | None = None,
     skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
 ) -> list[str]:
     """Report the observable state of one harness's integration."""
     spec = integration(harness)
@@ -509,6 +566,10 @@ def integration_status(
     messages.extend(
         _skill_status(skill, target, harness=spec.harness)
         for skill, target in destinations
+    )
+    messages.extend(
+        _agent_status(agent, target, harness=spec.harness)
+        for agent, target in _agent_copies(spec, home, agents)
     )
     messages.extend(_config_toml_coexistence_warning(spec, home))
     if spec.plugin:
@@ -596,11 +657,16 @@ def _is_current(skill: BundledSkill, destination: Path) -> bool:
     )
 
 
-def _validate_skill_destinations(destinations: list[tuple[BundledSkill, Path]]) -> None:
-    """Refuse when any bundled skill's destination holds what Dashpot does not manage.
+def _validate_destinations(
+    destinations: list[tuple[BundledSkill, Path]],
+    agent_destinations: list[tuple[BundledAgent, Path]],
+) -> None:
+    """Refuse when any skill or agent destination holds what Dashpot does not manage.
 
-    An empty or absent directory is free to install into; any other
-    directory must already carry that skill's own marker.
+    An empty or absent skill directory is free to install into; any other
+    directory must already carry that skill's own marker. An absent agent
+    file is free to install into; anything else at its path must be a file
+    carrying that agent's own marker.
     """
     refusals: list[str] = []
     for skill, destination in destinations:
@@ -613,6 +679,19 @@ def _validate_skill_destinations(destinations: list[tuple[BundledSkill, Path]]) 
             refusals.append(
                 f"cannot install the Dashpot {skill.label} at {destination}: "
                 "an existing skill is not managed by Dashpot; move it and retry"
+            )
+    for agent, destination in agent_destinations:
+        if not os.path.lexists(destination):
+            continue
+        if not destination.is_file():
+            refusals.append(
+                f"cannot install the Dashpot {agent.label} at {destination}: "
+                "the path is not a file; move it and retry"
+            )
+        elif not _is_managed_agent(agent, destination):
+            refusals.append(
+                f"cannot install the Dashpot {agent.label} at {destination}: "
+                "an existing agent is not managed by Dashpot; move it and retry"
             )
     if refusals:
         raise IntegrationError("; ".join(refusals))
@@ -691,6 +770,100 @@ def _skill_status(skill: BundledSkill, destination: Path, *, harness: Harness) -
         )
     return (
         f"{skill.label} installed in {destination} for Dashpot {BUNDLED_SKILL_VERSION}"
+    )
+
+
+def agent_file(
+    spec: HarnessIntegration, home: Path, agent: BundledAgent
+) -> Path | None:
+    """Locate this harness's user-wide copy of one bundled agent, if it installs agents."""
+    if spec.agents_home is None:
+        return None
+    return home / spec.agents_home / f"{agent.name}.md"
+
+
+def _agent_copies(
+    spec: HarnessIntegration, home: Path, agents: tuple[BundledAgent, ...]
+) -> list[tuple[BundledAgent, Path]]:
+    """Each bundled agent, paired with where this harness keeps its copy, if anywhere."""
+    return [
+        (agent, target)
+        for agent in agents
+        if (target := agent_file(spec, home, agent)) is not None
+    ]
+
+
+def _agent_text(destination: Path) -> str:
+    """An installed agent file's text; raises ``OSError`` or ``ValueError``."""
+    return destination.read_text(encoding="utf-8")
+
+
+def _is_managed_agent(agent: BundledAgent, destination: Path) -> bool:
+    """Whether an agent file is readable and carries this agent's marker."""
+    try:
+        return agent.marker in _agent_text(destination)
+    except (OSError, ValueError):
+        return False
+
+
+def _is_current_agent(agent: BundledAgent, destination: Path) -> bool:
+    """Whether an agent file is the one this Dashpot ships, unchanged."""
+    return destination.is_file() and (
+        destination.read_bytes() == agent.source.read_bytes()
+    )
+
+
+def _install_agent(agent: BundledAgent, destination: Path) -> str:
+    if _is_current_agent(agent, destination):
+        return f"Dashpot {agent.label} already installed in {destination}"
+    existed = os.path.lexists(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # The temporary's name ends in random characters, not ``.md``, so
+    # OpenCode never reads it as a definition while it is written.
+    replace_atomically(
+        destination,
+        agent.source.read_text(encoding="utf-8"),
+        temporary_prefix=f".{destination.name}.",
+    )
+    verb = "updated" if existed else "installed"
+    return f"{verb} Dashpot {agent.label} in {destination}"
+
+
+def _remove_agent(agent: BundledAgent, destination: Path) -> str:
+    if not os.path.lexists(destination):
+        return f"Dashpot {agent.label} is not installed: no {destination}"
+    unmanaged = f"left unmanaged {agent.label} unchanged at {destination}"
+    if not destination.is_file():
+        return unmanaged
+    try:
+        text = _agent_text(destination)
+    except (OSError, ValueError) as exc:
+        return f"could not inspect Dashpot {agent.label} at {destination}: {exc}"
+    if agent.marker not in text:
+        return unmanaged
+    destination.unlink()
+    return f"removed the Dashpot {agent.label} from {destination}"
+
+
+def _agent_status(agent: BundledAgent, destination: Path, *, harness: Harness) -> str:
+    if not os.path.lexists(destination):
+        return f"{agent.label} not installed: no {destination}"
+    conflict = f"{agent.label} conflict at {destination}: not managed by Dashpot"
+    if not destination.is_file():
+        return conflict
+    try:
+        text = _agent_text(destination)
+    except (OSError, ValueError) as exc:
+        return f"{agent.label} unreadable at {destination}: {exc}"
+    if agent.marker not in text:
+        return conflict
+    if not _is_current_agent(agent, destination):
+        return (
+            f"{agent.label} update available at {destination}; run "
+            f"'dashpot integrate {harness}' to repair"
+        )
+    return (
+        f"{agent.label} installed in {destination} for Dashpot {BUNDLED_SKILL_VERSION}"
     )
 
 
