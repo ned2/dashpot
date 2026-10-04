@@ -952,9 +952,10 @@ code is 0 only when every selected target was deleted or already absent.
 
 The created Worktree carries no harness. The installed Issue-work skill moves
 a running Claude Code session with `EnterWorktree`, has a root OpenCode
-session move itself with OpenCode's own session move and confirm the move in
-its next step before any Dashpot work there
-([ADR 0094](docs/adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md)),
+session on the shared service move itself with OpenCode's own session move
+and confirm the move in its next step before any Dashpot work there
+([ADR 0094](docs/adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md),
+[ADR 0108](docs/adr/0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md)),
 or hands a Codex session
 off through sequential `codex resume <session-id> -C <path>` when that version
 supports it. An active Codex run first declares the target with `dashpot work

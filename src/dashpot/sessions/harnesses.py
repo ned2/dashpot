@@ -18,7 +18,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import AfterValidator, BeforeValidator
 
@@ -293,6 +293,35 @@ def is_opencode_host_process(process: ProcessIdentity) -> bool:
     shell's ancestor, so the nearest match is always the server.
     """
     return Path(process.command).name.lower() in {"opencode", "opencode.exe"}
+
+
+# How an OpenCode Host Process serves its sessions: the shared per-user
+# service, a ``--standalone`` client's private server, or neither that Dashpot
+# can tell. A session moving itself and a Lead's Workers are measured on the
+# shared service only (ADR 0108).
+OpenCodeHostMode = Literal["shared-service", "standalone", "unknown"]
+
+
+def opencode_host_mode(process: ProcessIdentity) -> OpenCodeHostMode:
+    """How an OpenCode Host Process serves its sessions, by its argument vector.
+
+    Measured at 2.0.22, the shared service runs as ``<install>/opencode serve
+    --service`` and a ``--standalone`` client's private server as
+    ``<install>/opencode serve --stdio --port 0``. Any other process, an
+    ``opencode serve`` a person started for ``--server <url>`` included, or
+    one whose arguments could not be read, is unknown.
+    """
+    if not is_opencode_host_process(process):
+        return "unknown"
+    tokens = (process.arguments or "").split()
+    if "serve" not in tokens:
+        return "unknown"
+    flags = tokens[tokens.index("serve") + 1 :]
+    if "--service" in flags:
+        return "shared-service"
+    if "--stdio" in flags:
+        return "standalone"
+    return "unknown"
 
 
 # OpenCode sets these on a shell the model runs, after every plugin hook;

@@ -45,6 +45,12 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   hands off to a fresh session when a move fails. `integrate --status` now
   reports an Agent Session identity whose freshest hook record is in another
   Worktree as `elsewhere`, not confirmed.
+- `dashpot integrate opencode --status` names a confirmed session's Host
+  Process mode: the shared service, a `--standalone` client's private
+  server, or unknown. A session moves itself, and a `dashpot-execute-issues`
+  lead launches workers, only on the shared service; a `--standalone`
+  session hands off instead, and a `--standalone` lead stops before any
+  worker. Issue work itself stays supported in both modes.
 - `dashpot integrate <harness>` installs, updates and removes every agent
   skill Dashpot bundles, and `--status` reports each one as installed,
   missing, or with an update available. A directory of a bundled skill's name

@@ -522,6 +522,41 @@ it was, reported as `work-session-elsewhere`. Resuming a session from
 another directory, with `opencode <directory> --session <id>`, does not move
 it: it still runs, and keeps its run, where it was.
 
+**Self-move and leading Workers: shared service only.** Issue work is
+supported in both modes, and `work start` and every other `work` command
+behave alike in each. Two skill flows were measured on the shared service
+alone, so the bundled skills keep them there
+([ADR 0108](adr/0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md)):
+
+- **A session moving itself** into an Issue Worktree and back
+  ([ADR 0094](adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md)).
+  Its acceptance run did not measure a `--standalone` session. The
+  `dashpot-issue-work` skill hands off instead, as after a failed move; the
+  plain `opencode <worktree> --prompt …` it gives starts the new session on
+  the shared service.
+- **A Lead's Workers**, with `dashpot-execute-issues`. A Worker reports with
+  `opencode run --session <lead>`, a client of the shared service, so for a
+  `--standalone` Lead the shared service would run the Lead's session while
+  the private server, which shares its session database, serves it too: two
+  Host Processes serving one session, as the source reads, unmeasured. A
+  report through OpenCode's HTTP API would use the shared service's
+  password, so it cannot reach a private server either. The skill stops
+  before launching any Worker and asks the person to start the Lead with a
+  plain `opencode`.
+
+Each skill reads the mode from `dashpot integrate opencode --status`. Beside
+a confirmed Agent Session Identity, its `OpenCode Host Process mode` line
+names the process `DASHPOT_OPENCODE_PID` names as `shared-service`
+(`opencode serve --service`), `standalone` (`opencode serve --stdio`), or
+`unknown`: a process that cannot be observed or has exited, or any other
+command line, such as an `opencode serve` started for `--server <url>`. The
+skills treat `unknown` as not the shared service. When the Issue-work skill
+binds a `--standalone` session, it says once that quitting that client stops
+its server and orphans the run. A measurement of either flow on a
+`--standalone` session ([#467](https://github.com/ned2/dashpot/issues/467),
+or [#455](https://github.com/ned2/dashpot/issues/455) for the servers it
+adds) can lift its restriction.
+
 To recover an orphaned run, resume the session in a running server, with
 `opencode <worktree> --session <id>`, and run `dashpot work start <issue>`
 from it: it reports that it restarted the run, and binds a new run to the
@@ -583,10 +618,10 @@ Not supported, each for its reason:
 - **Workspaces**, a location with a `workspaceID`. No user need.
 - **Two Host Processes serving one session at once.** A Worker's
   `opencode run --session` report to a `--standalone` Lead would make the
-  shared service run the lead's session beside its private server, by the
-  source; [#454](https://github.com/ned2/dashpot/issues/454) restricts
-  leading workers to the shared service, so that no supported arrangement
-  causes it, and #455 revisits it for the servers it adds.
+  shared service run the Lead's session beside its private server, by the
+  source; leading Workers is restricted to the shared service, as above, so
+  that no supported arrangement causes it, and #455 revisits it for the
+  servers it adds.
 - **Every operating system other than Linux.** No test environment, as for
   Codex and Claude Code.
 An OpenCode started with `--pure` or `OPENCODE_PURE` loads no plugin and
@@ -608,11 +643,13 @@ Worktree, which a live or idle session keeps from
 entered with `EnterWorktree` returns with `ExitWorktree(keep)`, and enters
 the same Worktree again for follow-up changes
 ([ADR 0085](adr/0085-return-a-claude-code-session-before-entering-another-issue-worktree.md)).
-A root OpenCode session moves itself to the Repository's main Worktree
+A root OpenCode session on the shared service moves itself to the
+Repository's main Worktree
 ([ADR 0094](adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md)).
 A Claude Code session started in the Worktree can leave it only for another
 Worktree, and a Codex session cannot leave it itself, so for those, and for
-an OpenCode move that fails, the skill tells the person what still holds the
+an OpenCode move that fails or that a session off the shared service does
+not make, the skill tells the person what still holds the
 Worktree and how it is released, as the Cleanup blocker's way out does.
 
 When work needs another Worktree, the skill delegates path, Branch, base,
@@ -624,7 +661,7 @@ finishing the current Issue when the move is to another one. When
 session started in the Worktree with one quoted `cd <worktree> && claude`
 command, which does not promise working `gh` credentials there
 ([#274](https://github.com/ned2/dashpot/issues/274)). A root OpenCode
-session moves itself with OpenCode's `opencode.session_move` tool, on the
+session on the shared service moves itself with OpenCode's `opencode.session_move` tool, on the
 authority of the person's request to work on the Issue in that Worktree
 (ADR 0094). It moves only once every Sub-agent and background command it
 started has ended, calls the tool alone in its step, and runs no `work`
@@ -632,7 +669,10 @@ command and none of the Issue's work in the Worktree until the next step's
 `pwd` and `integrate opencode --status` confirm it arrived: the move takes effect when the step ends, and the tool
 reports it before then. A bound run moves with it as a Live Relocation, so
 `work show` there retains it; an unbound session runs `work start`. A refused
-or unconfirmed move falls back to a new OpenCode session started in the
+or unconfirmed move, like a session whose `--status` reports any other
+Host Process mode
+([ADR 0108](adr/0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md)),
+falls back to a new OpenCode session started in the
 Worktree with `opencode <worktree> --prompt`, after a session that arrived
 without Dashpot's record of it has moved back
 ([acceptance](spikes/opencode-v2-self-relocation-acceptance.md)). Codex prefers a

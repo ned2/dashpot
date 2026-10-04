@@ -39,8 +39,10 @@ from .harnesses import (
     OPENCODE_ACCEPTED_VERSION,
     SESSION_OVERRIDE_VARIABLE,
     HarnessError,
+    OpenCodeHostMode,
     adapter,
     is_opencode_host_process,
+    opencode_host_mode,
     opencode_shell_refusal,
     override_claim,
 )
@@ -1119,7 +1121,44 @@ def _claimed_identity_status(
             f"{validated.record.outcome}, places it at {location.worktree}, "
             f"not here"
         ]
-    return [f"{prefix}, confirmed by its {validated.record.outcome} hook record"]
+    confirmed = f"{prefix}, confirmed by its {validated.record.outcome} hook record"
+    if claim.harness != "opencode" or claim.pid is None:
+        return [confirmed]
+    return [confirmed, _opencode_host_mode_status(claim.pid, lookup)]
+
+
+def _opencode_host_mode_status(pid: int, lookup: ProcessLookup) -> str:
+    """Report how the OpenCode server a confirmed session's claim names serves it.
+
+    The server is the process ``DASHPOT_OPENCODE_PID`` names. A session moves
+    itself, and leads Workers, only when this reads ``shared-service``: both
+    are measured on the shared service alone (ADR 0108).
+    """
+    observed = lookup(pid)
+    mode: OpenCodeHostMode
+    if isinstance(observed, ProcessUnobservable):
+        mode, detail = "unknown", f"pid {pid} could not be observed ({observed.reason})"
+    elif isinstance(observed, ProcessAbsent):
+        mode, detail = "unknown", f"pid {pid} has exited"
+    else:
+        mode = opencode_host_mode(observed.identity)
+        detail = {
+            "shared-service": f"pid {pid}, the shared 'opencode serve --service'",
+            "standalone": (
+                f"pid {pid}, a --standalone client's private 'opencode serve --stdio'"
+            ),
+            "unknown": (
+                f"pid {pid} is neither 'opencode serve --service' nor "
+                "'opencode serve --stdio'"
+            ),
+        }[mode]
+    line = f"OpenCode Host Process mode: {mode} ({detail})"
+    if mode == "shared-service":
+        return line
+    return (
+        f"{line}; this session moves itself and leads Workers only on the "
+        "shared service"
+    )
 
 
 def _describe_records(scope: str, summary: SessionRecordSummary) -> list[str]:

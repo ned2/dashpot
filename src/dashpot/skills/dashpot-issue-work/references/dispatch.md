@@ -81,6 +81,14 @@ destination as you make it. Only OpenCode's move relocates a session: a shell
 it, and its Agent Run, where it was. A Sub-agent moves no session, its own or
 another's.
 
+A session moves itself only on the user's shared OpenCode service, the one
+hosting mode where the move is measured. Read the `OpenCode Host Process
+mode` line that `<dashpot> integrate opencode --status` prints beside the
+confirmed identity: move only when it reads `shared-service`. On
+`standalone` or `unknown`, make no move. To dispatch, hand off as
+[after a failed move](#hand-off-when-the-opencode-move-fails); to finish,
+tell the user what holds the Worktree, as after a failed move back.
+
 1. Move once every Sub-agent, background command, and other work this session
    started has ended; until then, wait for it. Run `<dashpot> work show`,
    which also lists a bound session's Sub-agents still reported as working.
@@ -106,7 +114,8 @@ another's.
 ## Hand off when the OpenCode move fails
 
 The move has failed when the tool fails or is unknown, the user declines it,
-or step 3 does not confirm it. Do not retry the move, change directory with
+or step 3 does not confirm it. A session whose Host Process mode is not
+`shared-service` hands off the same way without trying the move. Do not retry the move, change directory with
 the shell, or run `work start` where the session is.
 
 When step 3's `pwd` printed the Worktree but its status did not confirm the

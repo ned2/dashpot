@@ -212,3 +212,8 @@ release, and a second check that could only agree with the first.
   the lead still alone binds the arc's Issue, and it also assigns each worker
   to its Issue with `dashpot work assign`, so that Issue shows the worker's
   activity. Workers still run no `work` command.
+- Amended by
+  [ADR 0108](0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md):
+  an OpenCode Lead launches Workers only when `integrate opencode --status`
+  reports its Host Process as the shared service, and otherwise stops before
+  any launch and asks the user to start it with a plain `opencode`.

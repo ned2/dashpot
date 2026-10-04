@@ -25,6 +25,9 @@ This skill is written for Dashpot 0.1.0.
    `Agent Session identity claimed here` line to be confirmed. If a Worktree
    must be selected, prepared, or entered, read
    [dispatch](references/dispatch.md) and complete that branch first.
+   Under OpenCode, when its `OpenCode Host Process mode` line reads
+   `standalone`, tell the user once, before binding, that quitting that
+   `--standalone` client stops its server and orphans the Agent Run.
 5. Run `<dashpot> work show` from that Worktree. When it already reports this
    Agent Session working on the intended Issue, retain that Agent Run. Otherwise
    run `<dashpot> work start <reference>`, then `work show`. Continue only when
@@ -81,11 +84,14 @@ is the instruction to do so; do not wait for the user to ask:
   first entry of `git worktree list`, with steps 2 and 3 of the
   [OpenCode move](references/dispatch.md#move-an-opencode-session), and only after `show` reports
   no active Issue work: an Agent Run still bound would move with the
-  session. Run no `work start` there. If the move fails, tell the user the
+  session. Move only when its Host Process mode is `shared-service`, as
+  that section requires. Run no `work start` there. If the move fails, or
+  the mode rules it out, tell the user the
   session keeps the Worktree from Cleanup until it is moved to another
   location in OpenCode, it is deleted with
   `opencode session delete <session-id>`, or the OpenCode server it runs in
-  stops; quitting a client leaves it running.
+  stops; quitting a client of the shared service leaves it running, and
+  quitting a `--standalone` client stops its server.
 
 If the user asks for follow-up changes afterwards, a session that left goes
 back to the same Worktree and checks `<dashpot> work show` before any
