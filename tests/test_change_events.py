@@ -148,6 +148,28 @@ def test_each_agent_session_change_is_recorded_once(tmp_path: Path) -> None:
     ]
 
 
+def test_an_orphaned_run_is_recorded_until_its_session_continues_it(
+    tmp_path: Path,
+) -> None:
+    changes = AgentSessionChanges(event_log(tmp_path))
+    live = session("I_338")
+    orphaned = live.model_copy(update={"orphaned": True, "state": "unknown"})
+
+    for observed in ([live], [orphaned], [orphaned], [live], [orphaned], []):
+        changes.observe(observed)
+
+    events = recorded(tmp_path, "agent_session.changed")
+    assert [event["dashpot.agent_session.change"] for event in events] == [
+        "appeared",
+        "orphaned",
+        "continued",
+        "orphaned",
+        "ended",
+    ]
+    # An orphaned run still names the Issue it holds.
+    assert {event["dashpot.issue.id"] for event in events} == {"I_338"}
+
+
 def test_a_sessions_agent_run_stands_for_it_over_its_bare_hook_row(
     tmp_path: Path,
 ) -> None:

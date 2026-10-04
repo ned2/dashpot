@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from ..core.ages import relative_age
-from ..core.model import Diagnostic, ProjectObservation
+from ..core.model import ProjectObservation
 from ..observation.keys import ObservationKey
 from ..observation.observation_store import (
     ObservedDiagnostic,
@@ -84,48 +84,35 @@ class Alert:
 
 
 def list_diagnostics(
-    store: WorkspaceObservationStore,
-    *,
-    failures: Mapping[ObservationKey, str] | None = None,
-    launcher_diagnostics: Iterable[Diagnostic] = (),
-    fetch_failures: Mapping[str, str] | None = None,
-    event_log_diagnostics: Iterable[Diagnostic] = (),
-    attendance_diagnostics: Iterable[Diagnostic] = (),
+    own: Iterable[ObservedDiagnostic] = (),
+    observed: Iterable[ObservedDiagnostic] = (),
 ) -> Alert | None:
     """List every Diagnostic in full for the Diagnostics box, or nothing while it is empty.
 
     Where the alert summarizes, the Diagnostics box is the durable detail:
-    each line is one Diagnostic with the severity it was observed with, a
-    Project's prefixed by the Project it was observed for. The app's own
-    errors come first — ``failures`` per observation key and
-    ``fetch_failures`` per Project are refresh and Remote Fetch failures,
-    and ``launcher_diagnostics`` are what loading the launcher settings
-    reported; ``event_log_diagnostics`` say the dashboard's own Event Log
-    could not be written. ``attendance_diagnostics`` say automatic GitHub
-    refreshes are paused while nobody attends the dashboard, and read, as a
-    Query Source's do, with the source they speak for.
+    each line is one Diagnostic with the severity it was observed with,
+    prefixed by the Project it was observed for, if any. The dashboard's
+    ``own`` Diagnostics come first — failed refreshes and Remote Fetches, its
+    launcher settings and its Event Log — and read as their message, which
+    says what failed. The ``observed`` ones, such as a Query Source's or an
+    Unattended Pause's, read with the source they speak for.
     """
-    items = [AlertItem("error", message) for message in (failures or {}).values()]
-    items.extend(
-        AlertItem(diagnostic.severity, diagnostic.message)
-        for diagnostic in (*launcher_diagnostics, *event_log_diagnostics)
-    )
-    items.extend(
-        AlertItem("error", message) for message in (fetch_failures or {}).values()
-    )
-    items.extend(
-        AlertItem(diagnostic.severity, _diagnostic_line(ObservedDiagnostic(diagnostic)))
-        for diagnostic in attendance_diagnostics
-    )
+    items = [
+        AlertItem(entry.diagnostic.severity, _labelled(entry, entry.diagnostic.message))
+        for entry in own
+    ]
     items.extend(
         AlertItem(entry.diagnostic.severity, _diagnostic_line(entry))
-        for entry in store.diagnostics()
+        for entry in observed
     )
     return Alert(tuple(items)) if items else None
 
 
 def _diagnostic_line(entry: ObservedDiagnostic) -> str:
-    text = f"{entry.diagnostic.source}: {entry.diagnostic.message}"
+    return _labelled(entry, f"{entry.diagnostic.source}: {entry.diagnostic.message}")
+
+
+def _labelled(entry: ObservedDiagnostic, text: str) -> str:
     return text if entry.project_label is None else f"{entry.project_label} · {text}"
 
 

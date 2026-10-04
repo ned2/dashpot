@@ -22,6 +22,7 @@ from dashpot.core.git import GitError
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.github.github import GitHubRequestError
 from dashpot.repository.cleanup import TargetResult
+from factories import write_config_marker, write_project_config
 from test_cli import PLAN, cleanup_preview, cleanup_report, cleanup_target
 
 # What every command outcome holds beyond its envelope; any other field is
@@ -323,6 +324,53 @@ def test_init_names_the_checkout_it_initialized(events: Path, tmp_path: Path) ->
         "dashpot.outcome.action": "initialized",
         "dashpot.target.path": str(tmp_path.resolve()),
     }
+
+
+def test_init_names_the_project_it_declared(events: Path, tmp_path: Path) -> None:
+    def declare(root: Path, **options: object) -> list[str]:
+        write_project_config(root, project_id="project:declared")
+        return ["wrote config"]
+
+    with mock.patch.object(cli, "initialize_project", side_effect=declare):
+        assert run(events, "init") == 0
+
+    lines = [json.loads(line) for line in written_text(events).splitlines()]
+    record, end = lines[-2:]
+    assert record["event.name"] == "command.outcome"
+    for each in (record, end):
+        assert each["dashpot.project.id"] == "project:declared"
+
+
+@pytest.mark.parametrize("configured", [True, False], ids=["configured", "fallback"])
+def test_a_command_names_the_project_of_the_checkout_it_records_in(
+    events: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, configured: bool
+) -> None:
+    write_project_config(tmp_path, project_id="project:checkout")
+    # Refused before it learns anything else, the command still names it.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    destination = EventLogDestination(events, checkout=tmp_path if configured else None)
+
+    assert cli.main(["work", "start", "7"], event_log=destination) == 2
+
+    record = outcome(events)
+    assert record["dashpot.outcome.result"] == "refused"
+    assert record.get("dashpot.project.id") == (
+        "project:checkout" if configured else None
+    )
+
+
+def test_a_checkout_whose_configuration_cannot_be_read_names_no_project(
+    events: Path, tmp_path: Path
+) -> None:
+    write_config_marker(tmp_path)
+    destination = EventLogDestination(events, checkout=tmp_path)
+
+    with mock.patch.object(cli, "install_integration", return_value=["done"]):
+        assert cli.main(["integrate", "claude-code"], event_log=destination) == 0
+
+    record = outcome(events)
+    assert record["dashpot.outcome.result"] == "succeeded"
+    assert "dashpot.project.id" not in record
 
 
 def test_a_command_that_crashes_records_a_failure_by_class(events: Path) -> None:

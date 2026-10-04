@@ -2,7 +2,8 @@
 
 Each tracker keeps what it last saw and records only what changed since:
 an Agent Session appearing, being bound to an Issue, switching or losing
-it, relocating or ending; a Diagnostic appearing or clearing. A refresh that
+it, relocating, its run being orphaned or continued, or the session
+ending; a Diagnostic appearing or clearing. A refresh that
 changes nothing records nothing. Every event names its subject in the
 envelope (:meth:`EventLog.about`) and holds identifiers only: a Diagnostic
 is its source and code, never its message.
@@ -73,6 +74,10 @@ def session_changes(
             yield "switched", before
     if before.observation_target != after.observation_target:
         yield "relocated", before
+    # An Orphaned Agent Run is still held, so its session has not ended; it
+    # is continued when the session comes back to it, resumed or restarted.
+    if before.orphaned != after.orphaned:
+        yield ("orphaned" if after.orphaned else "continued"), before
 
 
 class AgentSessionChanges:

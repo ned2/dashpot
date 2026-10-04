@@ -88,6 +88,14 @@ def load_project_config(
     return parse_project_config(text, path, polling_seconds=polling_seconds)
 
 
+def declared_project_id(root: Path) -> str | None:
+    """The Project Identity the configuration at a Worktree's root declares, if it reads."""
+    try:
+        return load_project_config(root).project_id
+    except ProjectConfigError:
+        return None
+
+
 def parse_project_config(
     text: str, path: Path, *, polling_seconds: float | None = None
 ) -> ProjectConfig:

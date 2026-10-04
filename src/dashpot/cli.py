@@ -6,8 +6,8 @@ import math
 import os
 import re
 import sys
-from collections.abc import Callable, Iterable, Sequence
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -48,6 +48,7 @@ from .event_logs import open_event_log, route_event_log
 from .github.github import LatestRateLimit
 from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
+from .project.project_config import declared_project_id
 from .project.workspace import RepositoryAnchor, Workspace
 from .queries.query_source import configured_query_source
 from .queries.source_queries import Lifecycle, PageObservation, QueryRequest
@@ -313,6 +314,8 @@ def init(
         outcome.target_path = current
         _report(initialize_project(current, markdown_path=markdown, timeout=timeout))
         outcome.action = "initialized"
+        # The process opened its Event Log before the Project was declared.
+        outcome.identify(project_id=declared_project_id(current))
     return 0
 
 
@@ -1095,11 +1098,24 @@ def _report(messages: Iterable[str]) -> None:
         print(message)
 
 
+@contextmanager
 def command_outcome(
     command: ManagementCommand, *, dry_run: bool | None = None
-) -> AbstractContextManager[OutcomeNote]:
-    """Record what the management command this process runs did, when it ends."""
-    return record_command_outcome(_EVENT_LOG.get(), command, dry_run=dry_run)
+) -> Iterator[OutcomeNote]:
+    """Record what the management command this process runs did, when it ends.
+
+    The outcome names the Project of the configured checkout whose Event Log
+    it is written to, read once the command is done.
+    """
+    log = _EVENT_LOG.get()
+    with record_command_outcome(log, command, dry_run=dry_run) as outcome:
+        try:
+            yield outcome
+        finally:
+            destination = None if log is None else log.destination
+            checkout = None if destination is None else destination.checkout
+            if checkout is not None:
+                outcome.identify(project_id=declared_project_id(checkout))
 
 
 def process_kind(tokens: Sequence[str]) -> tuple[str, str | None]:

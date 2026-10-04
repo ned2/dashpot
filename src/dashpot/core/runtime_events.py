@@ -283,7 +283,14 @@ CommandAction = Literal[
     "deleted",
 ]
 AgentSessionChange = Literal[
-    "appeared", "bound", "switched", "unbound", "relocated", "ended"
+    "appeared",
+    "bound",
+    "switched",
+    "unbound",
+    "relocated",
+    "orphaned",
+    "continued",
+    "ended",
 ]
 DiagnosticChange = Literal["appeared", "cleared"]
 # A Rate Limit Pause starting (or restarting) after a refusal, or ending:
