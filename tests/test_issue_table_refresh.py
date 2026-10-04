@@ -180,11 +180,10 @@ async def test_a_refresh_that_changes_cells_updates_them_where_they_are(
             lambda: cell_text(table, 41, "title").endswith("with a longer title")
         )
         # A changed cell is measured as a rebuilt one would be.
-        await settled(
-            pilot,
-            lambda: table.columns[TITLE].content_width > title_width,
-            "the widened title column",
+        widened = await settled(
+            pilot, lambda: table.columns[TITLE].content_width, "the title column"
         )
+        assert widened > title_width
 
         assert cell_text(table, 40, "title") == "Issue 40 renamed with a longer title"
         assert cell_text(table, 42, "title") == "Issue 42"
