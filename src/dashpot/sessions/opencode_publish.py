@@ -511,9 +511,10 @@ def _arrive(
     ``SessionStart`` of the same Host Process do, so the new record lists
     the Sub-agents this Host Process still runs, and the record left behind
     then stops listing them: their later events reach only the new
-    Project's stores (ADR 0109). The plugin publishes a root's events and its children's in
-    order, so none of them is written there before the move. A store that
-    refuses the session, or has seen a later event of it, takes nothing.
+    Project's stores (ADR 0109). The plugin publishes a root's events and
+    its children's in order, so none of them is written there before the
+    move. A store that refuses the session, or has seen a later event of
+    it, takes nothing.
     """
     ensure_state_directory(arrival.worktree)
     publishers = PublisherStore(arrival.store, checkout=arrival.worktree)

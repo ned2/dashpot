@@ -123,8 +123,9 @@ store of the Project it moved to, at the move.
 ## Consequences
 
 - A child the moving process runs, working when its root moves to another
-  Project, is listed only where the root now is. It holds the session `running` and blocks the new
-  Project's Cleanup until its stop, which now finds it.
+  Project, is listed only where the root now is. It holds the session
+  `running` and blocks the new Project's Cleanup until its stop, which now
+  finds it.
 - The root's incarnation in the new Project's store begins at the move,
   not at its next event. The record reads `running` while the child works,
   and `waiting` otherwise until that event, which is the end of the move's
