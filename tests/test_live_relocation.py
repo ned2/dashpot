@@ -19,6 +19,7 @@ from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecordStore,
+    HookRecordWrite,
     session_directory,
     state_directory,
 )
@@ -359,10 +360,10 @@ def test_a_record_replaced_before_the_carry_locks_decides_for_itself(
 
     def write_then_lose(
         store: HookRecordStore, record: dict[str, Any], **options: Any
-    ) -> Path:
-        destination = write(store, record, **options)
-        destination.unlink()
-        return destination
+    ) -> HookRecordWrite:
+        written = write(store, record, **options)
+        written.path.unlink()
+        return written
 
     with monkeypatch.context() as patched:
         patched.setattr(HookRecordStore, "write", write_then_lose)
@@ -583,7 +584,8 @@ def test_a_sub_agent_turn_never_places_or_carries_its_parent(tmp_path: Path) -> 
 
     publication = publish(b, "UserPromptSubmit", agent_id="child-thread")
 
-    assert (publication.state, publication.work) == ("running", "unchanged")
+    # The parent's record keeps the state its own turn left (#489).
+    assert (publication.state, publication.work) == ("waiting", "unchanged")
     assert WorkStore(a).active()[0] == [before]
     assert stored(session_directory(b)) is None
     parent = recorded(session_directory(a))
@@ -1250,7 +1252,7 @@ def test_a_start_listed_again_after_a_stop_stays_where_the_stop_was_written(
 
     def restarted(
         store: HookRecordStore, record: dict[str, Any], **options: Any
-    ) -> Path:
+    ) -> HookRecordWrite:
         written = write(store, record, **options)
         if record.get("event") == "SubagentStop":
             write(store, {**record, "event": "SubagentStart", "state": "running"})

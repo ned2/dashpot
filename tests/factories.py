@@ -305,7 +305,7 @@ def hook_record(
     target = project_session_store(root) if store is None else HookRecordStore(store)
     return target.write(
         hook_record_document(root, session_id, harness, process, state=state, at=at)
-    )
+    ).path
 
 
 def legacy_ended_record(root: Path, session_id: str, harness: str) -> None:

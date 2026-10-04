@@ -1347,13 +1347,14 @@ def test_a_compaction_after_an_ended_record_keeps_a_fresher_records_turn(
     here.write(claude_event("SessionEnd"))
     elsewhere = HookRecordStore(tmp_path / "elsewhere")
     elsewhere.write(claude_event("UserPromptSubmit"))
-    fresher = json.loads(elsewhere.write(claude_event("Stop")).read_text())
+    fresher = json.loads(elsewhere.write(claude_event("Stop")).path.read_text())
 
     written = here.write(claude_event("SessionStart", source="compact"), seed=fresher)
 
-    record = json.loads(written.read_text())
+    record = json.loads(written.path.read_text())
     # Waiting, as the fresher record is; the kept sub-agent holds it running.
     assert (record["state"], record["liveSubagents"]) == ("running", ["agent-1"])
+    assert written.state == "running"
     assert record["turnStartedAt"] is None
 
 
@@ -1381,9 +1382,9 @@ def test_a_codex_manual_compaction_waits_for_the_prompt_that_follows_it(
     store.write(codex_event("Stop"))
 
     compacted = json.loads(
-        store.write(codex_event("SessionStart", source="compact")).read_text()
+        store.write(codex_event("SessionStart", source="compact")).path.read_text()
     )
-    prompted = json.loads(store.write(codex_event("UserPromptSubmit")).read_text())
+    prompted = json.loads(store.write(codex_event("UserPromptSubmit")).path.read_text())
 
     assert (compacted["state"], compacted["turnStartedAt"]) == ("waiting", None)
     assert (prompted["state"], prompted["turnStartedAt"]) == (
@@ -1398,12 +1399,12 @@ def test_a_codex_automatic_compaction_keeps_its_turn_until_it_stops(
     # Codex 0.160.0 publishes an automatic compaction's SessionStart inside
     # the turn, whose Stop follows (#448, `auto-compact`).
     store = HookRecordStore(tmp_path)
-    turn = json.loads(store.write(codex_event("UserPromptSubmit")).read_text())
+    turn = json.loads(store.write(codex_event("UserPromptSubmit")).path.read_text())
 
     compacted = json.loads(
-        store.write(codex_event("SessionStart", source="compact")).read_text()
+        store.write(codex_event("SessionStart", source="compact")).path.read_text()
     )
-    stopped = json.loads(store.write(codex_event("Stop")).read_text())
+    stopped = json.loads(store.write(codex_event("Stop")).path.read_text())
 
     assert (compacted["state"], compacted["turnStartedAt"]) == (
         "running",

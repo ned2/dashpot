@@ -57,8 +57,10 @@ from .work_store import ActiveWork
 class HookPublication:
     """Where one hook event was published, and what it did to its session's Agent Run.
 
-    ``state`` is what the record says the session is doing; ``work`` names
-    the Work Store change, with the Issue of the run it changed.
+    ``state`` is the state the store stored the session's record with, not
+    the one the hook event maps to, and None when it stored nothing of the
+    event; ``work`` names the Work Store change, with the Issue of the run it
+    changed.
     """
 
     path: Path
@@ -116,8 +118,6 @@ def publish_hook_event(
         harness=harness,
         process_unobservable=process_unobservable,
     )
-    # A built record always names the state its hook event maps to.
-    state = cast("HookRecordState", record["state"])
     child = is_child_record(record)
     worktrees = event_worktrees(record)
     freshest = _freshest_elsewhere(record, worktrees, directory, child=child)
@@ -128,7 +128,9 @@ def publish_hook_event(
         store = hook_store_at(freshest.store, worktrees)
     else:
         store = route_record_store(record)
-    ending = state == "ended" and not child
+    # A built record names the state its hook event maps to, which decides
+    # the route; the store may store another, which the publication reports.
+    ending = record["state"] == "ended" and not child
     # The runs this end ended, or left to a settler when it is ``deferred``.
     reconciled: list[tuple[Path, ActiveWork]] = []
     deferred: DeferredEnd | None = None
@@ -159,7 +161,8 @@ def publish_hook_event(
     adopted = sorted(
         {agent for item in switched for agent in item.record.live_subagents}
     )
-    destination = store.write(record, seed=seed, adopted=adopted)
+    written = store.write(record, seed=seed, adopted=adopted)
+    destination, state = written.path, written.state
     # Released only once the new record lists them: a publisher that fails
     # between the two writes leaves them listed twice, which errs toward
     # blocking Cleanup rather than toward forgetting a working sub-agent.

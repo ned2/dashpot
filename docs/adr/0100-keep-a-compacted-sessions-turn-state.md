@@ -107,7 +107,9 @@ that turn's clock now starts at the prompt rather than at the
 - The Event Log's `hook.outcome` still reports the state the hook event maps
   to (`running` for every `SessionStart`), as it already does for a `Stop`
   whose sub-agents keep the record `running`. The hook record and the
-  dashboard read the kept state.
+  dashboard read the kept state. Closed by
+  [#489](https://github.com/ned2/dashpot/issues/489): `hook.outcome` now
+  reports the state the record was stored with.
 - A compaction with no live record of its Host Process to follow, such as
   the first event after hooks were installed partway through a session,
   still reads `running` until the session's next `Stop`: nothing says
