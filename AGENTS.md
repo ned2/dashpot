@@ -94,8 +94,9 @@ Before every commit, run the README's [local review gate](README.md#local-review
 all-files pre-commit checks and the full suite with coverage, both clean.
 Coverage replaces ordinary pytest for that gate. A change touching only the
 Markdown that CI's [documentation lane](README.md#continuous-integration)
-classifies skips the coverage run; confirm the classification with the command
-the README's local review gate gives rather than by eye. Such a change still
+classifies skips the coverage run; confirm the classification with the
+command the [local review gate](README.md#local-review-gate) gives rather
+than by eye. Such a change still
 runs the all-files pre-commit checks and gets independent review, and its PR's
 validation section records that coverage was skipped because the change is
 documentation only. Pre-push checks the pushed revision's lockfile, lint,
@@ -124,8 +125,10 @@ review requires explicit user direction and a recorded reason.
 Address findings, refresh validation for changed sources, and request focused
 follow-up review of the fixes. Changed tests, conflict resolutions, or
 CI-driven fixes can invalidate approval too. Verify the coverage source digest
-after hooks and before push; a content-preserving commit does not invalidate
-review. Changes to the reviewed diff/base need appropriate follow-up review.
+after hooks and before push, except for a documentation-only change, which has
+no evidence, and a content-preserving rebase, below, whose evidence stays that
+of the head it rebased; a commit that leaves the digest unchanged does not
+invalidate review. Changes to the reviewed diff/base need appropriate follow-up review.
 Green CI on unchanged reviewed code finishes verification without another
 routine review. Follow the README's [integration sequence](README.md#contributing)
 and keep the Issue Binding through all delegated work and green PR CI.
@@ -147,18 +150,20 @@ and force-push the branch with an explicit lease on its previous head
 
 A rebase is content-preserving when it applies without conflicts, or when its
 only conflict is in the generated [ADR index](docs/adr/README.md) and is
-resolved by running `--write-adr-index`. Two branches that each add an ADR
-always conflict there, and the script resolves it mechanically.
-`git range-diff <old-base>..<old-head> <new-base>..<new-head>` confirms it:
-no commit changes except in `docs/adr/README.md`. A content-preserving rebase
-needs no further review. In place of the local review gate it reruns only
-`uv run pre-commit run --all-files`, which checks the regenerated index;
-the PR's CI then runs the full suite on the rebased head, which is the check
-for a semantic conflict with the new base, and the PR's coverage evidence
-stays that of the reviewed head. Any other rebase resolves conflicts that
-change the reviewed diff: rerun the local review gate against the new base
-and request focused follow-up review. Record the old and new heads and the
-new base in the PR's validation section.
+resolved by running `uv run python scripts/maintain_docs.py --write-adr-index`.
+Two branches that each add an ADR always conflict there, and the script
+resolves it mechanically. Confirm it with
+`git range-diff <old-base>..<old-head> <new-base>..<new-head>`: no commit's
+added or removed lines change outside `docs/adr/README.md`. Context lines may
+differ where `main` edited nearby. A content-preserving rebase needs no
+further review: in place of the local review gate, rerun only
+`uv run pre-commit run --all-files`, which checks the regenerated index, and
+keep the coverage evidence of the head it rebased. The PR's CI on the rebased
+head is the check for a semantic conflict with the new base. Any other rebase
+resolves conflicts that change the reviewed diff: rerun the local review gate
+against the new base and request focused follow-up review. Record the old and
+new heads, the new base, and for a content-preserving rebase the range-diff
+result, in the PR's validation section.
 
 Under Codex on Linux, use the per-command sandbox-escalation mechanism for a
 full gate only when its matching condition applies:

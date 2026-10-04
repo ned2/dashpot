@@ -95,9 +95,7 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
    up the Issue work again; either way the new head needs the validation,
    review, and CI the
    [agent instructions](../AGENTS.md#independent-review-before-integration)
-   require for that rebase before it merges. A content-preserving rebase
-   keeps the reviewed head's coverage evidence and needs only the all-files
-   checks and its own CI. The branch need not contain
+   require for that rebase before it merges. The branch need not contain
    the current `main`: CI verified the branch head, and no run exercises
    `main` itself. A semantic conflict between two PRs that each passed on
    their own therefore surfaces on the first later run that contains both,
@@ -111,9 +109,7 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
 
 A textual conflict with `main` blocks merging. Resolve it by the rebase the
 [agent instructions](../AGENTS.md#independent-review-before-integration)
-authorize. A conflict only in the generated ADR index is resolved by
-regenerating it and keeps the rebase content-preserving; any other conflict
-resolution needs focused follow-up review.
+authorize, which also say when a conflict resolution needs follow-up review.
 Release verification still checks out the release revision through reusable CI.
 
 References: [merge queue availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue),
