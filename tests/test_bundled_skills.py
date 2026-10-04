@@ -8,6 +8,7 @@ exercised before Dashpot ships a second one.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 from pathlib import Path
@@ -268,7 +269,7 @@ def test_a_path_that_is_no_dashpot_skill_is_a_conflict_left_in_place(
         kept = theirs / "notes.md"
         kept.write_text("mine\n")
 
-    with pytest.raises(IntegrationError):
+    with pytest.raises(IntegrationError, match=f"the Dashpot Second skill at {theirs}"):
         install(harness, tmp_path, skills)
 
     assert f"Second skill conflict at {theirs}: not managed by Dashpot" in status(
@@ -442,3 +443,22 @@ def test_every_bundled_skill_directory_is_registered_and_marked() -> None:
         assert front is not None, skill.name
         assert f"name: {skill.name}" in front.group(1).splitlines()
         assert skill.marker in text
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root lists any directory")
+def test_status_reads_a_copy_it_cannot_list_by_its_marker(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install("codex", tmp_path, skills)
+    copy = copy_of("codex", second)
+    copy.chmod(0o311)
+    try:
+        report = status("codex", tmp_path, skills)
+    finally:
+        copy.chmod(0o755)
+
+    assert (
+        f"Second skill installed in {copy} for Dashpot {BUNDLED_SKILL_VERSION}"
+        in report
+    )

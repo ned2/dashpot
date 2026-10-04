@@ -636,9 +636,11 @@ def _install_skill(skill: BundledSkill, destination: Path) -> str:
 
 def _remove_skill(skill: BundledSkill, destination: Path) -> str:
     skill_file = destination / "SKILL.md"
-    if _is_vacant(destination):
-        return f"Dashpot {skill.label} is not installed: no {skill_file}"
+    # SKILL.md is looked for before the directory is listed, so a copy that
+    # can be entered but not listed is still inspected by its marker.
     if not skill_file.is_file():
+        if _is_vacant(destination):
+            return f"Dashpot {skill.label} is not installed: no {skill_file}"
         # A file, or a directory holding no SKILL.md, is not Dashpot's copy.
         return f"left unmanaged {skill.label} unchanged at {destination}"
     try:
@@ -671,10 +673,10 @@ def _remove_skill(skill: BundledSkill, destination: Path) -> str:
 
 def _skill_status(skill: BundledSkill, destination: Path, *, harness: Harness) -> str:
     skill_file = destination / "SKILL.md"
-    if _is_vacant(destination):
-        return f"{skill.label} not installed: no {skill_file}"
     conflict = f"{skill.label} conflict at {destination}: not managed by Dashpot"
     if not skill_file.is_file():
+        if _is_vacant(destination):
+            return f"{skill.label} not installed: no {skill_file}"
         return conflict
     try:
         text = _skill_text(destination)
