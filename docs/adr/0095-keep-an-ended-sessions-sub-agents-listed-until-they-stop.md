@@ -197,3 +197,7 @@ anything for long:
   running: each ends the session and moves the worker to another session
   id in the same process, so the ended record keeps it listed until the
   process exits, as this decision expected.
+- Amended by [ADR 0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md)
+  ([#458](https://github.com/ned2/dashpot/issues/458)): an ended record also gives up its sub-agents to a conversation
+  switch of its Host Process, and a `SubagentStop` reaches every ended
+  record of its Host Process, not only its own session's.

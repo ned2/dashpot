@@ -17,6 +17,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Conversation switch through the resume picker experiment](conversation-switch-picker-spike.md) | research | 2026-10-05 |
 | [OpenCode v2 background commands, default permissions and failed executions](opencode-v2-background-permissions-spike.md) | research | 2026-10-05 |
 | [SessionStart on a live session experiment](session-start-on-a-live-session-spike.md) | research | 2026-10-04 |
 | [OpenCode v2 self-relocation acceptance run](opencode-v2-self-relocation-acceptance.md) | research | 2026-10-04 |

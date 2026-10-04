@@ -117,3 +117,7 @@ or until a person forgets it after the session ends.
   `SessionStart` from the same Host Process keeps the main turn's state,
   `running` while the turn clock runs and `waiting` otherwise, so a waiting
   session stays `waiting` across a Claude Code `/compact`.
+- Amended by [ADR 0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md)
+  ([#458](https://github.com/ned2/dashpot/issues/458)): a Claude Code conversation switch's `SessionStart` takes over the
+  sub-agents of the session its Host Process switched from, closing the
+  "Not changed" item for `/clear`, `/resume` and `/branch`.

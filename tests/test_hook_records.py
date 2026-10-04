@@ -13,7 +13,7 @@ from unittest import mock
 
 import pytest
 
-from dashpot.core.model import ObservationTarget
+from dashpot.core.model import Harness, ObservationTarget
 from dashpot.core.timestamps import utc_now, utc_stamp
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
@@ -24,7 +24,10 @@ from dashpot.sessions.hook_records import (
     session_directory,
     state_directory,
 )
-from dashpot.sessions.hook_scan import classify_hook_record
+from dashpot.sessions.hook_scan import (
+    classify_hook_record,
+    sessions_with_live_subagents,
+)
 from dashpot.sessions.liveness import LivenessProbe
 from dashpot.sessions.processes import (
     AgentAncestry,
@@ -1407,3 +1410,435 @@ def test_a_codex_automatic_compaction_keeps_its_turn_until_it_stops(
         turn["turnStartedAt"],
     )
     assert stopped["state"] == "waiting"
+
+
+def stored_records(directory: Path) -> dict[str, dict[str, Any]]:
+    """Every hook record ``directory`` holds, by session id."""
+    return {
+        record["sessionId"]: record
+        for record in (
+            json.loads(path.read_text()) for path in sorted(directory.glob("*.json"))
+        )
+    }
+
+
+def replay_store(
+    hooks: list[MeasuredHook], directory: Path, *, until: int | None = None
+) -> dict[int, dict[str, dict[str, Any]]]:
+    """Publish a measured order and return every record the store holds after each receipt."""
+    stored: dict[int, dict[str, dict[str, Any]]] = {}
+    for hook in hooks:
+        if until is not None and hook.receipt > until:
+            break
+        publish_hook_event(
+            {**hook.payload, "cwd": "/repo"},
+            directory,
+            process=hook.host,
+            harness="claude-code",
+        )
+        stored[hook.receipt] = stored_records(directory)
+    return stored
+
+
+@dataclass(frozen=True, slots=True)
+class MeasuredSwitch:
+    """One measured Conversation Switch while a worker worked (#448)."""
+
+    hooks: list[MeasuredHook]
+    worker: str
+    left: str
+    entered: str
+    end: int
+    start: int
+    stop: int
+
+
+def measured_switch(scenario: str) -> MeasuredSwitch:
+    """The switch a #448 scenario measured: its end, its start, and its worker's stop."""
+    hooks = measured_hooks(scenario)
+    (worker,) = worker_agents(hooks)
+    end = next(
+        hook
+        for hook in hooks
+        if hook.payload["hook_event_name"] == "SessionEnd"
+        and hook.payload.get("reason") in {"clear", "resume"}
+    )
+    start = next(
+        hook
+        for hook in hooks
+        if hook.receipt > end.receipt
+        and hook.payload["hook_event_name"] == "SessionStart"
+    )
+    stop = next(
+        hook
+        for hook in hooks
+        if hook.payload["hook_event_name"] == "SubagentStop" and hook.agent == worker
+    )
+    return MeasuredSwitch(
+        hooks,
+        worker,
+        left=end.payload["session_id"],
+        entered=start.payload["session_id"],
+        end=end.receipt,
+        start=start.receipt,
+        stop=stop.receipt,
+    )
+
+
+# Each measured switch: its SessionEnd, the SessionStart in the same Host
+# Process, and the worker's SubagentStop, which names the new session.
+MEASURED_SWITCHES = {
+    "clear": (162, 163, 174),
+    "resume-switch": (217, 218, 229),
+    "branch": (261, 262, 273),
+    "headless-clear": (380, 382, 398),
+}
+
+
+@pytest.mark.parametrize("scenario", MEASURED_SWITCHES)
+def test_a_measured_conversation_switch_moves_its_worker_to_the_new_session(
+    tmp_path: Path, scenario: str
+) -> None:
+    switch = measured_switch(scenario)
+    assert (switch.end, switch.start, switch.stop) == MEASURED_SWITCHES[scenario]
+    assert switch.left != switch.entered
+
+    stored = replay_store(switch.hooks, tmp_path)
+
+    # The end keeps the worker in an ended record (ADR 0095) ...
+    ended = stored[switch.end][switch.left]
+    assert (ended["state"], ended["liveSubagents"]) == ("ended", [switch.worker])
+    assert ended["reason"] in {"clear", "resume"}
+    # ... and the start of the session it goes on under takes it over.
+    switched = stored[switch.start]
+    assert switch.left not in switched
+    entered = switched[switch.entered]
+    assert (entered["state"], entered["liveSubagents"]) == ("running", [switch.worker])
+    # The worker's stop leaves no record listing it.
+    assert all(
+        switch.worker not in record["liveSubagents"]
+        for record in stored[switch.stop].values()
+    )
+    assert stored[switch.stop][switch.entered]["liveSubagents"] == []
+
+
+@pytest.mark.parametrize("scenario", MEASURED_SWITCHES)
+def test_a_measured_switch_holds_the_new_session_running_until_its_worker_stops(
+    tmp_path: Path, scenario: str
+) -> None:
+    switch = measured_switch(scenario)
+    host = next(hook.host for hook in switch.hooks if hook.receipt == switch.start)
+    replay_store(switch.hooks, tmp_path, until=switch.start)
+
+    def publish(event_name: str, **fields: str) -> dict[str, Any]:
+        published = publish_hook_event(
+            switch_event(switch.entered, event_name, **fields),
+            tmp_path,
+            process=host,
+            harness="claude-code",
+        )
+        return cast("dict[str, Any]", json.loads(published.path.read_text()))
+
+    # Cleanup sees the worker on the session that runs it, and only there.
+    (blocking,) = sessions_with_live_subagents(
+        [Path("/repo")], [tmp_path], lookup=present(host)
+    )
+    assert (blocking.record.session_id, blocking.record.live_subagents) == (
+        switch.entered,
+        (switch.worker,),
+    )
+    # A turn of the new session ends while the worker works on.
+    publish("UserPromptSubmit")
+    stopped = publish("Stop")
+    assert (stopped["state"], stopped["liveSubagents"]) == ("running", [switch.worker])
+
+    finished = publish("SubagentStop", agent_id=switch.worker)
+
+    assert (finished["state"], finished["liveSubagents"]) == ("waiting", [])
+    assert stored_records(tmp_path).keys() == {switch.entered}
+    assert (
+        sessions_with_live_subagents([Path("/repo")], [tmp_path], lookup=present(host))
+        == []
+    )
+
+
+OTHER_CLAUDE = ProcessIdentity(7778, 1, "claude", "Tue Aug 25 03:00:00 2026")
+
+
+def switch_event(session_id: str, event_name: str, **fields: str) -> dict[str, Any]:
+    """A hook event of ``session_id`` at ``/repo``."""
+    return {
+        "session_id": session_id,
+        "cwd": "/repo",
+        "hook_event_name": event_name,
+        **fields,
+    }
+
+
+def publish_switch(
+    directory: Path,
+    session_id: str,
+    event_name: str,
+    process: ProcessIdentity | None = CLAUDE,
+    harness: Harness = "claude-code",
+    **fields: str,
+) -> None:
+    """Publish one hook event of ``session_id`` to the one store ``directory``."""
+    publish_hook_event(
+        switch_event(session_id, event_name, **fields),
+        directory,
+        process=process,
+        harness=harness,
+        lookup=absent() if process is None else present(process),
+    )
+
+
+def left_with_worker(
+    directory: Path,
+    process: ProcessIdentity = CLAUDE,
+    harness: Harness = "claude-code",
+    reason: str = "clear",
+) -> None:
+    """Start ``agent-1`` in session ``left``, then end ``left`` with ``reason`` while it works."""
+    publish_switch(directory, "left", "UserPromptSubmit", process, harness)
+    publish_switch(
+        directory, "left", "SubagentStart", process, harness, agent_id="agent-1"
+    )
+    publish_switch(directory, "left", "Stop", process, harness)
+    publish_switch(directory, "left", "SessionEnd", process, harness, reason=reason)
+
+
+@pytest.mark.parametrize(
+    ("process", "source", "reason"),
+    [
+        pytest.param(
+            OTHER_CLAUDE,
+            "clear",
+            "clear",
+            id="another-process",
+        ),
+        pytest.param(None, "clear", "clear", id="no-process"),
+        pytest.param(CLAUDE, "startup", "clear", id="a-start-that-is-no-switch"),
+        pytest.param(CLAUDE, "compact", "clear", id="a-compaction"),
+        pytest.param(
+            CLAUDE, "clear", "prompt_input_exit", id="an-end-that-is-no-switch"
+        ),
+    ],
+)
+def test_only_a_switch_of_the_same_process_takes_over_an_ended_sessions_worker(
+    tmp_path: Path, process: ProcessIdentity | None, source: str, reason: str
+) -> None:
+    left_with_worker(tmp_path, reason=reason)
+
+    publish_switch(tmp_path, "entered", "SessionStart", process, source=source)
+
+    records = stored_records(tmp_path)
+    assert records["entered"]["liveSubagents"] == []
+    assert (records["left"]["state"], records["left"]["liveSubagents"]) == (
+        "ended",
+        ["agent-1"],
+    )
+
+
+def test_a_codex_threads_clear_leaves_an_unloaded_threads_worker_where_it_is(
+    tmp_path: Path,
+) -> None:
+    # A daemon unloads a lead with `reason` `other` while its worker works on
+    # under the lead's own id, and another thread's `/clear` publishes
+    # SessionStart `clear` from the same daemon (#448, #420).
+    left_with_worker(tmp_path, CODEX, "codex", reason="other")
+
+    publish_switch(tmp_path, "entered", "SessionStart", CODEX, "codex", source="clear")
+    publish_switch(tmp_path, "left", "SubagentStop", CODEX, "codex", agent_id="agent-1")
+
+    records = stored_records(tmp_path)
+    assert records.keys() == {"entered"}
+    assert records["entered"]["liveSubagents"] == []
+
+
+def test_a_switch_takes_over_a_worker_kept_at_another_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The session the process left ended at `a`; the one it switched to
+    # starts at `b`, and the worker stops under the new session's id.
+    monkeypatch.setenv("DASHPOT_STATE_DIR", str(tmp_path / "global-state"))
+    a, b = two_worktrees(tmp_path)
+
+    def publish(at: Path, session_id: str, event_name: str, **fields: str) -> Path:
+        return publish_hook_event(
+            {
+                "session_id": session_id,
+                "cwd": str(at),
+                "hook_event_name": event_name,
+                **fields,
+            },
+            process=CLAUDE,
+            harness="claude-code",
+            lookup=present(CLAUDE),
+        ).path
+
+    publish(a, "left", "UserPromptSubmit")
+    publish(a, "left", "SubagentStart", agent_id="agent-1")
+    publish(a, "left", "SessionEnd", reason="resume")
+
+    entered = json.loads(
+        publish(b, "entered", "SessionStart", source="fork").read_text()
+    )
+
+    assert entered["liveSubagents"] == ["agent-1"]
+    assert stored_records(session_directory(a)) == {}
+
+    stopped = publish(b, "entered", "SubagentStop", agent_id="agent-1")
+
+    assert stopped.parent == session_directory(b)
+    assert json.loads(stopped.read_text())["liveSubagents"] == []
+
+
+def test_a_workers_stop_before_the_switchs_start_clears_the_session_it_left(
+    tmp_path: Path,
+) -> None:
+    # The worker's stop names the new session, whose SessionStart has not
+    # been written yet: no record is invented for it, the ended record lets
+    # the worker go, and the start that follows has nothing to take over.
+    left_with_worker(tmp_path)
+
+    publish_switch(tmp_path, "entered", "SubagentStop", agent_id="agent-1")
+
+    assert stored_records(tmp_path) == {}
+
+    publish_switch(tmp_path, "entered", "SessionStart", source="clear")
+
+    assert stored_records(tmp_path)["entered"]["liveSubagents"] == []
+
+
+def test_a_stop_clears_a_worker_an_ended_record_kept_before_this_rule(
+    tmp_path: Path,
+) -> None:
+    # A record ended before its publisher kept the end's `reason` gives no
+    # evidence of a switch, so nothing takes it over; the worker's stop under
+    # another session of the same process still clears it.
+    left_with_worker(tmp_path)
+    path = tmp_path / "left.json"
+    unreasoned = json.loads(path.read_text())
+    del unreasoned["reason"]
+    path.write_text(json.dumps(unreasoned))
+    assert classify_hook_record(
+        unreasoned, LivenessProbe(present(CLAUDE))
+    ).retains_subagents
+
+    publish_switch(tmp_path, "entered", "SessionStart", source="clear")
+    assert stored_records(tmp_path)["left"]["liveSubagents"] == ["agent-1"]
+
+    publish_switch(tmp_path, "entered", "SubagentStop", agent_id="agent-1")
+
+    assert stored_records(tmp_path).keys() == {"entered"}
+
+
+def test_a_stop_leaves_another_live_sessions_record_and_another_process_alone(
+    tmp_path: Path,
+) -> None:
+    # Only ended records of the stop's own Host Process let a stopped
+    # sub-agent go; a live session's records are not this rule's to change.
+    publish_switch(tmp_path, "live", "UserPromptSubmit")
+    publish_switch(tmp_path, "live", "SubagentStart", agent_id="agent-1")
+    publish_switch(tmp_path, "elsewhere", "UserPromptSubmit", OTHER_CLAUDE)
+    publish_switch(
+        tmp_path, "elsewhere", "SubagentStart", OTHER_CLAUDE, agent_id="agent-1"
+    )
+    publish_switch(tmp_path, "elsewhere", "SessionEnd", OTHER_CLAUDE, reason="clear")
+    publish_switch(tmp_path, "stopping", "UserPromptSubmit")
+
+    publish_switch(tmp_path, "stopping", "SubagentStop", agent_id="agent-1")
+
+    records = stored_records(tmp_path)
+    assert records["live"]["liveSubagents"] == ["agent-1"]
+    assert records["elsewhere"]["liveSubagents"] == ["agent-1"]
+
+
+def test_a_stop_from_an_unnamed_process_leaves_every_ended_record_alone(
+    tmp_path: Path,
+) -> None:
+    # Without a Host Process to bound it, a stop is no evidence about any
+    # ended record, which keeps the worker until a named stop or its exit.
+    left_with_worker(tmp_path)
+
+    publish_switch(tmp_path, "entered", "SubagentStop", None, agent_id="agent-1")
+
+    assert stored_records(tmp_path)["left"]["liveSubagents"] == ["agent-1"]
+
+
+def test_an_unreadable_record_is_skipped_by_a_switch_and_left_by_a_release(
+    tmp_path: Path,
+) -> None:
+    left_with_worker(tmp_path)
+    unreadable = tmp_path / "broken.json"
+    unreadable.write_text("{not json")
+    by = build_hook_record(
+        switch_event("entered", "SessionStart", source="clear"),
+        process=CLAUDE,
+        harness="claude-code",
+    )
+
+    assert not HookRecordStore(tmp_path).release_subagents("broken", ["agent-1"], by)
+
+    publish_switch(tmp_path, "entered", "SessionStart", source="clear")
+
+    entered = json.loads((tmp_path / "entered.json").read_text())
+    assert entered["liveSubagents"] == ["agent-1"]
+    assert not (tmp_path / "left.json").exists()
+    assert unreadable.read_text() == "{not json"
+
+
+def test_releasing_sub_agents_changes_only_an_ended_record_of_the_same_process(
+    tmp_path: Path,
+) -> None:
+    store = HookRecordStore(tmp_path)
+    by = build_hook_record(
+        switch_event("entered", "SessionStart", source="clear"),
+        process=CLAUDE,
+        harness="claude-code",
+    )
+    store.write(
+        build_hook_record(
+            switch_event("live", "UserPromptSubmit"), CLAUDE, "claude-code"
+        )
+    )
+    store.write(
+        build_hook_record(
+            switch_event("live", "SubagentStart", agent_id="agent-1"),
+            CLAUDE,
+            "claude-code",
+        )
+    )
+    for agent in ("agent-1", "agent-2"):
+        store.write(
+            build_hook_record(
+                switch_event("left", "SubagentStart", agent_id=agent),
+                CLAUDE,
+                "claude-code",
+            )
+        )
+    store.write(
+        build_hook_record(
+            switch_event("left", "SessionEnd", reason="clear"), CLAUDE, "claude-code"
+        )
+    )
+    codex_by = {**by, "harness": "codex"}
+    other_by = build_hook_record(
+        switch_event("entered", "SessionStart", source="clear"),
+        process=OTHER_CLAUDE,
+        harness="claude-code",
+    )
+
+    assert not store.release_subagents("live", ["agent-1"], by)
+    assert not store.release_subagents("missing", ["agent-1"], by)
+    assert not store.release_subagents("left", ["agent-1"], codex_by)
+    assert not store.release_subagents("left", ["agent-1"], other_by)
+    assert not store.release_subagents("left", ["agent-3"], by)
+    assert store.release_subagents("left", ["agent-1"], by)
+    assert stored_records(tmp_path)["left"]["liveSubagents"] == ["agent-2"]
+    assert store.release_subagents("left", ["agent-2"], by)
+
+    records = stored_records(tmp_path)
+    assert records.keys() == {"live"}
+    assert records["live"]["liveSubagents"] == ["agent-1"]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Annotated, Any, Literal, get_args
@@ -46,6 +46,15 @@ SUBAGENT_EVENTS = frozenset({"SubagentStart", "SubagentStop"})
 # when they compact a live session, which goes on in the same turn, or goes on
 # waiting (ADR 0100).
 COMPACTION_SOURCE = "compact"
+# The ``source`` Claude Code 2.1.289 gives the ``SessionStart`` of the
+# conversation its Host Process switches to with ``/clear``, ``/resume`` or
+# ``/branch``, and the ``reason`` of the ``SessionEnd`` it publishes first for
+# the conversation it leaves; its sub-agents follow the switch (ADR 0101).
+CONVERSATION_SWITCH_SOURCES = frozenset({"clear", "resume", "fork"})
+CONVERSATION_SWITCH_REASONS = frozenset({"clear", "resume"})
+# What a session's own ``SessionStart`` says its Host Process did, when its
+# ``source`` says anything Dashpot acts on.
+SessionStartKind = Literal["compaction", "switch"]
 # The states a live record holds; an ended record holds ``ended``.
 LIVE_STATES = frozenset({"running", "waiting"})
 # Where a record places its session; a Sub-agent's event keeps its parent's.
@@ -84,8 +93,9 @@ class HookRecord(PersistedRecord):
     Only the fields in ``HOOK_RECORD_FATAL`` fail the record; every other
     field degrades to its default with a message, so a session whose record
     is partly malformed stays visible-but-degraded rather than lost.
-    ``source``, ``turnId``, and ``model`` are harness payload copied through
-    unvalidated: a surprising payload must never make the hook itself fail.
+    ``source``, ``reason``, ``turnId``, and ``model`` are harness payload
+    copied through unvalidated: a surprising payload must never make the hook
+    itself fail.
     """
 
     version: Literal[2]
@@ -97,6 +107,7 @@ class HookRecord(PersistedRecord):
     branch: OptionalText = None
     event: OptionalText = None
     source: Any = None
+    reason: Any = None
     turn_id: Any = None
     model: Any = None
     agent_id: Any = None
@@ -172,6 +183,7 @@ def build_hook_record(
         branch=branch,
         event=event_name,
         source=event.get("source"),
+        reason=event.get("reason"),
         turn_id=event.get("turn_id"),
         model=event.get("model"),
         agent_id=event.get("agent_id"),
@@ -294,6 +306,24 @@ def last_session_start_at(
     return optional_string(previous.get("lastSessionStartAt"))
 
 
+def session_start_kind(current: Mapping[str, Any]) -> SessionStartKind | None:
+    """What a session's ``SessionStart`` says its Host Process did, by its ``source``.
+
+    The one place a ``SessionStart``'s ``source`` is read: a compaction goes
+    on with the session it names (ADR 0100), and a Conversation Switch moves
+    its Host Process on from another session (ADR 0101). Any other source,
+    no source, and a Sub-agent's event say neither.
+    """
+    if current.get("event") != "SessionStart" or is_child_record(current):
+        return None
+    source: Any = current.get("source")
+    if source == COMPACTION_SOURCE:
+        return "compaction"
+    if isinstance(source, str) and source in CONVERSATION_SWITCH_SOURCES:
+        return "switch"
+    return None
+
+
 def continues_turn(current: Mapping[str, Any], previous: Mapping[str, Any]) -> bool:
     """Whether a ``SessionStart`` goes on with the turn of the record it follows.
 
@@ -306,11 +336,37 @@ def continues_turn(current: Mapping[str, Any], previous: Mapping[str, Any]) -> b
     (ADR 0100).
     """
     return (
-        (current.get("event"), current.get("source"))
-        == ("SessionStart", COMPACTION_SOURCE)
-        and not is_child_record(current)
+        session_start_kind(current) == "compaction"
         and previous.get("state") in LIVE_STATES
         and _same_named_process(current, previous)
+    )
+
+
+def switched_from(current: Mapping[str, Any], ended: Mapping[str, Any]) -> bool:
+    """Whether a ``SessionStart`` switched its Host Process here from ``ended``'s session.
+
+    Claude Code's ``/clear``, ``/resume`` and ``/branch`` end the session
+    with a switch ``reason``, then start another session id in the same Host
+    Process, and the sub-agents the first session left working go on under
+    the second (ADR 0101). Both sides must say so: a Codex daemon's
+    ``SessionStart`` ``clear`` follows no end, while a thread it unloads,
+    whose worker stays its own, ends with ``reason`` ``other``. A process
+    neither record names, another harness, or the same session is no switch.
+    """
+    reason: Any = ended.get("reason")
+    # Typed as objects so the comparisons answer a bool, not Any.
+    harness: object = current.get("harness")
+    left_harness: object = ended.get("harness")
+    session: object = current.get("sessionId")
+    left_session: object = ended.get("sessionId")
+    return (
+        session_start_kind(current) == "switch"
+        and _is_ended(ended)
+        and isinstance(reason, str)
+        and reason in CONVERSATION_SWITCH_REASONS
+        and left_harness == harness
+        and left_session != session
+        and _same_named_process(current, ended)
     )
 
 
@@ -412,7 +468,11 @@ class HookRecordStore(LockedRecordStore):
         )
 
     def write(
-        self, record: dict[str, Any], *, seed: Mapping[str, Any] | None = None
+        self,
+        record: dict[str, Any],
+        *,
+        seed: Mapping[str, Any] | None = None,
+        adopted: Iterable[str] = (),
     ) -> Path:
         """Publish one native identity without overwriting another harness.
 
@@ -427,7 +487,9 @@ class HookRecordStore(LockedRecordStore):
         live sub-agents keeps them in an ended record of its Host Process,
         which only their boundaries change and which a ``SessionStart`` of
         that process carries on (ADR 0095), as it carries a live record's
-        (ADR 0097).
+        (ADR 0097). ``adopted`` names the sub-agents a Conversation Switch's
+        ``SessionStart`` takes over from the session its Host Process switched
+        from (ADR 0101); the record lists them beside its own.
         """
         session_id = require_string(record.get("sessionId"), "sessionId")
         harness = require_string(record.get("harness"), "harness")
@@ -535,6 +597,8 @@ class HookRecordStore(LockedRecordStore):
                 current["liveSubagents"] = sorted(
                     {*current["liveSubagents"], *_recorded_subagents(previous)}
                 )
+            if not child:
+                current["liveSubagents"] = sorted({*current["liveSubagents"], *adopted})
             current["turnStartedAt"] = turn_started_at(current, origin)
             started = last_session_start_at(current, previous)
             if started is not None:
@@ -542,6 +606,43 @@ class HookRecordStore(LockedRecordStore):
             current["state"] = observed_state(current)
             self.replace(key, current)
             return destination
+
+    def release_subagents(
+        self, key: str, agents: Iterable[str], by: Mapping[str, Any]
+    ) -> bool:
+        """Stop listing ``agents`` in the ended record ``key``, if ``by``'s Host Process kept it.
+
+        A sub-agent an ended record keeps (ADR 0095) leaves it once it stops,
+        whichever of its Host Process's sessions reports the stop, or once a
+        Conversation Switch has listed it on the session that now runs it
+        (ADR 0101). The record is re-read under its lock: a live record, one
+        of another harness or Host Process, or one already rid of them, is
+        left as it is, and an ended record left listing none goes. Returns
+        whether the record changed.
+        """
+        released = set(agents)
+        destination = self.record_path(key)
+        with self.locked(key):
+            try:
+                previous = self._read(destination)
+            except (HookRecordError, ValueError):
+                return False
+            if (
+                previous is None
+                or not _is_ended(previous)
+                or previous.get("harness") != by.get("harness")
+                or not _same_named_process(by, previous)
+            ):
+                return False
+            listed = _recorded_subagents(previous)
+            remaining = [agent for agent in listed if agent not in released]
+            if remaining == listed:
+                return False
+            if remaining:
+                self.replace(key, {**previous, "liveSubagents": remaining})
+            else:
+                destination.unlink(missing_ok=True)
+            return True
 
     def prune(self, session_id: str, observed: Mapping[str, Any]) -> bool:
         """Delete a stale record only if it still equals ``observed``.

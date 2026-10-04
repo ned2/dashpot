@@ -24,12 +24,15 @@ from .hook_records import (
     build_hook_record,
     is_child_record,
     project_session_store,
+    session_start_kind,
     state_directory,
+    switched_from,
 )
 from .hook_scan import (
     StoredSessionRecord,
     freshest_stored_record,
     reachable_hook_stores,
+    stored_process_records,
     stored_session_records,
 )
 from .processes import (
@@ -86,8 +89,10 @@ def publish_hook_event(
     A Sub-agent's event is written to the store that holds its parent's
     freshest record, with that record's location, and reconciles nothing: it
     changes only the parent's live sub-agents (ADR 0067); a stop also leaves
-    every ended record of the session elsewhere that kept it (ADR 0095).
-    ``SessionEnd`` first
+    every ended record of its Host Process that kept it (ADR 0095, ADR 0101).
+    A Conversation Switch's ``SessionStart`` takes over the sub-agents of the
+    session its Host Process switched from, which stop listing them once the
+    new record does (ADR 0101). ``SessionEnd`` first
     continues an orphaned run the session holds here (ADR 0075), then ends the
     session's run before its record is removed, and removes its older records
     elsewhere in the Repository; a ``SessionEnd`` from a managed Codex daemon
@@ -149,7 +154,16 @@ def publish_hook_event(
         if child or freshest is None or same_path(freshest.store, store.directory)
         else freshest.raw
     )
-    destination = store.write(record, seed=seed)
+    switched = _records_switched_from(record, identity, worktrees, directory)
+    adopted = sorted(
+        {agent for item in switched for agent in item.record.live_subagents}
+    )
+    destination = store.write(record, seed=seed, adopted=adopted)
+    # Released only once the new record lists them: a publisher that fails
+    # between the two writes leaves them listed twice, which errs toward
+    # blocking Cleanup rather than toward forgetting a working sub-agent.
+    for item in switched:
+        HookRecordStore(item.store).release_subagents(item.path.stem, adopted, record)
     if ending:
         remove_ended_session_records(
             record,
@@ -178,9 +192,7 @@ def publish_hook_event(
         )
     if child:
         if record.get("event") == "SubagentStop":
-            _stop_kept_elsewhere(
-                record, worktrees, directory, written=destination.parent
-            )
+            _stop_kept_elsewhere(record, identity, worktrees, directory)
         return HookPublication(destination, state=state)
     relocated = complete_session_work_relocation(
         record, identity, lookup, directory=destination.parent, worktrees=worktrees
@@ -219,32 +231,66 @@ def publish_hook_event(
 
 def _stop_kept_elsewhere(
     record: dict[str, Any],
+    identity: ProcessIdentity | None,
     worktrees: list[Path],
     directory: Path | None,
-    *,
-    written: Path,
 ) -> None:
-    """Remove a stopped Sub-agent from its session's ended records in other stores.
+    """Remove a stopped Sub-agent from every ended record of its Host Process.
 
     A session that ended at one Worktree and started again at another routes
     its Sub-agents' events to its live record there, while the record its
-    end kept at the first still lists them (ADR 0095). Each store's write
-    re-reads its record under its lock, and changes only an ended record of
-    the same Host Process.
+    end kept at the first still lists them (ADR 0095). A Claude Code
+    Conversation Switch moves a working sub-agent to another session of the
+    same process, so the stop may name a session other than the one whose
+    ended record kept it (ADR 0101): an agent id names one sub-agent, so its
+    stop clears it from every ended record of the process. Only ended
+    records: a live session's other records are not this rule's to change.
+    Each store re-reads its record under its lock.
     """
     agent = record.get("agentId")
-    records, _unreadable = stored_session_records(
+    if identity is None or not isinstance(agent, str):
+        return
+    for item in _process_records(record, identity, worktrees, directory):
+        if item.record.state == "ended" and agent in item.record.live_subagents:
+            HookRecordStore(item.store).release_subagents(
+                item.path.stem, [agent], record
+            )
+
+
+def _records_switched_from(
+    record: dict[str, Any],
+    identity: ProcessIdentity | None,
+    worktrees: list[Path],
+    directory: Path | None,
+) -> list[StoredSessionRecord]:
+    """The ended records of the sessions a Conversation Switch's Host Process left.
+
+    Claude Code's ``/clear``, ``/resume`` and ``/branch`` end one session and
+    start another in the same process, and the sub-agents the first left
+    working go on under the second (ADR 0101). Read from every store the
+    session could be in, without probing a process; none for any other event.
+    """
+    if identity is None or session_start_kind(record) != "switch":
+        return []
+    return [
+        item
+        for item in _process_records(record, identity, worktrees, directory)
+        if item.record.live_subagents and switched_from(record, item.raw)
+    ]
+
+
+def _process_records(
+    record: dict[str, Any],
+    identity: ProcessIdentity,
+    worktrees: list[Path],
+    directory: Path | None,
+) -> list[StoredSessionRecord]:
+    """Every record of ``record``'s harness and Host Process the session could reach."""
+    return stored_process_records(
         reachable_hook_stores(worktrees, directory),
         cast("Harness", record["harness"]),
-        str(record["sessionId"]),
+        identity.key,
     )
-    for item in records:
-        if (
-            item.record.state == "ended"
-            and agent in item.record.live_subagents
-            and not same_path(item.store, written)
-        ):
-            HookRecordStore(item.store).write(record)
 
 
 def _freshest_elsewhere(
