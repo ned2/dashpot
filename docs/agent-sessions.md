@@ -374,7 +374,7 @@ Code 2.1.289, Codex 0.160.0 and OpenCode 2.0.22
 A waiting session with a running Background Command reads as waiting. For
 Claude Code, ADR 0113 decides that such a session will read as waiting on
 its command, from the `Stop`'s `background_tasks`, and defers that display
-to a follow-up.
+to a follow-up, #517.
 
 ### Codex hosting modes
 

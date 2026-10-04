@@ -80,7 +80,7 @@ follows the command's end, it reports no running command.
 
 The implementation is deferred. It touches the hook record
 (`hook_records.py`, which #460 also changes) and the Sessions pane, whose Lead and Worker design #479
-is settling. A follow-up Issue, blocked by #479, carries it. This decision
+is settling. A follow-up Issue, #517, blocked by #479, carries it. This decision
 fixes what is shown and on which evidence. The follow-up chooses the form:
 a state, a mark, or a column note, and whether `work show` carries it.
 
