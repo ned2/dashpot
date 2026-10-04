@@ -40,8 +40,8 @@ attestations using the same OIDC identity. Only its top-level publish jobs have
 - Keep `pyproject.toml`'s version, `BUNDLED_SKILL_VERSION` in
   [integrate.py](../src/dashpot/sessions/integrate.py), and the two version occurrences in
   [the bundled skill](../src/dashpot/skills/dashpot-issue-work/SKILL.md) aligned.
-  A version or dependency change requiring `uv.lock` is its own explicitly
-  scoped task; do not relock or upgrade dependencies incidentally.
+  Relock after a version or dependency change as
+  [AGENTS.md](../AGENTS.md#quality-and-code-conventions) describes.
 - Write the matching `## X.Y.Z` changelog entry and update support evidence.
   Before tagging, remove the “not yet published” qualification in the changelog
   and installation guide and set the intended publication date.

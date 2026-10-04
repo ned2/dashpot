@@ -232,8 +232,14 @@ The conventions the tooling enforces or the code assumes:
   a research note described as future, update that document's `status` rather
   than leaving a reader to discover it is stale. The vocabulary is in the
   README's [documentation map](README.md#documentation-map).
-- A lockfile change is its own task. Install with `uv sync --locked --group
-  dev`; never relock or upgrade a dependency as a side effect of other work.
+- Install with `uv sync --locked --group dev`.
+- Within a task, relock with plain `uv lock` only to follow a `pyproject.toml`
+  change the task makes: a dependency added, removed, or given a new version
+  constraint, the Python floor (`requires-python`) moved, or the project
+  version bumped. `uv lock` keeps every locked version still compatible, so
+  each entry in the lockfile diff traces to that change. An upgrade
+  (`--upgrade`, `--upgrade-package`, `--upgrade-group`) is its own task, as
+  the README's [hook refresh](README.md#local-review-gate) is.
 
 ## Working in worktrees
 
