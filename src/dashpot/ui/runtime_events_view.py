@@ -327,7 +327,7 @@ class EventTable(DataTable[str | Text]):
     def move_to_newest(self) -> None:
         if self.row_count:
             self.move_cursor(row=self.row_count - 1, animate=False)
-            self.call_after_refresh(self.scroll_end, animate=False)
+            self.call_after_refresh(self.scroll_end, animate=False, x_axis=False)
 
     def set_following(self, following: bool) -> None:
         if following != self.following:

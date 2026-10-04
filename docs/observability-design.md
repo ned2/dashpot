@@ -401,9 +401,8 @@ output.
   records, or `standard` only), Kind and Errors only filters last until the
   dashboard exits. Errors only keeps failed spans and dropped writes; a
   non-zero exit the caller read as an answer shows its code but is no
-  error. The
-  table follows the newest event until a person moves back through it;
-  `End` follows again.
+  error. The table follows the newest event until a person moves back
+  through it; `End` follows again.
 - **Runtime Stats** ([#315](https://github.com/ned2/dashpot/issues/315)), the
   Stats tab, aggregating the buffer when it draws. Its sections:
   - **GitHub allowance:** `remaining`, `limit` and `resetAt` from the latest

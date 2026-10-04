@@ -28,8 +28,9 @@ buffer, which keeps every level whatever the Event Level records.
   time. Rows are in the order the buffer received them, as the Event Log's
   lines are, so a span sits where it ended, after the children it waited on,
   while its time is when it started. Show, Kind and Errors-only filters
-  narrow the table and last for the life of the process, never on disk. The table follows the newest event
-  until a person moves back through it, and `End` resumes following.
+  narrow the table and last for the life of the process, never on disk.
+  The table follows the newest event until a person moves back through it,
+  and `End` resumes following.
 - **Stats** holds the Runtime Stats sections unchanged, at full width.
 
 ### Tabs inside a temporary screen

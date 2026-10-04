@@ -594,6 +594,35 @@ async def test_the_scrollbar_moved_back_from_the_newest_event_pauses(
 
 
 @pytest.mark.asyncio
+async def test_following_keeps_the_table_scrolled_across_to_the_summary(
+    tmp_path: Path,
+) -> None:
+    clock = Clock()
+    log = stats_log(tmp_path, clock)
+    # A summary wider than the table leaves it to scroll across to.
+    run_command(log, clock, "a-program-whose-name-runs-past-the-edge", 0.01)
+    app = runtime_app(log)
+    app.runtime_event_filter = EventFilter(kind="command")
+
+    async with app.run_test(size=(80, 30)) as pilot:
+        screen = await open_runtime(app, pilot, "e")
+        table = event_table(app)
+        await settle_screen(app, pilot, "the stacked Runtime screen")
+        assert table.max_scroll_x > 0
+
+        table.scroll_to(x=table.max_scroll_x, animate=False)
+        across = await settled(pilot, lambda: table.scroll_x, "the scroll across")
+        assert across == table.max_scroll_x
+
+        # Following the newest event moves down, never back across.
+        run_command(log, clock, "gh", 0.01)
+        screen.update_shown()
+        assert await settled(pilot, lambda: table.scroll_x, "a tick") == across
+        assert follow_text(app) == "following"
+        assert table.cursor_row == 1
+
+
+@pytest.mark.asyncio
 async def test_the_detail_moves_on_when_its_event_leaves_the_buffer(
     tmp_path: Path,
 ) -> None:
