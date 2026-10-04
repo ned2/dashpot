@@ -428,7 +428,8 @@ Issue Worktree, whose `.venv` is removed with it. Review any hook-trust
 prompt in the harness, and start or resume a session in the configured
 Project. The
 integration installs lifecycle hooks and every agent skill Dashpot bundles,
-such as `dashpot-issue-work`, each as a managed copy marked as Dashpot's. It
+such as `dashpot-issue-work` and the user-invoked `dashpot-execute-issues`,
+each as a managed copy marked as Dashpot's. It
 preserves unrelated settings; repeated installation refreshes its own entries.
 A directory of a bundled skill's name that Dashpot did not write is never
 overwritten or removed: installation is refused until it is moved, `--status`

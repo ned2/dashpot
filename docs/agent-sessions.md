@@ -33,7 +33,8 @@ installed tool environment: a publisher inside a linked Worktree's `.venv`
 disappears with the Worktree, so `integrate` refuses to bind one and
 `--status` warns about an existing binding while the file still exists.
 The same command installs every agent skill Dashpot bundles, among them the
-model-invoked `dashpot-issue-work` skill, from that installed version. Each
+model-invoked `dashpot-issue-work` skill and the user-invoked
+`dashpot-execute-issues` skill, from that installed version. Each
 copy is Dashpot's to manage only while its `SKILL.md` carries that skill's own
 marker. Removal deletes only the Dashpot handlers and the files of each
 managed skill; a different skill at the same path is reported and left

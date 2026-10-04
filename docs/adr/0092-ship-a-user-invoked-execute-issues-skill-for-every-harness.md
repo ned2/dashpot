@@ -91,7 +91,7 @@ The fallbacks the skill names:
   v1, or a full Codex session). The lead dispatches the reviewer as a
   separate worker, and only failing that does the worker review inline,
   saying so in its PR.
-- **A missing `dashpot-worker` agent.** ADR 0093 has `integrate opencode`
+- **A missing `dashpot-worker` agent.** [ADR 0093](0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md) has `integrate opencode`
   install that agent, whose deny of `*session_move` keeps a worker from
   moving its lead by mistake but not through OpenCode's HTTP API. When it is
   missing, the lead asks the user to rerun `integrate`, launches workers as
@@ -205,4 +205,5 @@ release, and a second check that could only agree with the first.
   entry from the skill and from the test that lists them.
 - A change to `dashpot-issue-work`'s "Establish the workflow" or "Finish the
   engagement" headings must update this skill, which names them.
-- ADR 0093 records the OpenCode worker agent this skill launches.
+- [ADR 0093](0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md) records the OpenCode worker agent this skill
+  launches.
