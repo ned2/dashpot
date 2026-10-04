@@ -496,7 +496,7 @@ parent's Observation Location
 
 **Lead**:
 The Agent Session that runs the bundled `dashpot-execute-issues` skill to
-land an arc of Issues through Workers. It alone holds the arc's Agent Run
+land an Arc of Issues through Workers. It alone holds the Arc's Agent Run
 and Issue Binding, creates and removes the Issue Worktrees, and merges only
 when the user grants it that authority. It stays at the Worktree where it
 bound while any Worker runs
@@ -520,8 +520,8 @@ Agent Run is bound to one of them, the epic or the list's critical-path
 root. A Wave is every Issue of the Arc whose ungated work can start at once,
 dispatched to Workers together
 ([ADR 0092](adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
-_Avoid_: reading an Arc's other Issues as bound because the Lead's Issue
-Binding covers the Arc; sprint or batch
+_Avoid_: reading an Arc's other Issues as bound, since the Lead's Issue
+Binding names only one of them; sprint or batch
 
 **Session Liveness**:
 An observation of whether an Agent Session's recorded Host Process is live,

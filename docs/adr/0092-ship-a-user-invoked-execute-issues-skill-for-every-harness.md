@@ -83,7 +83,7 @@ The fallbacks the skill names:
 - **Codex mail to a running worker.** The experiment measured `send_message`
   only toward the lead and toward a finished worker, so a Codex lead also
   writes each broadcast to a file in the worker's Worktree Git directory,
-  which the worker reads before each commit and push.
+  which the worker reads before each gate run, commit and push.
 - **A busy OpenCode lead.** A worker's `opencode run --session` blocks
   until the lead's turn ends, so it runs in a background shell, with the
   status file as the fallback.

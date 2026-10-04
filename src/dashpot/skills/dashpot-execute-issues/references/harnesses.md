@@ -112,18 +112,18 @@ handed back. When a wait times out or your turn was interrupted, call
 
 **Worker reports (v2).** `{REPORTING}`: "To tell the lead something
 mid-flight, call `send_message` to `/root`, then carry on. Before each
-commit and each push, read the file `execute-issues-lead` in your
+gate run, commit and push, read the file `execute-issues-lead` in your
 Worktree's Git directory (`git -C <path> rev-parse --absolute-git-dir`) if
 it exists: the lead writes its broadcasts there. Your final message is your
 hand-back."
 
 **Messaging a worker (v2).** `send_message` to a running worker's path
-queues the message for it. Its delivery to a running worker was not
-measured: Codex delivers the lead's mail at its next model request, and
-mail to a finished worker only queues. So also write each broadcast to the
-file `execute-issues-lead` in the worker's Worktree Git directory
+queues the message for it. A busy lead gets its mail at its next model
+request, and mail to a finished worker only queues; whether a running
+worker gets it was not measured. So also write each broadcast to the file
+`execute-issues-lead` in the worker's Worktree Git directory
 (`git -C <path> rev-parse --absolute-git-dir`), which the worker reads
-before each commit and push.
+before each gate run, commit and push.
 
 **Completion (v2).** The worker's final message reaches your history as a
 `FINAL_ANSWER` message from its path, and `list_agents` shows it
@@ -139,7 +139,7 @@ through the same `[agents] max_threads`. Workers have no tool to message
 you. `{REPORTING}`: "You cannot message the lead. Write anything it needs
 mid-flight to the file `execute-issues-status` in your Worktree's Git
 directory (`git -C <path> rev-parse --absolute-git-dir`), which is never
-committed. Before each commit and each push, read the file
+committed. Before each gate run, commit and push, read the file
 `execute-issues-lead` beside it if it exists: the lead writes its
 broadcasts there. Your final message is your hand-back." Read the status
 files between waits, and broadcast through the `execute-issues-lead` files.

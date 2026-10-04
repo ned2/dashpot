@@ -49,13 +49,13 @@ REPOSITORY_SPECIFIC = {
 }
 
 
-def shipped(relative: str) -> str:
+def shipped(relative: str | Path) -> str:
     """One shipped file's text, by its path inside the skill."""
     return (SKILL.source / relative).read_text(encoding="utf-8")
 
 
 def shipped_texts() -> dict[Path, str]:
-    return {relative: shipped(str(relative)) for relative in SKILL.files}
+    return {relative: shipped(relative) for relative in SKILL.files}
 
 
 def section(text: str, heading: str) -> str:
