@@ -61,8 +61,8 @@ step 2.
   Issue each worker works on with `work assign`
   ([Assign each worker](#assign-each-worker)).
 - **Stay where you bound.** Never move your own session to another
-  Worktree while a worker runs; see
-  [Known Dashpot gaps](#known-dashpot-gaps). Workers work in their
+  Worktree while a worker runs; [harnesses.md](references/harnesses.md)
+  says what can move a session in each harness. Workers work in their
   Worktrees by giving every command its own `cd <path> && …`.
 - **Remove Worktrees only when no worker is live.** Dashpot refuses to
   remove any Worktree of the repository while a session's sub-agents are
@@ -372,11 +372,6 @@ you as a separate worker where it does not
 Each gap is named so its workaround can be dropped once the installed
 Dashpot fixes it.
 
-- **A relocated lead keeps a finished worker listed.** If your session
-  moves to another Worktree while a worker runs, Dashpot keeps listing that
-  worker as working after it ends, in `work show` and in Cleanup's
-  `sub-agent` blocker, until your session ends or returns. Never move the
-  lead while a worker runs.
 - **A stopped Claude Code worker's wording.** When a worker's stop goes
   unrecorded, as after Claude Code's `TaskStop`, Dashpot explains the held
   `sub-agent` blocker as an interrupted sub-agent's. Read it as covering a

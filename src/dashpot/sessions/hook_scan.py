@@ -406,7 +406,7 @@ def stored_process_records(
     sessions one Host Process holds, whose records share no filename: a
     Conversation Switch's new session takes over the sub-agents of the one
     it left, and a sub-agent's stop leaves every ended record of its process
-    (ADR 0101). Like ``stored_session_records`` it probes no process. A
+    (ADR 0101) and every live record its session left behind (ADR 0102). Like ``stored_session_records`` it probes no process. A
     record that cannot be read or validated is no evidence and is skipped:
     a caller changes a record only through its store, which re-reads it under
     its own lock.
@@ -561,11 +561,12 @@ def sessions_with_live_subagents(
     """Every Agent Session in ``worktrees`` with a sub-agent listed as working.
 
     A sub-agent's hooks carry its session's location, never its own, so where
-    it works is unknown: it may be in any Worktree of the Repository. Each
-    store derives its sub-agents from its own previous record, so a session
-    that moved on from the Worktree it dispatched them from leaves them in
-    that Worktree's record alone: every record of the session counts, and the
-    location reported is the freshest one's. A session is counted while it is
+    it works is unknown: it may be in any Worktree of the Repository. A
+    session that moved on from the Worktree it dispatched them from may
+    list them only in the record it left there, as when its move named no
+    Host Process to carry them by: every record of the session counts, and
+    the location reported is the freshest one's. A sub-agent's stop clears
+    it from each of those records (ADR 0102). A session is counted while it is
     live or unknown, and once it has ended while an ended record still holds
     the sub-agents it left working (ADR 0095); that record is the one
     reported when it is the freshest.

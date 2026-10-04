@@ -7,12 +7,13 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 import pytest
 
 from dashpot.core.git import GitError
 from dashpot.core.model import Harness
+from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions import hook_records, work_reconciliation
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
@@ -25,6 +26,7 @@ from dashpot.sessions.hook_scan import (
     locate_agent_session,
     reachable_hook_stores,
     sessions_at_worktree,
+    sessions_with_live_subagents,
 )
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup
 from dashpot.sessions.work import (
@@ -948,9 +950,9 @@ def return_after_a_sub_agent_stops(mover: Mover, at: Path) -> HookPublication:
 
 
 # Late evidence at the origin: the designated event of a return there, the
-# end of a turn there, and that return after a Sub-agent's stop there. A
-# Sub-agent live during a move is unmeasured, and so unsupported, on every
-# harness; its late stop here holds only that it never makes B's record older.
+# end of a turn there, and that return after a Sub-agent's stop there. The
+# stop names no Sub-agent the session lists, so it holds only that it never
+# makes B's record older; a Sub-agent live during a move is ADR 0102's, below.
 LATE_AT_ORIGIN: list[Callable[[Mover, Path], HookPublication]] = [
     Mover.move_back,
     lambda mover, at: mover.publish(at, "Stop"),
@@ -1081,3 +1083,176 @@ def test_a_handoff_is_verified_from_the_seam_alone(
     ]
     assert publication.work == ("relocated" if bound else "unchanged")
     assert len(own) == (1 if bound else 0)
+
+
+# --- A Sub-agent across a move (ADR 0102) -------------------------------------
+
+
+def listed_at(at: Path, mover: Mover) -> list[str]:
+    """The Sub-agents the session's record at ``at`` lists as working."""
+    return cast(
+        "list[str]", recorded(session_directory(at), mover.session)["liveSubagents"]
+    )
+
+
+def delegating(a: Path, b: Path, mover: Mover) -> list[tuple[Path, tuple[str, ...]]]:
+    """Each session the scan finds delegating in the Repository: where, and to whom."""
+    return [
+        (location.worktree, location.record.live_subagents)
+        for location in sessions_with_live_subagents(
+            [a, b], reachable_hook_stores([a, b]), mover.lookup
+        )
+    ]
+
+
+def subagent_lines(at: Path, mover: Mover) -> list[str]:
+    """What ``dashpot work show`` at ``at`` says of the run's Sub-agents."""
+    return [
+        line
+        for line in show_issue_work(at, lookup=mover.lookup)
+        if "listed as working" in line
+    ]
+
+
+@movers
+def test_a_sub_agent_dispatched_before_a_move_blocks_until_its_stop_clears_both_records(
+    tmp_path: Path, mover: Mover
+) -> None:
+    # #421's order: the lead dispatches a background worker, its turn ends,
+    # it moves while the worker runs, and the worker's end wakes it at B.
+    a, b = two_worktrees(tmp_path)
+    mover.bind(a)
+    mover.publish(a, "SubagentStart", agent_id="worker-1")
+    mover.publish(a, "Stop")
+    assert mover.move(b).work == "relocated"
+    left = recorded(session_directory(a), mover.session)
+
+    # Still working: both records list it, and the session reported at B
+    # holds it for every Worktree of the Repository.
+    assert listed_at(a, mover) == listed_at(b, mover) == ["worker-1"]
+    assert delegating(a, b, mover) == [(b, ("worker-1",))]
+    (working,) = subagent_lines(b, mover)
+    assert "has 1 sub-agent listed as working (worker-1)" in working
+
+    mover.publish(b, "SubagentStop", agent_id="worker-1")
+    mover.publish(b, "UserPromptSubmit")
+    mover.publish(b, "Stop")
+
+    assert listed_at(a, mover) == listed_at(b, mover) == []
+    assert delegating(a, b, mover) == []
+    assert subagent_lines(b, mover) == []
+    # Only the list left the record at A: it keeps its stamp and state, so
+    # it never reads as fresher than B, which still places the session.
+    assert recorded(session_directory(a), mover.session) == {
+        **left,
+        "liveSubagents": [],
+    }
+    stores = reachable_hook_stores([a, b])
+    location = locate_agent_session(
+        stores, mover.lookup, session_id=mover.session, harness=mover.harness
+    )
+    assert location is not None
+    assert location.worktree == b
+    # Its `running` stays unread: the freshest record alone gives the
+    # session's state and location, so the dashboard reads it waiting at B
+    # and Cleanup finds nothing of it at A.
+    assert left["state"] == "running"
+    runs, diagnostics = observe(a, b, lookup=mover.lookup)
+    assert [(run.observation_target, run.state) for run in runs] == [
+        (str(b), "waiting")
+    ]
+    assert diagnostics == []
+    assert sessions_at_worktree(a, stores, mover.lookup) == []
+    assert assess_worktree_occupancy(a, [a, b], mover.lookup) == []
+
+
+@movers
+def test_a_stop_clears_only_its_own_sub_agent_from_the_record_left_behind(
+    tmp_path: Path, mover: Mover
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    mover.bind(a)
+    mover.publish(a, "SubagentStart", agent_id="worker-1")
+    mover.publish(a, "SubagentStart", agent_id="worker-2")
+    mover.move(b)
+
+    mover.publish(b, "SubagentStop", agent_id="worker-1")
+
+    # The worker still running keeps every Worktree blocked.
+    assert listed_at(a, mover) == listed_at(b, mover) == ["worker-2"]
+    assert delegating(a, b, mover) == [(b, ("worker-2",))]
+    (working,) = subagent_lines(b, mover)
+    assert "has 1 sub-agent listed as working (worker-2)" in working
+
+
+@movers
+def test_a_stop_still_clears_a_record_the_session_left_two_moves_back(
+    tmp_path: Path, mover: Mover
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    c = third_worktree(a, tmp_path)
+    mover.bind(a)
+    mover.publish(a, "SubagentStart", agent_id="worker-1")
+    mover.move(b)
+    mover.move(c)
+    assert [listed_at(at, mover) for at in (a, b, c)] == [["worker-1"]] * 3
+
+    mover.publish(c, "SubagentStop", agent_id="worker-1")
+
+    assert [listed_at(at, mover) for at in (a, b, c)] == [[], [], []]
+    assert (
+        sessions_with_live_subagents(
+            [a, b, c], reachable_hook_stores([a, b, c]), mover.lookup
+        )
+        == []
+    )
+
+
+@movers
+def test_a_stop_leaves_another_live_sessions_record_alone(
+    tmp_path: Path, mover: Mover
+) -> None:
+    # Only the stopping session's own live records let the agent go; another
+    # session's, here a thread of the same Codex Host Process, are left.
+    a, b = two_worktrees(tmp_path)
+    mover.place(a)
+    mover.publish(a, "SubagentStart", agent_id="worker-1")
+    mover.move(b)
+    publish(a, "UserPromptSubmit", session=SECOND_THREAD)
+    publish(a, "SubagentStart", session=SECOND_THREAD, agent_id="worker-1")
+
+    mover.publish(b, "SubagentStop", agent_id="worker-1")
+    other = recorded(session_directory(a), SECOND_THREAD)
+
+    assert other["liveSubagents"] == ["worker-1"]
+    assert listed_at(a, mover) == listed_at(b, mover) == []
+
+
+@movers
+def test_a_start_listed_again_after_a_stop_stays_where_the_stop_was_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mover: Mover
+) -> None:
+    # A worker that waits on its own background work stops, and starts again
+    # when that work ends. Here its start lands between the stop's write and
+    # the stop's release of the record left behind: the stop lets the record
+    # left behind go, but never the start that listed the worker again.
+    a, b = two_worktrees(tmp_path)
+    mover.bind(a)
+    mover.publish(a, "SubagentStart", agent_id="worker-1")
+    mover.move(b)
+    write = HookRecordStore.write
+
+    def restarted(
+        store: HookRecordStore, record: dict[str, Any], **options: Any
+    ) -> Path:
+        written = write(store, record, **options)
+        if record.get("event") == "SubagentStop":
+            write(store, {**record, "event": "SubagentStart", "state": "running"})
+        return written
+
+    monkeypatch.setattr(HookRecordStore, "write", restarted)
+    mover.publish(b, "SubagentStop", agent_id="worker-1")
+
+    assert listed_at(a, mover) == []
+    assert listed_at(b, mover) == ["worker-1"]
+    assert delegating(a, b, mover) == [(b, ("worker-1",))]

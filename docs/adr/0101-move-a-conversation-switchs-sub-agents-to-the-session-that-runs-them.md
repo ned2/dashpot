@@ -188,3 +188,8 @@ apply, and both are bounded by the Host Process.
     session `running` until the process exits, or until the session ends
     and a person runs `dashpot work forget-subagents`. The window is the
     length of one hook write.
+- Amended by [ADR 0102](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md)
+  ([#427](https://github.com/ned2/dashpot/issues/427)): a `SubagentStop`
+  also removes its agent from the stopping session's own live records of
+  the same Host Process, the records a moved session left behind. Another
+  live session's records are still left as they are.

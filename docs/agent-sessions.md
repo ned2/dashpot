@@ -148,10 +148,17 @@ the way out is to end that session, in the
 [harness's words](#agent-sessions-and-worktree-cleanup). It clears
 when the last sub-agent's `SubagentStop` arrives, when a live session
 starts again, or when the session's process is gone. A sub-agent
-dispatched before its session entered another Worktree stays in the record
-left behind, so it holds the block until that Worktree
-records the session's end or the session's process exits, even after the
-session has left the Repository. A session at the Worktree itself is
+dispatched before its session entered another Worktree is listed both in
+the record left behind and in the record the session moved to, and holds
+the block while it works. Its `SubagentStop` removes it from both: the
+stop also reaches each live record of the same session and Host Process in
+the Repository's stores, and changes only that record's list, so the
+record left behind never places the session there again
+([ADR 0102](adr/0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md)).
+A record left in another Repository's store is out of the stop's reach:
+once the session has left the Repository, the record it left there holds
+the block until that Worktree records the session's end or the session's
+process exits. A session at the Worktree itself is
 reported as that Worktree's `agent-session` occupant instead.
 
 A session's end does not clear its sub-agents
@@ -188,8 +195,9 @@ none. A Codex `/clear` follows no `SessionEnd`, and a thread a daemon unloads
 ends with `reason` `other`, so neither moves a listing. Each `SubagentStop`
 also removes its agent from every ended record of its process, whichever
 session the record belongs to, so a stop that arrives before the switch's
-`SessionStart` still clears it. A live session's records are never changed
-this way.
+`SessionStart` still clears it. Another live session's records are never
+changed this way; the stopping session's own records left behind are
+(above).
 Here the blocker says the session *ended with* its sub-agents listed, and names the way out for one that ended with its session
 or was interrupted and will never report: once none is still working, run
 `dashpot work forget-subagents SESSION_ID` from a Worktree of the

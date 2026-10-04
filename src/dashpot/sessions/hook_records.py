@@ -620,6 +620,33 @@ class HookRecordStore(LockedRecordStore):
         left as it is, and an ended record left listing none goes. Returns
         whether the record changed.
         """
+        return self._release(key, agents, by, live=False)
+
+    def release_left_behind(
+        self, key: str, agents: Iterable[str], by: Mapping[str, Any]
+    ) -> bool:
+        """Stop listing ``agents`` in the live record ``key`` that ``by``'s session left here.
+
+        A session that moves to another Worktree carries its sub-agents to
+        the record it moves to, and the record it left keeps listing them;
+        once a sub-agent stops, that record lets it go too (ADR 0102). The
+        record is re-read under its lock, and only one of ``by``'s own
+        session, harness and Host Process that is not ended changes. Only its
+        list changes: its state, turn clock and stamp stay, so it never reads
+        as fresher than the record the session moved to, and it stays when
+        it lists none. Returns whether the record changed.
+        """
+        return self._release(key, agents, by, live=True)
+
+    def _release(
+        self, key: str, agents: Iterable[str], by: Mapping[str, Any], *, live: bool
+    ) -> bool:
+        """Remove ``agents`` from record ``key`` under its lock, if it is the kind asked for.
+
+        ``live`` asks for a live record of ``by``'s own session, else for an
+        ended record of any session; either names ``by``'s harness and Host
+        Process.
+        """
         released = set(agents)
         destination = self.record_path(key)
         with self.locked(key):
@@ -629,7 +656,8 @@ class HookRecordStore(LockedRecordStore):
                 return False
             if (
                 previous is None
-                or not _is_ended(previous)
+                or _is_ended(previous) == live
+                or (live and previous.get("sessionId") != by.get("sessionId"))
                 or previous.get("harness") != by.get("harness")
                 or not _same_named_process(by, previous)
             ):
@@ -638,7 +666,7 @@ class HookRecordStore(LockedRecordStore):
             remaining = [agent for agent in listed if agent not in released]
             if remaining == listed:
                 return False
-            if remaining:
+            if remaining or live:
                 self.replace(key, {**previous, "liveSubagents": remaining})
             else:
                 destination.unlink(missing_ok=True)

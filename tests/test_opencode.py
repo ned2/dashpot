@@ -14,6 +14,7 @@ from __future__ import annotations
 import functools
 import io
 import json
+import subprocess
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -25,11 +26,16 @@ from dashpot import hook
 from dashpot.core.event_log import EventLogDestination
 from dashpot.core.model import Diagnostic
 from dashpot.event_logs import LEVEL_VARIABLE
+from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import (
     project_session_store,
     session_directory,
     state_directory,
+)
+from dashpot.sessions.hook_scan import (
+    reachable_hook_stores,
+    sessions_with_live_subagents,
 )
 from dashpot.sessions.opencode_publish import (
     OpenCodeOutcome,
@@ -43,7 +49,12 @@ from dashpot.sessions.processes import (
     ProcessObservation,
     ProcessPresent,
 )
-from dashpot.sessions.work import IssueWorkError, start_issue_work, stop_issue_work
+from dashpot.sessions.work import (
+    IssueWorkError,
+    show_issue_work,
+    start_issue_work,
+    stop_issue_work,
+)
 from dashpot.sessions.work_store import WorkStore
 from factories import CLAUDE, CODEX, hook_record, hook_record_document
 from helpers import table_lookup, unobservable
@@ -574,6 +585,73 @@ def test_a_childs_move_writes_nothing(
 
     assert server.event("moved", project, CHILD, root=ROOT, to=linked).written == ()
     assert record(linked) is None
+
+
+def test_a_moved_roots_worker_holds_the_repository_until_it_ends_and_then_none(
+    tmp_path: Path, project: Path, server: Server
+) -> None:
+    # #421's order at OpenCode 2.0.22: the bound root launches a background
+    # child and its execution ends; the root is moved while the child runs;
+    # the child ends where it was created, and its notice wakes the root at
+    # the Worktree it moved to.
+    linked = linked_worktree(project, tmp_path / "linked", "linked").resolve()
+    spare = (tmp_path / "spare").resolve()
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", "spare", str(spare)],
+        cwd=project,
+        check=True,
+    )
+    worktrees = [project, linked, spare]
+    stores = reachable_hook_stores(worktrees)
+    server.turn(project)
+    start_issue_work(
+        project, "build-observer", lookup=server.lookup, environ=server.claim()
+    )
+    server.turn(project, CHILD, root=ROOT)
+    server.finish(project)
+    assert server.event("moved", project, to=linked).written == ("SessionMoved",)
+
+    def sub_agent_obstacles() -> list[str]:
+        return [
+            blocker.detail
+            for blocker in assess_worktree_occupancy(spare, worktrees, server.lookup)
+            if blocker.kind == "sub-agent"
+        ]
+
+    def shown() -> list[str]:
+        return [
+            line
+            for line in show_issue_work(linked, lookup=server.lookup)
+            if "listed as working" in line
+        ]
+
+    # While the child works, the root holds it wherever it moved.
+    (delegating,) = sessions_with_live_subagents(worktrees, stores, server.lookup)
+    assert (delegating.worktree, delegating.record.live_subagents) == (
+        linked,
+        (CHILD,),
+    )
+    (blocked,) = sub_agent_obstacles()
+    assert f"at {linked} has 1 sub-agent listed as working ({CHILD};" in blocked
+    (working,) = shown()
+    assert f"has 1 sub-agent listed as working ({CHILD})" in working
+
+    assert server.finish(project, CHILD, root=ROOT) == "accepted"
+    server.turn(linked)
+    server.finish(linked)
+
+    left, arrived = record(project), record(linked)
+    assert left is not None
+    assert arrived is not None
+    assert (arrived["state"], arrived["event"], arrived["liveSubagents"]) == (
+        "waiting",
+        "Stop",
+        [],
+    )
+    assert left["liveSubagents"] == []
+    assert sessions_with_live_subagents(worktrees, stores, server.lookup) == []
+    assert sub_agent_obstacles() == []
+    assert shown() == []
 
 
 def test_a_move_to_another_repository_leaves_its_run_behind(
