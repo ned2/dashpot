@@ -45,6 +45,10 @@ class ValidatedSessionIdentity:
     def session_id(self) -> str:
         return self.claim.session_id
 
+    @property
+    def delegate(self) -> str | None:
+        return self.claim.delegate
+
 
 def validate_session_claim(
     claim: SessionIdentityClaim,

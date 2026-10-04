@@ -98,7 +98,10 @@ class AgentSessionIdentity:
     ``delegate`` names the Sub-agent the command runs in, when its harness
     tells a Sub-agent's shell apart from its session's own: the identity is
     still the session's, so reading resolves to it, but every command that
-    changes the session's Issue work refuses (ADR 0067).
+    changes the session's Issue work refuses (ADR 0067). Only Codex sets it:
+    an OpenCode child session's claim is refused at validation instead
+    (ADR 0090), and a Claude Code Sub-agent's shell carries its session's
+    own identity.
     """
 
     harness: Harness
@@ -128,7 +131,11 @@ def identify_agent_session(
     worktree: Path | None = None,
     stores: Sequence[Path] | None = None,
 ) -> AgentSessionIdentity:
-    """Identify the enclosing session by a hook-confirmed native identity."""
+    """Identify the enclosing session by a hook-confirmed native identity.
+
+    A Sub-agent's command identifies its session, with ``delegate`` set, so
+    a caller that changes Issue work refuses it with ``_refuse_delegate``.
+    """
     environment = environ if environ is not None else os.environ
     ancestry = observe_agent_ancestry(lookup)
     claims = _session_claims(environment)
@@ -160,7 +167,7 @@ def identify_agent_session(
                     "enclosing harness process; nothing was written"
                 )
             return _process_identity(
-                harness, process, confirmed.session_id, confirmed.claim.delegate
+                harness, process, confirmed.session_id, confirmed.delegate
             )
         return _session_identity(confirmed)
     if validated:
@@ -239,7 +246,7 @@ def _session_identity(confirmed: ValidatedSessionIdentity) -> AgentSessionIdenti
         ),
         process=confirmed.process,
         session_id=confirmed.session_id,
-        delegate=confirmed.claim.delegate,
+        delegate=confirmed.delegate,
     )
 
 
