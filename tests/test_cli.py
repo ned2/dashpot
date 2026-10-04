@@ -54,6 +54,9 @@ from dashpot.repository.worktrees.removability import (
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.integrate import (
     INTEGRATIONS,
+    CombinedStatus,
+    HarnessOutcome,
+    HarnessReport,
     IncompleteIntegrationError,
     IntegrationError,
 )
@@ -1812,6 +1815,83 @@ def test_an_incomplete_integrate_reports_what_it_wrote_then_what_failed(
     )
 
 
+def test_integrate_runs_several_harnesses_together_and_groups_their_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    reports = [
+        HarnessReport("claude-code", "installed", ("installed hooks in /c",)),
+        HarnessReport("codex", "not integrated", note="not integrated (no /x)"),
+        HarnessReport(
+            "opencode", "refused", note="refused", error="the opencode on PATH is 1.x"
+        ),
+    ]
+    with mock.patch.object(cli, "install_integrations", return_value=reports) as run:
+        code = cli.main(["integrate", "opencode", "claude-code", "codex", "opencode"])
+
+    run.assert_called_once_with(("claude-code", "codex", "opencode"))
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.out.splitlines() == [
+        "Claude Code:",
+        "  installed hooks in /c",
+        "Codex: not integrated (no /x)",
+        "OpenCode: refused",
+    ]
+    assert captured.err == "dashpot: OpenCode: the opencode on PATH is 1.x\n"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "code"),
+    [("installed", 0), ("partial", 0), ("not integrated", 0), ("incomplete", 2)],
+)
+def test_installed_fails_only_for_a_harness_refused_or_left_incomplete(
+    capsys: pytest.CaptureFixture[str], outcome: HarnessOutcome, code: int
+) -> None:
+    error = "disk full" if outcome == "incomplete" else None
+    report = HarnessReport("codex", outcome, ("a line",), error=error)
+    with mock.patch.object(cli, "refresh_integrations", return_value=[report]) as run:
+        assert cli.main(["integrate", "--installed"]) == code
+
+    run.assert_called_once_with()
+    assert capsys.readouterr().out.splitlines() == ["Codex:", "  a line"]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["integrate", "--status"], ["integrate", "--installed", "--status"]],
+)
+def test_integrate_status_without_a_harness_reports_every_harness(
+    capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    combined = CombinedStatus(
+        (
+            HarnessReport("claude-code", "reported", ("installed in /c",)),
+            HarnessReport("codex", "not integrated", note="not integrated (no /x)"),
+        ),
+        ("session records outside configured Projects: none",),
+    )
+    with mock.patch.object(cli, "integrations_status", return_value=combined) as run:
+        assert cli.main(argv) == 0
+
+    run.assert_called_once_with(())
+    assert capsys.readouterr().out.splitlines() == [
+        "Claude Code:",
+        "  installed in /c",
+        "Codex: not integrated (no /x)",
+        "session records outside configured Projects: none",
+    ]
+
+
+def test_one_harness_named_twice_is_integrated_as_one(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with mock.patch.object(cli, "install_integration", return_value=["done"]) as run:
+        assert cli.main(["integrate", "codex", "codex"]) == 0
+
+    run.assert_called_once_with("codex")
+    assert capsys.readouterr().out == "done\n"
+
+
 def test_anchors_for_two_projects_are_refused_at_startup(tmp_path: Path) -> None:
     roots = []
     for name, project_id in (
@@ -1954,8 +2034,25 @@ def test_timeout_is_accepted_after_the_subcommand_it_applies_to(
         (["worktree", "create"], "REFERENCE requires an argument"),
         (["worktree", "create", "35", "--no-dry-run"], "Unknown option: --no-dry-run"),
         (["init", "--timeout", "0"], "Must be > 0."),
-        (["integrate"], "HARNESS requires an argument"),
+        (
+            ["integrate"],
+            "name a harness to integrate, or pass --installed to refresh every "
+            "integrated harness",
+        ),
         (["integrate", "emacs"], 'Choose from: "codex", "claude-code"'),
+        (
+            ["integrate", "codex", "--installed"],
+            "name the harnesses to integrate or pass --installed, not both",
+        ),
+        (["integrate", "--remove"], "--remove takes exactly one named harness"),
+        (
+            ["integrate", "codex", "opencode", "--remove"],
+            "--remove takes exactly one named harness",
+        ),
+        (
+            ["integrate", "--installed", "--remove"],
+            "--remove takes exactly one named harness",
+        ),
         (
             ["integrate", "codex", "--status", "--remove"],
             "Mutually exclusive arguments: {--status, --remove}",
@@ -2062,7 +2159,8 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
     assert "--timeout" in init
 
     integrate = help_text(["integrate", "--help"])
-    assert "Usage: dashpot integrate [OPTIONS] HARNESS" in integrate
+    assert "Usage: dashpot integrate [OPTIONS] [HARNESS...]" in integrate
+    assert "--installed" in integrate
     assert "[choices: codex, claude-code, opencode]" in integrate
     assert "--status" in integrate
     assert "--remove" in integrate

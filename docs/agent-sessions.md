@@ -19,6 +19,7 @@ automatically; register the lifecycle hooks once per user with:
 ```bash
 dashpot integrate codex                 # hooks plus the bundled skills in ~/.agents/skills/
 dashpot integrate claude-code           # hooks plus the bundled skills in ~/.claude/skills/
+dashpot integrate --installed           # refresh every harness already integrated
 dashpot integrate <harness> --status    # diagnose hooks, skills, records, identity
 dashpot integrate <harness> --remove    # remove Dashpot's hooks and managed skills
 ```

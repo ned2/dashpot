@@ -1,4 +1,4 @@
-"""Install, check, and describe one harness's lifecycle hook integration."""
+"""Install, check, and describe each harness's lifecycle hook integration."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import shutil
 import stat
 import subprocess
 import sysconfig
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -411,13 +411,21 @@ def linked_worktree_binding(command: Path) -> LinkedWorktreeBinding | None:
 
 
 def _linked_worktree_consequence(
-    spec: HarnessIntegration, binding: LinkedWorktreeBinding
+    arguments: str,
+    binding: LinkedWorktreeBinding,
+    *,
+    publisher: str = "that publisher lives",
 ) -> str:
-    rerun = f"run 'dashpot integrate {spec.harness}' from "
+    """Say what binding a linked Worktree's publisher would do, and how to rerun.
+
+    ``arguments`` are the ones the rerun names, such as ``codex`` or
+    ``--installed``.
+    """
+    rerun = f"run 'dashpot integrate {arguments}' from "
     if binding.main_worktree is not None:
         rerun += f"the main working tree {binding.main_worktree} or from "
     return (
-        f"that publisher lives in the linked Worktree {binding.worktree}, which "
+        f"{publisher} in the linked Worktree {binding.worktree}, which "
         "is removed when its Issue is finished, and every hook event would fail "
         f"from then on; {rerun}an installed tool environment"
     )
@@ -461,7 +469,7 @@ def install_integration(
     if binding is not None:
         raise IntegrationError(
             f"cannot bind the {spec.display} hooks to {command}: "
-            f"{_linked_worktree_consequence(spec, binding)}"
+            f"{_linked_worktree_consequence(spec.harness, binding)}"
         )
     planned: list[str | _PendingWrite]
     if spec.plugin:
@@ -679,8 +687,13 @@ def integration_status(
     version_probe: Callable[[], str | None] | None = None,
     skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
     agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+    records: bool = True,
 ) -> list[str]:
-    """Report the observable state of one harness's integration."""
+    """Report the observable state of one harness's integration.
+
+    ``records`` adds the session record stores, which every harness shares,
+    so a report across harnesses states them once rather than per harness.
+    """
     spec = integration(harness)
     home = home or spec.default_home
     path = home / spec.hooks_file
@@ -724,7 +737,7 @@ def integration_status(
                     binding = linked_worktree_binding(executable)
                     if binding is not None:
                         messages.append(
-                            f"warning: {_linked_worktree_consequence(spec, binding)}"
+                            f"warning: {_linked_worktree_consequence(spec.harness, binding)}"
                         )
     destinations = _skill_copies(spec, home, skills)
     messages.extend(
@@ -740,9 +753,428 @@ def integration_status(
         messages.extend(_opencode_skill_copies(destinations))
         messages.extend(_opencode_plugin_copies(path, current, environ))
         messages.extend(_opencode_runtime_status(version_probe, environ, lookup))
-    messages.extend(_record_store_status(state_dir, current, lookup))
+    if records:
+        messages.extend(_record_store_status(state_dir, current, lookup))
     messages.extend(_claimed_identity_status(spec, current, lookup, environ))
     return messages
+
+
+# Several harnesses in one command run in this order, whatever order they
+# are named in: OpenCode also discovers Claude Code's and Codex's skill
+# copies, so its check of them then reads copies this same command has just
+# refreshed, and warns only about a genuine conflict (ADR 0111).
+INTEGRATION_ORDER: tuple[Harness, ...] = ("claude-code", "codex", "opencode")
+
+# How far one harness's integration is installed. Integrated means every
+# lifecycle hook is registered, however stale its skills or agents; partial
+# means some of Dashpot's integration is there without every hook.
+IntegrationState = Literal["integrated", "partial", "not integrated"]
+
+# What one harness's part of a command across harnesses came to.
+HarnessOutcome = Literal[
+    "installed", "incomplete", "refused", "partial", "not integrated", "reported"
+]
+
+
+@dataclass(frozen=True, slots=True)
+class IntegrationPresence:
+    """How far one harness's integration is installed, and what shows it."""
+
+    state: IntegrationState
+    # What was found, such as "missing hook events: Stop".
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class HarnessReport:
+    """One harness's part of an ``integrate`` across harnesses."""
+
+    harness: Harness
+    outcome: HarnessOutcome
+    # What the harness's own ``integrate`` or ``--status`` would print.
+    messages: tuple[str, ...] = ()
+    # Said beside the harness's name, such as "refused" or "not integrated".
+    note: str | None = None
+    # Why the harness was refused or left incomplete; ``None`` otherwise.
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedStatus:
+    """``--status`` across harnesses: each harness's report, then what they share."""
+
+    harnesses: tuple[HarnessReport, ...]
+    # The session record stores, which every harness shares, and any advice
+    # that spans harnesses.
+    messages: tuple[str, ...]
+
+
+def in_integration_order(harnesses: Iterable[Harness]) -> tuple[Harness, ...]:
+    """Each named harness once, in the order a command across harnesses runs them."""
+    named = frozenset(harnesses)
+    return tuple(harness for harness in INTEGRATION_ORDER if harness in named)
+
+
+def integration_presence(
+    harness: Harness,
+    home: Path | None = None,
+    *,
+    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+) -> IntegrationPresence:
+    """Tell whether one harness is integrated: every lifecycle hook registered.
+
+    A stale integration, every hook registered but a skill or agent behind
+    or missing, is integrated, and refreshing it is what ``--installed``
+    does. Some hooks without the others, or a managed skill or agent left
+    with no hook, is partial: the person's opt-in incomplete or half
+    removed. Raises ``IntegrationError`` when the hooks file or plugin
+    cannot be read to tell.
+    """
+    spec = integration(harness)
+    home = home or spec.default_home
+    if not home.is_dir():
+        return IntegrationPresence(
+            "not integrated", f"no {spec.display} configuration directory at {home}"
+        )
+    path = home / spec.hooks_file
+    missing = _missing_hooks(spec, path)
+    if missing is not None and not missing:
+        return IntegrationPresence(
+            "integrated", f"every lifecycle hook registered in {path}"
+        )
+    if missing is not None:
+        return IntegrationPresence(
+            "partial", f"missing hook events in {path}: {', '.join(missing)}"
+        )
+    left = [
+        *(
+            f"the Dashpot {skill.label} at {target}"
+            for skill, target in _skill_copies(spec, home, skills)
+            if _is_managed(skill, target)
+        ),
+        *(
+            f"the Dashpot {agent.label} at {target}"
+            for agent, target in _agent_copies(spec, home, agents)
+            if _is_managed_agent(agent, target)
+        ),
+    ]
+    hooks = "plugin" if spec.plugin else "hooks"
+    if left:
+        return IntegrationPresence(
+            "partial", f"no Dashpot {hooks} at {path}, but {', '.join(left)}"
+        )
+    return IntegrationPresence("not integrated", f"no Dashpot {hooks} at {path}")
+
+
+def _missing_hooks(spec: HarnessIntegration, path: Path) -> tuple[str, ...] | None:
+    """Each of Dashpot's subscriptions not registered; ``None`` when none is.
+
+    OpenCode's managed plugin registers every one of its events at once.
+    """
+    if not path.is_file():
+        return None
+    if spec.plugin:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise IntegrationError(
+                f"cannot tell whether {spec.display} is integrated: cannot read "
+                f"{path}: {exc}; fix or move it and retry"
+            ) from exc
+        return () if text.startswith(PLUGIN_MARKER) else None
+    commands = _installed_commands(_load_hooks_document(spec, path))
+    if not commands:
+        return None
+    return tuple(label for label in spec.hook_labels if label not in commands)
+
+
+def _partial_advice(harness: Harness, detail: str) -> str:
+    return (
+        f"{detail}; run 'dashpot integrate {harness}' to complete it, or "
+        f"'dashpot integrate {harness} --remove' to clear it"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _PlannedInstall:
+    """A harness a command across harnesses will install, bound to its publisher."""
+
+    harness: Harness
+    command: Path
+
+
+def install_integrations(
+    harnesses: Sequence[Harness],
+    *,
+    command_paths: Mapping[Harness, Path] | None = None,
+    version_probe: Callable[[], str | None] | None = None,
+    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+) -> list[HarnessReport]:
+    """Install each named harness's integration, each standing alone.
+
+    The harnesses run in ``INTEGRATION_ORDER``: one refused, or left
+    incomplete, does not stop the others (ADR 0110). A publisher in a
+    linked Worktree concerns the whole command, so it is refused, raising
+    ``IntegrationError``, before any harness changes (ADR 0111).
+    """
+    named = in_integration_order(harnesses)
+    return _install_across(
+        [_plan_install(harness, command_paths) for harness in named],
+        " ".join(named),
+        version_probe=version_probe,
+        skills=skills,
+        agents=agents,
+    )
+
+
+def refresh_integrations(
+    *,
+    command_paths: Mapping[Harness, Path] | None = None,
+    version_probe: Callable[[], str | None] | None = None,
+    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+) -> list[HarnessReport]:
+    """Refresh every integrated harness, as ``--installed``, and install into no other.
+
+    Only a harness whose every lifecycle hook is registered is refreshed,
+    however stale its skills or agents; a partial one is left as it is and
+    reported, and one not integrated gets a line. Otherwise it runs as
+    ``install_integrations`` does (ADR 0111).
+    """
+    return _install_across(
+        [
+            _skip_unless_integrated(harness, skills, agents)
+            or _plan_install(harness, command_paths)
+            for harness in INTEGRATION_ORDER
+        ],
+        "--installed",
+        version_probe=version_probe,
+        skills=skills,
+        agents=agents,
+    )
+
+
+def _plan_install(
+    harness: Harness, command_paths: Mapping[Harness, Path] | None
+) -> HarnessReport | _PlannedInstall:
+    """Bind a harness to its publisher, or refuse it alone when none is found."""
+    try:
+        command = (command_paths or {}).get(harness) or resolve_hook_command(
+            integration(harness)
+        )
+    except IntegrationError as exc:
+        return _refused(harness, exc)
+    return _PlannedInstall(harness, command)
+
+
+def _install_across(
+    planned: Sequence[HarnessReport | _PlannedInstall],
+    arguments: str,
+    *,
+    version_probe: Callable[[], str | None] | None,
+    skills: tuple[BundledSkill, ...],
+    agents: tuple[BundledAgent, ...],
+) -> list[HarnessReport]:
+    """Install each planned harness in turn, once no publisher is a linked Worktree's.
+
+    ``arguments`` are the command's own, which a linked-Worktree refusal
+    names for the rerun.
+    """
+    _refuse_linked_worktree_publishers(
+        [item for item in planned if isinstance(item, _PlannedInstall)], arguments
+    )
+    reports: list[HarnessReport] = []
+    for item in planned:
+        if isinstance(item, HarnessReport):
+            reports.append(item)
+            continue
+        try:
+            messages = install_integration(
+                item.harness,
+                command_path=item.command,
+                version_probe=version_probe,
+                skills=skills,
+                agents=agents,
+            )
+        except IncompleteIntegrationError as exc:
+            reports.append(
+                HarnessReport(
+                    item.harness, "incomplete", exc.messages, "incomplete", str(exc)
+                )
+            )
+        except IntegrationError as exc:
+            reports.append(_refused(item.harness, exc))
+        else:
+            reports.append(HarnessReport(item.harness, "installed", tuple(messages)))
+    return reports
+
+
+def _skip_unless_integrated(
+    harness: Harness,
+    skills: tuple[BundledSkill, ...],
+    agents: tuple[BundledAgent, ...],
+) -> HarnessReport | None:
+    """The report of a harness ``--installed`` leaves alone; ``None`` to refresh it."""
+    try:
+        presence = integration_presence(harness, skills=skills, agents=agents)
+    except IntegrationError as exc:
+        return _refused(harness, exc)
+    if presence.state == "integrated":
+        return None
+    if presence.state == "partial":
+        return HarnessReport(
+            harness,
+            "partial",
+            (f"left unchanged: {_partial_advice(harness, presence.detail)}",),
+            "partial",
+        )
+    return HarnessReport(
+        harness, "not integrated", note=f"not integrated ({presence.detail})"
+    )
+
+
+def _refused(harness: Harness, error: IntegrationError) -> HarnessReport:
+    return HarnessReport(harness, "refused", note="refused", error=str(error))
+
+
+def _refuse_linked_worktree_publishers(
+    planned: Sequence[_PlannedInstall], arguments: str
+) -> None:
+    """Refuse the whole command when any harness would bind a linked Worktree's publisher."""
+    linked = [
+        (item.harness, item.command, binding)
+        for item in planned
+        if (binding := linked_worktree_binding(item.command)) is not None
+    ]
+    if not linked:
+        return
+    harness, command, binding = linked[0]
+    if len(linked) == 1:
+        raise IntegrationError(
+            f"cannot bind the {HARNESS_DISPLAY[harness]} hooks to {command}: "
+            f"{_linked_worktree_consequence(arguments, binding)}"
+        )
+    # One environment installs every harness's publisher, so the first
+    # names the Worktree they all live in.
+    names = _display_list([harness for harness, _command, _binding in linked])
+    consequence = _linked_worktree_consequence(
+        arguments, binding, publisher="those publishers live"
+    )
+    raise IntegrationError(
+        f"cannot bind the {names} hooks to their publishers in {command.parent}: "
+        f"{consequence}"
+    )
+
+
+def _display_list(harnesses: Sequence[Harness]) -> str:
+    """Name harnesses in prose: ``Codex``, ``Claude Code and Codex``, or a serial list."""
+    names = [HARNESS_DISPLAY[harness] for harness in harnesses]
+    if len(names) <= 2:
+        return " and ".join(names)
+    return f"{', '.join(names[:-1])}, and {names[-1]}"
+
+
+def integrations_status(
+    harnesses: Sequence[Harness] = (),
+    *,
+    state_dir: Path | None = None,
+    current: Path | None = None,
+    lookup: ProcessLookup = host_process_lookup,
+    environ: Mapping[str, str] | None = None,
+    version_probe: Callable[[], str | None] | None = None,
+    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+) -> CombinedStatus:
+    """Report each named harness's integration, or every harness's when none is named.
+
+    With none named, a harness not integrated gets one line; an integrated
+    or partial one gets its full report, a partial one led by how to
+    complete or clear it. The session record stores, which every harness
+    shares, are reported once, after them. When two or more integrated
+    harnesses have an update available, one line names the command that
+    updates them together (ADR 0111).
+    """
+
+    def report(harness: Harness) -> list[str]:
+        return integration_status(
+            harness,
+            state_dir=state_dir,
+            current=current,
+            lookup=lookup,
+            environ=environ,
+            version_probe=version_probe,
+            skills=skills,
+            agents=agents,
+            records=False,
+        )
+
+    reports: list[HarnessReport] = []
+    stale: list[Harness] = []
+    for harness in in_integration_order(harnesses or INTEGRATION_ORDER):
+        spec = integration(harness)
+        try:
+            presence = integration_presence(harness, skills=skills, agents=agents)
+        except IntegrationError:
+            # The harness's own report names what cannot be read.
+            presence = None
+        state = None if presence is None else presence.state
+        detail = "" if presence is None else presence.detail
+        if state == "integrated" and _has_update(
+            spec, spec.default_home, skills, agents
+        ):
+            stale.append(harness)
+        if state == "partial":
+            advice = _partial_advice(harness, detail)
+            reports.append(
+                HarnessReport(harness, "partial", (advice, *report(harness)), "partial")
+            )
+        elif state == "not integrated" and not harnesses:
+            note = f"not integrated ({detail})"
+            reports.append(HarnessReport(harness, "not integrated", note=note))
+        else:
+            reports.append(HarnessReport(harness, "reported", tuple(report(harness))))
+    messages = _record_store_status(state_dir, current, lookup)
+    if len(stale) > 1:
+        rerun = " ".join(stale) if harnesses else "--installed"
+        messages.append(
+            f"updates available for {_display_list(stale)}; run 'dashpot "
+            f"integrate {rerun}' to update them together"
+        )
+    return CombinedStatus(tuple(reports), tuple(messages))
+
+
+def _has_update(
+    spec: HarnessIntegration,
+    home: Path,
+    skills: tuple[BundledSkill, ...],
+    agents: tuple[BundledAgent, ...],
+) -> bool:
+    """Whether refreshing an integrated harness would update its skills, agents or plugin.
+
+    A skill or agent this release adds counts, as one behind does; one held
+    by what Dashpot does not manage does not, since refreshing refuses it.
+    """
+    for skill, target in _skill_copies(spec, home, skills):
+        try:
+            state = _copy_state(skill, target)
+        except (OSError, ValueError):
+            continue
+        if state in ("vacant", "managed") and not _is_current(skill, target):
+            return True
+    for agent, target in _agent_copies(spec, home, agents):
+        ours = not os.path.lexists(target) or _is_managed_agent(agent, target)
+        if ours and not _is_current_agent(agent, target):
+            return True
+    if not spec.plugin:
+        return False
+    try:
+        plugin = _managed_plugin(home / spec.hooks_file)
+    except IntegrationError:  # pragma: no cover - read as Dashpot's just before.
+        return False
+    helper = None if plugin is None else _plugin_helper(plugin)
+    return helper is not None and plugin != render_plugin(helper)
 
 
 def install_codex_integration(
@@ -1581,11 +2013,7 @@ def plugin_status(spec: HarnessIntegration, home: Path) -> list[str]:
         return [f"plugin conflict: {exc}"]
     if current is None:
         return [f"not installed: no {path}"]
-    bound = PLUGIN_HELPER.search(current)
-    try:
-        helper = Path(json.loads(bound.group(1))) if bound else None
-    except ValueError:
-        helper = None
+    helper = _plugin_helper(current)
     if helper is None:
         return [
             f"plugin at {path} names no hook publisher; run 'dashpot integrate "
@@ -1608,8 +2036,19 @@ def plugin_status(spec: HarnessIntegration, home: Path) -> list[str]:
         messages.append(f"hook publisher: {helper}")
         binding = linked_worktree_binding(helper)
         if binding is not None:
-            messages.append(f"warning: {_linked_worktree_consequence(spec, binding)}")
+            messages.append(
+                f"warning: {_linked_worktree_consequence(spec.harness, binding)}"
+            )
     return messages
+
+
+def _plugin_helper(plugin: str) -> Path | None:
+    """The hook publisher a managed plugin's text is bound to, if it names one."""
+    bound = PLUGIN_HELPER.search(plugin)
+    try:
+        return Path(json.loads(bound.group(1))) if bound else None
+    except ValueError:
+        return None
 
 
 def _opencode_skill_copies(destinations: list[tuple[BundledSkill, Path]]) -> list[str]:

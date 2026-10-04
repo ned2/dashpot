@@ -22,6 +22,7 @@ from dashpot.core.git import GitError
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.github.github import GitHubRequestError
 from dashpot.repository.cleanup import TargetResult
+from dashpot.sessions.integrate import HarnessReport
 from factories import write_config_marker, write_project_config
 from test_cli import PLAN, cleanup_preview, cleanup_report, cleanup_target
 
@@ -311,6 +312,59 @@ def test_an_integration_records_its_harness_and_what_it_did(
         "dashpot.target.harness": "claude-code",
     }
     assert "/home/someone" not in written_text(events)
+
+
+def test_an_integration_across_harnesses_counts_the_harnesses_refused(
+    events: Path,
+) -> None:
+    reports = [
+        HarnessReport("claude-code", "installed", ("done at /home/someone",)),
+        HarnessReport("codex", "refused", note="refused", error="no /home/someone"),
+        HarnessReport("opencode", "refused", note="refused", error="v1"),
+    ]
+    with mock.patch.object(cli, "refresh_integrations", return_value=reports):
+        assert run(events, "integrate", "--installed") == 2
+
+    assert body(outcome(events)) == {
+        "event.name": "command.outcome",
+        "dashpot.subcommand": "integrate",
+        "dashpot.outcome.result": "refused",
+        "dashpot.outcome.action": "installed",
+        "dashpot.outcome.refusal_count": 2,
+    }
+    assert "/home/someone" not in written_text(events)
+
+
+def test_an_integration_across_harnesses_left_incomplete_is_a_failure(
+    events: Path,
+) -> None:
+    reports = [
+        HarnessReport("codex", "incomplete", note="incomplete", error="disk full"),
+        HarnessReport("opencode", "partial", ("left unchanged",), "partial"),
+    ]
+    with mock.patch.object(cli, "install_integrations", return_value=reports):
+        assert run(events, "integrate", "codex", "opencode") == 2
+
+    assert body(outcome(events)) == {
+        "event.name": "command.outcome",
+        "dashpot.subcommand": "integrate",
+        "dashpot.outcome.result": "failed",
+        "dashpot.outcome.action": "installed",
+    }
+
+
+def test_an_integration_that_changed_no_harness_records_no_action(
+    events: Path,
+) -> None:
+    reports = [HarnessReport("codex", "not integrated", note="not integrated")]
+    with mock.patch.object(cli, "refresh_integrations", return_value=reports):
+        assert run(events, "integrate", "--installed") == 0
+
+    assert body(outcome(events)) == {
+        "event.name": "command.outcome",
+        "dashpot.subcommand": "integrate",
+        "dashpot.outcome.result": "succeeded",
+    }
 
 
 def test_init_names_the_checkout_it_initialized(events: Path, tmp_path: Path) -> None:

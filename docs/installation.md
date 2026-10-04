@@ -489,6 +489,9 @@ dashpot integrate opencode
 dashpot integrate opencode --status
 ```
 
+One command can name several harnesses, as `dashpot integrate claude-code
+codex`, and `dashpot integrate --status` with no harness reports every one.
+
 Register only the harnesses you use, from the environment you mean to keep:
 a tool installation or the Repository's main working tree, never a linked
 Issue Worktree, whose `.venv` is removed with it. Review any hook-trust
@@ -602,7 +605,43 @@ A Codex integration installed before Dashpot subscribed Codex's
 hold their parent running nor block Worktree Cleanup:
 `dashpot integrate codex --status` lists both events as missing. Run
 `dashpot integrate codex` again to add them, and accept Codex's trust prompt
-for the new hooks when it asks.
+for the new hooks when it asks. `dashpot integrate --installed` reports such
+an installation as partial and leaves it unchanged, since some of its hooks
+are missing.
+
+### Integrate several harnesses
+
+`dashpot integrate` takes several harnesses at once, and `dashpot integrate
+--installed` refreshes every harness already integrated
+([ADR 0111](adr/0111-integrate-several-harnesses-and-every-integrated-one-in-one-command.md)):
+
+- **Integrated** means every one of Dashpot's lifecycle hooks is registered
+  for the harness, or for OpenCode its managed plugin is installed.
+  `--installed` refreshes such a harness even when a skill, agent or plugin
+  is behind, and installs a skill or agent a new release adds.
+- **Partial**, with some hooks missing, or a managed skill or agent left
+  without any hook, is left unchanged and reported, naming `dashpot
+  integrate <harness>` to complete it and `dashpot integrate <harness>
+  --remove` to clear it.
+- **Not integrated** gets one line. `--installed` never installs into a
+  harness you have not integrated, even one on `PATH`.
+
+The harnesses run in the order Claude Code, Codex, OpenCode, whatever order
+they are named in, so OpenCode's check of the skill copies it also discovers
+reads copies the same command has just refreshed. Each harness stands alone:
+one refused, such as OpenCode while the `opencode` on PATH is a 1.x release,
+or left incomplete does not stop the others. The output is grouped under
+each harness's name, a refusal is printed as `dashpot: <harness>: <error>`,
+and the command exits non-zero when any harness was refused or left
+incomplete; a partial one alone does not. A publisher in a linked Worktree
+refuses the whole command before any harness changes. `--remove` takes
+exactly one harness.
+
+`dashpot integrate --status`, with no harness or with `--installed`,
+reports each integrated or partial harness in full, a line for each one
+not integrated, and the session record stores once. When two or more
+integrated harnesses have an update available, its last line names
+`dashpot integrate --installed` to update them together.
 
 ## Diagnose an installation
 
@@ -639,16 +678,16 @@ upgrade. Review the [changelog](../CHANGELOG.md), then:
 ```bash
 uv tool upgrade dashpot
 dashpot --version
-dashpot integrate codex
-dashpot integrate claude-code
-dashpot integrate opencode
+dashpot integrate --installed
+dashpot integrate --status
 ```
 
-Rerun only installed integrations, then check their `--status` and restart the
-harnesses. The hooks contain absolute publisher paths, and the managed skill
-must match the installed version. `uv tool upgrade` respects the original
-version constraint; an installation pinned to an exact release must be
-reinstalled with the desired version. Within `0.1.x`, documented commands,
+`--installed` refreshes only the integrations you installed
+([Integrate several harnesses](#integrate-several-harnesses)); then check
+their `--status` and restart the harnesses. The hooks contain absolute
+publisher paths, and the managed skill must match the installed version.
+`uv tool upgrade` respects the original version constraint; an installation
+pinned to an exact release must be reinstalled with the desired version. Within `0.1.x`, documented commands,
 JSON, and user configuration remain compatible; a breaking change requires a
 new minor release and release notes. Downgrades across changed Work Store
 versions are not promised.
