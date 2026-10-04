@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
+from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
 from itertools import chain
@@ -204,17 +205,7 @@ def update_peer_alert(screen: Screen[None], app: DashpotApp) -> None:
 
 def update_peer_diagnostics(screen: Screen[None], app: DashpotApp) -> None:
     """Render one peer's Diagnostics and exceptional-state readouts."""
-    readout = list_diagnostics(
-        app.store,
-        failures=app.observations.errors,
-        launcher_diagnostics=app.launcher_configuration.diagnostics,
-        fetch_failures=app.fetches.errors,
-        event_log_diagnostics=(
-            *app.event_log_diagnostics,
-            *app.event_log_size_diagnostics,
-        ),
-        attendance_diagnostics=app.attendance_diagnostics(),
-    )
+    readout = list_diagnostics(app.own_diagnostics(), app.observed_diagnostics())
     paint_readout(
         screen.query_one("#diagnostics", Static),
         readout,
@@ -1229,20 +1220,49 @@ class DashpotApp(App[None]):
             loop.call_soon_threadsafe(self.log.info, line)
 
     def shown_diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
-        """Every Diagnostic the Diagnostics box shows, each with its code and Project."""
+        """Every Diagnostic the Diagnostics box shows, each with its code and Project.
+
+        The box and the ``diagnostic.changed`` events both read this, so
+        neither shows a Diagnostic the other misses.
+        """
+        return (*self.own_diagnostics(), *self.observed_diagnostics())
+
+    def own_diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
+        """The dashboard's own Diagnostics: failed refreshes and Remote Fetches, its settings and Event Log."""
+        return tuple(
+            self._labelled(entry)
+            for entry in (
+                *self.observations.failure_diagnostics(),
+                *(
+                    ObservedDiagnostic(diagnostic)
+                    for diagnostic in (
+                        *self.launcher_configuration.diagnostics,
+                        *self.event_log_diagnostics,
+                        *self.event_log_size_diagnostics,
+                    )
+                ),
+                *self.fetches.failure_diagnostics(),
+            )
+        )
+
+    def observed_diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
+        """The Diagnostics observed for a source: an Unattended Pause's, then every Project's."""
         return (
-            *self.observations.failure_diagnostics(),
             *(
                 ObservedDiagnostic(diagnostic)
-                for diagnostic in (
-                    *self.launcher_configuration.diagnostics,
-                    *self.event_log_diagnostics,
-                    *self.attendance_diagnostics(),
-                )
+                for diagnostic in self.attendance_diagnostics()
             ),
-            *self.fetches.failure_diagnostics(),
             *self.store.diagnostics(),
         )
+
+    def _labelled(self, entry: ObservedDiagnostic) -> ObservedDiagnostic:
+        if entry.project_label is not None or entry.project_id is None:
+            return entry
+        # A Project no longer observed, whose failure is still shown, is
+        # named by its identity rather than not at all.
+        project = self.store.project(entry.project_id)
+        label = entry.project_id if project is None else project.display_label
+        return replace(entry, project_label=label)
 
     def update_diagnostics(self) -> None:
         """Redraw the diagnostics readout after a flow recorded a failure."""

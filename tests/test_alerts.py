@@ -11,7 +11,10 @@ from dashpot.core.model import (
     WorkspaceSnapshot,
 )
 from dashpot.observation.keys import AGENT_RUNS_KEY, ObservationKey
-from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.observation.observation_store import (
+    ObservedDiagnostic,
+    WorkspaceObservationStore,
+)
 from dashpot.queries.page_navigation import PageQueryState
 from dashpot.queries.source_queries import ResourceKind
 from dashpot.ui.alerts import list_diagnostics, summarize_alerts
@@ -261,11 +264,17 @@ def test_an_explicit_fetch_in_flight_is_informational_and_names_the_project() ->
 
 
 def test_healthy_state_has_no_diagnostics() -> None:
-    assert list_diagnostics(store(project("alpha"))) is None
-    assert list_diagnostics(WorkspaceObservationStore()) is None
+    assert list_diagnostics() is None
+    assert list_diagnostics((), store(project("alpha")).diagnostics()) is None
 
 
-def test_diagnostics_list_the_apps_own_failures_before_every_observed_line() -> None:
+def test_diagnostics_list_the_apps_own_before_every_observed_line() -> None:
+    refresh = Diagnostic(
+        source="refresh:issues",
+        severity="error",
+        message="Refresh failed: GitHub down",
+        code="refresh-failed",
+    )
     settings = Diagnostic(
         source="settings", severity="warning", message="launcher misconfigured"
     )
@@ -274,6 +283,12 @@ def test_diagnostics_list_the_apps_own_failures_before_every_observed_line() -> 
         severity="warning",
         message="Cannot write the Event Log",
         code="event-log-unavailable",
+    )
+    fetch = Diagnostic(
+        source="fetch:alpha",
+        severity="error",
+        message="Fetch failed: no remote",
+        code="remote-fetch-failed",
     )
     rate_limit = Diagnostic(
         source="github",
@@ -288,28 +303,32 @@ def test_diagnostics_list_the_apps_own_failures_before_every_observed_line() -> 
         code="work-session-conflict",
     )
     readout = list_diagnostics(
-        store(project("alpha", diagnostics=(rate_limit,)), diagnostics=[conflict]),
-        failures={ObservationKey("issues", "alpha"): "Refresh failed: GitHub down"},
-        launcher_diagnostics=(settings,),
-        fetch_failures={"alpha": "Fetch failed: Alpha: no remote"},
-        event_log_diagnostics=(event_log,),
+        (
+            ObservedDiagnostic(refresh, project_label="Alpha", project_id="alpha"),
+            ObservedDiagnostic(settings),
+            ObservedDiagnostic(event_log),
+            ObservedDiagnostic(fetch, project_label="Alpha", project_id="alpha"),
+        ),
+        store(
+            project("alpha", diagnostics=(rate_limit,)), diagnostics=[conflict]
+        ).diagnostics(),
     )
 
     assert readout is not None
     assert readout.severity == "error"
     assert readout.lines == "\n".join(
         (
-            "✖ Refresh failed: GitHub down",
+            "✖ Alpha · Refresh failed: GitHub down",
             "⚠ launcher misconfigured",
             "⚠ Cannot write the Event Log",
-            "✖ Fetch failed: Alpha: no remote",
+            "✖ Alpha · Fetch failed: no remote",
             "⚠ workspace: two sessions claim one run",
             "↻ Alpha · github: rate limit low",
         )
     )
 
 
-def test_an_unattended_pause_reads_with_the_source_it_speaks_for() -> None:
+def test_an_observed_diagnostic_reads_with_the_source_it_speaks_for() -> None:
     paused = Diagnostic(
         source="github",
         severity="info",
@@ -317,9 +336,7 @@ def test_an_unattended_pause_reads_with_the_source_it_speaks_for() -> None:
         code="github-unattended-paused",
     )
 
-    readout = list_diagnostics(
-        store(project("alpha")), attendance_diagnostics=(paused,)
-    )
+    readout = list_diagnostics(observed=(ObservedDiagnostic(paused),))
 
     assert readout is not None
     assert readout.severity == "info"
@@ -328,14 +345,14 @@ def test_an_unattended_pause_reads_with_the_source_it_speaks_for() -> None:
 
 def test_a_project_diagnostic_keeps_its_severity_and_names_its_project() -> None:
     readout = list_diagnostics(
-        store(
+        observed=store(
             project(
                 "alpha",
                 diagnostics=(
                     Diagnostic(source="github", severity="info", message="fine"),
                 ),
             )
-        )
+        ).diagnostics()
     )
 
     assert readout is not None

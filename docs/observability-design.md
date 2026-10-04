@@ -153,7 +153,7 @@ any precision, so lines written before #337 still read.
 | `dashpot.outcome.refusal_count`, `dashpot.outcome.dry_run` | `command.outcome` | How many refusals a plan or Cleanup stated, never their text; whether it was a dry run |
 | `dashpot.target.path`, `dashpot.target.branch`, `dashpot.target.harness` | `command.outcome` | The Worktree, Branch or harness the command acted on |
 | `dashpot.duration_seconds` | `command.outcome` | How long the command's work took |
-| `dashpot.agent_session.change` | `agent_session.changed` | `appeared`, `bound`, `switched`, `unbound`, `relocated`, `ended` |
+| `dashpot.agent_session.change` | `agent_session.changed` | `appeared`, `bound`, `switched`, `unbound`, `relocated`; `orphaned` when its Agent Run is an Orphaned Agent Run, including one already orphaned when the dashboard starts, and `continued` when its session takes the run back, whether a resume continues it or `work start` replaces it with a restarted run; `ended` |
 | `dashpot.issue.previous_id`, `dashpot.worktree.previous_path` | `agent_session.changed` | The Issue a session was bound to before `switched` or `unbound`; the Worktree it left when `relocated` |
 | `dashpot.diagnostic.change`, `dashpot.diagnostic.severity` | `diagnostic.changed` | `appeared` or `cleared`, and the Diagnostic's severity |
 | `dashpot.diagnostic.source`, `dashpot.diagnostic.code` | `diagnostic.changed` | What identifies the Diagnostic, with its Project; `uncoded` for one without a code |
@@ -185,12 +185,17 @@ A span is written once, when it ends, stamped with the time it started. A
 hook records one `hook.outcome` and a management command one
 `command.outcome` before its `process.end`, and each names the Agent
 Session, Issue or Worktree it learned it works for on that event and every
-later one. A dashboard records `agent_session.changed` and
-`diagnostic.changed` only when what it observes changes, never for a refresh
-that changes nothing; each names its subject — the session's harness, ID,
-Project, Worktree and Issue, or the Diagnostic's Project — in the identity
-fields, beside the dashboard's own run ID and kind, so `dashpot events
---session` or `--project` finds it. A dashboard over one Project names that
+later one. A management command also names the Project of the configured
+checkout whose Event Log it writes to, and `init` the Project it declared;
+a command writing to the machine-local fallback names none. A dashboard
+records `agent_session.changed` and `diagnostic.changed` only when what it
+observes changes, never for a refresh that changes nothing; each names its
+subject — the session's harness, ID, Project, Worktree and Issue, or the
+Diagnostic's Project — in the identity fields, beside the dashboard's own
+run ID and kind, so `dashpot events --session` or `--project` finds it. The
+Diagnostics box and the `diagnostic.changed` events read one list of
+Diagnostics, so the log records every Diagnostic the box shows,
+`event-log-large` included. A dashboard over one Project names that
 Project on its own events once it is observed. A `rate_limit_pause.changed` is
 recorded by the request that saw the change: the refused request records
 `started`, the first request admitted after the pause's due time records
@@ -201,8 +206,9 @@ focus or a reattached client ends it. A runtime value that does not
 fit its field, such as a Branch name Git would refuse, is left out of the
 event rather than failing the work. The reader is tolerant: it ignores fields a newer Dashpot added and skips a line
 it cannot read, whose `schema` is newer, or whose `event.name` it does not
-know. A change a tolerant reader could not read bumps `schema`. `dashpot
-events --json` is the published interface under
+know. A change an older reader would misread, rather than skip, bumps
+`schema`; a new value of an existing field does not, since an older reader
+skips that line as one it cannot read. `dashpot events --json` is the published interface under
 [ADR 0034](adr/0034-publish-an-alpha-with-patch-compatible-interfaces.md);
 the file format is not. Each event in it keeps the field names above, with
 an absent field as `null`, rather than the camelCase of the other `--json`
@@ -264,7 +270,14 @@ output.
 - **Fallback:** `$XDG_STATE_HOME/dashpot/events/`, else
   `~/.local/state/dashpot/events/`, or
   `~/Library/Application Support/dashpot/events/` on macOS — beside the
-  hook records' `runs/`.
+  hook records' `runs/`. With no home directory either, there is nowhere to
+  write: a hook or command outside every configured checkout records
+  nothing, and a dashboard keeps only its recent events in memory. That
+  includes `dashpot events remove` refusing for that very reason, since a
+  command keeps no events in memory and its outcome is discarded.
+  [#338](https://github.com/ned2/dashpot/issues/338) accepts the gap: by
+  construction there is nowhere to keep the event, and the refusal's
+  message on stderr says why.
 - **The directory ignores itself.** `.dashpot/state/` is created through
   `ensure_state_directory`, which writes its `.gitignore` of `*`
   ([#312](https://github.com/ned2/dashpot/issues/312)); the fallback gets

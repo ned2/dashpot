@@ -162,7 +162,8 @@ class RemoteFetchFlow:
         report = message.report
         if report is None or not report.succeeded:
             detail = message.error if report is None else report.summary()
-            self.errors[message.project_id] = f"Fetch failed: {label}: {detail}"
+            # The Diagnostics box names the Project before the message.
+            self.errors[message.project_id] = f"Fetch failed: {detail}"
             self.host.notify(
                 f"{label}: {detail}", severity="error", title="Dashpot fetch"
             )

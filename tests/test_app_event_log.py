@@ -25,6 +25,7 @@ from dashpot.core.event_log import (
 )
 from dashpot.core.event_log_files import LARGE_EVENT_LOG_BYTES
 from dashpot.core.runtime_events import (
+    DiagnosticChanged,
     EventLevel,
     EventLogWriteFailed,
     LevelChanged,
@@ -231,12 +232,24 @@ async def test_a_large_event_log_is_warned_of_until_it_is_removed(
         assert "past 200 MB" in diagnostics_text(app)
         assert "dashpot events remove" in diagnostics_text(app)
         assert past.exists()
+        # The Event Log records what the Diagnostics box shows.
+        assert large_log_changes(log) == ["appeared"]
 
         past.unlink()
         app.timer_refresh()
         await wait_until(lambda: not app.event_log_size_diagnostics)
 
         assert "past 200 MB" not in diagnostics_text(app)
+        assert large_log_changes(log) == ["appeared", "cleared"]
+
+
+def large_log_changes(log: EventLog) -> list[str]:
+    return [
+        event.body.change
+        for event in log.recent_events()
+        if isinstance(event.body, DiagnosticChanged)
+        and event.body.code == "event-log-large"
+    ]
 
 
 @pytest.mark.asyncio

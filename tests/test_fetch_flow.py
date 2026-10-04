@@ -204,7 +204,7 @@ def test_a_failure_is_kept_until_a_fetch_there_succeeds() -> None:
     fetches, host = flow()
     fetches.request(held=())
     fetches.record(host.pop_call(f"fetch:{PROJECT_ID}").land(error="boom"))
-    assert fetches.errors == {PROJECT_ID: f"Fetch failed: {LABEL}: boom"}
+    assert fetches.errors == {PROJECT_ID: "Fetch failed: boom"}
     assert host.toasts[-1] == ("error", "Dashpot fetch", f"{LABEL}: boom")
     assert not host.observed_groups()
 
@@ -219,9 +219,7 @@ def test_a_fetch_that_reached_no_remote_leaves_the_observation_alone() -> None:
     )
     fetches.request(held=())
     fetches.record(host.pop_call(f"fetch:{PROJECT_ID}").land())
-    assert fetches.errors == {
-        PROJECT_ID: f"Fetch failed: {LABEL}: no remote configured"
-    }
+    assert fetches.errors == {PROJECT_ID: "Fetch failed: no remote configured"}
     assert not host.observed_groups()
 
 

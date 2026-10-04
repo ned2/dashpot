@@ -207,7 +207,7 @@ async def test_no_remote_is_refused_visibly_and_nothing_is_re_observed() -> None
         await pilot.pause()
 
         assert toasts(app) == ["Test Repository: no remote is configured"]
-        assert "✖ Fetch failed: Test Repository: no remote is configured" in (
+        assert "✖ Test Repository · Fetch failed: no remote is configured" in (
             diagnostics_text(app)
         )
         assert collector.calls == 1
@@ -245,7 +245,7 @@ async def test_a_failed_remote_keeps_the_last_good_observation_and_says_why() ->
 
         assert app.fetches.errors == {
             "project:test-repo": (
-                "Fetch failed: Test Repository: failed origin: fatal: Authentication "
+                "Fetch failed: failed origin: fatal: Authentication "
                 "failed for 'https://x'; fork: command timed out after 10s: git"
             )
         }
@@ -279,7 +279,7 @@ async def test_a_partial_fetch_is_reported_as_a_failure_but_still_observed() -> 
         assert toasts(app) == [
             "Test Repository: fetched and pruned origin; failed fork: ssh: no route"
         ]
-        assert "✖ Fetch failed: Test Repository" in diagnostics_text(app)
+        assert "✖ Test Repository · Fetch failed" in diagnostics_text(app)
 
         # The next clean fetch clears the failure.
         collector.results.append(freshly_fetched())
@@ -321,6 +321,16 @@ async def test_repeated_presses_do_not_overlap_and_the_fetch_is_visible() -> Non
         fetcher.release.set()
 
 
+def test_a_failure_of_a_project_no_longer_observed_is_named_by_its_identity() -> None:
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
+    app.fetches.errors["project:gone"] = "Fetch failed: no remote"
+
+    (entry,) = app.own_diagnostics()
+
+    assert entry.project_label == "project:gone"
+    assert entry.diagnostic.code == "remote-fetch-failed"
+
+
 @pytest.mark.asyncio
 async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit() -> None:
     fetcher = RecordingFetcher(OSError("git vanished"))
@@ -331,9 +341,7 @@ async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit() -> None:
         await pilot.press("f")
         await wait_until(lambda: bool(app.fetches.errors))
 
-        assert app.fetches.errors == {
-            "project:test-repo": "Fetch failed: Test Repository: git vanished"
-        }
+        assert app.fetches.errors == {"project:test-repo": "Fetch failed: git vanished"}
         assert not app.fetches.fetching
 
 
