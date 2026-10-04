@@ -321,6 +321,16 @@ async def test_repeated_presses_do_not_overlap_and_the_fetch_is_visible() -> Non
         fetcher.release.set()
 
 
+def test_a_failure_of_a_project_no_longer_observed_is_named_by_its_identity() -> None:
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
+    app.fetches.errors["project:gone"] = "Fetch failed: no remote"
+
+    (entry,) = app.own_diagnostics()
+
+    assert entry.project_label == "project:gone"
+    assert entry.diagnostic.code == "remote-fetch-failed"
+
+
 @pytest.mark.asyncio
 async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit() -> None:
     fetcher = RecordingFetcher(OSError("git vanished"))

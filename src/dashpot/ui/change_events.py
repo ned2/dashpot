@@ -64,6 +64,9 @@ def session_changes(
     """Each change from ``before`` to ``after``, with the row it changed from."""
     if before is None:
         yield "appeared", after
+        # A run orphaned before the dashboard started is reported as one.
+        if after.orphaned:
+            yield "orphaned", after
         return
     if before.issue_id != after.issue_id:
         if before.issue_id is None:
@@ -74,8 +77,10 @@ def session_changes(
             yield "switched", before
     if before.observation_target != after.observation_target:
         yield "relocated", before
-    # An Orphaned Agent Run is still held, so its session has not ended; it
-    # is continued when the session comes back to it, resumed or restarted.
+    # An Orphaned Agent Run is still held, so its session has not ended. The
+    # session is followed, not the run: a resume that continues the run and
+    # a ``work start`` that replaces it with a restarted one both read as
+    # ``continued``.
     if before.orphaned != after.orphaned:
         yield ("orphaned" if after.orphaned else "continued"), before
 

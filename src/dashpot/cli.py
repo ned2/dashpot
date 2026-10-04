@@ -43,6 +43,7 @@ from .core.event_log_files import (
 )
 from .core.model import Harness
 from .core.runtime_events import ManagementCommand, RecordedLevel
+from .core.state_paths import enclosing_checkout
 from .core.worktree_paths import worktree_root
 from .event_logs import open_event_log, route_event_log
 from .github.github import LatestRateLimit
@@ -314,8 +315,10 @@ def init(
         outcome.target_path = current
         _report(initialize_project(current, markdown_path=markdown, timeout=timeout))
         outcome.action = "initialized"
-        # The process opened its Event Log before the Project was declared.
-        outcome.identify(project_id=declared_project_id(current))
+        # The process opened its Event Log before the Project was declared,
+        # at the root of the Worktree ``current`` lies in.
+        root = enclosing_checkout(current) or current
+        outcome.identify(project_id=declared_project_id(root))
     return 0
 
 

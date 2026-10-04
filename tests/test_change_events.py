@@ -170,6 +170,24 @@ def test_an_orphaned_run_is_recorded_until_its_session_continues_it(
     assert {event["dashpot.issue.id"] for event in events} == {"I_338"}
 
 
+def test_a_run_orphaned_before_the_dashboard_started_is_recorded_as_orphaned(
+    tmp_path: Path,
+) -> None:
+    changes = AgentSessionChanges(event_log(tmp_path))
+    orphaned = session("I_338").model_copy(
+        update={"orphaned": True, "state": "unknown"}
+    )
+
+    changes.observe([orphaned])
+    changes.observe([orphaned])
+
+    events = recorded(tmp_path, "agent_session.changed")
+    assert [event["dashpot.agent_session.change"] for event in events] == [
+        "appeared",
+        "orphaned",
+    ]
+
+
 def test_a_sessions_agent_run_stands_for_it_over_its_bare_hook_row(
     tmp_path: Path,
 ) -> None:

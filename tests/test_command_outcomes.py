@@ -326,9 +326,19 @@ def test_init_names_the_checkout_it_initialized(events: Path, tmp_path: Path) ->
     }
 
 
-def test_init_names_the_project_it_declared(events: Path, tmp_path: Path) -> None:
-    def declare(root: Path, **options: object) -> list[str]:
-        write_project_config(root, project_id="project:declared")
+@pytest.mark.parametrize("where", [".", "src/deep"], ids=["root", "subdirectory"])
+def test_init_names_the_project_it_declared(
+    events: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, where: str
+) -> None:
+    repository = tmp_path / "repository"
+    (repository / ".git").mkdir(parents=True)
+    (repository / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (repository / where).mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(repository / where)
+
+    def declare(current: Path, **options: object) -> list[str]:
+        # As init does, the configuration goes at the Worktree's root.
+        write_project_config(repository, project_id="project:declared")
         return ["wrote config"]
 
     with mock.patch.object(cli, "initialize_project", side_effect=declare):

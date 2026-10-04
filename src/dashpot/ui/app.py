@@ -1230,7 +1230,7 @@ class DashpotApp(App[None]):
     def own_diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
         """The dashboard's own Diagnostics: failed refreshes and Remote Fetches, its settings and Event Log."""
         return tuple(
-            self.labelled(entry)
+            self._labelled(entry)
             for entry in (
                 *self.observations.failure_diagnostics(),
                 *(
@@ -1255,14 +1255,14 @@ class DashpotApp(App[None]):
             *self.store.diagnostics(),
         )
 
-    def labelled(self, entry: ObservedDiagnostic) -> ObservedDiagnostic:
-        """Name the observed Project a Diagnostic was raised for by its display label."""
-        project = (
-            None if entry.project_id is None else self.store.project(entry.project_id)
-        )
-        if project is None or entry.project_label is not None:
+    def _labelled(self, entry: ObservedDiagnostic) -> ObservedDiagnostic:
+        if entry.project_label is not None or entry.project_id is None:
             return entry
-        return replace(entry, project_label=project.display_label)
+        # A Project no longer observed, whose failure is still shown, is
+        # named by its identity rather than not at all.
+        project = self.store.project(entry.project_id)
+        label = entry.project_id if project is None else project.display_label
+        return replace(entry, project_label=label)
 
     def update_diagnostics(self) -> None:
         """Redraw the diagnostics readout after a flow recorded a failure."""
