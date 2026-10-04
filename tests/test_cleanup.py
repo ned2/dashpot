@@ -890,8 +890,9 @@ def test_a_live_sub_agent_blocks_every_worktree_it_could_be_working_in(
             "listed as working (a3932, a686b12; session live). Dashpot cannot "
             "tell which Worktree a sub-agent works in, so one may be "
             "working here: wait for it to finish. Dashpot lists a sub-agent "
-            "until Claude Code reports that it stopped, which an interrupted one "
-            "may never do, so if none is still working, end that session."
+            "until Claude Code reports that it stopped, which one that was "
+            "stopped or interrupted may never do, so if none is still working, "
+            "end that session."
         )
         # A blocked Worktree claims no absence of occupants to qualify.
         assert SUB_AGENT_SCOPE not in "\n".join(describe_cleanup_preview(preview))
@@ -929,9 +930,9 @@ def test_a_live_codex_sub_agent_blocks_like_a_claude_code_one(
         "as working (child-thread; session live). Dashpot cannot tell which "
         "Worktree a sub-agent works in, so one may be working here: wait "
         "for it to finish. Dashpot lists a sub-agent until Codex reports that "
-        "it stopped, which an interrupted one may never do, so if none "
-        "is still working, end that session's client (a daemon-hosted thread "
-        "ends about 60 s after its last client leaves)."
+        "it stopped, which one that was stopped or interrupted may never do, "
+        "so if none is still working, end that session's client (a "
+        "daemon-hosted thread ends about 60 s after its last client leaves)."
     )
 
 

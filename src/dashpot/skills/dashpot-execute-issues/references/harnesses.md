@@ -55,11 +55,9 @@ its whole transcript, and a second notification follows when it finishes
 again.
 
 **Stopping a worker.** Avoid `TaskStop`: it publishes no stop to Dashpot,
-which leaves the `sub-agent` blocker up until your session ends, and
-Dashpot's wording for that blocker is one of the
-[Known Dashpot gaps](../SKILL.md#known-dashpot-gaps). It also leaves the
-worker's Issue reading `running` until you unassign it. Message the worker
-to stop and hand back instead. A headless host that interrupts you stops
+which leaves the `sub-agent` blocker up until your session ends. It also
+leaves the worker's Issue reading `running` until you unassign it. Message
+the worker to stop and hand back instead. A headless host that interrupts you stops
 your workers without telling you; treat a worker you never hear from again
 as a blocker.
 
@@ -98,8 +96,9 @@ your turn going with the wait loop below. If the turn ends or is
 interrupted, nothing re-enters it until the user sends a new message.
 
 **Keep a client attached.** A daemon-hosted lead with no client attached is
-unloaded about 60 s later, while its workers go on working (see
-[Known Dashpot gaps](../SKILL.md#known-dashpot-gaps)). Ask the user to keep
+unloaded about 60 s later, while its workers go on working. Dashpot then
+ends your Issue work and your workers' assignments
+([Known Dashpot gaps](../SKILL.md#known-dashpot-gaps)). Ask the user to keep
 the client open until every worker has finished.
 
 **Launch (v2).** `spawn_agent` with a `task_name` and a `message` pointing
