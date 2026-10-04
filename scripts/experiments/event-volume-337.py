@@ -80,7 +80,11 @@ def main() -> None:
                 time.sleep(args.seconds)
             finally:
                 child.send_signal(signal.SIGTERM)
-                child.wait(timeout=30)
+                try:
+                    child.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
 
         lines = [
             line

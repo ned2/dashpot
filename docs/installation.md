@@ -214,9 +214,9 @@ writes about 100 MB a day for a dashboard on a Repository with 16
 Worktrees, so the `event-log-large` Diagnostic appears after about two days
 at `full` (see [Remove old Event Log files](#remove-old-event-log-files)).
 The `DASHPOT_EVENT_LEVEL` environment variable overrides the setting for the
-processes that inherit it, hooks included. A settings file that cannot be read leaves the level at
-`standard`; hooks and commands say nothing about it, and the dashboard
-shows the settings error as a Diagnostic.
+processes that inherit it, hooks included. A settings file that cannot be
+read leaves the level at `standard`; hooks and commands say nothing about
+it, and the dashboard shows the settings error as a Diagnostic.
 
 A write that fails is dropped, and never fails the work it describes. The
 dashboard reports the first one as an `event-log-unavailable` Diagnostic;

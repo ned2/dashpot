@@ -290,14 +290,15 @@ output.
   checkout's Event Log passes 200 MB; the dashboard measures it off the
   event loop when it starts and on each local or requested refresh. The
   threshold stays at 200 MB, and `full` keeps every span, by #337's
-  decision. At `standard` a busy checkout reaches it in roughly four to six
-  weeks, which is when old files are worth removing. A dashboard left at
-  `full` reaches it in about two days, which suits `full` as a short-lived
-  level for developing Dashpot: the warning is the intended prompt to
-  remove old files or return to `standard`. A larger threshold would keep a
-  week at `full` quiet but would rarely warn at `standard`, and writing
-  fewer command spans at `full` would lose the per-command trail `full`
-  exists to keep.
+  decision. At `standard` one dashboard and 1,500 hook runs a day write 6.5
+  to 8 MB, so a checkout reaches it in about four weeks, and sooner with
+  several dashboards open, which is when old files are worth removing. A
+  dashboard left at `full` reaches it in about two days, which suits `full`
+  as a short-lived level for developing Dashpot: the warning is the intended
+  prompt to remove old files or return to `standard`. A larger threshold
+  would keep a week at `full` quiet but would rarely warn at `standard`, and
+  writing fewer command spans at `full` would lose the per-command trail
+  `full` exists to keep.
 - **Writing never fails the work.** A failed write is dropped. The dashboard
   records the failure as an `event_log.write_failed` event in its in-memory
   buffer, where Runtime Stats counts it, and the first raises an
@@ -472,8 +473,8 @@ output.
   and a half hours of several Claude Code sessions): 759 hook and command
   processes wrote 1.2 MB. A hook run's `process.start` averaged 615 bytes,
   its `hook.outcome` 533 and its `process.end` 438, about 1.6 KB a run
-  together, so 1,500 hook runs a day add about 2.4 MB rather than the
-  0.9 MB `hook.outcome` alone accounts for.
+  together, so 1,500 hook runs a day add about 2.4 MB, of which the
+  `hook.outcome` lines are 0.8 MB.
 
 ## Sources
 

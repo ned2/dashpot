@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 from dashpot.core import runtime_events
 from dashpot.core.pydantic import validate_rfc3339_timestamp
 from dashpot.core.runtime_events import (
+    DURATION_DIGITS,
     SCHEMA_VERSION,
     AgentSessionChanged,
     CommandAttributes,
@@ -238,7 +239,7 @@ def test_a_duration_is_written_to_the_microsecond(
 
     assert re.search(rb'"dashpot\.duration_seconds":0\.435949[,}]', line)
     assert read_runtime_event(line) == event(
-        body.model_copy(update={"duration_seconds": round(MEASURED, 6)})
+        body.model_copy(update={"duration_seconds": round(MEASURED, DURATION_DIGITS)})
     )
 
 
