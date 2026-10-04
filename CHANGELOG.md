@@ -24,6 +24,11 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   release its acceptance run passed on; the plugin warns on another 2.x
   release and refuses OpenCode v1. Declare Issue work through a
   Project-local Work Store and the bundled Issue-work skill.
+- A session that starts, resumes or is cleared and has not been prompted
+  reads waiting, not running with a turn clock ticking from its start. A
+  sub-agent it lists still holds it running, and its first prompt starts its
+  turn. This covers a Claude Code `/fork` copy and an OpenCode root that is
+  created or forked.
 - Read the Event Log with `dashpot events`, merged across a Repository's
   Worktrees and filtered by Agent Session, Issue, Project, time or level; see
   an Agent Session's recent outcomes in `dashpot work show`; and remove old

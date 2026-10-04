@@ -18,6 +18,7 @@ stays as it was written.
 | Document | Status | Date |
 | --- | --- | --- |
 | [Linked Worktree environment experiment](linked-worktree-environment-spike.md) | research | 2026-10-05 |
+| [Idle SessionStart and /fork experiment](idle-session-start-and-fork-spike.md) | research | 2026-10-05 |
 | [Conversation switch through the resume picker experiment](conversation-switch-picker-spike.md) | research | 2026-10-05 |
 | [OpenCode v2 background commands, default permissions and failed executions](opencode-v2-background-permissions-spike.md) | research | 2026-10-05 |
 | [SessionStart on a live session experiment](session-start-on-a-live-session-spike.md) | research | 2026-10-04 |

@@ -1373,7 +1373,12 @@ conversation. Their transcripts can be resumed through the containing session.
 Conversation-fork subagents and independent background-session forks are
 distinct features; the meaning of `/fork` depends on agent-view configuration.
 Worktree isolation is also available to subagents.
-[Source: subagents](https://code.claude.com/docs/en/sub-agents).
+[Source: subagents](https://code.claude.com/docs/en/sub-agents). In 2.1.289, with a
+fresh configuration, `/fork` publishes no `SessionEnd`. It starts the copy
+as a background session under a transient daemon, which publishes
+`SessionStart` `fork` with a new id from its own process and begins no turn.
+A background Sub-agent of the forking session stays with that session
+([measured under #488](spikes/idle-session-start-and-fork-spike.md#claude-code-21289)).
 
 Agent teams are another case: teammates are described as separate Claude Code
 sessions. The default display mode is in-process, with split panes as an

@@ -68,6 +68,7 @@ line per write, the seconds since the previous write and the bytes written.
 | [`issue-448-opencode-trace.jsonl`](issue-448-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#448](https://github.com/ned2/dashpot/issues/448) | [`opencode-448`](../../../scripts/experiments/opencode-448/) | [SessionStart on a live session experiment](../session-start-on-a-live-session-spike.md) |
 | [`issue-423-opencode-trace.jsonl`](issue-423-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#423](https://github.com/ned2/dashpot/issues/423) | [`opencode-423`](../../../scripts/experiments/opencode-423/) | [OpenCode v2 self-relocation acceptance run](../opencode-v2-self-relocation-acceptance.md) |
 | [`issue-458-claude-trace.jsonl`](issue-458-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.289 | [#458](https://github.com/ned2/dashpot/issues/458) | [`claude-458`](../../../scripts/experiments/claude-458/) | [Conversation switch through the resume picker experiment](../conversation-switch-picker-spike.md) |
+| [`issue-488-claude-trace.jsonl`](issue-488-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.289 | [#488](https://github.com/ned2/dashpot/issues/488), with [#490](https://github.com/ned2/dashpot/issues/490)'s `/fork` | [`claude-488`](../../../scripts/experiments/claude-488/) | [Idle SessionStart and /fork experiment](../idle-session-start-and-fork-spike.md) |
 
 The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are
 the ones whose writeups are not spikes: their findings went straight into the

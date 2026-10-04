@@ -1073,17 +1073,20 @@ def test_an_ended_unobserved_record_stays_ended() -> None:
     ) == ("ended", None)
 
 
-# What Claude Code 2.1.289 published under #448, with what Dashpot's publisher
-# received recorded in order (docs/spikes/session-start-on-a-live-session-spike.md).
-CLAUDE_448_TRACE = (
-    Path(__file__).resolve().parents[1]
-    / "docs/spikes/measurements/issue-448-claude-trace.jsonl"
-)
+# What Claude Code 2.1.289 published under #448, #458 and #488, with what
+# Dashpot's publisher received recorded in order
+# (docs/spikes/session-start-on-a-live-session-spike.md,
+# docs/spikes/conversation-switch-picker-spike.md,
+# docs/spikes/idle-session-start-and-fork-spike.md).
+MEASUREMENTS = Path(__file__).resolve().parents[1] / "docs/spikes/measurements"
+CLAUDE_448_TRACE = MEASUREMENTS / "issue-448-claude-trace.jsonl"
+CLAUDE_458_TRACE = MEASUREMENTS / "issue-458-claude-trace.jsonl"
+CLAUDE_488_TRACE = MEASUREMENTS / "issue-488-claude-trace.jsonl"
 
 
 @dataclass(frozen=True, slots=True)
 class MeasuredHook:
-    """One hook event Dashpot's publisher received in a #448 scenario."""
+    """One hook event Dashpot's publisher received in a measured scenario."""
 
     receipt: int
     payload: dict[str, Any]
@@ -1096,8 +1099,8 @@ class MeasuredHook:
         return cast("str | None", self.payload.get("agent_id"))
 
 
-def measured_hooks(scenario: str) -> list[MeasuredHook]:
-    """The events a #448 Claude Code scenario delivered to Dashpot, in order.
+def measured_hooks(scenario: str, trace: Path = CLAUDE_448_TRACE) -> list[MeasuredHook]:
+    """The events a measured Claude Code scenario delivered to Dashpot, in order.
 
     ``PreCompact`` and ``PostCompact`` were observed only: no Dashpot
     integration subscribes them, so the publisher never received them.
@@ -1107,7 +1110,7 @@ def measured_hooks(scenario: str) -> list[MeasuredHook]:
     # The start each stored record names for its process; the SessionEnd that
     # removes the last record names none, so a host keeps its first start.
     starts: dict[int, str] = {}
-    for line in CLAUDE_448_TRACE.read_text().splitlines():
+    for line in trace.read_text().splitlines():
         entry = json.loads(line)
         if entry["kind"] == "scenario":
             current = cast("str", entry["name"])
@@ -1257,33 +1260,85 @@ def claude_event(
 
 
 @pytest.mark.parametrize(
-    ("process", "source"),
+    "process",
     [
         pytest.param(
             ProcessIdentity(7778, 1, "claude", "Tue Aug 25 03:00:00 2026"),
-            "compact",
             id="another-process",
         ),
-        pytest.param(None, "compact", id="no-process"),
-        pytest.param(CLAUDE, "startup", id="another-source"),
-        pytest.param(CLAUDE, None, id="no-source"),
+        pytest.param(None, id="no-process"),
     ],
 )
-def test_only_a_compaction_of_the_same_process_keeps_the_session_waiting(
-    tmp_path: Path, process: ProcessIdentity | None, source: str | None
+def test_a_compaction_with_no_turn_of_its_process_to_follow_runs(
+    tmp_path: Path, process: ProcessIdentity | None
 ) -> None:
+    # Nothing says which turn state it keeps; an automatic one falls inside a
+    # turn (ADR 0100).
     store = HookRecordStore(tmp_path)
     store.write(claude_event("UserPromptSubmit"))
     store.write(claude_event("Stop"))
-    fields = {} if source is None else {"source": source}
 
-    store.write(claude_event("SessionStart", process, **fields))
+    store.write(claude_event("SessionStart", process, source="compact"))
 
     record = json.loads((tmp_path / "compacting.json").read_text())
     assert (record["state"], record["turnStartedAt"]) == (
         "running",
         record["lastActivityAt"],
     )
+
+
+@pytest.mark.parametrize(
+    "source", ["startup", "resume", "clear", "fork", "unknown-source", None]
+)
+@pytest.mark.parametrize("previous", ["none", "running", "waiting"])
+def test_a_session_start_other_than_a_compaction_begins_no_turn(
+    tmp_path: Path, source: str | None, previous: str
+) -> None:
+    # Whatever its source, and whatever the session's record said before, a
+    # SessionStart that is no compaction waits for its prompt (ADR 0106).
+    store = HookRecordStore(tmp_path)
+    if previous != "none":
+        store.write(claude_event("UserPromptSubmit"))
+    if previous == "waiting":
+        store.write(claude_event("Stop"))
+    event = (
+        claude_event("SessionStart")
+        if source is None
+        else claude_event("SessionStart", source=source)
+    )
+
+    started = store.write(event)
+
+    record = json.loads((tmp_path / "compacting.json").read_text())
+    assert started.state == "waiting"
+    assert (record["state"], record["turnStartedAt"]) == ("waiting", None)
+    assert record["lastSessionStartAt"] == record["lastActivityAt"]
+    prompted = json.loads(
+        store.write(claude_event("UserPromptSubmit")).path.read_text()
+    )
+    assert (prompted["state"], prompted["turnStartedAt"]) == (
+        "running",
+        prompted["lastActivityAt"],
+    )
+
+
+def test_a_session_start_carrying_a_working_sub_agent_runs_with_no_turn_clock(
+    tmp_path: Path,
+) -> None:
+    # The sub-agents it carries hold the session running (ADR 0016, ADR
+    # 0097); its own turn has not begun, so the worker's stop leaves it waiting.
+    store = HookRecordStore(tmp_path)
+    store.write(claude_event("UserPromptSubmit"))
+    store.write(claude_event("SubagentStart", agent_id="agent-1"))
+    store.write(claude_event("Stop"))
+
+    started = store.write(claude_event("SessionStart", source="resume"))
+
+    record = json.loads(started.path.read_text())
+    assert started.state == "running"
+    assert (record["liveSubagents"], record["turnStartedAt"]) == (["agent-1"], None)
+    stopped = store.write(claude_event("SubagentStop", agent_id="agent-1"))
+    assert stopped.state == "waiting"
 
 
 def test_a_compaction_after_an_ended_record_begins_the_session_running(
@@ -1413,6 +1468,59 @@ def test_a_codex_automatic_compaction_keeps_its_turn_until_it_stops(
     assert stopped["state"] == "waiting"
 
 
+CODEX_448_TRACE = MEASUREMENTS / "issue-448-codex-trace.jsonl"
+
+
+def test_a_measured_codex_session_start_waits_only_until_its_prompt(
+    tmp_path: Path,
+) -> None:
+    # Codex 0.160.0 publishes a new thread's SessionStart, `startup` or
+    # `clear`, at the start of its first turn: its UserPromptSubmit is the
+    # thread's next event (#448), so the wait lasts until the prompt.
+    entries = [
+        entry
+        for entry in map(json.loads, CODEX_448_TRACE.read_text().splitlines())
+        if entry["kind"] == "hook"
+    ]
+    starts = [
+        (index, entry)
+        for index, entry in enumerate(entries)
+        if entry["event"] == "SessionStart"
+        and entry["payload"]["source"] in {"startup", "clear"}
+    ]
+    assert len(starts) == 8
+    for index, start in starts:
+        session = start["payload"]["session_id"]
+        prompt = next(
+            entry
+            for entry in entries[index + 1 :]
+            if entry["payload"]["session_id"] == session
+        )
+        assert prompt["event"] == "UserPromptSubmit"
+        recorded = start["stored"]["sessionProcess"]
+        host = ProcessIdentity(recorded["pid"], 1, "codex", recorded["startedAt"])
+        directory = tmp_path / session
+
+        published = [
+            json.loads(
+                publish_hook_event(
+                    {**entry["payload"], "cwd": "/repo"},
+                    directory,
+                    process=host,
+                    harness="codex",
+                ).path.read_text()
+            )
+            for entry in (start, prompt)
+        ]
+
+        started, prompted = published
+        assert (started["state"], started["turnStartedAt"]) == ("waiting", None)
+        assert (prompted["state"], prompted["turnStartedAt"]) == (
+            "running",
+            prompted["lastActivityAt"],
+        )
+
+
 def stored_records(directory: Path) -> dict[str, dict[str, Any]]:
     """Every hook record ``directory`` holds, by session id."""
     return {
@@ -1454,9 +1562,9 @@ class MeasuredSwitch:
     stop: int
 
 
-def measured_switch(scenario: str) -> MeasuredSwitch:
-    """The switch a #448 scenario measured: its end, its start, and its worker's stop."""
-    hooks = measured_hooks(scenario)
+def measured_switch(scenario: str, trace: Path = CLAUDE_448_TRACE) -> MeasuredSwitch:
+    """The switch a scenario measured: its end, its start, and its worker's stop."""
+    hooks = measured_hooks(scenario, trace)
     (worker,) = worker_agents(hooks)
     end = next(
         hook
@@ -1564,6 +1672,195 @@ def test_a_measured_switch_holds_the_new_session_running_until_its_worker_stops(
 
 
 OTHER_CLAUDE = ProcessIdentity(7778, 1, "claude", "Tue Aug 25 03:00:00 2026")
+
+
+# Every measured Claude Code scenario whose sessions start: #448's, #458's
+# and #488's.
+MEASURED_STARTS = [
+    *(
+        pytest.param(CLAUDE_448_TRACE, scenario, id=f"448-{scenario}")
+        for scenario in (
+            "compact",
+            "compact-worktree",
+            "auto-compact",
+            "clear",
+            "resume-switch",
+            "branch",
+            "headless-compact",
+            "headless-clear",
+        )
+    ),
+    pytest.param(CLAUDE_458_TRACE, "resume-picker", id="458-resume-picker"),
+    *(
+        pytest.param(CLAUDE_488_TRACE, scenario, id=f"488-{scenario}")
+        for scenario in (
+            "idle-startup",
+            "idle-resume",
+            "idle-headless",
+            "clear-idle",
+            "fork-worker",
+        )
+    ),
+]
+
+
+@pytest.mark.parametrize(("trace", "scenario"), MEASURED_STARTS)
+def test_a_measured_session_start_begins_no_turn(
+    tmp_path: Path, trace: Path, scenario: str
+) -> None:
+    # Every SessionStart but a compaction's reads waiting with no turn clock,
+    # or running only for the sub-agents it carries or takes over (ADR 0016,
+    # ADR 0106); the session's next prompt starts its turn clock.
+    hooks = measured_hooks(scenario, trace)
+
+    stored = replay(hooks, tmp_path)
+
+    starts = [
+        hook
+        for hook in hooks
+        if hook.payload["hook_event_name"] == "SessionStart"
+        and hook.payload.get("source") != "compact"
+    ]
+    assert starts
+    for start in starts:
+        record = stored[start.receipt]
+        assert record["turnStartedAt"] is None
+        assert record["state"] == ("running" if record["liveSubagents"] else "waiting")
+        prompt = next(
+            (
+                hook
+                for hook in hooks
+                if hook.receipt > start.receipt
+                and hook.payload["session_id"] == start.payload["session_id"]
+                and hook.payload["hook_event_name"]
+                in {"UserPromptSubmit", "SessionStart", "SessionEnd"}
+            ),
+            None,
+        )
+        if prompt and prompt.payload["hook_event_name"] == "UserPromptSubmit":
+            turn = stored[prompt.receipt]
+            assert (turn["state"], turn["turnStartedAt"]) == (
+                "running",
+                turn["lastActivityAt"],
+            )
+
+
+# The #488 scenarios that left a session unprompted, each with the
+# SessionStart that began it.
+MEASURED_IDLE_STARTS = {
+    "idle-startup": (5, "startup"),
+    "idle-resume": (25, "resume"),
+    "idle-headless": (40, "startup"),
+    "clear-idle": (71, "clear"),
+}
+
+
+@pytest.mark.parametrize("scenario", MEASURED_IDLE_STARTS)
+def test_a_measured_unprompted_session_reads_waiting(
+    tmp_path: Path, scenario: str
+) -> None:
+    # Claude Code published nothing more while the session sat idle, so the
+    # dashboard reads it waiting rather than running from its start.
+    receipt, source = MEASURED_IDLE_STARTS[scenario]
+    hooks = measured_hooks(scenario, CLAUDE_488_TRACE)
+    start = next(hook for hook in hooks if hook.receipt == receipt)
+    assert (start.payload["hook_event_name"], start.payload["source"]) == (
+        "SessionStart",
+        source,
+    )
+
+    stored = replay([hook for hook in hooks if hook.receipt <= receipt], tmp_path)
+
+    assert (stored[receipt]["state"], stored[receipt]["turnStartedAt"]) == (
+        "waiting",
+        None,
+    )
+    runs, diagnostics = observe_agent_runs(
+        {"project:example": [observation_target()]},
+        tmp_path,
+        lookup=present(start.host),
+    )
+    assert diagnostics == []
+    assert [run.state for run in runs] == ["waiting"]
+
+
+def test_a_measured_fork_runs_in_another_session_and_takes_nothing_over(
+    tmp_path: Path,
+) -> None:
+    # `/fork` publishes no SessionEnd: the copy starts as a new session in the
+    # background daemon's process, and the worker goes on, and stops, in the
+    # lead's session (#490, ADR 0106).
+    hooks = measured_hooks("fork-worker", CLAUDE_488_TRACE)
+    (lead_start, fork_start) = (
+        hook for hook in hooks if hook.payload["hook_event_name"] == "SessionStart"
+    )
+    lead, fork = lead_start.payload["session_id"], fork_start.payload["session_id"]
+    assert fork_start.payload["source"] == "fork"
+    assert fork_start.host != lead_start.host
+    fork_end = next(
+        hook
+        for hook in hooks
+        if hook.payload["hook_event_name"] == "SessionEnd"
+        and hook.payload["session_id"] == fork
+    )
+    assert fork_end.payload["reason"] == "other"
+    # The lead ends only when the scenario closes it, after its daemon stopped.
+    (lead_end,) = (
+        hook
+        for hook in hooks
+        if hook.payload["hook_event_name"] == "SessionEnd"
+        and hook.payload["session_id"] == lead
+    )
+    assert lead_end.receipt > fork_end.receipt
+    worker = next(iter(worker_agents(hooks)))
+    stop = next(
+        hook for hook in hooks if hook.payload["hook_event_name"] == "SubagentStop"
+    )
+    assert (stop.payload["session_id"], stop.agent, stop.host) == (
+        lead,
+        worker,
+        lead_start.host,
+    )
+
+    stored = replay_store(hooks, tmp_path)
+
+    forked = stored[fork_start.receipt]
+    assert (forked[fork]["state"], forked[fork]["liveSubagents"]) == ("waiting", [])
+    assert (forked[lead]["state"], forked[lead]["liveSubagents"]) == (
+        "running",
+        [worker],
+    )
+    stopped = stored[stop.receipt]
+    assert all(worker not in record["liveSubagents"] for record in stopped.values())
+    assert (stopped[lead]["state"], stopped[fork]["state"]) == ("waiting", "waiting")
+
+
+@pytest.mark.parametrize(
+    ("trace", "scenario"),
+    [
+        *(
+            pytest.param(CLAUDE_448_TRACE, scenario, id=f"448-{scenario}")
+            for scenario in MEASURED_SWITCHES
+        ),
+        pytest.param(CLAUDE_458_TRACE, "resume-picker", id="458-resume-picker"),
+    ],
+)
+def test_a_measured_switch_with_no_worker_reads_waiting(
+    tmp_path: Path, trace: Path, scenario: str
+) -> None:
+    # The same switch, had the session delegated to no worker: nothing holds
+    # the new session running before its next prompt (ADR 0106).
+    switch = measured_switch(scenario, trace)
+
+    stored = replay_store(
+        [hook for hook in switch.hooks if hook.agent != switch.worker],
+        tmp_path,
+        until=switch.start,
+    )
+
+    assert switch.left not in stored[switch.start]
+    entered = stored[switch.start][switch.entered]
+    assert (entered["state"], entered["turnStartedAt"]) == ("waiting", None)
 
 
 def switch_event(session_id: str, event_name: str, **fields: str) -> dict[str, Any]:

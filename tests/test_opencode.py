@@ -348,6 +348,24 @@ def test_a_root_sessions_executions_are_its_turns(
     assert (waiting["state"], waiting["event"]) == ("waiting", "Stop")
 
 
+@pytest.mark.parametrize("kind", ["created", "forked"])
+def test_a_root_created_or_forked_waits_for_its_first_execution(
+    project: Path, server: Server, kind: str
+) -> None:
+    # Nothing has run in it yet: an idle fork, as #448 measured, never runs
+    # (ADR 0106).
+    begun = server.event(kind, project)
+
+    assert begun.written == ("SessionStart",)
+    waiting = record(project)
+    assert waiting is not None
+    assert (waiting["state"], waiting["turnStartedAt"]) == ("waiting", None)
+    assert server.turn(project) == "accepted"
+    running = record(project)
+    assert running is not None
+    assert running["state"] == "running"
+
+
 @pytest.mark.parametrize("ending", ["failed", "interrupted"])
 def test_an_execution_ending_any_way_reads_waiting(
     project: Path, server: Server, ending: str

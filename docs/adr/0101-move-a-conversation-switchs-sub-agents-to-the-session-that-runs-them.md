@@ -193,3 +193,11 @@ apply, and both are bounded by the Host Process.
   also removes its agent from the stopping session's own live records of
   the same Host Process, the records a moved session left behind. Another
   live session's records are still left as they are.
+- Amended by [ADR 0106](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md)
+  ([#488](https://github.com/ned2/dashpot/issues/488),
+  [#490](https://github.com/ned2/dashpot/issues/490)): a switch's
+  `SessionStart` records `waiting` with no turn clock, so a worker it takes
+  over holds it `running` only until the worker stops. `/fork` was measured:
+  it ends no session and starts its copy in another Host Process, so the
+  takeover never applies, and the worker stays with the session that
+  started it. Both rules here are unchanged.

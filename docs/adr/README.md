@@ -109,4 +109,5 @@ of date.
 | 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | accepted | — |
 | 0104 | [Block Worktree removal while a process runs inside it](0104-block-worktree-removal-while-a-process-runs-inside-it.md) | accepted | — |
 | 0105 | [Raise the Python floor to 3.13](0105-raise-the-python-floor-to-3-13.md) | accepted | — |
+| 0106 | [Record a session waiting after a SessionStart that begins no turn](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md) | accepted | — |
 | 0108 | [Keep OpenCode self-move and leading Workers on the shared service](0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md) | accepted | — |

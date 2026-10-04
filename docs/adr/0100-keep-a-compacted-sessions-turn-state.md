@@ -120,3 +120,7 @@ that turn's clock now starts at the prompt rather than at the
   ([#458](https://github.com/ned2/dashpot/issues/458)): `session_start_kind` is now the one reader of a `SessionStart`'s
   `source`, and `continues_turn` applies its compaction answer; this
   decision is unchanged.
+- Amended by [ADR 0106](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md)
+  ([#488](https://github.com/ned2/dashpot/issues/488)): every `SessionStart`
+  other than a compaction's now records `waiting` with no turn clock, not
+  `running`. The rules for a compaction are unchanged.
