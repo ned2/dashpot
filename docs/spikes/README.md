@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-04
 ---
 
 # Spikes
@@ -17,6 +17,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [OpenCode v2 worker mechanics experiment](opencode-worker-mechanics-spike.md) | research | 2026-10-04 |
 | [tmux dropped SSH client experiment](tmux-dropped-ssh-client-spike.md) | research | 2026-10-03 |
 | [OpenCode v2 plugin registry, envelope and recovery experiment](opencode-v2-plugin-protocol-spike.md) | research | 2026-10-03 |
 | [OpenCode v2 hosting, plugin and identity experiment](opencode-v2-spike.md) | research | 2026-10-02 |
