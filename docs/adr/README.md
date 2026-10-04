@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-04
+date: 2026-10-05
 ---
 
 # Architecture decision records
@@ -76,7 +76,7 @@ of date.
 | 0058 | [Record Runtime Events locally and send none](0058-record-runtime-events-locally-and-send-none.md) | accepted | — |
 | 0059 | [Keep an append-only Event Log in each checkout](0059-keep-an-append-only-event-log-in-each-checkout.md) | accepted | — |
 | 0061 | [Warn of a low rate limit from the latest reading across Query Sources](0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md) | accepted | — |
-| 0064 | [Publish Runtime Events under their Event Log field names](0064-publish-runtime-events-under-their-event-log-field-names.md) | accepted | — |
+| 0064 | [Publish Runtime Events under their Event Log field names](0064-publish-runtime-events-under-their-event-log-field-names.md) | amended | [0099](0099-print-runtime-events-as-json-lines.md) |
 | 0065 | [Pause GitHub queries after a rate limit refusal](0065-pause-github-queries-after-a-rate-limit-refusal.md) | accepted | — |
 | 0066 | [Block Worktree removal while a sub-agent is working](0066-block-worktree-removal-while-a-sub-agent-is-working.md) | amended | [0067](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md), [0095](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md) |
 | 0067 | [Observe conversations apart from the runtimes that serve them](0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md) | amended | [0086](0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md) |
@@ -102,3 +102,4 @@ of date.
 | 0096 | [Attribute a Lead's Workers to their Issues by explicit assignment](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md) | accepted | — |
 | 0097 | [Carry a live session's sub-agents through its own SessionStart](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md) | accepted | — |
 | 0098 | [Show Runtime Events and Stats as tabs of one temporary screen](0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md) | accepted | — |
+| 0099 | [Print Runtime Events as JSON Lines](0099-print-runtime-events-as-json-lines.md) | accepted | — |

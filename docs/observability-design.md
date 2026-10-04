@@ -210,10 +210,10 @@ know. A change an older reader would misread, rather than skip, bumps
 `schema`; a new value of an existing field does not, since an older reader
 skips that line as one it cannot read. `dashpot events --json` is the published interface under
 [ADR 0034](adr/0034-publish-an-alpha-with-patch-compatible-interfaces.md);
-the file format is not. Each event in it keeps the field names above, with
-an absent field as `null`, rather than the camelCase of the other `--json`
-documents, so an event reads the same in a file and in the command's
-output.
+the file format is not. It prints JSON Lines, one event per line, and each
+event keeps the field names above, with an absent field as `null`, rather
+than the camelCase of the other `--json` documents, so an event reads the
+same in a file and in the command's output.
 
 ## Levels
 
@@ -438,8 +438,10 @@ output.
   fallback by time and leaving out the reader's own run. A filter matches
   its field wherever an event carries it, so a field a later event adds
   filters too. Reading is tolerant: an unreadable line or file is reported
-  on standard error, and under `unreadable` in the `--json` document
-  `{directories, events, unreadable}`, and the rest is still printed. Only
+  on standard error, with or without `--json`, and the rest is still
+  printed. `--json` prints JSON Lines, one event per line
+  ([ADR 0099](adr/0099-print-runtime-events-as-json-lines.md),
+  [#450](https://github.com/ned2/dashpot/issues/450)). Only
   the Event Log's own `.jsonl` names are read, so a compressed or renamed
   file is invisible. `dashpot work show` lists its Agent Session's recent
   outcomes — at most 20 from the last 7 days, failures included — reading

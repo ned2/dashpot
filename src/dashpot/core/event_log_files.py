@@ -149,6 +149,16 @@ def event_fields(event: RuntimeEvent) -> dict[str, Any]:
     return event.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
+def published_event_fields(event: RuntimeEvent) -> dict[str, Any]:
+    """The event's fields under their on-disk names, an unknown one as ``null``.
+
+    The same names as :func:`event_fields`, but every field its kind of event
+    has is present, as ``dashpot events --json`` publishes it (ADR 0064,
+    ADR 0099).
+    """
+    return event.model_dump(mode="json", by_alias=True)
+
+
 def event_instant(event: RuntimeEvent) -> datetime:
     """When the event happened, or when its span started."""
     return observed_instant(event.time)
@@ -235,7 +245,8 @@ class EventSelection:
         return all(fields.get(field) == value for field, value in wanted.items())
 
 
-class UnreadableEventLog(PublishedModel):
+@dataclass(frozen=True, slots=True)
+class UnreadableEventLog:
     """A file whose lines, or the whole of it, could not be read as events.
 
     ``lines`` are 1-based line numbers; ``error`` names why the file or its
@@ -243,16 +254,16 @@ class UnreadableEventLog(PublishedModel):
     """
 
     path: str
-    lines: LaxSequence[int] = ()
+    lines: tuple[int, ...] = ()
     error: str | None = None
 
 
-class EventLogReading(PublishedModel):
+@dataclass(frozen=True, slots=True)
+class EventLogReading:
     """The selected Runtime Events of every Event Log read, oldest first."""
 
-    directories: LaxSequence[str]
-    events: LaxSequence[RuntimeEvent]
-    unreadable: LaxSequence[UnreadableEventLog] = ()
+    events: tuple[RuntimeEvent, ...]
+    unreadable: tuple[UnreadableEventLog, ...] = ()
 
 
 def _error_text(error: OSError) -> str:
@@ -278,24 +289,21 @@ def _read_file(
         return [], None
     except OSError as exc:
         return events, UnreadableEventLog(
-            path=str(file), lines=bad, error=_error_text(exc)
+            path=str(file), lines=tuple(bad), error=_error_text(exc)
         )
     if not bad:
         return events, None
-    return events, UnreadableEventLog(path=str(file), lines=bad)
+    return events, UnreadableEventLog(path=str(file), lines=tuple(bad))
 
 
 def _listed(
     directories: Iterable[Path],
-) -> Iterator[tuple[Path, list[EventLogFile] | UnreadableEventLog]]:
+) -> Iterator[list[EventLogFile] | UnreadableEventLog]:
     for directory in directories:
         try:
-            yield directory, event_log_files(directory)
+            yield event_log_files(directory)
         except OSError as exc:
-            yield (
-                directory,
-                UnreadableEventLog(path=str(directory), error=_error_text(exc)),
-            )
+            yield UnreadableEventLog(path=str(directory), error=_error_text(exc))
 
 
 def read_event_logs(
@@ -304,19 +312,18 @@ def read_event_logs(
     """Read and merge the selected events of every Event Log in ``directories``.
 
     Events are ordered by their time; events of one instant keep the order
-    their files and lines hold them in.
+    their files and lines hold them in. Every selected file is read before
+    the first event is known: a span is stamped when it started but written
+    to the file of the day it ended, so any later file can hold an earlier
+    event.
     """
-    read: list[str] = []
     events: list[RuntimeEvent] = []
     unreadable: list[UnreadableEventLog] = []
     first_day = selection.first_day
-    for directory, files in _listed(directories):
+    for files in _listed(directories):
         if isinstance(files, UnreadableEventLog):
             unreadable.append(files)
             continue
-        if not files:
-            continue
-        read.append(str(directory))
         for file in files:
             if first_day is not None and file.day < first_day:
                 continue
@@ -325,7 +332,7 @@ def read_event_logs(
             if problem is not None:
                 unreadable.append(problem)
     events.sort(key=event_instant)
-    return EventLogReading(directories=read, events=events, unreadable=unreadable)
+    return EventLogReading(events=tuple(events), unreadable=tuple(unreadable))
 
 
 def recent_events(
@@ -344,7 +351,7 @@ def recent_events(
     """
     first_day = selection.first_day
     by_day: dict[date, list[Path]] = {}
-    for _directory, files in _listed(directories):
+    for files in _listed(directories):
         if isinstance(files, UnreadableEventLog):
             continue
         for file in files:

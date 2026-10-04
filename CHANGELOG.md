@@ -22,6 +22,12 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   an Agent Session's recent outcomes in `dashpot work show`; and remove old
   Event Log files with `dashpot events remove --before DATE`. The dashboard
   warns with an `event-log-large` Diagnostic past 200 MB.
+- `dashpot events --json` prints JSON Lines, one Runtime Event per line under
+  its Event Log field names, rather than one `{directories, events,
+  unreadable}` document. Unreadable lines and files are reported on standard
+  error only, and `directories` is gone. This breaks the earlier `--json`
+  shape before the first release. `dashpot events remove --json` still prints
+  one document.
 - See a running dashboard's own recent Runtime Events on the Runtime screen,
   opened with `e` or from the command palette: filter them by kind, level or
   errors, follow new events or read back through them, and see every field
