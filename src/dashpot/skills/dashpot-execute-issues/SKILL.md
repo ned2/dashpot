@@ -66,7 +66,10 @@ step 2.
   Worktrees by giving every command its own `cd <path> && …`.
 - **Remove Worktrees only when no worker is live.** Dashpot refuses to
   remove any Worktree of the repository while a session's sub-agents are
-  running, and your workers are your session's sub-agents.
+  running, and your workers are your session's sub-agents. Stop a worker
+  the way [harnesses.md](references/harnesses.md) says for your harness: a
+  stop Dashpot never hears of keeps that refusal up until your session
+  ends.
 - **Merge only with authority.** See [Merge authority](#merge-authority).
 - **Keep the record on GitHub.** The arc's record goes in comments on the
   epic, or on a tracking Issue you open for a list, in the shape
@@ -372,15 +375,8 @@ you as a separate worker where it does not
 Each gap is named so its workaround can be dropped once the installed
 Dashpot fixes it.
 
-- **A stopped Claude Code worker's wording.** When a worker's stop goes
-  unrecorded, as after Claude Code's `TaskStop`, Dashpot explains the held
-  `sub-agent` blocker as an interrupted sub-agent's. Read it as covering a
-  stopped worker too. Why to avoid `TaskStop` at all is Claude Code's own
-  behaviour ([harnesses.md](references/harnesses.md#claude-code)), and
-  stays when this gap closes.
-- **An unloaded Codex lead drops its workers' blocker.** A daemon-hosted
+- **An unloaded Codex lead ends its workers' Issue work.** A daemon-hosted
   Codex lead with no client attached is unloaded about 60 s later. Dashpot
-  then ends its Issue work while its workers keep running, and no Cleanup
-  blocker covers them. Their assignments end with it, so their Issues stop
-  reading `running`. Keep a client attached to the lead until every worker
-  has finished.
+  then ends its Issue work while its workers keep running. Their
+  assignments end with it, so their Issues stop reading `running`. Keep a
+  client attached to the lead until every worker has finished.

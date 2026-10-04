@@ -269,10 +269,10 @@ def test_a_childs_own_end_neither_ends_nor_stops_its_parent(
 # What ``work show`` adds under a run whose session lists a sub-agent: the
 # harness's way to end a daemon-hosted Codex session (#374).
 CODEX_WAY_OUT = (
-    "Dashpot lists a sub-agent until Codex reports that it stopped, which an "
-    "interrupted one may never do, so if none is still working, end that "
-    "session's client (a daemon-hosted thread ends about 60 s after its last "
-    "client leaves)"
+    "Dashpot lists a sub-agent until Codex reports that it stopped, which one "
+    "that was stopped or interrupted may never do, so if none is still "
+    "working, end that session's client (a daemon-hosted thread ends about "
+    "60 s after its last client leaves)"
 )
 
 

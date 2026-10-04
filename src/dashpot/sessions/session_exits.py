@@ -90,15 +90,17 @@ def unreported_subagent_stop(harness: Harness) -> str:
 
     A session keeps a sub-agent in its live set until the harness's
     ``SubagentStop``, or until the session ends, starts again or its Host
-    Process is gone. A Codex child interrupted through its own thread
-    publishes no ``SubagentStop`` (#374), so the sentence names the
-    harness's way to end the session rather than guessing which sub-agent is
-    still working.
+    Process is gone. Some harnesses end a sub-agent without one: a Codex
+    child interrupted through its own thread (#374), and a Claude Code
+    worker its lead stops with ``TaskStop`` or that a headless SDK interrupt
+    kills (#419). So the sentence names neither mechanism, covers a stopped
+    sub-agent as well as an interrupted one, and names the harness's way to
+    end the session rather than guessing which sub-agent is still working.
     """
     return (
         f"Dashpot lists a sub-agent until {HARNESS_DISPLAY[harness]} reports "
-        f"that it stopped, which an interrupted one may never do, so if none "
-        f"is still working, "
+        f"that it stopped, which one that was stopped or interrupted may "
+        f"never do, so if none is still working, "
         f"{session_exit(harness).end.replace('{session_id}', '<session id>')}"
     )
 
