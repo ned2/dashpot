@@ -68,8 +68,8 @@ claims below, 13 checks in all. Receipt numbers are the trace's.
   `waiting`. Worktree `a` was blocked by the session and by a `process`
   blocker naming the shell and the command (#13). The blocker gave the
   command's name as `MainThread`, the name Node gives its main thread, so
-  only its `ps -ww` line shows it is `node command.mjs`. The command is named
-  this way in every trace. The command's end woke the
+  only its `ps -ww` line shows it is `node command.mjs`. The Codex and
+  OpenCode traces show the same name. The command's end woke the
   session with a task-notification `UserPromptSubmit` (#17). That turn's
   `Stop` listed no background task (#20), and the blocker no longer named
   the command (#22).
