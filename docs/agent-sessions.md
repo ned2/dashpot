@@ -332,8 +332,9 @@ that started it ends:
 It is no Agent Session and no Sub-agent, and no hook places it. Cleanup sees
 it through the [`process` blocker](#processes-inside-a-worktree), which
 names it in the Worktree it works in by pid and command. It stays named
-there whatever its session does: the session may wait, move to another
-Worktree, `/clear`, exit, or be deleted. The blocker never names the session
+there for as long as it runs: while its session waits, and after the session
+moves to another Worktree, `/clear`s, exits to the background, or is
+deleted. The blocker never names the session
 that started it
 ([ADR 0113](adr/0113-name-a-background-command-by-its-process-and-show-it-on-a-waiting-claude-code-session.md)).
 The Worktree becomes removable once the command ends, whether it finishes,
@@ -355,9 +356,10 @@ Code 2.1.289, Codex 0.160.0 and OpenCode 2.0.22
     Worktree beside the command.
   - **`claude -p`.** It exits without waiting and ends the command.
 - **Codex.** The background terminal outlives its turn. Its end starts no
-  turn, and no hook reports it.
-  - **`/cd`.** Codex refuses to change directory while a background
-    terminal runs, and the session stays where it is.
+  turn, and no hook Dashpot subscribes to reports it.
+  - **`/cd`.** The session stays where it is while a background terminal
+    runs. Codex lists an active background terminal among `/cd`'s
+    preconditions.
   - **`/clear`.** The terminal goes on.
   - **`/exit`.** It ends the terminal.
   - **A terminal attached to the managed daemon.** The daemon runs the

@@ -86,6 +86,8 @@ const silentEnd = (scope, p) => {
   assert.deepEqual(between.map((hook) => hook.event), [], "no hook between the command's end and the next action");
 };
 
+// Scenario prefixes in labels: te turn-end, cd cd, cl clear, ex exit,
+// dm daemon, hx exec.
 const environment = records[0];
 check("the trace is of the pinned Codex release, from the runner retained beside this verifier, with every publish succeeding", () => {
   assert.equal(environment.kind, "environment");
@@ -117,6 +119,11 @@ check("turn-end: the background terminal outlives its turn in Worktree `a`, the 
   assert.equal(probe.checks.a.removable, false);
   assert(namesPid(probe, "a", command.pid));
   assert.deepEqual(sessionBlockers(probe, "a"), [session]);
+});
+check("no hook Dashpot subscribes to carries a field about a background terminal", () => {
+  const events = new Set(hooksOf(records).map((hook) => hook.event));
+  assert.deepEqual([...events].sort(), ["SessionEnd", "SessionStart", "Stop", "UserPromptSubmit"]);
+  for (const hook of hooksOf(records)) assert(!hook.payloadKeys.some((key) => /background|terminal|task|shell|process/i.test(key)), `#${hook.receipt} ${hook.payloadKeys}`);
 });
 check("turn-end: the command's end starts no turn, and the blocker no longer names it", () => {
   const scope = span("turn-end");
@@ -156,8 +163,11 @@ check("clear: `/clear` starts a new session beside the first, which stays live, 
   assert.equal(commandOf(scope, "cl", "end").env.CODEX_THREAD_ID, session);
   assert.deepEqual(sessionBlockers(probe, "a").sort(), [session, next.payload.session_id].sort());
   assert(namesPid(probe, "a", command.pid));
+  for (const id of [session, next.payload.session_id]) assert.deepEqual(probe.stored[id].map((entry) => [entry.store, entry.state]), [["a", "waiting"]]);
   const ends = hooksOf(scope).filter((hook) => hook.event === "SessionEnd");
-  assert(ends.every((hook) => hook.receipt > probeOf(scope, "after-release").receipt), "both sessions end only at exit");
+  assert.deepEqual(ends.map((hook) => hook.payload.session_id).sort(), [session, next.payload.session_id].sort(), "one SessionEnd per session");
+  const exited = one(scope, (record) => record.kind === "terminal.exit", "terminal exit");
+  assert(ends.every((hook) => hook.receipt > probeOf(scope, "after-release").receipt && hook.receipt < exited.receipt), "both sessions end only at exit");
   silentEnd(scope, "cl");
 });
 check("exit: `/exit` ends the command with the terminal, leaving `a` removable", () => {
@@ -166,6 +176,7 @@ check("exit: `/exit` ends the command with the terminal, leaving `a` removable",
   started(scope, "ex", session);
   const ended = one(hooksOf(scope), (hook) => hook.event === "SessionEnd", "SessionEnd");
   assert.equal(ended.payload.session_id, session);
+  assert.equal(ended.payload.reason, "other");
   const probe = probeOf(scope, "after-exit");
   assert.equal(probe.command.alive, false);
   assert.equal(probe.checks.a.removable, true);
@@ -183,6 +194,7 @@ check("daemon: a command the managed daemon runs outlives the terminal's exit, n
   assert.deepEqual(blocker(exited, "a", "process").flatMap((entry) => entry.processes.map((named) => named.pid)), [command.pid]);
   const unloaded = one(hooksOf(scope), (hook) => hook.event === "SessionEnd", "unload SessionEnd");
   assert.equal(unloaded.payload.session_id, session);
+  assert.equal(unloaded.payload.reason, "other");
   const left = one(scope, (record) => record.kind === "terminal.exit", "terminal exit");
   const unloadSeconds = (unloaded.receiptTime - left.receiptTime) / 1000;
   assert(unloadSeconds > 50 && unloadSeconds < 90, `the unload came about a minute after the terminal left (${unloadSeconds} s)`);

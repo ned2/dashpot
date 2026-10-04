@@ -78,15 +78,15 @@ field of a hook Dashpot already receives, so showing it keeps observation
 passive. The flag clears at the session's next `Stop`. When that `Stop`
 follows the command's end, it reports no running command.
 
-The implementation is deferred. It touches the hook record (#460's
-`hook_records.py`) and the Sessions pane, whose Lead and Worker design #479
+The implementation is deferred. It touches the hook record
+(`hook_records.py`, which #460 is changing now) and the Sessions pane, whose Lead and Worker design #479
 is settling. A follow-up Issue, blocked by #479, carries it. This decision
 fixes what is shown and on which evidence. The follow-up chooses the form:
 a state, a mark, or a column note, and whether `work show` carries it.
 
 Codex and OpenCode sessions read as they do now:
 
-- **Codex.** No hook reports a background terminal. Its end starts no turn,
+- **Codex.** No hook Dashpot subscribes to reports a background terminal. Its end starts no turn,
   so a waiting Codex session really is waiting for the person.
 - **OpenCode.** A command's end does wake the session. But the plugin's
   stored events carry no shell, and the service hosts many sessions, so only
@@ -100,8 +100,9 @@ Codex and OpenCode sessions read as they do now:
 - **Name the session from the command's environment**
   (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`, `OPENCODE_SESSION_ID`).
   Rejected. The measurements show the variable naming an ended session
-  after a `/clear` and after an exit to the background. On macOS, `lsof`
-  does not read environments at all.
+  after a `/clear` and after an exit to the background. The macOS scan
+  asks `lsof` for working directories only, so it has no environment to
+  read.
 - **Name the session through the command's Host Process ancestry and the
   hook records' Host Process.** Rejected. One Host Process can serve several
   sessions: a Codex terminal after `/clear`, or the OpenCode service. An exit
@@ -124,11 +125,14 @@ Codex and OpenCode sessions read as they do now:
   OpenCode passage that predates ADR 0104, which said Cleanup does not see
   the command.
 - The follow-up keeps the latest `Stop`'s running shells on the session's
-  hook record and shows them on a waiting session. A Claude Code `/clear`
-  makes a new session whose first record is a `SessionStart`. That session
-  carries no running command until its first `Stop`, even though the command
-  will wake it. The follow-up says whether to carry the flag across a
-  Conversation Switch, as ADR 0101 carries Sub-agents.
+  hook record and shows them on a waiting session. Two Claude Code steps
+  make a new session whose first record is a `SessionStart`: a `/clear`, and
+  "Move to background and exit", whose fork starts with `source` `fork`.
+  That session carries no running command until its first `Stop`, even
+  though the command will wake it. The follow-up says whether to carry the
+  flag across both, as ADR 0101 carries Sub-agents across a Conversation
+  Switch. ADR 0016, which holds a session running while its Sub-agents work,
+  is the precedent to weigh for the form.
 - A Claude Code session that moves leaves its Background Command behind. The
   Worktree it left reads as held by a process alone, so a person sees the
   command there only through Cleanup. The bundled skill asks only an

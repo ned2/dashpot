@@ -72,6 +72,8 @@ check("background: while the session that started it waits, the `process` blocke
   const hold = started("bg-hold");
   assert.equal(hold.cwd, tree("a"));
   assert.equal(labelled("process", "bg-running").alive, true);
+  const stored = Object.values(labelled("state", "bg-running").sessions).filter((entry) => entry.session === sessionOf("Background"));
+  assert.deepEqual(stored.map((entry) => entry.state), ["waiting"]);
   const obstacles = labelled("cleanup", "tree-a-bg-running").obstacles;
   assert.deepEqual(obstacles.map((obstacle) => obstacle.kind), ["agent-session", "agent-run", "process"]);
   assert.deepEqual(processPids(obstacles[2]), [hold.pid]);
@@ -109,7 +111,7 @@ check("only OpenCode's shell listing, asked with the Worktree as its location he
     assert.equal(listed[0].status, "running");
   }
 });
-check("the command's end wakes a session that still exists, where it moved to, and wakes nothing once its session is deleted", () => {
+check("the command's end wakes a session that still exists, moved or not, and wakes nothing once its session is deleted", () => {
   assert(wokenBy("bg-hold", sessionOf("Background")).length > 0, "the waiting session is woken");
   assert(wokenBy("bg-move-hold", sessionOf("BackgroundMove")).length > 0, "the moved session is woken");
   assert.deepEqual(wokenBy("bg-del-hold", sessionOf("BackgroundDelete")), []);

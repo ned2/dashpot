@@ -66,7 +66,10 @@ claims below, 13 checks in all. Receipt numbers are the trace's.
 - **`turn-end`.** The turn's `Stop` lists the command in `background_tasks`
   as `type` `shell` and `status` `running` (#12). The session was stored
   `waiting`. Worktree `a` was blocked by the session and by a `process`
-  blocker naming the shell and the command (#13). The command's end woke the
+  blocker naming the shell and the command (#13). The blocker gave the
+  command's name as `MainThread`, the name Node gives its main thread, so
+  only its `ps -ww` line shows it is `node command.mjs`. The command is named
+  this way in every trace. The command's end woke the
   session with a task-notification `UserPromptSubmit` (#17). That turn's
   `Stop` listed no background task (#20), and the blocker no longer named
   the command (#22).
@@ -111,7 +114,7 @@ Runner [`codex-466`](../../scripts/experiments/codex-466/), trace
 (166 records, SHA-256
 `ce61b9d67fa6440e2f076c9c3eded4f66b07f46e030134197b4018bba24d7601`).
 [`verify.mjs`](../../scripts/experiments/codex-466/verify.mjs) checks the
-claims below, 9 checks in all. The fixture model calls `exec_command` with
+claims below, 10 checks in all. The fixture model calls `exec_command` with
 a `yield_time_ms` of one second, which leaves the command running as a
 background terminal.
 
@@ -119,15 +122,17 @@ background terminal.
   hosts the thread, and it leads its own process session and group. Its
   environment names the thread (`CODEX_THREAD_ID`) (#9).
 - **`turn-end`.** The turn's `Stop` came while the command ran (#11). No
-  Codex hook payload carries a background terminal. The session was stored
+  payload of the four events Dashpot subscribes to that fired carries a field
+  about a background terminal. The session was stored
   `waiting`, and Worktree `a` was blocked by it and by a `process` blocker
   naming the command (#14). The command's end started no turn: no hook
   arrived (#15–#19).
 - **`cd`.** `/cd` to `b` while the command ran left the session where it was.
   The next prompt's hooks carried the same session and `a` (#38–#43), and
-  the command kept running in `a` (#44). The
-  [harness reference](../agent-harness-server-client-reference.md) lists an
-  active background terminal among `/cd`'s preconditions. After the command
+  the command kept running in `a` (#44). The terminal's screen was not
+  captured, so the refusal itself is not in the trace. By the
+  [harness reference](../agent-harness-server-client-reference.md), Codex
+  lists an active background terminal among `/cd`'s preconditions. After the command
   ended, the same `/cd` started a `source` `fork` session with a new id in
   `b` (#51), and the next prompt ran there (#57).
 - **`clear`.** `/clear` started a session with `source` `clear` and a new id,
@@ -190,16 +195,16 @@ own claims that Cleanup named nothing after a move or a delete predate ADR
   pid in every case: the session may wait, move away, `/clear`, exit to the
   background, or be deleted, and the command is still named. A Worktree
   becomes removable once the command ends.
-- The harness ends the command with its host in four cases: Claude Code's
+- The harness ends the command with its host in five cases: Claude Code's
   "Exit and stop tasks", a Codex terminal's `/exit`, the daemon unloading
-  the thread, and a headless `claude -p` or `codex exec`.
+  the thread, a headless `claude -p`, and `codex exec`.
 - The command's own claim to an owner goes stale. A Claude Code command's
   environment names the session that started it, even after a `/clear` or an
   exit to the background has ended that session. Its shell can be reparented
   to pid 1. OpenCode's listing still names a deleted session.
 - A Claude Code or OpenCode command's end wakes its session by itself. A
   Codex command's end does not. Only Claude Code reports the running command
-  in a hook, through `Stop`'s `background_tasks`.
+  in a hook Dashpot subscribes to, through `Stop`'s `background_tasks`.
 
 Not measured:
 

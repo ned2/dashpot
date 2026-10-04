@@ -84,6 +84,8 @@ const firstStopAfter = (scope, record, session) => hooksOf(scope).find((hook) =>
 const notification = (scope, after) => hooksOf(scope).find((hook) => hook.receipt > after.receipt && hook.event === "UserPromptSubmit" && hook.prompt?.taskNotification);
 
 // The run itself.
+// Scenario prefixes in labels: te turn-end, mv move, cl clear, es exit-stop,
+// eb exit-background, hl headless.
 const environment = records[0];
 check("the trace is of the pinned Claude Code release, with the updater off and an isolated configuration", () => {
   assert.equal(environment.kind, "environment");
@@ -123,6 +125,8 @@ check("turn-end: the command outlives its turn in Worktree `a`, the stop reports
   assert.equal(probe.checks.a.removable, false);
   assert(namesPid(probe, "a", command.pid), "the process blocker names the command");
   assert(namesPid(probe, "a", command.ppid), "and its shell");
+  const named = blocker(probe, "a", "process")[0].processes.find((entry) => entry.pid === command.pid);
+  assert.equal(named.comm, "MainThread", "named by Node's main thread name, not `node`");
   assert.deepEqual(sessionBlockers(probe, "a"), [session]);
 });
 check("turn-end: the command's end wakes the session with a task notification, whose stop reports no background task, and the blocker no longer names it", () => {
@@ -147,7 +151,7 @@ check("move: after `EnterWorktree` to `b` the command keeps working in `a`, wher
   const probe = probeOf(scope, "after-move");
   runningInA(probe, command);
   assert.equal(probe.checks.a.removable, false);
-  assert.deepEqual(sessionBlockers(probe, "a"), []);
+  assert.deepEqual(probe.checks.a.blockers.map((entry) => entry.kind), ["process"]);
   assert(namesPid(probe, "a", command.pid));
   assert(!namesPid(probe, "a", host), "the Host Process moved with the session");
   assert.deepEqual(sessionBlockers(probe, "b"), [session]);
@@ -224,7 +228,9 @@ check("exit-background: the command's end wakes the forked session, and stopping
   assert.equal(woke?.payload.session_id, fork.payload.session_id);
   const stop = one(scope, (record) => record.kind === "action.claude" && record.label === "eb-daemon-stop", "daemon stop");
   assert.equal(stop.status, 0);
-  assert(hooksOf(scope).some((hook) => hook.receipt > stop.receipt - 1 && hook.event === "SessionEnd" && hook.payload.session_id === fork.payload.session_id));
+  const listed = one(scope, (record) => record.kind === "action.claude" && record.label === "eb-agents-after", "agents after");
+  const ended = one(hooksOf(scope), (hook) => hook.event === "SessionEnd" && hook.payload.session_id === fork.payload.session_id, "fork's end");
+  assert(ended.receipt > listed.receipt, "the fork ended once the daemon was stopped");
   const directories = one(scope, (record) => record.kind === "daemon.directories" && record.label === "eb-daemon-stopped", "directories");
   assert.equal(directories.added, 0);
 });
