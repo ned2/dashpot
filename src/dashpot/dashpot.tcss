@@ -380,13 +380,13 @@ IssueColumnEditor {
     margin-left: 1;
 }
 
-/* The Legend and Runtime Stats: modals that cost nothing while closed. */
-LegendScreen, RuntimeStatsScreen {
+/* The Legend: a modal that costs nothing while closed. */
+LegendScreen {
     align: center middle;
     background: $background 70%;
 }
 
-#legend-dialog, #runtime-stats-dialog {
+#legend-dialog {
     width: 72;
     height: auto;
     max-height: 90%;
@@ -395,13 +395,7 @@ LegendScreen, RuntimeStatsScreen {
     background: $surface;
 }
 
-/* Runtime Stats' widest table, the refresh keys, needs more than the Legend. */
-#runtime-stats-dialog {
-    width: 90;
-    max-width: 100%;
-}
-
-#legend-title, #runtime-stats-title {
+#legend-title {
     height: 1;
     color: $text;
     text-style: bold;
@@ -553,6 +547,136 @@ LegendScreen, RuntimeStatsScreen {
    first block of the body should follow the Issue byline directly. */
 #issue-view-markdown > MarkdownBlock:first-of-type {
     margin-top: 0;
+}
+
+/* Full-screen Runtime view: Events and Stats tabs under one header. */
+#runtime-view {
+    height: 1fr;
+    layout: vertical;
+}
+
+#runtime-header {
+    height: 1;
+    padding: 0 1;
+    color: $text-muted;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+#runtime-tabs {
+    height: 1fr;
+}
+
+#runtime-tabs > ContentSwitcher {
+    height: 1fr;
+}
+
+#runtime-tabs TabPane {
+    height: 1fr;
+    padding: 0;
+}
+
+#runtime-events {
+    height: 1fr;
+}
+
+#runtime-event-filters {
+    height: 1;
+    margin: 1 1 0 1;
+}
+
+#runtime-show {
+    width: 30;
+    margin-right: 1;
+}
+
+#runtime-kind {
+    width: 28;
+    margin-right: 1;
+}
+
+#runtime-errors {
+    width: auto;
+    margin-right: 2;
+}
+
+/* The marked toggle draws the X only when on, so every button state shares
+   one colour and the mark alone carries the state. */
+#runtime-errors > .toggle--button,
+#runtime-errors.-on > .toggle--button {
+    color: $text;
+}
+
+#runtime-follow {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+    text-style: italic;
+    text-align: right;
+}
+
+#runtime-event-panes {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#runtime-event-table {
+    width: 1fr;
+    height: 1fr;
+    border: round $primary-darken-2;
+}
+
+#runtime-event-table:focus {
+    border: round $primary;
+}
+
+#runtime-event-detail {
+    width: 48;
+    height: 1fr;
+    margin-left: 1;
+    padding: 0 1;
+    border: round $primary-darken-2;
+    border-title-align: left;
+    border-title-style: bold;
+    border-title-color: $foreground;
+}
+
+#runtime-event-detail:focus {
+    border: round $primary;
+}
+
+/* On-disk field names run to thirty-odd characters, so each sits above its
+   value rather than in a column that would cut it short. */
+#runtime-event-detail DetailRow {
+    layout: vertical;
+}
+
+#runtime-event-detail DetailRow > .field-name {
+    width: 1fr;
+    margin-right: 0;
+}
+
+#runtime-event-detail DetailRow > .field-value {
+    padding-left: 2;
+}
+
+#runtime-view.-stacked #runtime-event-panes {
+    layout: vertical;
+}
+
+#runtime-view.-stacked #runtime-event-table {
+    height: 2fr;
+}
+
+#runtime-view.-stacked #runtime-event-detail {
+    width: 1fr;
+    height: 1fr;
+    margin-left: 0;
+}
+
+#runtime-stats {
+    height: 1fr;
+    padding: 0 2;
 }
 
 /* The Cleanup modals: a preview to select from, then the outcomes. */

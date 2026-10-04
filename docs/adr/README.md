@@ -101,3 +101,4 @@ of date.
 | 0095 | [Keep an ended session's sub-agents listed until they stop](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md) | accepted | — |
 | 0096 | [Attribute a Lead's Workers to their Issues by explicit assignment](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md) | accepted | — |
 | 0097 | [Carry a live session's sub-agents through its own SessionStart](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md) | accepted | — |
+| 0097 | [Show Runtime Events and Stats as tabs of one temporary screen](0097-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md) | accepted | — |

@@ -1,26 +1,23 @@
-"""The Runtime Stats screen: what this dashboard spends and how it runs.
+"""The Runtime screen's Stats tab: what this dashboard spends and how it runs.
 
 Laid out like the Legend, it shows sections computed when read from the
 dashboard's in-memory buffer of recent Runtime Events — GitHub requests and
 their points, refreshes and their keys, commands — beside the GitHub rate
-limit reading the Query Sources share and what ``process.start`` recorded. It keeps no figure of its own between updates and sends no
-request: it redraws from what the dashboard already holds, on a short
-interval while it is open. Its one action changes the Event Level for the
-rest of the run.
+limit reading the Query Sources share and what ``process.start`` recorded.
+It keeps no figure of its own between updates and sends no request: the
+Runtime screen redraws it from what the dashboard already holds, on a short
+interval while the tab is shown.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import ClassVar, Protocol, override
+from typing import Protocol, override
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import BindingType
 from textual.containers import VerticalScroll
-from textual.screen import ModalScreen
-from textual.timer import Timer
 from textual.widgets import Static
 
 from ..core.event_log import DASHBOARD_RECENT_WINDOW, EventLog
@@ -386,40 +383,29 @@ def process_text(
     )
 
 
+def covered_text(log: EventLog, since: datetime, now: datetime) -> str:
+    """Name the span of time the buffer covers, from when ``log``'s process started."""
+    started = now - timedelta(seconds=log.uptime_seconds())
+    return window_text(since, now=now, started=started)
+
+
 def next_level(level: EventLevel) -> EventLevel:
     """The level after ``level``, wrapping from ``full`` back to ``off``."""
     return EVENT_LEVELS[(EVENT_LEVELS.index(level) + 1) % len(EVENT_LEVELS)]
 
 
-class RuntimeStatsScreen(ModalScreen[None]):
-    """Show what this dashboard spends and how it runs, updating while open."""
+class RuntimeStatsPane(VerticalScroll):
+    """Every Runtime Stats section, redrawn when asked from what the dashboard holds."""
 
-    BINDINGS: ClassVar[list[BindingType]] = [
-        ("escape", "close", "Close"),
-        ("s", "close", "Close"),
-        ("l", "cycle_level", "Change Event Level"),
-    ]
-
-    def __init__(self, subject: RuntimeStatsSubject, *, update_seconds: float) -> None:
-        super().__init__()
+    def __init__(self, subject: RuntimeStatsSubject, *, id: str | None = None) -> None:
+        super().__init__(id=id)
         self.subject = subject
-        self.update_seconds = update_seconds
-        self.update_timer: Timer | None = None
 
     @override
     def compose(self) -> ComposeResult:
-        with VerticalScroll(id="runtime-stats-dialog"):
-            yield Static("RUNTIME STATS", id="runtime-stats-title")
-            for name, label in SECTIONS:
-                yield Static(
-                    label, classes="legend-heading", id=f"stats-{name}-heading"
-                )
-                yield Static("", classes="legend-section", id=f"stats-{name}")
-
-    def on_mount(self) -> None:
-        self.subject.measure_event_log()
-        self.update_stats()
-        self.update_timer = self.set_interval(self.update_seconds, self.update_stats)
+        for name, label in SECTIONS:
+            yield Static(label, classes="legend-heading", id=f"stats-{name}-heading")
+            yield Static("", classes="legend-section", id=f"stats-{name}")
 
     def show(self, name: str, content: Text, heading: str | None = None) -> None:
         """Replace one section, and its heading when the heading names a window."""
@@ -439,9 +425,7 @@ class RuntimeStatsScreen(ModalScreen[None]):
             limit=log.recent_limit,
         )
         window = events_since(buffered, since)
-        covered = window_text(
-            since, now=now, started=now - timedelta(seconds=log.uptime_seconds())
-        )
+        covered = covered_text(log, since, now)
         shared = self.subject.rate_limit
         self.show(
             "allowance",
@@ -486,11 +470,3 @@ class RuntimeStatsScreen(ModalScreen[None]):
                 memory=resident_memory(),
             ),
         )
-
-    def action_cycle_level(self) -> None:
-        """Move to the next Event Level for the rest of this run, never the settings."""
-        self.subject.set_event_level(next_level(self.subject.event_log.level))
-        self.update_stats()
-
-    def action_close(self) -> None:
-        self.dismiss(None)
