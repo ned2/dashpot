@@ -120,9 +120,10 @@ def ended_blocker_detail(a: Path, agents: str, count: str) -> str:
         f"working ({agents}). Dashpot cannot tell which Worktree a sub-agent "
         f"works in, so one may be working here: wait for it to finish. Dashpot "
         f"lists a sub-agent of an ended session until Codex reports that it "
-        f"stopped or the session's process exits, which one that ended with "
-        f"its session or was interrupted may never do, so if none is still "
-        f"working, run dashpot work forget-subagents {CODEX_SESSION} --harness codex."
+        f"stopped or the session's process exits, which one that was stopped, "
+        f"was interrupted or ended with its session may never do, so if none "
+        f"is still working, run dashpot work forget-subagents {CODEX_SESSION} "
+        f"--harness codex."
     )
 
 
@@ -239,9 +240,10 @@ def test_work_show_names_the_ended_sessions_workers_before_the_settler_decides(
     assert shown[1:] == [
         f"  codex pid 4242 ended with 1 sub-agent listed as working ({WORKER}). "
         f"Dashpot lists a sub-agent of an ended session until Codex reports that "
-        f"it stopped or the session's process exits, which one that ended with "
-        f"its session or was interrupted may never do, so if none is still "
-        f"working, run dashpot work forget-subagents {CODEX_SESSION} --harness codex"
+        f"it stopped or the session's process exits, which one that was "
+        f"stopped, was interrupted or ended with its session may never do, so "
+        f"if none is still working, run dashpot work forget-subagents "
+        f"{CODEX_SESSION} --harness codex"
     ]
 
 

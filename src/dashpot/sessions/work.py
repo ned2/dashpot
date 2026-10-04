@@ -694,9 +694,9 @@ def forget_session_subagents(
 
     A ``SessionEnd`` keeps the sub-agents its session left working in an
     ended record until each ``SubagentStop`` or until its Host Process is
-    gone (ADR 0095). One that ended with its session, or was interrupted,
-    reports nothing, so a person who has checked that none still works
-    removes those records here. Only ended records are touched: a live
+    gone (ADR 0095). One that was stopped, was interrupted or ended with its
+    session may report nothing, so a person who has checked that none still
+    works removes those records here. Only ended records are touched: a live
     session's sub-agents stay listed until it ends. Each removal is a
     compare-and-delete, so a record a hook changed since it was read is kept.
     """
