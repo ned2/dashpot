@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-04
 ---
 
 # Install and maintain Dashpot
@@ -19,12 +19,16 @@ with `uv tool install /absolute/path/to/dashpot-0.1.0-py3-none-any.whl`.
 | macOS | Apple Silicon; macOS CI plus real-host acceptance on `omar` in [#5](https://github.com/ned2/dashpot/issues/5). Host acceptance is pending. |
 | Git | 2.39 or newer, with current vendor patches. The minimum-version CI leg exercises the full suite with Debian 12’s packaged Git 2.39.x, including content-based Branch integration. |
 | GitHub CLI | gh 2.100.0 or newer for GitHub-backed Projects. 2.100.0 passed live collection during release planning; older versions are outside the initial support promise. |
-| Codex | Candidate baseline 0.154.0, subject to the per-host lifecycle checklist. |
-| Claude Code | Candidate baseline 2.1.261, subject to the per-host lifecycle checklist. |
+| Codex | `codex-cli` 0.160.0 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. Other releases are unsupported and not checked. |
+| Claude Code | 2.1.287 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. Other releases are unsupported and not checked. |
+| OpenCode | 2.0.22 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. 1.x is refused; another 2.x release is observed with a warning; a later major release is warned about and not observed ([Observe agent sessions](#observe-agent-sessions)). |
 
-Windows, Intel macOS, other architectures, and older harnesses are not part of
-the initial release target. A passing automated TUI test does not establish
-real-host process identity or lifecycle-hook compatibility. Final evidence
+Windows, Intel macOS, other architectures, and other harness releases are not
+part of the initial release target; supporting newer harness releases and
+establishing lower bounds is tracked in
+[#416](https://github.com/ned2/dashpot/issues/416). A passing automated TUI
+test does not establish real-host process identity or lifecycle-hook
+compatibility. Final evidence
 belongs in [#5](https://github.com/ned2/dashpot/issues/5); complete the
 [host checklist](releasing.md#host-acceptance) before publication.
 

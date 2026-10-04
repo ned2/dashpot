@@ -1,4 +1,4 @@
-"""Useful damping for agent-driven projects."""
+"""Useful damping for agent-assisted projects."""
 
 from .core.issue_profile import IssueProfile
 from .core.model import (
