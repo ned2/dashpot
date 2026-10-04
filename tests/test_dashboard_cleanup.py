@@ -35,6 +35,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.core.model import Branch, WorkspaceSnapshot
+from dashpot.core.runtime_events import SubagentsAcknowledged
 from dashpot.observation.issue_list import row_key
 from dashpot.repository.cleanup import (
     SUB_AGENT_SCOPE,
@@ -68,6 +69,7 @@ from dashpot.ui.cleanup_view import (
 )
 from dashpot.ui.legend import LegendScreen
 from dashpot.ui.list_pane import ListPane
+from dashpot.ui.marked_widgets import MarkedCheckbox
 from helpers import table_lookup, wait_until
 from test_cleanup import (
     CLAUDE,
@@ -79,6 +81,7 @@ from test_cleanup import (
     publish_subagent,
     sub_agent_worktrees,
 )
+from test_subagent_override import acknowledgements, memory_log
 
 ANCHOR = "/repo"
 WORKTREE = "/repo.worktrees/feat"
@@ -762,18 +765,27 @@ class InspectingCleaner:
 
 
 @pytest.mark.asyncio
-async def test_a_live_sub_agent_blocks_the_worktree_and_says_why(
+async def test_a_live_sub_agent_blocks_the_worktree_until_a_person_vouches(
     tmp_path: Path,
 ) -> None:
+    """Only the sub-agents hold the Worktree, so a person may acknowledge them.
+
+    The dialog names each session and its count beside an explicit,
+    never-focused toggle; confirming without the tick removes nothing, and
+    with it the Worktree goes, and its Branch only when ticked (ADR 0112).
+    """
     root, target_path, _sibling = sub_agent_worktrees(tmp_path)
     publish_subagent(session_directory(root), root, "SubagentStart", "a686b12")
     cleaner = InspectingCleaner(table_lookup({PARENT.pid: PARENT}))
     snapshot = observed(
         local("main"), local("feat"), anchor=str(root), worktree=str(target_path)
     )
-    app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner)
+    log = memory_log()
+    app = dashboard_app(
+        SequenceCollector(snapshot), refresh_seconds=0, cleaner=cleaner, event_log=log
+    )
 
-    async with app.run_test(size=(100, 40)) as pilot:
+    async with app.run_test(size=(140, 50)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(
             app, pilot, "worktrees-pane", row_key("worktree", PROJECT, str(target_path))
@@ -791,13 +803,52 @@ async def test_a_live_sub_agent_blocks_the_worktree_and_says_why(
         )
         assert f"Claude Code session {PARENT_SESSION}" in shown
         assert "a686b12" in shown
-        unavailable = screen.query_one("#cleanup-unavailable", Static)
-        assert str(unavailable.render()) == "Nothing here can be deleted."
-        assert not screen.query("#cleanup-confirm")
-        assert not screen.query("#cleanup-scope")
-        await pilot.press("enter")
-        await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
-    assert target_path.exists()
+        sessions = screen.query_one("#cleanup-despite-sessions", Static)
+        assert str(sessions.render()) == (
+            "Sub-agents listed as working, which Dashpot cannot place:\n"
+            f"  Claude Code session {PARENT_SESSION}: 1 sub-agent (a686b12)"
+        )
+        toggle = screen.query_one("#cleanup-despite-subagents", MarkedCheckbox)
+        assert toggle.value is False
+        assert app.focused is not toggle
+        assert not screen.query("#cleanup-unavailable")
+        assert str(screen.query_one("#cleanup-scope", Static).render()) == (
+            SUB_AGENT_SCOPE
+        )
+        assert problem_text(app) == (
+            "Wait for the listed sub-agents to finish, or confirm that none of "
+            "them works in this Worktree."
+        )
+        assert callout_text(app) == ""
+
+        await pilot.click("#cleanup-confirm")
+        await pilot.pause()
+        assert isinstance(app.screen, CleanupScreen)
+        assert toasts(app) == [
+            "Wait for the listed sub-agents to finish, or confirm that none of "
+            "them works in this Worktree."
+        ]
+        assert target_path.exists()
+
+        await pilot.click("#cleanup-despite-subagents")
+        await wait_until(lambda: problem_text(app) == "")
+        assert toggle.value is True
+        assert callout_text(app) == (
+            f"Confirming will:\nremove Worktree {target_path}\n"
+            "  despite 1 sub-agent listed as working in 1 session"
+        )
+        # The Branch was held only by the Worktree; acknowledging the
+        # sub-agents frees it to be chosen, never chosen for the person.
+        assert screen.selected() == (f"worktree:{target_path}",)
+
+        # The warning toast still covers the button, so press it directly.
+        confirm_button(app).press()
+        await wait_until(lambda: app.cleanups.cleaning == {})
+    assert not target_path.exists()
+    assert factories.git(root, "branch", "--list", "feat")
+    assert acknowledgements(log) == [
+        SubagentsAcknowledged(agents=("a686b12",), outcome="deleted")
+    ]
 
 
 @pytest.mark.asyncio

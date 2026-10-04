@@ -3,6 +3,18 @@
 from .adapter import CleanupAdapter as CleanupAdapter
 from .adapter import GitCleanupAdapter as GitCleanupAdapter
 from .obstacles import counted as counted
+from .override import DESPITE_SUBAGENTS_FLAG as DESPITE_SUBAGENTS_FLAG
+from .override import NO_ACKNOWLEDGEMENT as NO_ACKNOWLEDGEMENT
+from .override import Acknowledgement as Acknowledgement
+from .override import ListedSubagents as ListedSubagents
+from .override import lifted as lifted
+from .override import listed_by as listed_by
+from .override import listed_in as listed_in
+from .override import override_offer as override_offer
+from .override import (
+    parse_despite_subagents as parse_despite_subagents,
+)
+from .override import worktree_target as worktree_target
 from .perform import (
     CHANGED_SINCE_PREVIEW as CHANGED_SINCE_PREVIEW,
 )

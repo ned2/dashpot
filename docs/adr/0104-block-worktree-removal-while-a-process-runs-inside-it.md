@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-05
+amended-by: 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md
 ---
 
 # Block Worktree removal while a process runs inside it
@@ -125,9 +126,11 @@ had one. The scan is injectable, so tests drive it with a fake table.
   preview and confirmation changes the preview, so the confirmed removal
   performs nothing.
 - Part 2 of #476, a person's override of `sub-agent` blockers scoped to the
-  preview, will call `processes_inside` again before each destructive step.
+  preview, calls `processes_inside` again before each destructive step.
   It refuses when any process is inside the target, so the override can
-  never remove a Worktree a sub-agent's command is running in.
+  never remove a Worktree a sub-agent's command is running in. Amended by
+  [ADR 0112](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md), which also refuses the override while the scan falls
+  short, since a stated gap cannot show that no command runs there.
 - #466's Cleanup question is answered for a background command while it
   runs, whatever its session's state. A command whose session was deleted
   is named by its pid and command, not by that session.

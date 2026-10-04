@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import computed_field
 
 from ...core.errors import DashpotError
-from ...core.model import IntegrationState, integration_state
+from ...core.model import Harness, IntegrationState, integration_state
 from ...core.pydantic import LaxSequence, PublishedModel
 
 
@@ -45,11 +45,19 @@ BlockerKind = Literal[
 
 
 class CleanupBlocker(PublishedModel):
-    """One reason a Cleanup target is unavailable, with the command that acts on it."""
+    """One reason a Cleanup target is unavailable, with the command that acts on it.
+
+    A ``sub-agent`` blocker also names its Agent Session and the agent IDs
+    it lists as working, the set a person's override acknowledges
+    (ADR 0112); every other blocker leaves them empty.
+    """
 
     kind: BlockerKind
     detail: str
     command: str | None = None
+    session_id: str | None = None
+    harness: Harness | None = None
+    agents: LaxSequence[str] = ()
 
 
 class IntegrationFact(PublishedModel):

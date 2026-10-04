@@ -250,6 +250,9 @@ def assess_worktree_occupancy(
                     f"{ended_session_subagent_stop(record.harness, record.session_id)}.",
                     command=f"cd {path} && "
                     f"{forget_subagents_command(record.harness, record.session_id)}",
+                    session_id=record.session_id,
+                    harness=record.harness,
+                    agents=record.live_subagents,
                 )
             )
             continue
@@ -261,6 +264,9 @@ def assess_worktree_occupancy(
                 f"{listed_subagents(len(record.live_subagents))} "
                 f"({agents}; session {record.outcome}). {unplaced} "
                 f"{unreported_subagent_stop(record.harness)}.",
+                session_id=record.session_id,
+                harness=record.harness,
+                agents=record.live_subagents,
             )
         )
     active, work_diagnostics = WorkStore(path).active()

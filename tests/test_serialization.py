@@ -207,7 +207,7 @@ REMOVABILITY_KEYS = {
     "removeCommands",
     "uncheckedProcesses",
 }
-REMOVAL_OBSTACLE_KEYS = {"kind", "detail", "command"}
+REMOVAL_OBSTACLE_KEYS = {"kind", "detail", "command", "sessionId", "harness", "agents"}
 LIST_PAGE_KEYS = {"page", "totals"}
 OBSERVATION_FACT_KEYS = {"status", "attemptedAt", "lastGoodAt", "diagnostics"}
 QUERY_PAGE_KEYS = OBSERVATION_FACT_KEYS | {
@@ -470,6 +470,10 @@ def test_the_removability_document_keeps_its_keys_and_nulls() -> None:
     (obstacle,) = document["obstacles"]
     assert set(obstacle) == REMOVAL_OBSTACLE_KEYS
     assert obstacle["command"] is None
+    # Only a sub-agent blocker names a session and its agents (ADR 0112).
+    assert obstacle["sessionId"] is None
+    assert obstacle["harness"] is None
+    assert obstacle["agents"] == []
     assert document["removeCommands"] == []
 
 

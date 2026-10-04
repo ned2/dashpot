@@ -218,6 +218,27 @@ between two harnesses' ended sessions that share the id.
 `dashpot integrate <harness> --status` reports such a record as stale,
 naming the sub-agents that keep it and the process it waits for.
 
+A person who knows that none of the listed sub-agents works in a Worktree
+may remove it despite them, with a Sub-agent Override
+([ADR 0112](adr/0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md)).
+Each `sub-agent` blocker carries its session's ID, harness and listed
+agent IDs (`sessionId`, `harness`, `agents` in the JSON), and when those
+blockers are all that hold the Worktree and the
+[processes inside it](#processes-inside-a-worktree) were all checked, the
+text preview prints the exact
+`--despite-subagents SESSION_ID:AGENT_ID,AGENT_ID` value for
+`dashpot worktree remove`, and the dashboard's Cleanup dialog offers an
+unticked toggle naming each session and its count. The override is for
+exactly that set: confirmation compares the listed sub-agents again and
+refuses a different set as a changed preview, and before each step up to
+the Worktree's removal its occupants and processes are inspected again, so
+a sub-agent that started, a process inside the Worktree, or a scan that fell
+short refuses. It lifts no other blocker. A performed override is recorded
+as `cleanup.subagents_acknowledged`, one event per session, naming the
+acknowledged agent IDs and the Worktree's outcome. The override is the
+person's assertion, which is why the bundled skills forbid an agent from
+passing it.
+
 A Codex session's sub-agents block the same way: the 0.159.3 trace of
 [#373](https://github.com/ned2/dashpot/pull/373) (`d0a0a52`) and its 0.160.0
 rerun show the blocker naming live Codex children. A Codex child whose own

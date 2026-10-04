@@ -18,8 +18,11 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 
 from ..core.ages import relative_age
+from ..core.model import HARNESS_DISPLAY
 from ..repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
+    NO_ACKNOWLEDGEMENT,
+    Acknowledgement,
     CleanupBlocker,
     CleanupConfirmation,
     CleanupPreview,
@@ -29,10 +32,15 @@ from ..repository.cleanup import (
     counted,
     default_choices,
     describe_cleanup_report,
+    lifted,
+    listed_by,
+    listed_in,
+    override_offer,
     primary_target,
     retained_choices,
     sub_agent_scope,
     unchecked_processes_note,
+    worktree_target,
 )
 from ..repository.repository import short_ref as ref_name
 from .branch_cells import fetch_age_text
@@ -206,12 +214,43 @@ class TargetDetails(Vertical):
                 yield Static(value, markup=False, classes="cleanup-fact-value")
 
 
-def confirmation_lines(preview: CleanupPreview, selected: Sequence[str]) -> list[str]:
+def despite_sessions(preview: CleanupPreview) -> list[str]:
+    """Name each session whose listed sub-agents an acknowledgement covers, with its count.
+
+    One line per session, as the acknowledgement and its callout count them;
+    a harness is named when the session's blockers agree on one.
+    """
+    worktree = worktree_target(preview)
+    if worktree is None or not override_offer(preview):
+        return []
+    harnesses: dict[str, set[str]] = {}
+    for blocker in worktree.blockers:
+        if blocker.session_id is not None and blocker.harness is not None:
+            harnesses.setdefault(blocker.session_id, set()).add(
+                HARNESS_DISPLAY[blocker.harness]
+            )
+    lines: list[str] = []
+    for listed in sorted(listed_by(worktree.blockers), key=lambda one: one.session_id):
+        named = harnesses.get(listed.session_id, set())
+        harness = next(iter(named)) if len(named) == 1 else "Agent"
+        agents = sorted(listed.agents)
+        lines.append(
+            f"{harness} session {listed.session_id}: "
+            f"{counted(len(agents), 'sub-agent')} ({', '.join(agents)})"
+        )
+    return lines
+
+
+def confirmation_lines(
+    preview: CleanupPreview,
+    selected: Sequence[str],
+    acknowledged: Acknowledgement = NO_ACKNOWLEDGEMENT,
+) -> list[str]:
     """State what confirming the selection removes and deletes, one target a line.
 
     The confirm button's label never changes, so this recap is where the
-    selection is read before confirming: every selected target, and the
-    ignored content a Worktree takes with it.
+    selection is read before confirming: every selected target, the ignored
+    content a Worktree takes with it, and the sub-agents it goes despite.
     """
     lines: list[str] = []
     for target in preview.targets:
@@ -220,6 +259,12 @@ def confirmation_lines(preview: CleanupPreview, selected: Sequence[str]) -> list
         name = short_ref(target.ref)
         if target.kind == "worktree":
             lines.append(f"remove Worktree {target.path}")
+            if acknowledged:
+                agents = sum(len(listed.agents) for listed in acknowledged)
+                lines.append(
+                    f"  despite {counted(agents, 'sub-agent')} listed as working "
+                    f"in {counted(len(acknowledged), 'session')}"
+                )
             if preview.ignored:
                 names = ", ".join(preview.ignored[:CALLOUT_IGNORED_NAMES])
                 more = ", …" if len(preview.ignored) > CALLOUT_IGNORED_NAMES else ""
@@ -382,11 +427,30 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         )
 
     @property
+    def acknowledged(self) -> Acknowledgement:
+        """The sub-agents a person has acknowledged, when the toggle is on."""
+        toggles = self.query("#cleanup-despite-subagents")
+        if not toggles or not toggles.first(MarkedCheckbox).value:
+            return NO_ACKNOWLEDGEMENT
+        return override_offer(self.preview)
+
+    def usable(self, target: CleanupTarget) -> bool:
+        """Whether ``target`` can be confirmed now, the acknowledgement included."""
+        return target.available or target.identity in lifted(
+            self.preview, self.acknowledged
+        )
+
+    @property
     def can_confirm(self) -> bool:
         if self.preview.refusals:
             return False
         if self.primary_identity is not None:
-            return self.primary is not None and self.primary.available
+            primary = self.primary
+            return primary is not None and (
+                primary.available
+                or primary.identity
+                in lifted(self.preview, override_offer(self.preview))
+            )
         return self.preview.kind == "branch" and bool(self.preview.selectable)
 
     @property
@@ -487,6 +551,20 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                             ),
                             grouped=grouped,
                         )
+                if sessions := despite_sessions(preview):
+                    with Vertical(id="cleanup-despite"):
+                        yield Static(
+                            "Sub-agents listed as working, which Dashpot cannot "
+                            "place:\n" + "\n".join(f"  {line}" for line in sessions),
+                            markup=False,
+                            id="cleanup-despite-sessions",
+                        )
+                        yield MarkedCheckbox(
+                            "I have checked that none of these sub-agents works "
+                            "in this Worktree",
+                            False,
+                            id="cleanup-despite-subagents",
+                        )
                 with Vertical(id="cleanup-callout"):
                     yield Static("Confirming will:", id="cleanup-callout-title")
                     yield Static("", markup=False, id="cleanup-callout-lines")
@@ -535,7 +613,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         return tuple(
             one.target.identity
             for one in self.targets()
-            if one.target.available
+            if self.usable(one.target)
             and (one.primary or ((choice := one.choice()) is not None and choice.value))
         )
 
@@ -555,6 +633,12 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         if not self.can_confirm:
             # Said once, above the targets, rather than beside the buttons.
             return None
+        primary = self.primary
+        if primary is not None and not self.usable(primary):
+            return (
+                "Wait for the listed sub-agents to finish, or confirm that none "
+                "of them works in this Worktree."
+            )
         if not selected:
             return (
                 "Select what to remove."
@@ -575,12 +659,17 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             choice = one.choice()
             if choice is None:
                 continue
-            choice.disabled = (
-                self.busy or not self.can_confirm or not one.target.available
-            )
-            if not one.target.available and choice.value:
+            usable = self.usable(one.target)
+            choice.disabled = self.busy or not self.can_confirm or not usable
+            if not usable and choice.value:
                 choice.value = False
-        lines = confirmation_lines(self.preview, self.selected())
+        for toggle in self.query("#cleanup-despite-subagents").results(MarkedCheckbox):
+            toggle.disabled = self.busy
+        lines = confirmation_lines(
+            self.preview,
+            self.selected(),
+            self.acknowledged if self.worktree_selected() else NO_ACKNOWLEDGEMENT,
+        )
         self.query_one("#cleanup-callout", Vertical).display = bool(lines)
         self.query_one("#cleanup-callout-lines", Static).update("\n".join(lines))
         problem = self.selection_problem()
@@ -661,12 +750,18 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             return
         # The dialog discloses the ignored content instead of asking for a
         # tick, so removing the Worktree is the acknowledgement (ADR 0054).
+        # Sub-agents are different: only the person's explicit tick vouches
+        # for them, and only for the set the preview names (ADR 0112).
+        removing = self.worktree_selected()
+        acknowledged = self.acknowledged if removing else NO_ACKNOWLEDGEMENT
         self.dismiss(
             CleanupConfirmation(
                 self.request,
                 self.preview.fingerprint,
                 self.selected(),
-                delete_ignored=self.worktree_selected(),
+                delete_ignored=removing,
+                despite_subagents=acknowledged,
+                listed=listed_in(self.preview) if acknowledged else None,
             )
         )
 

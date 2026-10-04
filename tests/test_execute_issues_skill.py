@@ -234,6 +234,11 @@ def test_the_lead_binds_through_the_issue_work_skill_before_any_worktree() -> No
         rules
     )
     assert "Keep no private notes file" in rules
+    # The sub-agent override is the user's assertion alone (ADR 0112).
+    override = " ".join(rules.split())
+    assert "**Leave the sub-agent override to the user.**" in override
+    assert "offers `--despite-subagents` with your workers' IDs" in override
+    assert "Never pass it yourself, and never brief a worker to." in override
 
 
 def test_the_lead_merges_only_with_granted_authority() -> None:
@@ -362,7 +367,10 @@ def test_close_out_waits_for_another_sessions_sub_agents() -> None:
         "A blocker that says its session ended never clears by waiting: give the "
         "user the command it names, and leave running it to them"
     ) in close_out
-    assert "Bypass Dashpot only when the user explicitly tells you to" in close_out
+    assert (
+        "Offer the user the override only when they explicitly ask for it"
+        in " ".join(close_out.split())
+    )
     for check in (
         "`git -C <path> status --porcelain` prints nothing",
         "its PR shows `MERGED`",
@@ -370,13 +378,24 @@ def test_close_out_waits_for_another_sessions_sub_agents() -> None:
         "the dry run lists no blocker but those sessions' `sub-agent` ones",
     ):
         assert check in close_out, check
-    # One sentence names the bypass, so a Dashpot override can replace it.
-    assert close_out.count("The bypass is plain git:") == 1
-    assert "Record the bypass, the user's instruction and each check's result" in (
-        close_out
+    # One sentence names the bypass: the user's own override (ADR 0112).
+    flowed = " ".join(close_out.split())
+    assert close_out.count("The bypass is the user's own Dashpot override:") == 1
+    assert "give them each `--despite-subagents` flag the refused dry run prints" in (
+        flowed
     )
+    # The user runs the step-2 removal, whose flags differ for a check Worktree.
+    assert (
+        "for them to run the Worktree's step-2 removal themselves with those "
+        "flags added"
+    ) in flowed
+    assert "git worktree remove" not in close_out
+    assert (
+        "Record that you handed the user the override, their instruction and "
+        "each check's result"
+    ) in flowed
     record = section(shipped("references/run-records.md"), "The close-out")
-    assert "each Worktree removed with plain git rather than Dashpot" in record
+    assert "each Worktree the user removed despite listed sub-agents" in record
 
 
 def test_each_known_dashpot_gap_is_named_for_removal() -> None:

@@ -16,7 +16,7 @@ reader would misread, rather than skip, bumps :data:`SCHEMA_VERSION`.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import (
@@ -27,13 +27,14 @@ from pydantic import (
     SerializeAsAny,
     SerializerFunctionWrapHandler,
     StringConstraints,
+    TypeAdapter,
     ValidationError,
     model_serializer,
     model_validator,
 )
 
 from .model import Harness
-from .pydantic import PublishedModel, Rfc3339Timestamp
+from .pydantic import LaxSequence, PublishedModel, Rfc3339Timestamp
 
 SCHEMA_VERSION = 1
 # The largest line an event may take, newline included; a longer one is
@@ -109,6 +110,7 @@ EventName = Literal[
     "span",
     "hook.outcome",
     "command.outcome",
+    "cleanup.subagents_acknowledged",
     "agent_session.changed",
     "diagnostic.changed",
     "rate_limit_pause.changed",
@@ -365,6 +367,44 @@ class CommandOutcome(EventBody):
     target_harness: Harness | None = Field(default=None, alias="dashpot.target.harness")
 
 
+# What became of one Cleanup target, as its report says.
+CleanupOutcome = Literal["deleted", "already-absent", "refused", "unknown"]
+
+
+_OPAQUE_IDENTITY: TypeAdapter[str] = TypeAdapter(OpaqueIdentity)
+
+
+def fitting_identities(values: Iterable[str]) -> tuple[str, ...]:
+    """Each of ``values`` that is an opaque identifier, in order; the rest dropped.
+
+    A hook record accepts any agent ID, and an event records only the ones
+    that fit, rather than failing the work that recorded it.
+    """
+    fit: list[str] = []
+    for value in values:
+        try:
+            fit.append(_OPAQUE_IDENTITY.validate_python(value))
+        except ValidationError:
+            continue
+    return tuple(fit)
+
+
+class SubagentsAcknowledged(EventBody):
+    """A confirmed Cleanup of a Worktree despite one session's listed sub-agents.
+
+    A person acknowledged that none of these sub-agents works in the
+    Worktree. The envelope names that Agent Session and the Worktree; the
+    body names each acknowledged agent and what became of the Worktree
+    (ADR 0112).
+    """
+
+    name: Literal["cleanup.subagents_acknowledged"] = Field(
+        default="cleanup.subagents_acknowledged", alias="event.name"
+    )
+    agents: LaxSequence[OpaqueIdentity] = Field(alias="dashpot.sub_agent.ids")
+    outcome: CleanupOutcome = Field(alias="dashpot.cleanup.outcome")
+
+
 class AgentSessionChanged(EventBody):
     """An Agent Session a dashboard observed appearing, changing or ending.
 
@@ -596,6 +636,7 @@ EVENT_BODIES: Mapping[str, type[EventBody]] = {
     "span": SpanEnded,
     "hook.outcome": HookOutcome,
     "command.outcome": CommandOutcome,
+    "cleanup.subagents_acknowledged": SubagentsAcknowledged,
     "agent_session.changed": AgentSessionChanged,
     "diagnostic.changed": DiagnosticChanged,
     "rate_limit_pause.changed": RateLimitPauseChanged,

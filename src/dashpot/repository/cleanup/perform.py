@@ -11,8 +11,14 @@ from typing import Literal
 from pydantic import computed_field
 
 from ...core.commands import non_interactive_runner
+from ...core.event_log import current_event_log
 from ...core.git import Git, GitError, last_stderr_line
 from ...core.pydantic import LaxSequence, PublishedModel
+from ...core.runtime_events import (
+    CleanupOutcome,
+    SubagentsAcknowledged,
+    fitting_identities,
+)
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.working_directories import ProcessScan
 from ..repository import (
@@ -21,10 +27,25 @@ from ..repository import (
     LockHolderProbe,
 )
 from ..worktrees.records import registered_at
-from .obstacles import counted
+from .obstacles import (
+    LocatedWorktree,
+    assess_processes_inside,
+    assess_worktree_occupancy,
+    counted,
+    locate_worktree,
+)
+from .override import (
+    NO_ACKNOWLEDGEMENT,
+    Acknowledgement,
+    described,
+    lifted,
+    listed_by,
+    override_refusal,
+)
 from .preview import (
     describe_cleanup_preview,
     inspect_cleanup,
+    override_lines,
     sub_agent_scope,
     unchecked_processes_note,
 )
@@ -33,9 +54,11 @@ from .targets import (
     CleanupRequest,
     CleanupTarget,
     TargetKind,
+    WorktreeCleanupRequest,
 )
 
-Outcome = Literal["deleted", "already-absent", "refused", "unknown"]
+# What became of one target: the same four words its Runtime Event records.
+Outcome = CleanupOutcome
 
 
 CLEANUP_ENVIRONMENT: dict[str, str] = {"GIT_TERMINAL_PROMPT": "0"}
@@ -62,13 +85,18 @@ class CleanupConfirmation:
 
     ``fingerprint`` is the preview's, ``selected`` names targets by identity,
     and ``delete_ignored`` acknowledges that a Worktree's ignored content goes
-    with it.
+    with it. ``despite_subagents`` is a person's assertion that none of the
+    sub-agents the preview lists as working works in the Worktree, for
+    exactly that set, and ``listed`` the set the confirmed preview listed,
+    which tells a changed set from a mistyped one (ADR 0112).
     """
 
     request: CleanupRequest
     fingerprint: str
     selected: tuple[str, ...]
     delete_ignored: bool = False
+    despite_subagents: Acknowledgement = NO_ACKNOWLEDGEMENT
+    listed: Acknowledgement | None = None
 
 
 class TargetResult(PublishedModel):
@@ -147,6 +175,12 @@ def perform_cleanup(
     after validating the selection. Targets run in order — remote, Worktree,
     local Branch — and after a refused or unknown outcome the rest are
     reported as not attempted rather than tried on changed ground.
+
+    An acknowledgement of sub-agents is compared with the sub-agents the
+    re-inspection lists, and a changed set performs nothing and returns the
+    revised preview. Before each step it lets proceed, the Worktree is
+    inspected again for occupants and processes, and anything but exactly the
+    acknowledged sub-agents refuses that step (ADR 0112).
     """
     adapter = git if git is not None else cleanup_git(timeout)
     preview = inspect_cleanup(
@@ -162,6 +196,11 @@ def perform_cleanup(
         return _report(
             preview, dry_run, changed=True, refusals=(CHANGED_SINCE_PREVIEW,)
         )
+    acknowledged = confirmation.despite_subagents
+    refused = override_refusal(preview, acknowledged, confirmation.listed)
+    if refused is not None:
+        refusal, changed = refused
+        return _report(preview, dry_run, changed=changed, refusals=(refusal,))
     refusals, ordered = _select(preview, confirmation)
     if refusals:
         return _report(preview, dry_run, refusals=tuple(refusals))
@@ -170,8 +209,21 @@ def perform_cleanup(
             preview, dry_run, planned=tuple(target.identity for target in ordered)
         )
     scoped = adapter.at(Path(preview.anchor))
+    located = (
+        locate_worktree(
+            confirmation.request.current,
+            confirmation.request.path,
+            timeout=timeout,
+            git=adapter,
+        )
+        if acknowledged and isinstance(confirmation.request, WorktreeCleanupRequest)
+        else None
+    )
     results: list[TargetResult] = []
     halted: TargetResult | None = None
+    # Once the Worktree is gone no sub-agent can work in it, so the steps
+    # after its removal need no acknowledgement to stand.
+    vouched = located
     for target in ordered:
         if halted is not None:
             results.append(
@@ -182,11 +234,85 @@ def perform_cleanup(
                 )
             )
             continue
-        result = _perform(scoped, target)
+        problem = (
+            None
+            if vouched is None
+            else _acknowledged_occupancy(vouched, acknowledged, lookup, scan)
+        )
+        result = (
+            _perform(scoped, target)
+            if problem is None
+            else _result(target, "refused", f"not attempted: {problem}")
+        )
         results.append(result)
+        if target.kind == "worktree":
+            vouched = None
         if result.outcome in {"refused", "unknown"}:
             halted = result
+    if located is not None:
+        _record_acknowledgement(preview, results)
     return _report(preview, dry_run, performed=True, results=tuple(results))
+
+
+def _acknowledged_occupancy(
+    located: LocatedWorktree,
+    acknowledged: Acknowledgement,
+    lookup: ProcessLookup,
+    scan: ProcessScan | None,
+) -> str | None:
+    """Why the Worktree may no longer go despite its sub-agents, if it may not.
+
+    Taken again before each step: any occupant but the acknowledged
+    sub-agents, a changed set of them, a process inside the Worktree, or a
+    scan that could not check every process refuses the step.
+    """
+    occupants = assess_worktree_occupancy(located.path, located.worktrees, lookup)
+    found, unchecked = assess_processes_inside(located, scan)
+    others = [
+        blocker for blocker in (*occupants, *found) if blocker.kind != "sub-agent"
+    ]
+    if others:
+        return f"{others[0].kind}: {others[0].detail}"
+    listed = listed_by(occupants)
+    if listed != acknowledged:
+        return (
+            f"the sub-agents listed as working changed to {described(listed)} "
+            f"from the {described(acknowledged)} acknowledged"
+        )
+    if unchecked is not None:
+        return unchecked
+    return None
+
+
+def _record_acknowledgement(
+    preview: CleanupPreview, results: Sequence[TargetResult]
+) -> None:
+    """Record, per acknowledged session, the agents a person vouched for and the outcome.
+
+    The acknowledgement is exactly the sub-agents the preview lists, so each
+    ``sub-agent`` blocker names one session's share of it, with its harness.
+    """
+    log = current_event_log()
+    worktree = next((result for result in results if result.kind == "worktree"), None)
+    target = preview.target(worktree.identity) if worktree is not None else None
+    if log is None or worktree is None or target is None:
+        return
+    listed = sorted(
+        (blocker for blocker in target.blockers if blocker.kind == "sub-agent"),
+        key=lambda blocker: (blocker.session_id or "", blocker.harness or ""),
+    )
+    for blocker in listed:
+        log.record(
+            SubagentsAcknowledged(
+                agents=fitting_identities(sorted(blocker.agents)),
+                outcome=worktree.outcome,
+            ),
+            about=log.about(
+                harness=blocker.harness,
+                session_id=blocker.session_id,
+                worktree=target.path,
+            ),
+        )
 
 
 def _report(
@@ -220,13 +346,14 @@ def _select(
     refusals = list(preview.refusals)
     if not confirmation.selected:
         refusals.append("no target is selected")
+    acknowledged = lifted(preview, confirmation.despite_subagents)
     chosen: list[CleanupTarget] = []
     for identity in confirmation.selected:
         target = preview.target(identity)
         if target is None:
             refusals.append(f"{identity} is not a target of this preview")
             continue
-        if not target.available:
+        if not target.available and identity not in acknowledged:
             reasons = "; ".join(blocker.detail for blocker in target.blockers)
             refusals.append(f"{target.label} is unavailable: {reasons}")
             continue
@@ -447,11 +574,12 @@ def describe_cleanup_report(report: CleanupReport) -> list[str]:
     verb = "Delete Branch" if report.kind == "branch" else "Remove Worktree"
     lines = [f"{verb:<16}{report.subject}", f"{'Anchor':<16}{report.anchor}"]
     if report.changed:
-        lines.append(f"{'Changed':<16}{CHANGED_SINCE_PREVIEW}")
+        lines.extend(f"{'Changed':<16}{refusal}" for refusal in report.refusals)
         lines.extend(describe_cleanup_preview(report.preview)[2:])
         return lines
     lines.extend(f"{'Refused':<16}{refusal}" for refusal in report.refusals)
     if report.refusals:
+        lines.extend(override_lines(report.preview, " " * 16))
         return lines
     if report.dry_run:
         lines.append(f"{'Dry run':<16}would attempt, in order")

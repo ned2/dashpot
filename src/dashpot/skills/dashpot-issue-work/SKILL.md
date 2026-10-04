@@ -104,6 +104,11 @@ still in the Worktree, or resumed there, continues from step 5 of
 
 Keep the Issue Worktree and its Branch in place unless the user explicitly
 requests Cleanup. Cleanup remains a separate preview-and-confirm workflow.
+When listed sub-agents block a Worktree's removal, show the user the
+preview, including the `--despite-subagents` value it offers, and leave that
+flag and the Cleanup dialog's matching toggle to the user. Each asserts that
+none of those sub-agents works in the Worktree, which only the user can
+check, so never pass the flag or tick the toggle yourself.
 
 ## Recover a refusal
 
