@@ -460,7 +460,7 @@ class EventLog:
 
     def start(self) -> None:
         """Record ``process.start``, the process's first event."""
-        if self._level == "off" and self._recent.maxlen == 0:
+        if self._level == "off" and self.recent_limit == 0:
             return
         self.record(self._start_facts())
 
@@ -551,7 +551,7 @@ class EventLog:
 
     def _keep(self, event: RuntimeEvent) -> None:
         """Keep ``event`` in the buffer, letting go of any older than its window."""
-        if self._recent.maxlen == 0:
+        if self.recent_limit == 0:
             return
         with self._recent_lock:
             self._recent.append(event)

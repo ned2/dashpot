@@ -308,7 +308,7 @@ def test_a_full_buffer_says_how_far_back_it_reaches() -> None:
     events = log.recent_events()
 
     since = covered_since(
-        events, now=clock.now, window=DASHBOARD_RECENT_WINDOW, limit=log.recent_limit
+        events, now=clock.now, window=DASHBOARD_RECENT_WINDOW, limit=2
     )
 
     assert window_text(since, now=clock.now, started=MIDDAY) == (

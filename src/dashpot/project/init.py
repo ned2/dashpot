@@ -10,12 +10,12 @@ from ..core.commands import CommandRunner, run_command
 from ..core.errors import DashpotError
 from ..core.git import Git, GitError
 from ..core.pydantic import repository_relative
+from ..core.state_paths import PROJECT_CONFIG_PATH
 from ..core.worktree_paths import worktree_root
 from ..github.github_repository import (
     github_repo_from_remote,
     observe_github_repository_identity,
 )
-from .project_config import PROJECT_CONFIG_NAME
 
 
 class InitError(DashpotError):
@@ -41,7 +41,7 @@ def initialize_project(
     except GitError as exc:
         raise InitError("dashpot init must run inside a Git repository") from exc
     adapter = adapter.at(root)
-    config_path = root / PROJECT_CONFIG_NAME
+    config_path = root / PROJECT_CONFIG_PATH
     if config_path.is_file():
         raise InitError(f"already configured: {config_path}")
     reference = github_repo_from_remote(root, adapter)

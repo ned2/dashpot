@@ -76,7 +76,7 @@ def load_project_config(
     root: Path, *, polling_seconds: float | None = None
 ) -> ProjectConfig:
     """Read the Project configuration tracked at a Worktree's root."""
-    path = root / PROJECT_CONFIG_NAME
+    path = root / PROJECT_CONFIG_PATH
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
