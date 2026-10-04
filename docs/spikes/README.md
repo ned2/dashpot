@@ -18,6 +18,7 @@ stays as it was written.
 | Document | Status | Date |
 | --- | --- | --- |
 | [Background commands and Cleanup experiment](background-commands-and-cleanup-spike.md) | research | 2026-10-05 |
+| [Second Host Process resume experiment](second-host-process-resume-spike.md) | research | 2026-10-05 |
 | [Linked Worktree environment experiment](linked-worktree-environment-spike.md) | research | 2026-10-05 |
 | [Idle SessionStart and /fork experiment](idle-session-start-and-fork-spike.md) | research | 2026-10-05 |
 | [Conversation switch through the resume picker experiment](conversation-switch-picker-spike.md) | research | 2026-10-05 |

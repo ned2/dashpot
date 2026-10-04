@@ -110,6 +110,7 @@ of date.
 | 0104 | [Block Worktree removal while a process runs inside it](0104-block-worktree-removal-while-a-process-runs-inside-it.md) | amended | [0112](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md) |
 | 0105 | [Raise the Python floor to 3.13](0105-raise-the-python-floor-to-3-13.md) | accepted | — |
 | 0106 | [Record a session waiting after a SessionStart that begins no turn](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md) | accepted | — |
+| 0107 | [Keep a Sub-agent listed while the Host Process that runs it lives](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md) | accepted | — |
 | 0108 | [Keep OpenCode self-move and leading Workers on the shared service](0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md) | accepted | — |
 | 0110 | [Check every integrate destination before writing, and carry on past a failed write](0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md) | accepted | — |
 | 0111 | [Integrate several harnesses, and every integrated one, in one command](0111-integrate-several-harnesses-and-every-integrated-one-in-one-command.md) | accepted | — |

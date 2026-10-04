@@ -121,3 +121,9 @@ or until a person forgets it after the session ends.
   ([#458](https://github.com/ned2/dashpot/issues/458)): a Claude Code conversation switch's `SessionStart` takes over the
   sub-agents of the session its Host Process switched from, closing the
   "Not changed" item for `/clear`, `/resume` and `/branch`.
+- Amended by [ADR 0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md)
+  ([#460](https://github.com/ned2/dashpot/issues/460)): a `SessionStart` from another named Host Process carries the
+  sub-agents of a process the publisher finds not gone, each tagged with the
+  process that runs it, and drops those of a gone one. It closes the "Not
+  changed" item for an OpenCode root prompted by a second, standalone Host
+  Process: the `sub-agent` blocker holds until the service's child stops.

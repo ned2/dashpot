@@ -201,3 +201,12 @@ anything for long:
   ([#458](https://github.com/ned2/dashpot/issues/458)): an ended record also gives up its sub-agents to a conversation
   switch of its Host Process, and a `SubagentStop` reaches every ended
   record of its Host Process, not only its own session's.
+- Amended by [ADR 0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md)
+  ([#460](https://github.com/ned2/dashpot/issues/460)): an event of the session from another Host Process keeps the
+  sub-agents of a process the publisher finds not gone, so the probe this
+  decision left until the case was measured is made. A standalone Codex
+  client resuming a daemon-hosted thread whose worker runs was measured
+  there: a plain `codex resume` attaches to the daemon and publishes from
+  it, and `codex --no-daemon resume` publishes nothing while the daemon
+  holds the thread, so Codex 0.160.0 has no second Host Process in that
+  case.

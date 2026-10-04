@@ -152,7 +152,8 @@ interrupted through its own thread reports no stop
 Code sub-agent that its session stops with `TaskStop`, or that a headless
 SDK interrupt kills ([#419](https://github.com/ned2/dashpot/issues/419)).
 The blocker clears when the last sub-agent's `SubagentStop` arrives, when a
-live session starts again, or when the session's process is gone. A sub-agent
+live session starts again, or when the session's process is gone, save a
+sub-agent another, live Host Process runs (below). A sub-agent
 dispatched before its session entered another Worktree is listed both in
 the record left behind and in the record the session moved to, and holds
 the block while it works. Its `SubagentStop` removes it from both: the
@@ -177,14 +178,42 @@ sub-agent neither revives the session nor lists it as waiting. A
 `SessionStart` of the session on the same process, at the same Worktree,
 carries the list into the new incarnation; at another Worktree the kept
 record stays, and each `SubagentStop` still reaches it. An event of the
-session from another process replaces the kept record and drops its list.
+session from another process replaces the kept record, keeping only the
+sub-agents of a process still running (below).
 A `SessionStart` of a live session from the process its record names carries
 the list the same way
 ([ADR 0097](adr/0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md)):
 Claude Code and Codex publish one when they compact a session, and its
-sub-agents keep working across it. One from another process, or one that
-names none, starts with no sub-agents. A compaction's `SessionStart` also
-keeps the session's turn state
+sub-agents keep working across it. One that names no process starts with
+no sub-agents.
+
+A sub-agent belongs to the Host Process that runs it, and stays listed while
+that process lives, whichever process the session's own events come from
+([ADR 0107](adr/0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md)).
+OpenCode's `--standalone` client can resume a root whose child the shared
+service runs, and the client's private server then publishes the root's
+events. An event of the session from another process keeps each sub-agent
+the record lists: one the event's own process runs as the record's own, and
+one another process runs, tagged with that process in the record's
+`subagentProcesses`, only while the publisher finds that process not gone.
+So a `SessionStart` from another process starts with the sub-agents of a
+process still running, and with none of a process that is gone, such as the
+one a `claude --resume` replaced. The tagged sub-agent holds the session
+running and the `sub-agent` blocker as any listed one does, until its
+`SubagentStop`, which its own process publishes and which also clears it from
+the session's other records that list it under that process. When that
+process exits without a stop, the sub-agent stops counting at once: the
+session reads waiting unless its own turn runs, and the blocker goes. A
+record whose own process is gone while it still lists such a sub-agent is
+kept, with no Agent Run or Sessions pane row of its own, until that
+sub-agent's process is gone too, and holds the blocker meanwhile, reading
+`session gone`. A Codex terminal does not take a daemon-hosted thread on
+this way: a plain `codex resume` attaches to the daemon, whose process
+publishes its hooks, and `codex --no-daemon resume` of a thread the daemon
+holds publishes nothing while it is open
+([#460 spike](spikes/second-host-process-resume-spike.md)).
+
+A compaction's `SessionStart` also keeps the session's turn state
 ([ADR 0100](adr/0100-keep-a-compacted-sessions-turn-state.md)). Every other
 `SessionStart` begins no turn and records the session waiting, so only the
 sub-agents it lists hold it running

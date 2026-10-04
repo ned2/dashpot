@@ -123,3 +123,8 @@ hold the session running while any sub-agent it started is alive:
   session whose sub-agents keep working. An undelivered `SubagentStop` is
   then bounded by the process's exit rather than the session's next
   `SessionStart`.
+- Amended by [ADR 0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md)
+  ([#460](https://github.com/ned2/dashpot/issues/460)): a sub-agent another Host Process runs stays in the live set
+  across the session's `SessionStart` from a second process, and leaves it at
+  its `SubagentStop` or once its own process is gone. A live record held
+  `running` only by sub-agents of a gone process reads `waiting`.

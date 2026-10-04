@@ -130,6 +130,12 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   `dashpot work show` lists the sub-agents holding a run running, and it and
   the `sub-agent` blocker say one may have been interrupted without Codex
   reporting its stop, and how to end the session if none is still working.
+- Keep a sub-agent listed, holding its session running and blocking
+  Worktree Cleanup, while the Host Process that runs it lives, when another
+  Host Process takes its session on, as an OpenCode `--standalone` client
+  does with a root whose child the shared service runs; it was dropped at
+  that process's `SessionStart`, and its exit then cleared the blocker while
+  the child still worked.
 - Support Codex `codex-cli` 0.160.0 on Linux in each measured hosting mode:
   the managed daemon a plain terminal starts, an App Server with attached
   clients, a standalone terminal, and `codex exec`. A real-harness acceptance
