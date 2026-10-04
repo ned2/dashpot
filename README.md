@@ -831,13 +831,13 @@ names the forced removal), Agent Sessions whose hooks place them there
 (each named as live there or of unknown liveness, with how to free the
 Worktree from it: [Agent Sessions and Worktree Cleanup](docs/agent-sessions.md#agent-sessions-and-worktree-cleanup)),
 Agent Runs recorded there (an Orphaned Agent Run, whose session is gone,
-names its `dashpot work stop --session` command), a `sub-agent` of an Agent
-Session elsewhere in the Repository still listed as working, which may be
+names its `dashpot work stop --session` command), a `sub-agent` that an Agent
+Session elsewhere in the Repository still lists as working, which may be
 working here because Dashpot cannot tell which Worktree a sub-agent works in
 (it names how to end that session if none is still working:
 [ADR 0066](docs/adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md)),
 and commits not on the upstream or the Integration Branch. A removable
-Worktree's report adds that sub-agents of Agent Sessions outside the
+Worktree's text report adds that sub-agents of Agent Sessions outside the
 Repository are not checked. `check` removes nothing.
 
 `worktree remove PATH` and `branch delete NAME` are the Cleanup commands of

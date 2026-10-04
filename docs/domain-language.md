@@ -511,9 +511,10 @@ leaves the run in place ([ADR 0086](adr/0086-orphan-runs-of-a-stopped-or-restart
 stays listed, marked orphaned, until its Claude Code session resumes at the
 same Worktree and continues it ([ADR 0053](adr/0053-continue-an-orphaned-agent-run-when-its-session-resumes.md)),
 until its session, resumed or reloaded on a new Host Process, runs `dashpot
-work start <issue>` there, which reports that it restarted the run and binds
-a new run, with a new `startedAt`, in its place (the recovery of a Codex or
-OpenCode run: [Agent sessions](agent-sessions.md#codex-hosting-modes)), or
+work start` with the run's Issue in the run's Worktree, which reports that it
+restarted the run and binds a new run, with a new `startedAt`, in its place
+(the recovery of a [Codex](agent-sessions.md#codex-hosting-modes) or an
+[OpenCode](agent-sessions.md#opencode-hosting-modes) run), or
 until a person ends it with `dashpot work stop --session`; a gone session
 without a run is only stale observation state.
 Orphaned is what a person reads about the run, beside its turn state, which

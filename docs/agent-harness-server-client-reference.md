@@ -687,8 +687,8 @@ it, timings within a tolerance. How Dashpot acts on it is [ADR
   one had loaded: its `thread/loaded/list` named all four, and neither the
   reload nor a controller's `thread/resume` of one ran a hook. That thread's
   next turn ran on the replacement, its first hook `SessionStart` with
-  `source` `resume`, under the same thread id. That `SessionStart` is the
-  runner's resume's, not the reload's: without a resume, a reloaded thread's
+  `source` `resume`, under the same thread id. That `SessionStart` comes
+  from the runner's resume, not the reload: without a resume, a reloaded thread's
   next hook is `UserPromptSubmit` from the replacement
   ([#380](https://github.com/ned2/dashpot/issues/380)).
 - **A reloaded thread unloads.** The three reloaded threads no client resumed
