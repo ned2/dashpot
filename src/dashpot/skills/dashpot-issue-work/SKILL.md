@@ -33,8 +33,9 @@ This skill is written for Dashpot 0.1.0.
    workflow. Keep the Issue Binding active across the entire engagement.
 
 Never infer an Issue Binding from a Branch, Worktree, conversation, or Issue
-lookup. Only `work start` declares it; `work relocate` and Claude Code's
-`EnterWorktree` can preserve that existing binding but cannot create one.
+lookup. Only `work start` declares it; `work relocate`, Claude Code's
+`EnterWorktree`, and OpenCode's session move can preserve that existing
+binding but cannot create one.
 Observation commands and dashboards stay passive; run a management command
 only for the action the user requested.
 
@@ -68,16 +69,22 @@ is the instruction to do so; do not wait for the user to ask:
   session keeps the Worktree from Cleanup until its client exits, and that
   `codex resume <session-id> -C <directory>` continues it elsewhere after
   that. A daemon-hosted thread ends about 60 s after its last client leaves.
-- **OpenCode.** Do not move the session yourself. Tell the user it keeps
-  the Worktree from Cleanup until it is moved to another location in
-  OpenCode, it is deleted with `opencode session delete <session-id>`, or
-  the OpenCode server it runs in stops; quitting a client leaves it
-  running.
+- **OpenCode.** Move the session to the Repository's main Worktree, the
+  first entry of `git worktree list`, with steps 2 and 3 of the
+  [OpenCode move](references/dispatch.md#move-an-opencode-session), and only after `show` reports
+  no active Issue work: an Agent Run still bound would move with the
+  session. Run no `work start` there. If the move fails, tell the user the
+  session keeps the Worktree from Cleanup until it is moved to another
+  location in OpenCode, it is deleted with
+  `opencode session delete <session-id>`, or the OpenCode server it runs in
+  stops; quitting a client leaves it running.
 
-If the user asks for follow-up changes afterwards, a Claude Code session that
-left enters the same Worktree again with `EnterWorktree` and checks
-`<dashpot> work show` before any `work start`, as steps 2 and 3 of the
-Claude Code move in [dispatch](references/dispatch.md) describe. A session
+If the user asks for follow-up changes afterwards, a session that left goes
+back to the same Worktree and checks `<dashpot> work show` before any
+`work start`: Claude Code enters it again with `EnterWorktree`, as steps 2
+and 3 of the Claude Code move in [dispatch](references/dispatch.md)
+describe, and OpenCode moves there with every step of the
+[OpenCode move](references/dispatch.md#move-an-opencode-session). A session
 still in the Worktree, or resumed there, continues from step 5 of
 [Establish the workflow](#establish-the-workflow).
 

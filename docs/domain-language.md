@@ -406,7 +406,9 @@ Claude Code designates only its worktree tools, so a persistent shell `cd`
 places its session without carrying the run
 ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)).
 OpenCode designates a root session's `session.moved`
-([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)).
+([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)),
+and the Issue-work skill has a root session make that move itself
+([ADR 0094](adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md)).
 _Avoid_: calling a resume in a new process, or a shell `cd`, a Live
 Relocation
 

@@ -953,6 +953,16 @@ def _claimed_identity_status(
         validated = validate_session_claim(claim, root, lookup)
     except SessionClaimError as exc:
         return [f"{prefix}, rejected: {exc}"]
+    # The freshest record may sit in another Worktree of the Repository, as
+    # after a move whose record at the destination could not be written, and
+    # then the session is not here, whatever directory this command runs in.
+    location = validated.location
+    if location is not None and not same_path(location.worktree, root):
+        return [
+            f"{prefix}, elsewhere: its freshest hook record, "
+            f"{validated.record.outcome}, places it at {location.worktree}, "
+            f"not here"
+        ]
     return [f"{prefix}, confirmed by its {validated.record.outcome} hook record"]
 
 

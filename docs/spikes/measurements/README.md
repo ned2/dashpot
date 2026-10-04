@@ -61,6 +61,7 @@ line per write, the seconds since the previous write and the bytes written.
 | [`issue-419-claude-trace.jsonl`](issue-419-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.287 | [#419](https://github.com/ned2/dashpot/issues/419) | [`claude-419`](../../../scripts/experiments/claude-419/) | [Claude Code worker mechanics experiment](../claude-code-worker-mechanics-spike.md) |
 | [`issue-420-codex-trace.jsonl`](issue-420-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#420](https://github.com/ned2/dashpot/issues/420) | [`codex-420`](../../../scripts/experiments/codex-420/) | [Codex worker mechanics experiment](../codex-worker-mechanics-spike.md) |
 | [`issue-421-opencode-trace.jsonl`](issue-421-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#421](https://github.com/ned2/dashpot/issues/421) | [`opencode-421`](../../../scripts/experiments/opencode-421/) | [OpenCode v2 worker mechanics experiment](../opencode-v2-worker-mechanics-spike.md) |
+| [`issue-423-opencode-trace.jsonl`](issue-423-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#423](https://github.com/ned2/dashpot/issues/423) | [`opencode-423`](../../../scripts/experiments/opencode-423/) | [OpenCode v2 self-relocation acceptance run](../opencode-v2-self-relocation-acceptance.md) |
 
 The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are
 the ones whose writeups are not spikes: their findings went straight into the

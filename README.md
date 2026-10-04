@@ -538,7 +538,12 @@ Each supported harness release is pinned by an acceptance run: a runner that dri
   [trace](docs/spikes/measurements/issue-163-opencode-trace.jsonl), including
   the shared service, `--standalone` clients, background Sub-agents, moves,
   plugin instance churn, and a TUI of 2.0.21 replacing the service
-  ([supported modes](docs/agent-sessions.md#opencode-hosting-modes)).
+  ([supported modes](docs/agent-sessions.md#opencode-hosting-modes)). The
+  Issue-work skill's self-move has its own
+  [runner](scripts/experiments/opencode-423/run.mjs),
+  [verifier](scripts/experiments/opencode-423/verify.mjs) and
+  [trace](docs/spikes/measurements/issue-423-opencode-trace.jsonl)
+  ([acceptance](docs/spikes/opencode-v2-self-relocation-acceptance.md)).
 
 #### Local review gate
 
@@ -915,7 +920,11 @@ report (`kind`, `subject`, `anchor`, `dryRun`, `performed`, `changed`,
 code is 0 only when every selected target was deleted or already absent.
 
 The created Worktree carries no harness. The installed Issue-work skill moves
-a running Claude Code session with `EnterWorktree`, or hands a Codex session
+a running Claude Code session with `EnterWorktree`, has a root OpenCode
+session move itself with OpenCode's own session move and confirm the move in
+its next step before any Dashpot work there
+([ADR 0094](docs/adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md)),
+or hands a Codex session
 off through sequential `codex resume <session-id> -C <path>` when that version
 supports it. An active Codex run first declares the target with `dashpot work
 relocate <path>`; after the old client exits, the resumed hook moves the same

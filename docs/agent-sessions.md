@@ -495,10 +495,12 @@ Worktree, which a live or idle session keeps from
 entered with `EnterWorktree` returns with `ExitWorktree(keep)`, and enters
 the same Worktree again for follow-up changes
 ([ADR 0085](adr/0085-return-a-claude-code-session-before-entering-another-issue-worktree.md)).
+A root OpenCode session moves itself to the Repository's main Worktree
+([ADR 0094](adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md)).
 A Claude Code session started in the Worktree can leave it only for another
-Worktree, a Codex session cannot leave it itself, and the skill does not move
-an OpenCode session, so it tells the person what still holds the Worktree and
-how it is released, as the Cleanup blocker's way out does.
+Worktree, and a Codex session cannot leave it itself, so for those, and for
+an OpenCode move that fails, the skill tells the person what still holds the
+Worktree and how it is released, as the Cleanup blocker's way out does.
 
 When work needs another Worktree, the skill delegates path, Branch, base,
 collision, and rollback policy to `issue show` and `worktree create`. Claude
@@ -508,11 +510,19 @@ finishing the current Issue when the move is to another one. When
 `EnterWorktree` still refuses, the skill hands the work to a fresh Claude Code
 session started in the Worktree with one quoted `cd <worktree> && claude`
 command, which does not promise working `gh` credentials there
-([#274](https://github.com/ned2/dashpot/issues/274)). Whether an agent may
-move its own OpenCode session is not settled
-([#148](https://github.com/ned2/dashpot/issues/148)), so the skill hands Issue
-work in another Worktree to a new OpenCode session started there with
-`opencode <worktree> --prompt`, which the acceptance run does not drive. Codex prefers a
+([#274](https://github.com/ned2/dashpot/issues/274)). A root OpenCode
+session moves itself with OpenCode's `opencode.session_move` tool, on the
+authority of the person's request to work on the Issue in that Worktree
+(ADR 0094). It moves only once every Sub-agent and background command it
+started has ended, calls the tool alone in its step, and runs no `work`
+command and none of the Issue's work in the Worktree until the next step's
+`pwd` and `integrate opencode --status` confirm it arrived: the move takes effect when the step ends, and the tool
+reports it before then. A bound run moves with it as a Live Relocation, so
+`work show` there retains it; an unbound session runs `work start`. A refused
+or unconfirmed move falls back to a new OpenCode session started in the
+Worktree with `opencode <worktree> --prompt`, after a session that arrived
+without Dashpot's record of it has moved back
+([acceptance](spikes/opencode-v2-self-relocation-acceptance.md)). Codex prefers a
 sequential resume of the same Agent Session with `codex resume <session-id> -C
 <path>`: the old client releases the thread by exiting, and the resumed turn
 must publish fresh lifecycle evidence. Codex itself keeps a competing client

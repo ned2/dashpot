@@ -712,7 +712,11 @@ def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
     assert "60 s after its last client leaves" in codex_case
     assert "60 s after its last client leaves" in session_exit("codex").end
     opencode_case = text[opencode:follow_up]
-    assert "Do not move the session yourself" in opencode_case
+    assert "Move the session to the Repository's main Worktree" in opencode_case
+    assert "with steps 2 and 3 of the [OpenCode move]" in opencode_case
+    assert "only after `show` reports no active Issue work" in opencode_case
+    assert "Run no `work start` there" in opencode_case
+    assert "If the move fails" in opencode_case
     assert "moved to another location in OpenCode" in opencode_case
     assert "move that session to another location in OpenCode" in flowed(
         session_exit("opencode").move
@@ -721,7 +725,10 @@ def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
     assert "opencode session delete {session_id}" in session_exit("opencode").end
     assert "quitting a client leaves it running" in opencode_case
     follow_up_text = text[follow_up:]
-    assert "enters the same Worktree again with `EnterWorktree`" in follow_up_text
+    assert "enters it again with `EnterWorktree`" in follow_up_text
+    assert "OpenCode moves there with every step of the [OpenCode move]" in (
+        follow_up_text
+    )
     assert "checks `<dashpot> work show` before any `work start`" in follow_up_text
     assert "continues from step 5" in follow_up_text
     assert (
@@ -846,6 +853,43 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     assert any(
         f"thread-9 (from {SESSION_OVERRIDE_VARIABLE}), confirmed" in message
         for message in explicit
+    )
+
+
+def test_status_confirms_an_identity_only_where_its_freshest_record_places_it(
+    tmp_path: Path,
+) -> None:
+    # A move whose record at the destination could not be written leaves the
+    # freshest record behind, so a command at the destination is elsewhere.
+    from dashpot.sessions.hook_records import session_directory
+
+    home = codex_home(tmp_path)
+    main, linked = linked_worktree(tmp_path)
+    write_config_marker(main)
+    write_config_marker(linked)
+    write_hook_record(
+        {**session_record("thread-9", "running"), "repositoryRoot": str(main)},
+        session_directory(main),
+    )
+
+    def status(current: Path) -> list[str]:
+        return codex_integration_status(
+            home,
+            state_dir=tmp_path / "state",
+            current=current,
+            lookup=present(CODEX),
+            environ={"CODEX_THREAD_ID": "thread-9"},
+        )
+
+    at_destination = [m for m in status(linked) if "identity claimed here" in m]
+    assert at_destination == [
+        "Agent Session identity claimed here: Codex session thread-9 (from Codex "
+        f"environment), elsewhere: its freshest hook record, live, places it at "
+        f"{main}, not here"
+    ]
+    assert any(
+        "thread-9 (from Codex environment), confirmed by its live hook record" in m
+        for m in status(main)
     )
 
 
