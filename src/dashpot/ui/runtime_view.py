@@ -1,6 +1,6 @@
 """The Runtime screen: this dashboard's recent Runtime Events and its Runtime Stats.
 
-A full-screen temporary screen over the main screen that opened it, with
+A full-screen temporary screen over the Peer Screen that opened it, with
 two tabs reading the same in-memory buffer over the same window: Events,
 one row per event, and Stats, their aggregation. A header above both names
 the Event Level, the window and how many events it holds; ``l`` changes the

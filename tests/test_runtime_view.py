@@ -9,9 +9,10 @@ from typing import Any
 
 import pytest
 from textual import events
-from textual.command import CommandPalette
+from textual.command import CommandList, CommandPalette
 from textual.pilot import Pilot
 from textual.screen import ModalScreen
+from textual.scrollbar import ScrollTo, ScrollUp
 from textual.widgets import Select, Static
 
 from app_harness import (
@@ -57,7 +58,7 @@ from dashpot.ui.runtime_events_view import (
     event_summary,
 )
 from dashpot.ui.runtime_view import RuntimeScreen
-from helpers import wait_until
+from helpers import settled, wait_until
 from test_runtime_stats import (
     Clock,
     end_after,
@@ -187,7 +188,7 @@ async def test_e_and_s_open_one_full_screen_on_their_tab_and_switch_between_them
 
 
 @pytest.mark.asyncio
-async def test_the_runtime_screen_opens_from_either_main_screen_and_over_no_popup(
+async def test_the_runtime_screen_opens_from_either_peer_screen_and_over_no_popup(
     tmp_path: Path,
 ) -> None:
     app = runtime_app(stats_log(tmp_path, Clock()))
@@ -220,7 +221,7 @@ async def test_the_runtime_screen_opens_from_either_main_screen_and_over_no_popu
 
 
 @pytest.mark.asyncio
-async def test_the_palette_offers_both_tabs_on_main_screens_only(
+async def test_the_palette_offers_both_tabs_on_peer_screens_only(
     tmp_path: Path,
 ) -> None:
     app = runtime_app(stats_log(tmp_path, Clock()))
@@ -247,7 +248,15 @@ async def test_the_palette_offers_both_tabs_on_main_screens_only(
         await pilot.press(*"runtimestats")
         palette = app.screen
         assert isinstance(palette, CommandPalette)
-        await wait_until(lambda: palette._list_visible)
+        matches = palette.query_one(CommandList)
+
+        def highlighted() -> str:
+            index = matches.highlighted
+            if index is None:
+                return ""
+            return str(matches.get_option_at_index(index).prompt)
+
+        await wait_until(lambda: "Runtime Stats" in highlighted())
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, RuntimeScreen))
         screen = app.screen
@@ -503,6 +512,7 @@ async def test_paging_jumping_and_clicking_follow_only_on_the_newest_event(
         await wait_until(lambda: follow_text(app) == "following")
 
         # The header row is the table's first line, so its second is row 0.
+        await settle_screen(app, pilot, "the event table")
         await pilot.click("#runtime-event-table", offset=(4, 2))
         await wait_until(lambda: follow_text(app) != "following")
         assert table.cursor_row == 0
@@ -511,6 +521,100 @@ async def test_paging_jumping_and_clicking_follow_only_on_the_newest_event(
         screen.query_one("#runtime-kind", Select).value = "hook.outcome"
         await wait_until(lambda: not rows(app))
         assert table.cursor_key() is None
+
+
+@pytest.mark.asyncio
+async def test_a_paused_table_stays_where_a_person_scrolled_it(tmp_path: Path) -> None:
+    clock = Clock()
+    log = stats_log(tmp_path, clock, keep_recent=60)
+    for number in range(60):
+        run_command(log, clock, f"p{number}", 0.01)
+    app = runtime_app(log)
+    app.runtime_event_filter = EventFilter(kind="command")
+
+    async with app.run_test(size=(160, 30)) as pilot:
+        screen = await open_runtime(app, pilot)
+        table = event_table(app)
+        bottom = await settled(pilot, lambda: table.scroll_y, "the newest event")
+        assert bottom == table.max_scroll_y > 10
+
+        for _ in range(3):
+            table.post_message(
+                events.MouseScrollUp(
+                    table, 1, 1, 0, -1, 0, shift=False, meta=False, ctrl=False
+                )
+            )
+        await wait_until(lambda: follow_text(app) != "following")
+        scrolled = await settled(pilot, lambda: table.scroll_y, "the scroll back")
+        assert scrolled < bottom
+
+        # A tick with nothing new leaves the view where it was.
+        screen.update_shown()
+        assert await settled(pilot, lambda: table.scroll_y, "a tick") == scrolled
+
+        # So does one where the buffer lets go of its oldest event: the
+        # rows move up by one, and the view with them.
+        top = table.scroll_y
+        first_shown = rows(app)[int(top)][6]
+        run_command(log, clock, "uv", 0.01)
+        screen.update_shown()
+        assert await settled(pilot, lambda: table.scroll_y, "a trim") == top - 1
+        assert rows(app)[int(top) - 1][6] == first_shown
+
+
+@pytest.mark.asyncio
+async def test_the_scrollbar_moved_back_from_the_newest_event_pauses(
+    tmp_path: Path,
+) -> None:
+    clock = Clock()
+    log = stats_log(tmp_path, clock)
+    for number in range(60):
+        run_command(log, clock, f"p{number}", 0.01)
+    app = runtime_app(log)
+    app.runtime_event_filter = EventFilter(kind="command")
+
+    async with app.run_test(size=(160, 30)) as pilot:
+        await open_runtime(app, pilot)
+        table = event_table(app)
+        bottom = await settled(pilot, lambda: table.scroll_y, "the newest event")
+
+        # Dragging the thumb to the bottom is no reason to stop following.
+        table.post_message(ScrollTo(y=bottom))
+        await settled(pilot, lambda: table.scroll_y, "the drag to the bottom")
+        assert follow_text(app) == "following"
+
+        table.post_message(ScrollTo(y=bottom - 5))
+        await wait_until(lambda: follow_text(app) != "following")
+
+        await pilot.press("end")
+        await wait_until(lambda: follow_text(app) == "following")
+        # A click on the track above the thumb.
+        table.post_message(ScrollUp())
+        await wait_until(lambda: follow_text(app) != "following")
+
+
+@pytest.mark.asyncio
+async def test_the_detail_moves_on_when_its_event_leaves_the_buffer(
+    tmp_path: Path,
+) -> None:
+    clock = Clock()
+    log = stats_log(tmp_path, clock, keep_recent=3)
+    app = runtime_app(log)
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        screen = await open_runtime(app, pilot)
+        for program in ("git", "gh", "tmux"):
+            run_command(log, clock, program, 0.01)
+        screen.update_shown()
+        await pilot.press("ctrl+home")
+        await wait_until(lambda: follow_text(app) != "following")
+        await wait_until(lambda: detail(app)["process.executable.name"] == "git")
+
+        run_command(log, clock, "uv", 0.01)
+        screen.update_shown()
+        # The cursor's row now holds the next event, and the detail says so.
+        assert event_table(app).cursor_row == 0
+        assert detail(app)["process.executable.name"] == "gh"
 
 
 @pytest.mark.asyncio

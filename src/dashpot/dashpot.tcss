@@ -549,7 +549,7 @@ LegendScreen {
     margin-top: 0;
 }
 
-/* Full-screen Runtime view: Events and Stats tabs under one header. */
+/* The full-screen Runtime screen: Events and Stats tabs under one header. */
 #runtime-view {
     height: 1fr;
     layout: vertical;

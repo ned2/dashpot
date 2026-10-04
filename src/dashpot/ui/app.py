@@ -984,8 +984,8 @@ class DashpotApp(App[None]):
         """Both long-lived peers in direct-navigation order."""
         return self.dashboard, self.query_screen
 
-    def on_peer_screen(self, screen: Screen[Any] | None = None) -> bool:
-        """Whether ``screen``, the active screen by default, is a main screen."""
+    def is_peer_screen(self, screen: Screen[Any] | None = None) -> bool:
+        """Whether ``screen``, the active screen by default, is a Peer Screen."""
         return (self.screen if screen is None else screen) in self.peer_screens()
 
     def show_peer(self, peer: PeerName) -> None:
@@ -1037,15 +1037,15 @@ class DashpotApp(App[None]):
                 available = available and not isinstance(peer.focused, Input)
             return True if available else None
         if action in {"runtime_events", "runtime_stats"}:
-            # The Runtime screen opens over a main screen, never a popup.
-            return self.on_peer_screen()
+            # The Runtime screen opens over a Peer Screen, never a temporary one.
+            return self.is_peer_screen()
         return True
 
     @override
     def get_system_commands(self, screen: Screen[Any]) -> Iterable[SystemCommand]:
-        """Add the Runtime screen's two tabs to the palette on a main screen."""
+        """Add the Runtime screen's two tabs to the palette on a Peer Screen."""
         yield from super().get_system_commands(screen)
-        if not self.on_peer_screen(screen):
+        if not self.is_peer_screen(screen):
             return
         yield SystemCommand(
             "Runtime Events",
@@ -1106,8 +1106,8 @@ class DashpotApp(App[None]):
         self.open_runtime("stats")
 
     def open_runtime(self, tab: RuntimeTab) -> None:
-        """Open the Runtime screen on ``tab`` over a main screen, and nowhere else."""
-        if not self.on_peer_screen():
+        """Open the Runtime screen on ``tab`` over a Peer Screen, and nowhere else."""
+        if not self.is_peer_screen():
             return
         self.push_screen(
             RuntimeScreen(self, tab=tab, update_seconds=self.runtime_stats_seconds)

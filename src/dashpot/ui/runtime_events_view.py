@@ -20,6 +20,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
+from textual.scrollbar import ScrollTo, ScrollUp
 from textual.widgets import Checkbox, DataTable, Select, Static
 
 from ..core.event_log import EventLog
@@ -281,16 +282,19 @@ class EventTable(DataTable[str | Text]):
     ) -> None:
         """Show the buffer as it stands: ``buffered`` from event number ``first``."""
         kept = None if self.following else self.cursor_key()
+        top = self.scroll_y
         if rebuild or self.next_number is None:
             self.clear()
             self.events.clear()
             self.next_number = first
         # Rows are added in number order, so the buffer's losses lead.
+        removed = 0
         for key in list(self.events):
             if int(key) >= first:
                 break
             self.remove_row(key)
             del self.events[key]
+            removed += 1
         for number in range(max(self.next_number, first), first + len(buffered)):
             event = buffered[number - first]
             if accept(event):
@@ -303,7 +307,16 @@ class EventTable(DataTable[str | Text]):
         elif kept is not None and kept in self.events:
             # Removing older rows moved every row up; the cursor stays on
             # the event it was on, not on the row number.
-            self.move_cursor(row=self.get_row_index(kept), animate=False)
+            self.move_cursor(
+                row=self.get_row_index(kept), animate=False, scroll=rebuild
+            )
+            if not rebuild:
+                # A person may have scrolled away from the cursor, which the
+                # table scrolls back into view once it has moved, after the
+                # next refresh; the view moves up with its rows instead.
+                self.call_after_refresh(
+                    self.scroll_to, y=max(0, top - removed), animate=False
+                )
 
     def cursor_key(self) -> str | None:
         """The key of the row under the cursor, if any."""
@@ -365,6 +378,15 @@ class EventTable(DataTable[str | Text]):
     def on_mouse_scroll_up(self, _event: events.MouseScrollUp) -> None:
         self.set_following(False)
 
+    def on_scroll_up(self, _event: ScrollUp) -> None:
+        # A click on the scrollbar above its thumb.
+        self.set_following(False)
+
+    def on_scroll_to(self, event: ScrollTo) -> None:
+        # Dragging the scrollbar's thumb up from the bottom.
+        if event.y is not None and event.y < self.max_scroll_y:
+            self.set_following(False)
+
     def action_follow(self) -> None:
         """Move to the newest event and follow new events again."""
         self.move_to_newest()
@@ -397,6 +419,8 @@ class EventsPane(Vertical):
         self.subject = subject
         # The filter and the level it was applied at that the rows show.
         self.shown: tuple[EventFilter, EventLevel | None] | None = None
+        # The row whose event the detail pane shows.
+        self.detail_key: str | None = None
 
     @override
     def compose(self) -> ComposeResult:
@@ -452,7 +476,12 @@ class EventsPane(Vertical):
         )
         if not table.row_count:
             message = "no events match these filters" if buffered else "no events yet"
+            self.detail_key = None
             self.show_detail(DetailItem(message, kind="message"))
+        else:
+            # The event under a paused cursor can leave the buffer without
+            # the cursor's row changing, so no highlight would report it.
+            self.show_event(table.cursor_key())
 
     def show_detail(self, *items: DetailItem) -> None:
         self.query_one("#runtime-event-detail", DetailFields).update(*items)
@@ -478,9 +507,13 @@ class EventsPane(Vertical):
 
     @on(DataTable.RowHighlighted, "#runtime-event-table")
     def highlight(self, event: DataTable.RowHighlighted) -> None:
-        key = event.row_key.value
+        self.show_event(event.row_key.value)
+
+    def show_event(self, key: str | None) -> None:
+        """Show the detail of the event in row ``key``, unless it is shown already."""
         found = None if key is None else self.table.events.get(key)
-        if found is not None:
+        if found is not None and key != self.detail_key:
+            self.detail_key = key
             self.show_detail(*event_detail(found))
 
     @on(EventTable.FollowChanged)

@@ -25,15 +25,17 @@ buffer, which keeps every level whatever the Event Level records.
 
 - **Events** lists the buffered events, newest last, in a table with a detail
   pane that shows every field of the selected event, including its stored UTC
-  time. Show, Kind and Errors-only filters narrow the table and last for the
-  life of the process, never on disk. The table follows the newest event
+  time. Rows are in the order the buffer received them, as the Event Log's
+  lines are, so a span sits where it ended, after the children it waited on,
+  while its time is when it started. Show, Kind and Errors-only filters
+  narrow the table and last for the life of the process, never on disk. The table follows the newest event
   until a person moves back through it, and `End` resumes following.
 - **Stats** holds the Runtime Stats sections unchanged, at full width.
 
 ### Tabs inside a temporary screen
 
 [ADR 0051](0051-adopt-long-lived-peer-dashboard-screens.md) rejected tabs for
-the main screens: a tab hides one of two related query surfaces and adds
+the Peer Screens: a tab hides one of two related query surfaces and adds
 navigation state to a destination a person returns to all day. Neither
 objection holds here. Runtime is a diagnostic screen opened on purpose and
 closed again, and its two tabs are two readings of the same buffer over the
@@ -50,11 +52,11 @@ from the keyboard. Textual's own palette commands are left as they are. A
 dashboard feature that has no visible control earns a palette command, so a
 person can find it by name without first knowing its key.
 
-### Opened from main screens only
+### Opened from Peer Screens only
 
-The palette commands and the `e` and `s` keys exist only on a main screen,
-a peer of ADR 0051, and on no temporary screen: not Issue Detail, the Legend,
-Cleanup, a column editor, or Runtime itself. Which screens are main screens is
+The palette commands and the `e` and `s` keys exist only on a Peer Screen
+of ADR 0051, and on no temporary screen: not Issue Detail, the Legend,
+Cleanup, a column editor, or Runtime itself. Which screens are Peer Screens is
 read from the registered peers, so a future peer offers Runtime without
 naming it. This changes `s`, which as an App binding used to open Runtime
 Stats over any screen. Stacking one temporary screen on another leaves a
@@ -82,7 +84,7 @@ they are on before pressing it.
 - **Let `e` and `s` toggle, closing the screen from their own tab**: rejected
   for the reason under _Escape is the only close_.
 - **Open Runtime over any screen, as `s` did**: rejected for the reason under
-  _Opened from main screens only_.
+  _Opened from Peer Screens only_.
 
 ## Consequences
 

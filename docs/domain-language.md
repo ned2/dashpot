@@ -623,8 +623,8 @@ _Avoid_: deriving the default from the Worktree the command runs in
 
 **Peer Screen**:
 One of Dashpot's two long-lived primary navigation destinations of equal rank:
-Dashboard, or Issues & Pull Requests. Issue Detail, Legend and Cleanup are
-temporary screens over a Peer Screen rather than peers of it.
+Dashboard, or Issues & Pull Requests. Issue Detail, Legend, Runtime and
+Cleanup are temporary screens over a Peer Screen rather than peers of it.
 _Avoid_: tab; a Peer Screen is a full primary destination, not a pane selector
 
 **Glyph**:

@@ -395,9 +395,13 @@ output.
   the Events tab: the buffered events, newest last, by local time, level,
   kind (a span by its name), Project, outcome, duration and a one-line
   summary per kind, with every field of the selected event, its stored UTC
-  time included, beside the table, or below it under 90 columns. Show
-  (every buffered event, those the level in force records, or `standard`
-  only), Kind and Errors-only filters last until the dashboard exits. The
+  time included, beside the table, or below it under 90 columns. Rows keep
+  the buffer's order, so a span is listed where it ended but timed from
+  when it started. Show (every buffered event, those the level in force
+  records, or `standard` only), Kind and Errors only filters last until the
+  dashboard exits. Errors only keeps failed spans and dropped writes; a
+  non-zero exit the caller read as an answer shows its code but is no
+  error. The
   table follows the newest event until a person moves back through it;
   `End` follows again.
 - **Runtime Stats** ([#315](https://github.com/ned2/dashpot/issues/315)), the
