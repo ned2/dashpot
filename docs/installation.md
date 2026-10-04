@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-04
+date: 2026-10-05
 ---
 
 # Install and maintain Dashpot
@@ -373,7 +373,9 @@ are allowed. Other arguments are literal, including empty arguments. There is no
 shell evaluation, environment expansion, or interpolation inside `--dir={path}`.
 The selected Worktree is also the command's working directory. The command runs
 on Dashpot's host with its normal environment; Dashpot does not load ignored
-Worktree configuration or translate remote paths.
+Worktree configuration or translate remote paths. A terminal it opens in a
+linked Worktree may therefore lack the main checkout's credentials: see
+[Credentials in a linked Worktree](#credentials-in-a-linked-worktree).
 
 For example, an executable wrapper at `/absolute/path/to/open-terminal` can
 request a persistent terminal and return promptly:
@@ -412,6 +414,66 @@ acknowledge host clipboard success. Inside tmux, applications need
 `set-clipboard external` ignores application requests. Enabling `on` permits
 applications inside tmux to request clipboard writes; set it yourself if desired.
 Text-selection copying uses this same transport and cannot bypass a blocked one.
+
+### Credentials in a linked Worktree
+
+The terminal `Enter` opens is where a harness session for that Worktree
+starts, and in a linked Worktree it may lack credentials the main checkout
+supplies, such as the `GH_TOKEN` that `gh` reads. The Worktree Root lies
+outside the main checkout (by default it is its sibling), so a
+directory-scoped secret mechanism, such as a direnv `.envrc` in the main
+checkout, does not apply there. The failure
+surfaces late: at the first `gh` call, often when opening the pull request.
+Changing directory does not carry the environment either. direnv's shell
+hook unloads the main checkout's `.envrc` at the first prompt in a linked
+Worktree, though a command on the same line as the `cd` still has it.
+
+Which environment an agent's commands run with depends on how the harness is
+hosted. The [linked Worktree environment experiment](spikes/linked-worktree-environment-spike.md)
+measured it with synthetic variables:
+
+| Harness and hosting | An agent's commands run with |
+| --- | --- |
+| Codex 0.160.0, managed daemon | The daemon's environment, fixed when it started: that of the terminal whose client autostarted it, or of `codex app-server daemon start`. A later client's environment never reaches them, whether that client starts a fresh session in a linked Worktree or resumes one there with `codex resume -C`, and every later session on the daemon gets the daemon's environment. |
+| Codex 0.160.0, a terminal launched with `--disable daemon_auto_start` while no daemon runs | The terminal's own environment, for a fresh or a resumed session. |
+| OpenCode 2.0.22, shared service | The environment of the TUI or `opencode run` client that last opened or continued the session, which the client sends to the service. A TUI or `opencode run` with variables the service lacks gives them to the session; an `opencode run` without variables the service has takes them away (a TUI doing so is not measured). A session moved with `session_move` runs with the moving client's environment. A session prompted only through the HTTP API, whether created there or prompted after a service restart dropped what its client sent, runs with the service's own environment. |
+| OpenCode 2.0.22, `--standalone` | The client's environment. |
+| Claude Code | Not measured. |
+
+Dashpot neither loads ignored Worktree configuration nor supplies
+credentials. Two operator-local options give a terminal in a linked Worktree
+the main checkout's environment:
+
+- A pool-level `.envrc` in the Worktree Root, outside every checkout, that
+  loads the main checkout's:
+
+  ```sh
+  source_env /absolute/path/to/main-checkout/.envrc
+  ```
+
+  Once you `direnv allow` it, direnv loads the main checkout's `.envrc`
+  through it in a linked Worktree, both in a shell with direnv's hook and
+  with `direnv exec <worktree>`.
+- A launcher wrapper that opens the terminal through direnv, beside the
+  `open-terminal` example above:
+
+  ```sh
+  #!/bin/sh
+  nohup direnv exec "$PWD" kitty --directory "$PWD" </dev/null >/dev/null 2>&1 &
+  ```
+
+  `direnv exec "$PWD"` loads the `.envrc` that applies to the selected
+  Worktree, which in a linked Worktree is the pool-level one: without it,
+  nothing loads there. A wrapper that names the main checkout instead loads
+  its `.envrc`, but a direnv hook in the terminal's shell unloads it at the
+  first prompt.
+
+Either option gives the terminal, and a harness client started in it, the
+environment. Whether an agent's commands get it follows the table: an
+OpenCode client gives it to the session it opens or continues, while a Codex
+client gives it only to a managed daemon that the client itself starts or,
+launched with `--disable daemon_auto_start` while no daemon runs, to its own
+session; a daemon already running keeps the environment it started with.
 
 ## Observe agent sessions
 
@@ -521,6 +583,11 @@ The service is reported as one of:
 - **unknown**, while `XDG_STATE_HOME` is a relative path, which OpenCode
   resolves from whichever process writes the registration. Set it to an
   absolute path, or unset it.
+
+Run inside an OpenCode session whose Agent Session Identity it confirms,
+`--status` also prints an `OpenCode Host Process mode:` line naming the
+server that runs the session as `shared-service`, `standalone` or `unknown`
+([OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes)).
 
 A Codex integration installed before Dashpot subscribed Codex's
 `SubagentStart` and `SubagentStop` still works, but its sub-agents neither

@@ -96,7 +96,11 @@ no credential of its own: it asks GitHub every question through `gh`, as
 whichever account `gh auth status` reports. Run `gh auth login` before
 `dashpot init`. The account must be able to read the repository, its Issues
 and its Pull Requests. A Project whose Issue Source is Local Issues needs
-neither `gh` nor a login.
+neither `gh` nor a login. A `GH_TOKEN` that a directory-scoped mechanism such
+as a direnv `.envrc` supplies in the main checkout may not reach a linked
+Worktree, or an agent's commands there:
+[Credentials in a linked Worktree](docs/installation.md#credentials-in-a-linked-worktree)
+gives what each harness's commands receive and the operator-local options.
 
 GitHub's rate limit constrains how Dashpot can be used. Nearly every query
 Dashpot sends is GraphQL, and a personal account gets 5,000 GraphQL points an

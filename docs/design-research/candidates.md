@@ -331,6 +331,25 @@ cheapest test of each assumption, in the final section.
 - **Social form**: Individual.
 - **Verdict**: *Reject*, on demand and decay. No act, an uncoupled generated artifact ([themes 5.1](themes.md#51-staleness-without-a-trigger)), and no human evaluation of any generated wiki (gap G3).
 
+#### ST-8 What is missing before you start
+- **Filed after the walk.** Option 3 of [#274](https://github.com/ned2/dashpot/issues/274), filed here by its triage to compete with ST-1 rather than be built alone. It was not drafted from the corpus or walked with the rest, so it is outside the counts in [What the walk showed](#what-the-walk-showed) and carries no verdict.
+- **Stage and cell**: Session/work starts / Nothing-artifact — a readiness note at the boundary (N: no corpus row names it).
+- **What it is**: Project configuration declares the names of the environment variables its secret mechanism provides (for example `required_environment = ["GH_TOKEN"]`). `work start` reports which are absent from the opting-in session: presence only, never a value, and it does not refuse. ST-1's question turned around: what is missing here before you start, not what changed.
+- **Mechanism and evidence**: A session started in a linked Worktree can lack the main checkout's credentials and fails late, at the first `gh` call, often when opening the pull request (#274). Which environment an agent's commands get depends on the harness's Host Process, as the [linked Worktree environment experiment](../spikes/linked-worktree-environment-spike.md) measured; `work start` runs as one of those commands, so on a Codex daemon it sees what the agent's later commands will, and on OpenCode until another client continues the session. No corpus card.
+- **Nearest existing thing**: `work start` already reports a session that is not where it claims to be (ADR 0009); the [documented pitfall and operator-local options](../installation.md#credentials-in-a-linked-worktree).
+- **Authorless code**: Neutral.
+- **Grain**: Agent Session.
+- **Demand**: None asked of the person; a note to read.
+- **Enforcement and relocation**: Not walked.
+- **Decay**: A declared name list someone must keep in step with the secret mechanism.
+- **Verifiability**: A name's presence in the session's environment is checkable without reading its value.
+- **Evidence source**: The environment of the `work start` command.
+- **Lifecycle hook**: `work start`.
+- **Without AI**: Yes; it applies to any shell.
+- **Coordination cost**: A new configuration seam in Project configuration.
+- **Social form**: Individual.
+- **Verdict**: None yet; decide it with ST-1 and the other session-start candidates.
+
 ### In-loop step (IL)
 
 #### IL-1 Promote rather than accept

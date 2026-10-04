@@ -111,6 +111,10 @@ tell the user what holds the Worktree, as after a failed move back.
    intended Issue at that Worktree, retain that Agent Run. Otherwise run
    `<dashpot> work start <reference>` and verify it with `<dashpot> work show`.
 
+The move does not change the environment the session's commands run with
+while the service keeps running, so `gh` works in the Worktree if it worked
+before the move ([#274](https://github.com/ned2/dashpot/issues/274)).
+
 ## Hand off when the OpenCode move fails
 
 The move has failed when the tool fails or is unknown, the user declines it,
@@ -131,9 +135,11 @@ Work in the
 Worktree becomes a new Agent Session there, started by a plain `opencode` in
 that Worktree, which runs it in the user's shared OpenCode service. Do not
 suggest `--server <url>`: Dashpot does not support a session on a server
-named that way. A session started in a linked Worktree may lack credentials
-the main checkout's environment supplies, so do not promise that `gh` works
-there ([#274](https://github.com/ned2/dashpot/issues/274)).
+named that way. The command gives the new session the environment of the
+terminal it runs in ([#274](https://github.com/ned2/dashpot/issues/274)),
+and a terminal in a linked Worktree may lack credentials the main checkout's
+environment supplies: suggest running it from a terminal where `gh` works,
+such as one in the main checkout.
 
 1. If `<dashpot> work show` reports an active Agent Run for this session on the
    same Issue, run `<dashpot> work stop` first once its delegated work is done.
@@ -153,6 +159,17 @@ the old client to release the thread before continuing the session: while anothe
 runtime owns the thread, a competing client only shows a read-only transcript
 with a retry key and publishes no lifecycle hooks. An idle client still owns
 its thread.
+
+The resume and fresh `-C` commands in this section run the session's
+commands with its Host Process's environment
+([#274](https://github.com/ned2/dashpot/issues/274)). While the managed
+daemon, the default, keeps running, that is the environment it started
+with: `-C` and the terminal that runs the command leave it unchanged, so
+`gh` works in the Worktree if it works in this session now. When no daemon
+runs, the terminal that runs the command starts one with its own
+environment, and a terminal launched with `--disable daemon_auto_start`
+hosts its session itself with that environment: then suggest running the
+command from a terminal where `gh` works, such as one in the main checkout.
 
 1. Run `<dashpot> integrate codex --status` and capture the confirmed Agent
    Session Identity.
