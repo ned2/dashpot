@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-03
+date: 2026-10-05
 ---
 
 # GitHub rate limits
@@ -26,7 +26,11 @@ Dashpot keeps no credential. It asks GitHub every question by running
 `GH_TOKEN` or `GITHUB_TOKEN` in the environment when one is set, otherwise the
 login stored by `gh auth login`. `GH_HOST` selects the GitHub host. Check the
 account in use with `gh auth status`; the rate limit Dashpot works within is
-that account's.
+that account's. A token in the environment depends on where `gh` runs: one
+the main checkout's environment supplies may be missing in a linked Worktree
+and from an agent's commands there, as
+[Credentials in a linked Worktree](installation.md#credentials-in-a-linked-worktree)
+describes.
 
 Almost everything Dashpot asks goes through GraphQL. Query Pages, Project
 Totals, Resolved Issues, Issue Hint resolution and Source Enumeration are all

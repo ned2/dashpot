@@ -58,6 +58,12 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   lead launches workers, only on the shared service; a `--standalone`
   session hands off instead, and a `--standalone` lead stops before any
   worker. Issue work itself stays supported in both modes.
+- Document why a session in a linked Worktree can lack the main checkout's
+  credentials, such as a direnv-supplied `GH_TOKEN`, which environment each
+  measured Codex and OpenCode hosting gives an agent's commands, and two
+  operator-local options: a Worktree Root `.envrc` and a launcher wrapper
+  through direnv. The Issue-work skill says when `gh` keeps working across a
+  Codex resume or an OpenCode move, and where to run an OpenCode handoff.
 - `dashpot integrate <harness>` installs, updates and removes every agent
   skill Dashpot bundles, and `--status` reports each one as installed,
   missing, or with an update available. A directory of a bundled skill's name
