@@ -40,14 +40,17 @@ which.
 relative to the copy, as `{"files": [...]}`. Inside a managed copy, a file
 the manifest names is Dashpot's, and any other file is the user's.
 
-- **Update.** `integrate` first writes a manifest naming the files the copy's
-  manifest names and the files this Dashpot ships, then writes the shipped
-  files, then removes each file the old manifest named that this Dashpot no
-  longer ships, with every directory that removal empties. Last, it writes
-  a manifest naming the shipped files alone. An update cut short at any
-  step leaves every file Dashpot wrote named, for the next update or
-  `--remove` to finish. A file the user added is never touched, and a
-  directory that still holds one stays.
+- **Update.** When this Dashpot ships a file the copy's manifest does not
+  name, `integrate` first widens the manifest to name both. It then writes
+  the shipped files, `SKILL.md` first, removes each file the old manifest
+  named that this Dashpot no longer ships, with every directory that
+  removal empties, and last writes a manifest naming the shipped files
+  alone. An update cut short at any step leaves every file Dashpot wrote
+  named, for the next update or `--remove` to finish. A first installation
+  writes no manifest until its files are written, so one cut short before
+  `SKILL.md` leaves an empty directory, free to install into again. A file
+  the user added is never touched, and a directory that still holds one
+  stays.
 - **Remove.** `--remove` deletes exactly the files the manifest names, then
   the manifest, then `SKILL.md` last, so a removal cut short still leaves a
   copy the next `--remove` recognises by its marker. Each directory the
@@ -68,16 +71,24 @@ the manifest names is Dashpot's, and any other file is the user's.
   published release writes a copy without one.
 - **A manifest that cannot be trusted** — unreadable, not the expected
   shape, or naming a path that is absolute or climbs out with `..` — counts
-  as absent. Nothing it names outside the copy is ever removed.
+  as absent.
+- **Nothing outside the copy is ever removed.** A file is removed, or a
+  directory pruned, only when the directory holding it resolves inside the
+  copy, so a symbolic link the user put inside a copy is never followed.
 
 **A destination that cannot be inspected is reported, never raised.**
 `SKILL.md` is read before the directory is listed, so a managed copy that
 can be entered but not listed is still recognised by its marker, and is
 updated and removed by its manifest without a listing. A destination
-without a readable `SKILL.md` that cannot be listed is refused by `integrate`
-("could not inspect it"), reported as unreadable by `--status`, and left
-in place by `--remove` ("could not inspect"), like any other unreadable
-copy.
+without a readable `SKILL.md` that cannot be listed, or one whose parent
+cannot be searched, is refused by `integrate` ("could not inspect it"),
+reported as unreadable by `--status`, and left in place by `--remove`
+("could not inspect"), like any other unreadable copy. Only a path that is
+absent counts as absent: a destination Dashpot may not inspect is never
+reported as missing. A managed copy Dashpot can read but not change ends
+`integrate` with an error naming the copy ("could not update") and
+`--remove` with a message ("could not remove"), and the manifest still
+names whatever the attempt left.
 
 ## Considered options
 
