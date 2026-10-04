@@ -35,6 +35,7 @@ BlockerKind = Literal[
     "locked",
     "agent-session",
     "sub-agent",
+    "process",
     "agent-run",
     "work-store",
     "unpushed",
@@ -100,6 +101,8 @@ class CleanupPreview(PublishedModel):
     confirmation compares it with a fresh preview's and performs nothing when
     they differ. ``ignored`` lists the ignored paths a Worktree removal would
     delete, which a confirmation covers only with ``delete_ignored``.
+    ``unchecked_processes`` says why the processes inside a Worktree could
+    not all be checked, when they could not (ADR 0104).
     """
 
     kind: Literal["branch", "worktree"]
@@ -108,6 +111,7 @@ class CleanupPreview(PublishedModel):
     targets: LaxSequence[CleanupTarget] = ()
     ignored: LaxSequence[str] = ()
     refusals: LaxSequence[str] = ()
+    unchecked_processes: str | None = None
     fingerprint: str = ""
 
     @property

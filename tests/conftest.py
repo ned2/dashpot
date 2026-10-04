@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from dashpot.sessions.working_directories import WorkingDirectories
 from factories import init_repository
 
 
@@ -58,3 +59,20 @@ def bounded_checkout_search(
 def git_repository(tmp_path: Path) -> Path:
     """An empty Git repository at ``tmp_path / "repo"``."""
     return init_repository(tmp_path / "repo")
+
+
+@pytest.fixture(autouse=True)
+def no_host_processes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Read no host process's working directory unless a test passes a scan.
+
+    Every Worktree preview and check scans the host for processes inside the
+    Worktree (ADR 0104). Read for real, the scan depends on what else runs:
+    inside a sandbox's PID namespace it reports itself incomplete, which
+    adds a line to every removable report, and on macOS it runs ``lsof``.
+    A test that means to find a process passes its own scan, and the host
+    reader's own tests call it directly, which this replacement never reaches.
+    """
+    monkeypatch.setattr(
+        "dashpot.sessions.working_directories.host_working_directories",
+        WorkingDirectories,
+    )

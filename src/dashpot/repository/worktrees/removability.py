@@ -9,9 +9,11 @@ from ...core.git import Git
 from ...core.pydantic import LaxSequence, PublishedModel
 from ...core.worktree_paths import worktree_paths, worktree_root
 from ...sessions.processes import ProcessLookup, host_process_lookup
+from ...sessions.working_directories import ProcessScan
 from ..cleanup.obstacles import (
     assess_branch_preservation,
     assess_detached_head_preservation,
+    assess_processes_inside,
     assess_worktree_occupancy,
     assess_worktree_safety,
     locate_worktree,
@@ -22,7 +24,11 @@ from ..repository import LockHolderProbe
 
 
 class WorktreeRemovability(PublishedModel):
-    """A read-only report of whether a Worktree can be removed, and why not."""
+    """A read-only report of whether a Worktree can be removed, and why not.
+
+    ``unchecked_processes`` says why the processes inside the Worktree could
+    not all be checked, when they could not (ADR 0104).
+    """
 
     path: str
     branch: str | None
@@ -31,6 +37,7 @@ class WorktreeRemovability(PublishedModel):
     removable: bool
     obstacles: LaxSequence[CleanupBlocker] = ()
     remove_commands: LaxSequence[str] = ()
+    unchecked_processes: str | None = None
 
 
 def linked_worktrees(current: Path, *, timeout: float = 10) -> list[Path]:
@@ -51,12 +58,14 @@ def check_worktree(
     lookup: ProcessLookup = host_process_lookup,
     lock_probe: LockHolderProbe | None = None,
     timeout: float = 10,
+    scan: ProcessScan | None = None,
 ) -> WorktreeRemovability:
     """Report whether a Worktree could be removed, and each reason it cannot.
 
     Everything here is observed: Git's dirty state and locks, the Agent
     Sessions whose hooks place them at the Worktree, the Agent Runs recorded
-    there, and commits its Branch has that no upstream or Integration Branch has.
+    there, the processes running inside it, and commits its Branch has that
+    no upstream or Integration Branch has.
     Dashpot removes nothing; each obstacle names the command that acts on it.
     """
     located = locate_worktree(current, target, timeout=timeout)
@@ -64,6 +73,12 @@ def check_worktree(
     branch = located.branch
     obstacles = assess_worktree_safety(located, lock_probe)
     obstacles.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
+    unchecked: str | None = None
+    # The main Worktree is never removable, and its tree may hold linked
+    # Worktrees whose occupants are not its own.
+    if located.role == "linked":
+        found, unchecked = assess_processes_inside(path, scan)
+        obstacles.extend(found)
     content_integrated = False
     if branch is not None:
         branch_obstacles, content_integrated = assess_branch_preservation(
@@ -88,6 +103,7 @@ def check_worktree(
         removable=not obstacles,
         obstacles=tuple(obstacles),
         remove_commands=remove_commands,
+        unchecked_processes=unchecked,
     )
 
 
@@ -97,8 +113,9 @@ def describe_removability(report: WorktreeRemovability) -> list[str]:
     Field/value lines name the Worktree, its Branch, and the verdict; the
     obstacles and the commands to run are indented beneath them so a block
     scans as one Worktree and the commands stand apart from the facts. A
-    removable verdict carries the occupancy gap the Cleanup preview states
-    (#357), aligned beneath it; a blocked one claims no absence of occupants.
+    removable verdict carries the occupancy gaps the Cleanup preview states
+    (#357, ADR 0104), aligned beneath it; a blocked one claims no absence of
+    occupants.
     """
     lines = [
         f"Worktree   {report.path}",
@@ -107,6 +124,8 @@ def describe_removability(report: WorktreeRemovability) -> list[str]:
     ]
     if report.removable:
         lines.append(f"           {SUB_AGENT_SCOPE}")
+        if report.unchecked_processes:
+            lines.append(f"           {report.unchecked_processes}")
     if report.obstacles:
         lines.append("Obstacles")
         for obstacle in report.obstacles:

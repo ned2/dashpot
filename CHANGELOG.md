@@ -12,6 +12,13 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   open Issue waits on in the `WAITING ON` column, with waiting rows dimmed.
 - Inspect Worktrees, local and Remote-Tracking Branches, integration state,
   and GitHub Pull Requests. Fetch explicitly; preview and confirm Cleanup.
+- Refuse to remove a Worktree while a process the person can see has its
+  working directory inside it, such as a sub-agent's command, a background
+  command, or a shell. The `process` blocker names each process. The host
+  is read through `/proc` on Linux and `lsof` on macOS. When the processes
+  could not all be read, as inside a sandbox, a removable Worktree's
+  preview and `worktree check` report say so, and their JSON carries it as
+  `uncheckedProcesses`.
 - Observe Codex and Claude Code through opt-in hooks, and OpenCode v2
   through an opt-in plugin. OpenCode is supported at 2.0.22 on Linux, the
   release its acceptance run passed on; the plugin warns on another 2.x

@@ -232,7 +232,9 @@ Occupied, dirty, locked, protected, and otherwise blocked Worktrees remain
 unavailable, and hold their Branches unavailable with them. That includes
 every Worktree of a Repository while an Agent Session in it lists a
 live sub-agent, even after that session ended, since Dashpot cannot tell which Worktree a sub-agent works in
-([sub-agents and Worktree Cleanup](docs/agent-sessions.md#sub-agents-and-worktree-cleanup)).
+([sub-agents and Worktree Cleanup](docs/agent-sessions.md#sub-agents-and-worktree-cleanup)),
+and a Worktree with a process running inside it
+([processes inside a Worktree](docs/agent-sessions.md#processes-inside-a-worktree)).
 A Branch blocked as unintegrated against a Remote-Tracking Branch says that
 `f` checks again if the work has since merged
 ([ADR 0054](docs/adr/0054-finish-a-worktree-with-its-branch-by-default.md)).
@@ -901,9 +903,14 @@ working here because Dashpot cannot tell which Worktree a sub-agent works in
 that has already ended, its `dashpot work forget-subagents` command:
 [ADR 0066](docs/adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md),
 [ADR 0095](docs/adr/0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)),
+a `process` whose working directory is inside the Worktree, named by pid,
+command and directory
+([processes inside a Worktree](docs/agent-sessions.md#processes-inside-a-worktree)),
 and commits not on the upstream or the Integration Branch. A removable
 Worktree's text report adds that sub-agents of Agent Sessions outside the
-Repository are not checked. `check` removes nothing.
+Repository are not checked. When the host's processes could not all be
+read, as inside a sandbox, it says so beneath that, and `--json` carries
+the sentence as `uncheckedProcesses`. `check` removes nothing.
 
 `worktree remove PATH` and `branch delete NAME` are the Cleanup commands of
 [ADR 0019](docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md).
@@ -939,7 +946,7 @@ Neither command deletes the Integration Branch, a checked-out Branch, a
 Branch with commits the Integration Branch does not reach, or a Worktree that
 is the main one, dirty, locked, occupied by an Agent Session or Agent Run,
 possibly occupied by a live Claude Code sub-agent of a session in the
-Repository, the checkout the command runs from, or a configured Repository
+Repository, one a process is running inside, the checkout the command runs from, or a configured Repository
 Anchor (the checkout's own root when it carries a Project configuration, and
 every anchor of the Workspace config). Every target reports its own outcome —
 `deleted`, `already-absent`, `refused`, or `unknown` when Git did not answer —

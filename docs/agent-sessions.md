@@ -255,6 +255,42 @@ Worktree, in the dashboard and in `dashpot worktree remove --dry-run`, and
 `dashpot worktree check` when it reports a Worktree removable, say so:
 "Sub-agents of Agent Sessions outside this Repository are not checked."
 
+### Processes inside a Worktree
+
+The `process` blocker is the one occupancy blocker that does not come from
+a hook. Cleanup refuses to remove a linked Worktree while any process the
+person can see has its working directory inside it: a sub-agent's command
+while it runs, a background command that outlived its session, a person's
+shell, a dev server, or an editor's terminal
+([ADR 0104](adr/0104-block-worktree-removal-while-a-process-runs-inside-it.md)).
+It is checked each time the Worktree is assessed, in
+`dashpot worktree check`, the Cleanup preview, `dashpot worktree remove`, and
+again on confirmation. Nothing is retained between checks. The blocker names
+each process by pid, command and working directory, up to five, then counts
+the rest. It gives `ps -ww -o pid=,args= -p <pids>` to show them, and says
+to end them or move them out of the Worktree.
+
+The check is positive only. Finding no process clears no other blocker, so
+a sub-agent between commands still holds the
+[`sub-agent` blocker](#sub-agents-and-worktree-cleanup). Open files do not
+count, only working directories. Another user's processes are not read,
+and neither is a process Linux will not let its owner inspect, such as
+`ssh-agent`. The Dashpot process that inspects, and the Git and `ps` probes
+it starts, are not occupants. The shell it was started from is, so run
+`dashpot worktree remove` from outside the Worktree.
+
+Linux is read through `/proc`, and macOS through `lsof`. A scan that could
+not cover every visible process is stated rather than read as empty. That
+happens on a host with neither `/proc` nor a working `lsof`, when `lsof` fails
+or times out, or inside a sandbox's PID namespace, where the host's processes
+are hidden. Beneath a removable Worktree, the preview and the `worktree
+check` report then add, for example, "Processes running inside this Worktree
+were not all checked: Dashpot runs inside a sandbox's process namespace and
+cannot see the processes outside it; check again from a shell outside the
+sandbox." Their JSON carries the same sentence as `uncheckedProcesses`,
+`null` when the scan was complete. A sandboxed scan still blocks on the
+processes it does see.
+
 ### Codex hosting modes
 
 Codex support is pinned to `codex-cli` **0.160.0** on Linux, the release the

@@ -22,6 +22,7 @@ from .preview import (
     describe_cleanup_preview as describe_cleanup_preview,
 )
 from .preview import inspect_cleanup as inspect_cleanup
+from .preview import process_scope as process_scope
 from .preview import sub_agent_scope as sub_agent_scope
 from .selection import default_choices as default_choices
 from .selection import primary_target as primary_target

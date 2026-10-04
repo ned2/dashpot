@@ -14,6 +14,7 @@ from ...core.commands import non_interactive_runner
 from ...core.git import Git, GitError, last_stderr_line
 from ...core.pydantic import LaxSequence, PublishedModel
 from ...sessions.processes import ProcessLookup, host_process_lookup
+from ...sessions.working_directories import ProcessScan
 from ..repository import (
     LOCAL_REF_PREFIX,
     REMOTE_REF_PREFIX,
@@ -21,7 +22,12 @@ from ..repository import (
 )
 from ..worktrees.records import registered_at
 from .obstacles import counted
-from .preview import describe_cleanup_preview, inspect_cleanup, sub_agent_scope
+from .preview import (
+    describe_cleanup_preview,
+    inspect_cleanup,
+    process_scope,
+    sub_agent_scope,
+)
 from .targets import (
     CleanupPreview,
     CleanupRequest,
@@ -131,6 +137,7 @@ def perform_cleanup(
     timeout: float = 10,
     git: Git | None = None,
     dry_run: bool = False,
+    scan: ProcessScan | None = None,
 ) -> CleanupReport:
     """Perform a confirmed Cleanup after re-inspecting it, or say why not.
 
@@ -149,6 +156,7 @@ def perform_cleanup(
         protected=protected,
         timeout=timeout,
         git=adapter,
+        scan=scan,
     )
     if preview.fingerprint != confirmation.fingerprint:
         return _report(
@@ -457,6 +465,8 @@ def describe_cleanup_report(report: CleanupReport) -> list[str]:
                 and (scope := sub_agent_scope(report.preview))
             ):
                 lines.append(f"     {scope}")
+                if unchecked := process_scope(report.preview):
+                    lines.append(f"     {unchecked}")
         return lines
     lines.append("Results")
     for result in report.results:

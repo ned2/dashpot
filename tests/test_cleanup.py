@@ -1330,6 +1330,7 @@ def test_json_document_key_sets_are_stable(tmp_path: Path) -> None:
         "targets",
         "ignored",
         "refusals",
+        "uncheckedProcesses",
         "fingerprint",
     }
     local, remote = document["targets"]

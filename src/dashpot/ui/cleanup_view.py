@@ -30,6 +30,7 @@ from ..repository.cleanup import (
     default_choices,
     describe_cleanup_report,
     primary_target,
+    process_scope,
     retained_choices,
     sub_agent_scope,
 )
@@ -95,6 +96,9 @@ def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
         # Claude Code and Codex publish sub-agent boundaries (ADR 0066, ADR 0067).
         "sub-agent": "A sub-agent may be working here: Dashpot cannot tell "
         "where one works. Wait for it to finish, or end its session.",
+        # The detail names each process and where it runs (ADR 0104).
+        "process": "A process is running inside this Worktree; end it or move "
+        "it out before removal.",
         "agent-run": "Active Issue work remains; finish it before removal.",
         "work-store": "The Work Store cannot be verified; inspect it before removal.",
         "protected": "This Worktree is in use by Dashpot or configured as a Repository Anchor.",
@@ -448,6 +452,11 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 scope = sub_agent_scope(preview)
                 if scope is not None:
                     yield Static(scope, markup=False, id="cleanup-scope")
+                unchecked = process_scope(preview)
+                if unchecked is not None:
+                    yield Static(
+                        unchecked, markup=False, id="cleanup-unchecked-processes"
+                    )
                 if preview.kind == "branch" and self.primary_identity is None:
                     yield Static(
                         "Select each concrete Branch to delete below; unselected targets are retained.",
