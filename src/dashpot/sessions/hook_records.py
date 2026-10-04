@@ -42,6 +42,12 @@ EVENT_STATES: dict[str, ActiveState] = {
     "SubagentStop": "waiting",
 }
 SUBAGENT_EVENTS = frozenset({"SubagentStart", "SubagentStop"})
+# The ``source`` Claude Code and Codex give the ``SessionStart`` they publish
+# when they compact a live session, which goes on in the same turn, or goes on
+# waiting (ADR 0100).
+COMPACTION_SOURCE = "compact"
+# The states a live record holds; an ended record holds ``ended``.
+LIVE_STATES = frozenset({"running", "waiting"})
 # Where a record places its session; a Sub-agent's event keeps its parent's.
 LOCATION_FIELDS = ("cwd", "repositoryRoot", "branch")
 
@@ -288,6 +294,26 @@ def last_session_start_at(
     return optional_string(previous.get("lastSessionStartAt"))
 
 
+def continues_turn(current: Mapping[str, Any], previous: Mapping[str, Any]) -> bool:
+    """Whether a ``SessionStart`` goes on with the turn of the record it follows.
+
+    A compaction's ``SessionStart`` names the live session and the Host
+    Process its record names, and begins no turn: an automatic one runs
+    inside a turn whose ``Stop`` follows, and a manual Claude Code
+    ``/compact`` publishes neither a prompt nor a ``Stop``. No other
+    ``SessionStart`` continues the turn: not a Sub-agent's, nor one that
+    follows an ended record or a record of another or unnamed Host Process
+    (ADR 0100).
+    """
+    return (
+        (current.get("event"), current.get("source"))
+        == ("SessionStart", COMPACTION_SOURCE)
+        and not is_child_record(current)
+        and previous.get("state") in LIVE_STATES
+        and _same_named_process(current, previous)
+    )
+
+
 def carried_state(
     current: Mapping[str, Any], previous: Mapping[str, Any] | None
 ) -> str:
@@ -296,14 +322,21 @@ def carried_state(
     A Sub-agent's own events (its prompt, tool calls, or an end of its own)
     say nothing about its parent's turn, so the parent keeps the state its
     previous record held; only the sub-agent boundaries change it (ADR 0016).
-    A child-scoped event never ends its parent.
+    A child-scoped event never ends its parent. A compaction's
+    ``SessionStart`` keeps the main turn's state: running while the previous
+    record's turn clock runs, and waiting otherwise (ADR 0100).
     """
+    if previous is not None and continues_turn(current, previous):
+        # The recorded state counts the sub-agents too; only the turn clock
+        # says whether the main turn itself was in flight.
+        in_turn = optional_string(previous.get("turnStartedAt")) is not None
+        return "running" if in_turn else "waiting"
     if not is_child_record(current) or current.get("event") in SUBAGENT_EVENTS:
         return str(current.get("state"))
     # A parent record whose state cannot be read is taken as busy: its
     # Sub-agent is evidently at work.
     recorded = None if previous is None else previous.get("state")
-    return str(recorded) if recorded in {"running", "waiting"} else "running"
+    return str(recorded) if recorded in LIVE_STATES else "running"
 
 
 def observed_state(current: Mapping[str, Any]) -> str:
@@ -491,7 +524,9 @@ class HookRecordStore(LockedRecordStore):
                 )
             ):
                 origin = seed
-            current["state"] = carried_state(current, previous)
+            # A child-scoped event's origin is this store's previous record;
+            # a compaction's state follows the record it carries from.
+            current["state"] = carried_state(current, origin)
             current["liveSubagents"] = live_subagents(current, origin)
             if previous is not None and _is_ended(previous):
                 # The session goes on in the Host Process that kept its ended

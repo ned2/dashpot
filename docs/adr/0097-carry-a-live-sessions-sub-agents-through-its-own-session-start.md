@@ -112,3 +112,8 @@ or until a person forgets it after the session ends.
     child still works.
   - A Claude Code `/compact` publishes no `Stop`, so a waiting session reads
     `running` from the compaction until its next turn ends.
+- Amended by [ADR 0100](0100-keep-a-compacted-sessions-turn-state.md)
+  ([#461](https://github.com/ned2/dashpot/issues/461)): a compaction's
+  `SessionStart` from the same Host Process keeps the main turn's state,
+  `running` while the turn clock runs and `waiting` otherwise, so a waiting
+  session stays `waiting` across a Claude Code `/compact`.
