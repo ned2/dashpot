@@ -92,10 +92,16 @@ decision as a new ADR in `docs/adr/`.
 
 Before every commit, run the README's [local review gate](README.md#local-review-gate):
 all-files pre-commit checks and the full suite with coverage, both clean.
-Coverage replaces ordinary pytest for that gate. Pre-push checks the pushed
-revision's lockfile, lint, formatting, types, documentation, and distributions;
-it skips pytest. These are Dashpot development rules, not rules for Projects
-observed by the application.
+Coverage replaces ordinary pytest for that gate. A change touching only the
+Markdown that CI's [documentation lane](README.md#continuous-integration)
+classifies skips the coverage run; confirm the classification with the command
+the README's local review gate gives rather than by eye. Such a change still
+runs the all-files pre-commit checks and gets independent review, and its PR's
+validation section records that coverage was skipped because the change is
+documentation only. Pre-push checks the pushed revision's lockfile, lint,
+formatting, types, documentation, and distributions; it skips pytest. These
+are Dashpot development rules, not rules for Projects observed by the
+application.
 
 ### Independent review before integration
 
@@ -103,7 +109,8 @@ The agent implementing an Issue dispatches a review subagent using the
 `code-review` skill before opening its integration PR. Supply the Issue and
 acceptance criteria, a fixed base commit and the complete diff including new
 files, applicable repository standards/domain language/ADRs, local validation
-results, and verified coverage evidence from the local review gate. The skill
+results, and verified coverage evidence from the local review gate unless the
+change is documentation only. The skill
 owns the review procedure and may delegate its Standards and Spec axes.
 An unavailable skill is a reported blocker, not an implicit review exemption.
 
@@ -134,15 +141,24 @@ that each passed on their own but conflict semantically surface on the first
 run that contains both, which is the next PR branched from the new `main`;
 the agent implementing that PR diagnoses the failure against `main` rather
 than against its own change. When the branch conflicts with `main` textually,
-this Repository authorizes the rebase: rebase the branch onto `origin/main`,
-rerun the local review gate against the new base, and force-push the branch
-with an explicit lease on its previous head
-(`--force-with-lease=refs/heads/<branch>:<old-head>`), without asking first. A
-conflict-free rebase whose diff against the old head is exactly what landed on
-`main` is content-preserving and needs no further review; a rebase that
-resolves conflicts changes the reviewed diff and needs focused follow-up
-review. Record the old and new heads and the new base in the PR's validation
-section.
+this Repository authorizes the rebase: rebase the branch onto `origin/main`
+and force-push the branch with an explicit lease on its previous head
+(`--force-with-lease=refs/heads/<branch>:<old-head>`), without asking first.
+
+A rebase is content-preserving when it applies without conflicts, or when its
+only conflict is in the generated [ADR index](docs/adr/README.md) and is
+resolved by running `--write-adr-index`. Two branches that each add an ADR
+always conflict there, and the script resolves it mechanically.
+`git range-diff <old-base>..<old-head> <new-base>..<new-head>` confirms it:
+no commit changes except in `docs/adr/README.md`. A content-preserving rebase
+needs no further review. In place of the local review gate it reruns only
+`uv run pre-commit run --all-files`, which checks the regenerated index;
+the PR's CI then runs the full suite on the rebased head, which is the check
+for a semantic conflict with the new base, and the PR's coverage evidence
+stays that of the reviewed head. Any other rebase resolves conflicts that
+change the reviewed diff: rerun the local review gate against the new base
+and request focused follow-up review. Record the old and new heads and the
+new base in the PR's validation section.
 
 Under Codex on Linux, use the per-command sandbox-escalation mechanism for a
 full gate only when its matching condition applies:
@@ -272,7 +288,9 @@ In this Repository:
   Python.
 - `scripts/maintain_docs.py` reads tracked files only: `git add -N` a new
   document before `--write-adr-index`, and regenerate the index after
-  every rebase, since sibling Workers add ADRs too.
+  every rebase, since sibling Workers add ADRs too. A rebase whose only
+  conflict is that index stays content-preserving
+  ([independent review](#independent-review-before-integration)).
 - Give each Worker a share of the cores with `review_coverage.py --workers
   N`; [development setup](README.md#development-setup) records sixteen
   pytest workers failing where eight passed.

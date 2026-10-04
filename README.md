@@ -570,6 +570,21 @@ uv run --locked python scripts/review_coverage.py --base "$review_base"
 ```
 
 Pin the review base for the engagement and include it in the review request.
+
+A change touching only documentation skips the coverage run, as CI's
+[documentation lane](#continuous-integration) skips tests: root Markdown and
+Markdown under `docs/` or `conformance/`, nothing else. Markdown elsewhere,
+such as the bundled skills under `src/`, is not documentation here. The change
+still runs the all-files checks and gets independent review, and its PR
+records that coverage was skipped because the change is documentation only.
+After committing, confirm the classification with CI's own classifier, which
+prints `docs` for a documentation-only change and `full` when the coverage
+run is required:
+
+```bash
+uv run --locked python -c 'import sys; sys.path[:0] = ["scripts"]; import ci_lane; print(ci_lane.classify("pull_request", sys.argv[1], "HEAD"))' "$review_base"
+```
+
 The helper runs pytest once, replacing ordinary pytest in this gate.
 It inherits pytest's automatic parallel default and combines worker coverage.
 Use `--workers N` to choose a count, or `--workers 0` for serial execution.
