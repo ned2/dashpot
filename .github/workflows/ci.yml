@@ -243,12 +243,18 @@ jobs:
         with:
           name: distributions
           path: release-artifacts
+      # The runner's own `python` is not the matrix interpreter (Ubuntu's is
+      # 3.12, below the floor), so the smoke test runs under the interpreter
+      # setup-uv selects, and the step first proves it is the matrix version.
       - name: Verify and install the built distributions
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
           cd release-artifacts
           shasum -a 256 -c SHA256SUMS
           cd ..
-          python scripts/smoke_install.py release-artifacts/dist/*.whl release-artifacts/dist/*.tar.gz
+          uv run --no-project python -c 'import sys; found = "%d.%d" % sys.version_info[:2]; print(sys.executable, found); assert found == sys.argv[1], found' "$PYTHON_VERSION"
+          uv run --no-project python scripts/smoke_install.py release-artifacts/dist/*.whl release-artifacts/dist/*.tar.gz
 
   minimum-git:
     needs: changes
