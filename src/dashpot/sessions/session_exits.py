@@ -117,14 +117,14 @@ def ended_session_subagent_stop(harness: Harness, session_id: str) -> str:
     """Why a sub-agent an ended session lists may not be working, and the way out.
 
     An ended record keeps the sub-agents its session left working until each
-    ``SubagentStop`` or until the Host Process is gone (ADR 0095). Some never
-    publish one: a Codex worker that ends with its deleted lead, a Codex child
-    interrupted through its own thread (#374), and a Claude Code sub-agent
-    its session stops with ``TaskStop``, or one a headless SDK interrupt
-    kills (#419). So the sentence names none of those mechanisms, covers a
-    stopped sub-agent as well as an interrupted one or one that ended with
-    its session, and names the command that forgets them once a person has
-    checked.
+    ``SubagentStop`` or until the Host Process is gone (ADR 0095). Some
+    sub-agents never publish one: a Codex worker that ends with its deleted
+    lead, a Codex child interrupted through its own thread (#374), and a
+    Claude Code sub-agent its session stops with ``TaskStop``, or one a
+    headless SDK interrupt kills (#419). So the sentence names none of those
+    mechanisms, covers a stopped sub-agent as well as an interrupted one or
+    one that ended with its session, and names the command that forgets them
+    once a person has checked.
     """
     return (
         f"Dashpot lists a sub-agent of an ended session until "

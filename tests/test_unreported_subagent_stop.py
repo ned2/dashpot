@@ -147,5 +147,8 @@ def test_an_ended_session_names_its_stopped_worker_as_one_that_may_never_report(
     )
 
     # The way out the sentence names forgets the worker.
-    forget_session_subagents(b, CLAUDE_SESSION, harness="claude-code")
+    assert forget_session_subagents(b, CLAUDE_SESSION, harness="claude-code") == [
+        f"forgot 1 sub-agent listed as working ({WORKER}) of ended session "
+        f"{CLAUDE_SESSION} at {a}"
+    ]
     assert assess_worktree_occupancy(b, [a, b], present(CLAUDE)) == []
