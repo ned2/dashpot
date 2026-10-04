@@ -6,8 +6,9 @@ Guidance for AI coding agents working in this repository.
 
 Dashpot is a passive terminal view of declared Issues, repository state, and
 active coding-agent runs. Observation never mutates; the named management
-commands (`init`, `integrate`, `work start` / `work relocate` / `work stop`,
-`branch delete`, `worktree remove`, `events remove`) and the dashboard's
+commands (`init`, `integrate`, `work start` / `work relocate` / `work stop` /
+`work forget-subagents`, `branch delete`, `worktree remove`, `events remove`)
+and the dashboard's
 mutating keys (`f`, a Remote Fetch;
 `x`, a Cleanup) mutate only what they name, on explicit invocation, and a
 Cleanup — deleting a Branch or removing a Worktree — only what a person

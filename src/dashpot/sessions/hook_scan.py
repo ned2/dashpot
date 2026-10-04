@@ -63,6 +63,10 @@ class HookRecordClassification:
     # The ``agent_id`` of each sub-agent the store holds started and not yet
     # stopped (ADR 0016), from Claude Code or Codex (ADR 0067).
     live_subagents: tuple[str, ...] = ()
+    # Whether an ended record still holds sub-agents its session left
+    # working: it lists some and its Host Process is not proved gone (ADR
+    # 0095). The session is over; those sub-agents may not be.
+    retains_subagents: bool = False
 
     @property
     def process_key(self) -> ProcessKey | None:
@@ -97,6 +101,8 @@ class StaleSessionRecord:
     last_activity_at: str | None
     pid: int | None
     outcome: Literal["gone", "ended"]
+    # The sub-agents an ended record still holds, which keep it (ADR 0095).
+    retained_subagents: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,9 +208,15 @@ def _classify_validated_record(
 ) -> HookRecordClassification:
     """Derive one validated record's outcome from the pass's process evidence."""
     process = record.session_process.identity if record.session_process else None
+    retains_subagents = False
     if record.state == "ended":
         liveness = LivenessObservation("unknown")
         outcome: HookRecordOutcome = "ended"
+        retains_subagents = (
+            bool(record.live_subagents)
+            and process is not None
+            and probe.observe(process.key).liveness != "gone"
+        )
     else:
         liveness = probe.observe(process.key if process else None)
         if (
@@ -235,6 +247,7 @@ def _classify_validated_record(
         degraded=degraded,
         has_global_binding=record.has_global_binding,
         live_subagents=tuple(record.live_subagents),
+        retains_subagents=retains_subagents,
     )
 
 
@@ -292,7 +305,9 @@ def scan_hook_stores(
                     on_unreadable(path, exc)
                 continue
             readable.append(_PendingRecord(store, path, raw, validated, degraded))
-            if validated.state != "ended" and validated.session_process is not None:
+            if validated.session_process is not None and (
+                validated.state != "ended" or validated.live_subagents
+            ):
                 keys.append(validated.session_process.identity.key)
     probe.prepare(keys)
     for pending in readable:
@@ -513,25 +528,30 @@ def sessions_with_live_subagents(
     stores: Sequence[Path],
     lookup: ProcessLookup = host_process_lookup,
 ) -> list[SessionLocation]:
-    """Every live or unknown Agent Session in ``worktrees`` with a live sub-agent.
+    """Every Agent Session in ``worktrees`` with a sub-agent listed as working.
 
     A sub-agent's hooks carry its session's location, never its own, so where
     it works is unknown: it may be in any Worktree of the Repository. Each
     store derives its sub-agents from its own previous record, so a session
     that moved on from the Worktree it dispatched them from leaves them in
     that Worktree's record alone: every record of the session counts, and the
-    location reported is the freshest one's.
+    location reported is the freshest one's. A session is counted while it is
+    live or unknown, and once it has ended while an ended record still holds
+    the sub-agents it left working (ADR 0095); that record is the one
+    reported when it is the freshest.
     """
     found: list[SessionLocation] = []
     for history in _session_histories(stores, lookup):
-        freshest = history[0]
-        if freshest.record.outcome in _SESSION_OVER:
-            continue
+        running = history[0].record.outcome not in _SESSION_OVER
         current = [
             location
             for location in history
-            if location.record.outcome not in _SESSION_OVER
+            if location.record.retains_subagents
+            or (running and location.record.outcome not in _SESSION_OVER)
         ]
+        if not current:
+            continue
+        freshest = current[0]
         working = sorted(
             {agent for location in current for agent in location.record.live_subagents}
         )
@@ -580,6 +600,9 @@ def summarize_session_records(
                     last_activity_at=record.last_activity_at,
                     pid=record.process_key[0] if record.process_key else None,
                     outcome="gone" if record.outcome == "gone" else "ended",
+                    retained_subagents=(
+                        record.live_subagents if record.retains_subagents else ()
+                    ),
                 )
             )
     return SessionRecordSummary(

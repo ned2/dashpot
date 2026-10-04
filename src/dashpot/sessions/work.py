@@ -1,4 +1,8 @@
-"""Declare, relocate, end, and show Issue work for the enclosing Agent Session."""
+"""Declare, relocate, end, and show Issue work for the enclosing Agent Session.
+
+``work forget-subagents`` lives here too: it forgets the sub-agents an ended
+Agent Session still lists, which hold Worktree Cleanup as its Issue work did.
+"""
 
 from __future__ import annotations
 
@@ -33,11 +37,14 @@ from .hook_claims import (
     ValidatedSessionIdentity,
     validate_session_claim,
 )
+from .hook_records import HookRecordStore
 from .hook_scan import (
     SessionLocation,
+    StoredSessionRecord,
     locate_agent_session,
     reachable_hook_stores,
     sessions_with_live_subagents,
+    stored_session_records,
 )
 from .liveness import session_liveness
 from .processes import (
@@ -48,7 +55,11 @@ from .processes import (
     host_process_lookup,
     observe_agent_ancestry,
 )
-from .session_exits import listed_subagents, unreported_subagent_stop
+from .session_exits import (
+    ended_session_subagent_stop,
+    named_subagents,
+    unreported_subagent_stop,
+)
 from .session_labels import work_session_label
 from .session_matching import SessionEvidence
 from .work_store import (
@@ -61,7 +72,7 @@ from .work_store import (
 
 
 class IssueWorkError(DashpotError):
-    """A refusal of a work management command for the enclosing Agent Session."""
+    """A refusal of a work management command, for the enclosing or a named Agent Session."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -590,6 +601,75 @@ def _recorded_session_is_live(
     return location is not None and location.record.outcome not in {"ended", "gone"}
 
 
+def forget_session_subagents(
+    current: Path,
+    session_id: str,
+    *,
+    harness: Harness | None = None,
+    outcome: OutcomeNote | None = None,
+) -> list[str]:
+    """Forget the sub-agents an ended Agent Session still lists in this Repository.
+
+    A ``SessionEnd`` keeps the sub-agents its session left working in an
+    ended record until each ``SubagentStop`` or until its Host Process is
+    gone (ADR 0095). One that ended with its session, or was interrupted,
+    reports nothing, so a person who has checked that none still works
+    removes those records here. Only ended records are touched: a live
+    session's sub-agents stay listed until it ends. Each removal is a
+    compare-and-delete, so a record a hook changed since it was read is kept.
+    """
+    note = outcome if outcome is not None else OutcomeNote()
+    root = worktree_root(current)
+    stores = reachable_hook_stores(repository_worktrees(root))
+    found: dict[Harness, list[StoredSessionRecord]] = {}
+    unreadable = 0
+    for candidate in (harness,) if harness is not None else tuple(HARNESS_DISPLAY):
+        records, count = stored_session_records(stores, candidate, session_id)
+        unreadable += count
+        ended = [
+            item
+            for item in records
+            if item.record.state == "ended" and item.record.live_subagents
+        ]
+        if ended:
+            found[candidate] = ended
+    if len(found) > 1:
+        raise IssueWorkError(
+            f"ended sessions of {' and '.join(HARNESS_DISPLAY[one] for one in found)} "
+            f"are named {session_id}; choose one with --harness"
+        )
+    retained = [item for items in found.values() for item in items]
+    warnings: list[str] = []
+    if unreadable:
+        warnings.append(
+            f"{unreadable} hook record(s) named {session_id} cannot be read and "
+            f"were left as they are"
+        )
+    if not retained:
+        return [
+            f"no ended session {session_id} lists sub-agents in this Repository",
+            *warnings,
+        ]
+    note.identify(harness=next(iter(found)), session_id=session_id)
+    messages: list[str] = []
+    for item in retained:
+        agents = item.record.live_subagents
+        if HookRecordStore(item.store).prune(item.path.stem, item.raw):
+            messages.append(
+                f"forgot {named_subagents(agents)} of ended session {session_id} at {item.worktree}"
+            )
+        else:
+            note.incomplete = True
+            messages.append(
+                f"the record of session {session_id} at {item.worktree} "
+                f"changed while it was read; nothing of it was forgotten: "
+                f"run the command again"
+            )
+    if not note.incomplete:
+        note.action = "forgotten"
+    return messages + warnings
+
+
 def show_issue_work(
     current: Path, *, lookup: ProcessLookup = host_process_lookup
 ) -> list[str]:
@@ -621,10 +701,18 @@ def show_issue_work(
         for location in delegating:
             if location.record.evidence.match(work.evidence) != "same":
                 continue
-            agents = location.record.live_subagents
+            record = location.record
+            agents = record.live_subagents
+            if record.outcome == "ended":
+                messages.append(
+                    f"  {work.session_label} ended with "
+                    f"{named_subagents(agents)}. "
+                    f"{ended_session_subagent_stop(work.harness, record.session_id)}"
+                )
+                continue
             messages.append(
-                f"  {work.session_label} has {listed_subagents(len(agents))} "
-                f"({', '.join(agents)}). {unreported_subagent_stop(work.harness)}"
+                f"  {work.session_label} has {named_subagents(agents)}. "
+                f"{unreported_subagent_stop(work.harness)}"
             )
     messages.extend(diagnostic.message for diagnostic in diagnostics)
     if not messages:

@@ -21,7 +21,10 @@ from ...sessions.liveness import session_liveness
 from ...sessions.opencode_publishers import NO_LIVE_INSTANCE
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.session_exits import (
+    ended_session_subagent_stop,
+    forget_subagents_command,
     listed_subagents,
+    named_subagents,
     session_exit,
     unreported_subagent_stop,
 )
@@ -230,15 +233,32 @@ def assess_worktree_occupancy(
             continue
         harness = HARNESS_DISPLAY[record.harness]
         agents = ", ".join(record.live_subagents)
+        unplaced = (
+            "Dashpot cannot tell which Worktree a sub-agent works in, so one "
+            "may be working here: wait for it to finish."
+        )
+        if record.outcome == "ended":
+            # The session ended and left these working: no client of it is
+            # left to end, so the way out forgets them (ADR 0095).
+            obstacles.append(
+                CleanupBlocker(
+                    kind="sub-agent",
+                    detail=f"{harness} session {record.session_id} at "
+                    f"{record.worktree} ended with "
+                    f"{named_subagents(record.live_subagents)}. {unplaced} "
+                    f"{ended_session_subagent_stop(record.harness, record.session_id)}.",
+                    command=f"cd {path} && "
+                    f"{forget_subagents_command(record.harness, record.session_id)}",
+                )
+            )
+            continue
         obstacles.append(
             CleanupBlocker(
                 kind="sub-agent",
                 detail=f"{harness} session {record.session_id} at "
                 f"{record.worktree} has "
                 f"{listed_subagents(len(record.live_subagents))} "
-                f"({agents}; session {record.outcome}). Dashpot cannot "
-                f"tell which Worktree a sub-agent works in, so one "
-                f"may be working here: wait for it to finish. "
+                f"({agents}; session {record.outcome}). {unplaced} "
                 f"{unreported_subagent_stop(record.harness)}.",
             )
         )

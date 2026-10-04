@@ -85,7 +85,9 @@ def publish_hook_event(
 
     A Sub-agent's event is written to the store that holds its parent's
     freshest record, with that record's location, and reconciles nothing: it
-    changes only the parent's live sub-agents (ADR 0067). ``SessionEnd`` first
+    changes only the parent's live sub-agents (ADR 0067); a stop also leaves
+    every ended record of the session elsewhere that kept it (ADR 0095).
+    ``SessionEnd`` first
     continues an orphaned run the session holds here (ADR 0075), then ends the
     session's run before its record is removed, and removes its older records
     elsewhere in the Repository; a ``SessionEnd`` from a managed Codex daemon
@@ -112,7 +114,7 @@ def publish_hook_event(
     state = cast("HookRecordState", record["state"])
     child = is_child_record(record)
     worktrees = event_worktrees(record)
-    freshest = _freshest_elsewhere(record, worktrees, directory)
+    freshest = _freshest_elsewhere(record, worktrees, directory, child=child)
     if directory is not None:
         store = HookRecordStore(directory)
     elif child and freshest is not None:
@@ -175,6 +177,10 @@ def publish_hook_event(
             issue_id=None if changed is None else changed.issue_id,
         )
     if child:
+        if record.get("event") == "SubagentStop":
+            _stop_kept_elsewhere(
+                record, worktrees, directory, written=destination.parent
+            )
         return HookPublication(destination, state=state)
     relocated = complete_session_work_relocation(
         record, identity, lookup, directory=destination.parent, worktrees=worktrees
@@ -211,14 +217,50 @@ def publish_hook_event(
     )
 
 
+def _stop_kept_elsewhere(
+    record: dict[str, Any],
+    worktrees: list[Path],
+    directory: Path | None,
+    *,
+    written: Path,
+) -> None:
+    """Remove a stopped Sub-agent from its session's ended records in other stores.
+
+    A session that ended at one Worktree and started again at another routes
+    its Sub-agents' events to its live record there, while the record its
+    end kept at the first still lists them (ADR 0095). Each store's write
+    re-reads its record under its lock, and changes only an ended record of
+    the same Host Process.
+    """
+    agent = record.get("agentId")
+    records, _unreadable = stored_session_records(
+        reachable_hook_stores(worktrees, directory),
+        cast("Harness", record["harness"]),
+        str(record["sessionId"]),
+    )
+    for item in records:
+        if (
+            item.record.state == "ended"
+            and agent in item.record.live_subagents
+            and not same_path(item.store, written)
+        ):
+            HookRecordStore(item.store).write(record)
+
+
 def _freshest_elsewhere(
-    record: dict[str, Any], worktrees: list[Path], directory: Path | None
+    record: dict[str, Any],
+    worktrees: list[Path],
+    directory: Path | None,
+    *,
+    child: bool,
 ) -> StoredSessionRecord | None:
     """The session's freshest readable record across the stores it could be in.
 
     Those are the stores of its Repository's Worktrees and the global one (or
     ``directory``); no process is probed. It routes a Sub-agent's event and
-    seeds a session-scoped event that moves the session to another store.
+    seeds a session-scoped event that moves the session to another store. An
+    ended record seeds nothing, but one kept for the sub-agents its session
+    left working routes their events to it (ADR 0095).
     """
     records, _unreadable = stored_session_records(
         reachable_hook_stores(worktrees, directory),
@@ -226,5 +268,7 @@ def _freshest_elsewhere(
         str(record["sessionId"]),
     )
     return freshest_stored_record(
-        item for item in records if item.record.state != "ended"
+        item
+        for item in records
+        if item.record.state != "ended" or (child and item.record.live_subagents)
     )

@@ -7,7 +7,7 @@ including when a sub-agent the session lists may only have been interrupted.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from ..core.model import HARNESS_DISPLAY, Harness
@@ -80,6 +80,11 @@ def listed_subagents(count: int) -> str:
     return f"{count} {noun} listed as working"
 
 
+def named_subagents(agents: Sequence[str]) -> str:
+    """``1 sub-agent listed as working (G)``: the sub-agents a session lists, by id."""
+    return f"{listed_subagents(len(agents))} ({', '.join(agents)})"
+
+
 def unreported_subagent_stop(harness: Harness) -> str:
     """Why a sub-agent listed as working may not be, and the way out if none is.
 
@@ -95,4 +100,30 @@ def unreported_subagent_stop(harness: Harness) -> str:
         f"that it stopped, which an interrupted one may never do, so if none "
         f"is still working, "
         f"{session_exit(harness).end.replace('{session_id}', '<session id>')}"
+    )
+
+
+def forget_subagents_command(harness: Harness, session_id: str) -> str:
+    """The command that forgets the sub-agents an ended session still lists.
+
+    It names the harness, so a session id two harnesses share is not refused.
+    """
+    return f"dashpot work forget-subagents {session_id} --harness {harness}"
+
+
+def ended_session_subagent_stop(harness: Harness, session_id: str) -> str:
+    """Why a sub-agent an ended session lists may not be working, and the way out.
+
+    An ended record keeps the sub-agents its session left working until each
+    ``SubagentStop`` or until the Host Process is gone (ADR 0095). A Codex
+    worker whose lead is deleted ends with it and reports nothing, as does a
+    child interrupted through its own thread (#374), so the sentence names
+    the command that forgets them once a person has checked.
+    """
+    return (
+        f"Dashpot lists a sub-agent of an ended session until "
+        f"{HARNESS_DISPLAY[harness]} reports that it stopped or the "
+        f"session's process exits, which one that ended with its session or "
+        f"was interrupted may never do, so if none is still working, run "
+        f"{forget_subagents_command(harness, session_id)}"
     )

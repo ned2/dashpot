@@ -91,6 +91,7 @@ from .sessions.integrate import (
     remove_integration,
 )
 from .sessions.work import (
+    forget_session_subagents,
     relocate_issue_work,
     show_issue_work,
     show_session_events,
@@ -328,7 +329,8 @@ work = App(
         "Opt this running agent session into Issue work.\n\n"
         "Start, switch, relocate, stop, or show explicit Issue work for the agent "
         "session enclosing this command, recorded at the current Worktree's "
-        ".dashpot/state/."
+        ".dashpot/state/, or forget the sub-agents an ended session still "
+        "lists."
     ),
 )
 app.command(work)
@@ -396,6 +398,34 @@ def stop(
             stop_issue_work(Path.cwd().resolve(), session_key=session, outcome=outcome)
         )
     return 0
+
+
+@work.command(name="forget-subagents")
+def forget_subagents(
+    session_id: Annotated[
+        str,
+        Parameter(help="the ended Agent Session whose listed sub-agents to forget"),
+    ],
+    /,
+    *,
+    harness: Annotated[
+        Harness | None,
+        Parameter(help="the session's harness, when two harnesses share its id"),
+    ] = None,
+) -> int:
+    """Forget the sub-agents an ended session still lists as working.
+
+    A session that ends while it lists sub-agents keeps them listed, and
+    blocking Worktree Cleanup, until each reports that it stopped or the
+    session's process exits. Run this once none of them is still working.
+    """
+    with command_outcome("work forget-subagents") as outcome:
+        _report(
+            forget_session_subagents(
+                Path.cwd().resolve(), session_id, harness=harness, outcome=outcome
+            )
+        )
+    return USAGE_EXIT_CODE if outcome.incomplete else 0
 
 
 @work.command

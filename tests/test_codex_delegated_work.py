@@ -18,7 +18,12 @@ from dashpot.core.model import AgentRun
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
-from dashpot.sessions.work import IssueWorkError, show_issue_work, start_issue_work
+from dashpot.sessions.work import (
+    IssueWorkError,
+    forget_session_subagents,
+    show_issue_work,
+    start_issue_work,
+)
 from dashpot.sessions.work_store import WorkStore
 from factories import CODEX
 from test_work import CODEX_SESSION, codex_lookup, target, two_worktrees
@@ -282,13 +287,16 @@ def test_an_interrupted_child_looks_like_a_working_one_until_the_session_ends(
     assert show_issue_work(a, lookup=codex_lookup)[1:] == [
         f"  codex pid 4242 has 1 sub-agent listed as working ({CHILD}). {CODEX_WAY_OUT}"
     ]
-    # The way out: the thread's end clears it with its run, and a new
-    # incarnation starts with no live children.
+    # The thread's end ends its run, but an ended record keeps the child it
+    # may have left working (ADR 0095); a person who has checked forgets it.
     assert publish(a, "SessionEnd").work == "ended"
     assert show_issue_work(a, lookup=codex_lookup) == [
         "no active Issue work at this worktree"
     ]
     assert runs(a) == []
+    assert (recorded(a)["state"], recorded(a)["liveSubagents"]) == ("ended", [CHILD])
+    forget_session_subagents(a, CODEX_SESSION)
+    assert stored(a) is None
 
 
 def test_a_new_incarnation_clears_a_silently_interrupted_child(

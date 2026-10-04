@@ -519,6 +519,9 @@ def remove_ended_session_records(
                 item.process_key != process.key
                 or item.last_activity > ended_at
                 or not any(same_path(item.worktree, one) for one in worktrees)
+                # An ended record never reads live; one is kept only for the
+                # sub-agents an earlier end left working (ADR 0095).
+                or item.record.state == "ended"
             ):
                 continue
             # A record that cannot be removed now is left for observation,

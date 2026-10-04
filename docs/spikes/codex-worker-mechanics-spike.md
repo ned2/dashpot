@@ -276,7 +276,9 @@ discipline, not a property of the worker.
   with an instruction to stop, or delete the lead thread to end every worker
   at once.
 - Keep a client subscribed to the lead for the whole wave. An unloaded lead
-  leaves its workers running with no run or Cleanup blocker to show them.
+  leaves its workers running with no run to show them; since
+  [ADR 0095](../adr/0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)
+  their Cleanup blocker stays.
 
 ## 8. Skill loading
 
@@ -326,6 +328,10 @@ Both findings are reported, not fixed here.
   `SessionEnd`. [ADR 0066](../adr/0066-block-worktree-removal-while-a-sub-agent-is-working.md)'s
   blocker assumes a worker never outlives its session's `SessionEnd`, and on
   the managed daemon it can.
+  [ADR 0095](../adr/0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)
+  has since decided it: the lead's `SessionEnd` keeps an ended record listing
+  G, which holds the `sub-agent` blocker until G's `SubagentStop` or the
+  daemon's exit, while the settler still ends the run.
 
 ## Validation
 
