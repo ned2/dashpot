@@ -320,6 +320,62 @@ that falls short only when a Cleanup is confirmed refuses it as changed, so
 the revised preview states the gap first. A sandboxed scan still blocks on
 the processes it does see.
 
+### Background commands
+
+A Background Command is a command a harness leaves running after the turn
+that started it ends:
+
+- a Claude Code `run_in_background` Bash command;
+- a Codex background terminal, which `exec_command` leaves running;
+- an OpenCode shell command run with `background: true`.
+
+It is no Agent Session and no Sub-agent, and no hook places it. Cleanup sees
+it through the [`process` blocker](#processes-inside-a-worktree), which
+names it in the Worktree it works in by pid and command. It stays named
+there for as long as it runs: while its session waits, and after the session
+moves to another Worktree, `/clear`s, exits to the background, or is
+deleted. The blocker never names the session
+that started it
+([ADR 0113](adr/0113-name-a-background-command-by-its-process-and-show-it-on-a-waiting-claude-code-session.md)).
+The Worktree becomes removable once the command ends, whether it finishes,
+the person ends it, or the harness ends it with its host. Measured at Claude
+Code 2.1.289, Codex 0.160.0 and OpenCode 2.0.22
+([experiment](spikes/background-commands-and-cleanup-spike.md)):
+
+- **Claude Code.** The command outlives its turn, and the turn's `Stop`
+  lists it as a running `shell` in `background_tasks`. Its end wakes the
+  session with a task notification.
+  - **`EnterWorktree`.** The session moves and leaves the command working in
+    the old Worktree, which then holds only the `process` blocker. The
+    notification reaches the session where it moved.
+  - **`/clear`.** The command goes on, and the next session takes its
+    notification.
+  - **`/exit`.** It asks what to do with the running work. "Exit and stop
+    tasks" ends the command. "Move to background and exit" ends the session
+    and forks it into a background Host Process, whose session holds the
+    Worktree beside the command.
+  - **`claude -p`.** It exits without waiting and ends the command.
+- **Codex.** The background terminal outlives its turn. Its end starts no
+  turn, and no hook Dashpot subscribes to reports it.
+  - **`/cd`.** The session stays where it is while a background terminal
+    runs. Codex lists an active background terminal among `/cd`'s
+    preconditions.
+  - **`/clear`.** The terminal goes on.
+  - **`/exit`.** It ends the terminal.
+  - **A terminal attached to the managed daemon.** The daemon runs the
+    command, which outlives the terminal's exit until the daemon unloads the
+    thread about a minute later.
+  - **`codex exec`.** It ends the command when it exits.
+- **OpenCode.** The command outlives its execution, and its end wakes the
+  session. When the session moves or is deleted while the command runs, the
+  command stays in its Worktree, which then holds only the `process`
+  blocker. [OpenCode hosting modes](#opencode-hosting-modes) gives the rest.
+
+A waiting session with a running Background Command reads as waiting. For
+Claude Code, ADR 0113 decides that such a session will read as waiting on
+its command, from the `Stop`'s `background_tasks`, and defers that display
+to a follow-up, #517.
+
 ### Codex hosting modes
 
 Codex support is pinned to `codex-cli` **0.160.0** on Linux, the release the
@@ -665,11 +721,13 @@ gate longer than that is lost; split it, or run it outside OpenCode.
 true` outlives the execution that started it, and Dashpot observes the
 session, not the command: the session reads waiting while the command
 runs, and the command's end wakes it with a new execution. Neither the
-dashboard nor `dashpot work show` lists the command, and Cleanup does not
-see it: a session that moves out of its Worktree, or is deleted, while its
-command runs frees the Worktree for Cleanup with the command still running
-there. OpenCode lists a running command with `GET /api/shell` at the
-location it started in, named by the `x-opencode-directory` header.
+dashboard nor `dashpot work show` lists the command. Cleanup names it
+through the [`process` blocker](#background-commands): a session that moves
+out of its Worktree, or is deleted, while its command runs leaves the
+Worktree held by the command alone. OpenCode lists a running command with
+`GET /api/shell` at the location it started in, named by the
+`x-opencode-directory` header, which still names the command's session
+after that session is deleted.
 Interrupting the session leaves the command running; stopping the service,
 or quitting a `--standalone` client, kills it.
 

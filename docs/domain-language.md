@@ -533,6 +533,19 @@ _Avoid_: child session for a fork; treating a Sub-agent's location as its
 parent's Observation Location; treating a session's end as its Sub-agents'
 end
 
+**Background Command**:
+A shell command an Agent Session's turn leaves running after the turn ends:
+a Claude Code `run_in_background` Bash command, a Codex background terminal,
+or an OpenCode shell command run with `background: true`. It is neither a
+Sub-agent nor a session, and no hook places it. It can outlive its session's
+move, `/clear`, end or deletion. Cleanup names it only as a process inside
+the Worktree it works in, by pid and command, never by the session that
+started it
+([ADR 0113](adr/0113-name-a-background-command-by-its-process-and-show-it-on-a-waiting-claude-code-session.md)).
+_Avoid_: background task for it, which Claude Code also uses for a
+background Sub-agent; reading the session its environment names as its
+owner
+
 **Conversation Switch**:
 A Host Process ending one Agent Session and starting another in its place,
 as Claude Code's `/clear`, `/resume` and `/branch` do: a `SessionEnd` whose

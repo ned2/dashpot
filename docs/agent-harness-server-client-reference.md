@@ -369,7 +369,10 @@ old thread. The child's hooks carry the new `session_id` and cwd, and its
 `SessionStart` reports `source: startup` at this tag (the payload schema has
 no parent or fork field); at `0.155.1` a `thread/fork` child's first turn
 reports `source: fork`, still with no parent field, and takes its own
-`sessionId`. `/cd` itself was not measured. The old thread's `SessionEnd`, with the old ID and
+`sessionId`. At 0.160.0, `/cd` with a background terminal running left the
+session where it was, and once the terminal had ended, `/cd` started a
+`source: fork` session in the new directory
+([measured under #466](spikes/background-commands-and-cleanup-spike.md#codex-01600)). The old thread's `SessionEnd`, with the old ID and
 cwd, runs when the subscriber-less thread unloads after the unload delay or
 when the client exits. Shell subprocesses of the child export the new
 `CODEX_THREAD_ID`. Preconditions: an idle primary thread with no queued input,
@@ -973,7 +976,11 @@ carries the new cwd, the next turn's hooks and shells carry it, and
 `SessionEnd` or `SessionStart`. A `run_in_background` shell job does not
 block `EnterWorktree`, and the listing reports `busy` while the job runs.
 `/exit` ends an interactive session with `SessionEnd` `reason` =
-`prompt_input_exit`.
+`prompt_input_exit`. At 2.1.289, with a shell job running, `/exit` first asks
+whether to "Exit and stop tasks", which ends the job, or "Move to background
+and exit". The second forks the session into a background session under a
+transient daemon, which keeps the job running and takes its completion
+notice ([measured under #466](spikes/background-commands-and-cleanup-spike.md#claude-code-21289)).
 
 ### Changes after 2.1.278
 
