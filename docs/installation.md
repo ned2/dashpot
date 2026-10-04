@@ -272,8 +272,8 @@ is reported the same way; the command still prints what it could read.
 `--json` prints JSON Lines, one event per line in the same order, each under
 the field names it has in the Event Log with an unknown field as `null`, so
 `dashpot events --json | jq -c 'select(.["otel.status_code"] == "ERROR")'`
-needs no unwrapping; unreadable lines and files are still reported on
-standard error. `dashpot events` reads only the
+needs no unwrapping. With no matching event it prints nothing, and unreadable
+lines and files are still reported on standard error. `dashpot events` reads only the
 Event Log's own `.jsonl` files: a file that has been renamed or compressed,
 by `logrotate` or anything else, is invisible to it.
 

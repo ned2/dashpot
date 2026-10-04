@@ -446,27 +446,37 @@ def test_events_json_with_none_matching_prints_nothing(
 
 
 class _ClosedPipe:
-    """A stdout whose reader has gone, as ``head`` leaves one."""
+    """A stdout whose reader has gone, as ``head`` leaves one.
 
-    def __init__(self, fd: int) -> None:
+    With ``buffered``, writes land in the buffer and the closed pipe is met
+    only when it is flushed, as a short output meets it.
+    """
+
+    def __init__(self, fd: int, *, buffered: bool) -> None:
         self.fd = fd
+        self.buffered = buffered
 
     def write(self, text: str) -> int:
+        if self.buffered:
+            return len(text)
         raise BrokenPipeError(32, "Broken pipe")
 
     def flush(self) -> None:
-        pass
+        if self.buffered:
+            raise BrokenPipeError(32, "Broken pipe")
 
     def fileno(self) -> int:
         return self.fd
 
 
-@pytest.mark.parametrize("json_output", [True, False])
+@pytest.mark.parametrize("buffered", [False, True], ids=["writing", "flushing"])
+@pytest.mark.parametrize("json_output", [True, False], ids=["json", "text"])
 def test_events_stop_quietly_when_the_reader_closes_the_pipe(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     json_output: bool,
+    buffered: bool,
 ) -> None:
     main, _linked = repository_with_linked_worktree(tmp_path)
     writer(events_directory(main), Clock()).start()
@@ -474,7 +484,7 @@ def test_events_stop_quietly_when_the_reader_closes_the_pipe(
     target = tmp_path / "stdout"
     fd = os.open(target, os.O_WRONLY | os.O_CREAT)
     try:
-        monkeypatch.setattr("sys.stdout", _ClosedPipe(fd))
+        monkeypatch.setattr("sys.stdout", _ClosedPipe(fd, buffered=buffered))
         argv = ["events", "--json"] if json_output else ["events"]
         assert cli.main(argv) == 0
         # stdout now goes nowhere, so the interpreter's last flush cannot fail.

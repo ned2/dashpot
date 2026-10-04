@@ -656,6 +656,9 @@ def events_read(
     )
     try:
         _print_events(reading.events, json_output=json_output)
+        # Flush inside the guard: a short output still sits in the buffer,
+        # and the interpreter's own flush at exit would meet the closed pipe.
+        sys.stdout.flush()
     except BrokenPipeError:
         _discard_stdout()
     for unreadable in reading.unreadable:

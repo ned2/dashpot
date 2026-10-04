@@ -461,8 +461,8 @@ consumer can tell "unknown" from "not emitted by this version". A shape change
 is a compatibility change. The one exception is `dashpot events --json`,
 which prints JSON Lines rather than one document: one Runtime Event per line,
 oldest first, each under the field names it has in the Event Log, with every
-field present and an unknown one as `null`. Unreadable lines and files are
-reported on standard error
+field present and an unknown one as `null`, and nothing at all when no event
+matches. Unreadable lines and files are reported on standard error
 ([ADR 0064](docs/adr/0064-publish-runtime-events-under-their-event-log-field-names.md),
 [ADR 0099](docs/adr/0099-print-runtime-events-as-json-lines.md)).
 `src/dashpot/serialization.py` owns the documents

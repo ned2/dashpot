@@ -42,16 +42,18 @@ The output also looks unlike the `.jsonl` files it reads
   `dashpot events --json | head` stops reading, the command stops printing
   and still exits 0. With or without `--json`, it prints no traceback.
 
-This supersedes ADR 0064's rejected option "Print the file lines as they are
-(JSON Lines)", and its decision "The document is camelCase", for this command.
-ADR 0064 rejected raw lines for two reasons. Printing the reader's own events
-answers the first: a raw line is not the tolerant view. Standard error answers
-the second: there would be nowhere to report unreadable lines. ADR 0064's other
-two decisions stand: each event keeps its Event Log field names, and its key
-set is published.
-
 ## Consequences
 
+- Amends [ADR 0064](0064-publish-runtime-events-under-their-event-log-field-names.md):
+  this supersedes its decision "The document is camelCase", and its rejected
+  option "Print the file lines as they are (JSON Lines)", for this command.
+  ADR 0064 rejected raw lines for two reasons. Printing the reader's own
+  events answers the first: a raw line is not the tolerant view. Standard
+  error answers the second: there would be nowhere to report unreadable
+  lines. ADR 0064's other two decisions stand: each event keeps its Event Log
+  field names, and its key set is published.
+- A closed pipe is the one exit status that changes: before this, it ended
+  in a traceback and a non-zero status, with or without `--json`.
 - `dashpot events --json | jq -c 'select(...)'`, `grep` and `tail` work
   without an unwrap step, and the output reads like the `.jsonl` files.
 - A consumer no longer meets two naming schemes. The output has no camelCase
