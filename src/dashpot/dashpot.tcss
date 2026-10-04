@@ -716,7 +716,7 @@ CleanupScreen, CleanupReportScreen {
     text-style: bold;
 }
 
-#cleanup-freshness, #cleanup-scope {
+#cleanup-freshness, #cleanup-scope, #cleanup-unchecked-processes {
     height: auto;
     color: $text-muted;
     text-style: italic;

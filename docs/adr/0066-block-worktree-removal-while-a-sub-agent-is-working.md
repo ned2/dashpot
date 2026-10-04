@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-01
-amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md
+amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md
 ---
 
 # Block Worktree removal while a sub-agent is working
@@ -169,3 +169,10 @@ might be working in it.
   Worktrees of the Repository, so a session that moved while its sub-agent
   worked stops blocking removal once that sub-agent stops. The union over
   every record of the session still holds for one still working.
+- Amended by [ADR 0104](0104-block-worktree-removal-while-a-process-runs-inside-it.md)
+  ([#476](https://github.com/ned2/dashpot/issues/476)): a process whose
+  working directory is inside the Worktree is a new source of evidence. It
+  places a sub-agent's command while that command runs, and blocks that
+  Worktree with a `process` blocker. The evidence is positive only, so it
+  never clears the `sub-agent` blocker, and a sub-agent between commands
+  still blocks every Worktree of the Repository.

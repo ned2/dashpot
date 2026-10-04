@@ -12,6 +12,7 @@ from ...core.git import Git
 from ...core.model import IntegrationState
 from ...core.worktree_paths import same_path, worktree_root
 from ...sessions.processes import ProcessLookup, host_process_lookup
+from ...sessions.working_directories import ProcessScan
 from ..repository import (
     LOCAL_REF_PREFIX,
     REMOTE_REF_PREFIX,
@@ -26,6 +27,7 @@ from .obstacles import (
     NO_INTEGRATION_BRANCH,
     LocatedWorktree,
     assess_detached_head_preservation,
+    assess_processes_inside,
     assess_worktree_occupancy,
     assess_worktree_safety,
     counted,
@@ -58,17 +60,21 @@ def inspect_cleanup(
     protected: Sequence[Path] = (),
     timeout: float = 10,
     git: Git | None = None,
+    scan: ProcessScan | None = None,
 ) -> CleanupPreview:
     """Preview a Cleanup: every concrete target, its gate, and what would follow.
 
     ``protected`` names Worktrees that are never removable — the checkout
     Dashpot runs from and the configured Repository Anchors — since removing
-    one takes the observer's own ground away.
+    one takes the observer's own ground away. ``scan`` reads the host's
+    process working directories, the host itself when omitted.
     """
     adapter = git if git is not None else Git(Path.cwd(), timeout)
     if isinstance(request, BranchCleanupRequest):
         return _inspect_branch(request, adapter)
-    return _inspect_worktree(request, adapter, lookup, lock_probe, protected, timeout)
+    return _inspect_worktree(
+        request, adapter, lookup, lock_probe, protected, timeout, scan
+    )
 
 
 def _inspect_branch(request: BranchCleanupRequest, git: Git) -> CleanupPreview:
@@ -330,10 +336,13 @@ def _inspect_worktree(
     lock_probe: LockHolderProbe | None,
     protected: Sequence[Path],
     timeout: float,
+    scan: ProcessScan | None,
 ) -> CleanupPreview:
     located = locate_worktree(request.current, request.path, timeout=timeout, git=git)
     path = located.path
-    blockers = _worktree_blockers(located, lookup, lock_probe, protected)
+    blockers, unchecked = _worktree_blockers(
+        located, lookup, lock_probe, protected, scan
+    )
     ignored = tuple(ignored_content(located.git, path))
     identity = f"worktree:{path}"
     branch = located.branch
@@ -363,7 +372,15 @@ def _inspect_worktree(
         targets.extend(
             _attached_branch_targets(located, branch, identity, blocked=bool(blockers))
         )
-    return _preview("worktree", str(path), located.anchor, targets, ignored, ())
+    return _preview(
+        "worktree",
+        str(path),
+        located.anchor,
+        targets,
+        ignored,
+        (),
+        unchecked_processes=unchecked,
+    )
 
 
 def _attached_branch_targets(
@@ -413,10 +430,14 @@ def _worktree_blockers(
     lookup: ProcessLookup,
     lock_probe: LockHolderProbe | None,
     protected: Sequence[Path],
-) -> list[CleanupBlocker]:
+    scan: ProcessScan | None,
+) -> tuple[list[CleanupBlocker], str | None]:
+    """The Worktree's blockers, and why its processes went unchecked, if they did."""
     path = located.path
     blockers: list[CleanupBlocker] = assess_worktree_safety(located, lock_probe)
     blockers.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
+    found, unchecked = assess_processes_inside(located, scan)
+    blockers.extend(found)
     if located.detached:
         blockers.extend(assess_detached_head_preservation(located.git, located.head))
     if any(same_path(path, candidate.expanduser()) for candidate in protected):
@@ -444,7 +465,7 @@ def _worktree_blockers(
                 command="git worktree prune",
             )
         )
-    return blockers
+    return blockers, unchecked
 
 
 def _preview(
@@ -454,6 +475,8 @@ def _preview(
     targets: Sequence[CleanupTarget],
     ignored: Sequence[str],
     refusals: Sequence[str],
+    *,
+    unchecked_processes: str | None = None,
 ) -> CleanupPreview:
     facts = [
         [
@@ -464,8 +487,12 @@ def _preview(
         ]
         for target in targets
     ]
+    # Whether the processes inside were all checked is a fact too: a scan
+    # that falls short only at confirmation must not remove unannounced.
     digest = hashlib.sha256(
-        json.dumps([kind, subject, str(anchor), facts, list(ignored)]).encode()
+        json.dumps(
+            [kind, subject, str(anchor), facts, list(ignored), unchecked_processes]
+        ).encode()
     ).hexdigest()
     return CleanupPreview(
         kind=kind,
@@ -474,6 +501,7 @@ def _preview(
         targets=tuple(targets),
         ignored=tuple(ignored),
         refusals=tuple(refusals),
+        unchecked_processes=unchecked_processes,
         fingerprint=digest[:16],
     )
 
@@ -506,6 +534,17 @@ def sub_agent_scope(preview: CleanupPreview) -> str | None:
     return SUB_AGENT_SCOPE if worktree is not None and worktree.available else None
 
 
+def unchecked_processes_note(preview: CleanupPreview) -> str | None:
+    """The process check's gap a preview that would remove a Worktree states, or None.
+
+    Like the sub-agent scope, it is said only of a Worktree the preview
+    would remove: a blocked one claims no absence of occupants (ADR 0104).
+    """
+    if sub_agent_scope(preview) is None:
+        return None
+    return preview.unchecked_processes
+
+
 def describe_cleanup_preview(preview: CleanupPreview) -> list[str]:
     """Render a preview as lines for a person: each target, its gate, and what follows."""
     verb = "Delete Branch" if preview.kind == "branch" else "Remove Worktree"
@@ -533,6 +572,8 @@ def describe_cleanup_preview(preview: CleanupPreview) -> list[str]:
         lines.extend(f"      → {consequence}" for consequence in target.consequences)
         if target.kind == "worktree" and (scope := sub_agent_scope(preview)):
             lines.append(f"      {scope}")
+            if unchecked := unchecked_processes_note(preview):
+                lines.append(f"      {unchecked}")
     if preview.ignored:
         lines.append(
             "Ignored content (deleted with the Worktree, acknowledge to proceed)"

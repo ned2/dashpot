@@ -14,6 +14,7 @@ from ...core.commands import non_interactive_runner
 from ...core.git import Git, GitError, last_stderr_line
 from ...core.pydantic import LaxSequence, PublishedModel
 from ...sessions.processes import ProcessLookup, host_process_lookup
+from ...sessions.working_directories import ProcessScan
 from ..repository import (
     LOCAL_REF_PREFIX,
     REMOTE_REF_PREFIX,
@@ -21,7 +22,12 @@ from ..repository import (
 )
 from ..worktrees.records import registered_at
 from .obstacles import counted
-from .preview import describe_cleanup_preview, inspect_cleanup, sub_agent_scope
+from .preview import (
+    describe_cleanup_preview,
+    inspect_cleanup,
+    sub_agent_scope,
+    unchecked_processes_note,
+)
 from .targets import (
     CleanupPreview,
     CleanupRequest,
@@ -131,6 +137,7 @@ def perform_cleanup(
     timeout: float = 10,
     git: Git | None = None,
     dry_run: bool = False,
+    scan: ProcessScan | None = None,
 ) -> CleanupReport:
     """Perform a confirmed Cleanup after re-inspecting it, or say why not.
 
@@ -149,6 +156,7 @@ def perform_cleanup(
         protected=protected,
         timeout=timeout,
         git=adapter,
+        scan=scan,
     )
     if preview.fingerprint != confirmation.fingerprint:
         return _report(
@@ -457,6 +465,8 @@ def describe_cleanup_report(report: CleanupReport) -> list[str]:
                 and (scope := sub_agent_scope(report.preview))
             ):
                 lines.append(f"     {scope}")
+                if unchecked := unchecked_processes_note(report.preview):
+                    lines.append(f"     {unchecked}")
         return lines
     lines.append("Results")
     for result in report.results:
@@ -468,6 +478,11 @@ def describe_cleanup_report(report: CleanupReport) -> list[str]:
         lines.append(f"      {result.detail}")
         if result.recovery and result.outcome == "deleted":
             lines.append(f"      recover: {result.recovery}")
+        # The check a removal went ahead on, said where its outcome is read.
+        if result.kind == "worktree" and (
+            unchecked := unchecked_processes_note(report.preview)
+        ):
+            lines.append(f"      {unchecked}")
     return lines
 
 

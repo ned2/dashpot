@@ -29,6 +29,7 @@ from ...sessions.session_exits import (
     unreported_subagent_stop,
 )
 from ...sessions.work_store import ActiveWork, WorkStore
+from ...sessions.working_directories import ProcessScan, ScanGap, processes_inside
 from ..repository import (
     LockHolderProbe,
     RefIndex,
@@ -300,6 +301,75 @@ def assess_worktree_occupancy(
             CleanupBlocker(kind="agent-run", detail=detail, command=command)
         )
     return obstacles
+
+
+# How many processes a ``process`` blocker names before it counts the rest.
+NAMED_PROCESSES = 5
+
+# Why a scan of process working directories could not cover every process,
+# in the words a person reads beneath a removable Worktree.
+UNCHECKED_PROCESSES: Mapping[ScanGap, str] = {
+    "isolated-namespace": "Dashpot runs inside a sandbox's process namespace "
+    "and cannot see the processes outside it; check again from a shell "
+    "outside the sandbox",
+    "proc-unreadable": "/proc could not be read",
+    "lsof-unavailable": "this host has no /proc, and lsof could not be run",
+    "lsof-timeout": "lsof did not answer in time",
+    "lsof-failed": "lsof failed",
+}
+
+
+def unchecked_processes(gap: ScanGap) -> str:
+    """Say which processes the occupancy check could not read, and why."""
+    return (
+        "Processes running inside this Worktree were not all checked: "
+        f"{UNCHECKED_PROCESSES[gap]}."
+    )
+
+
+def assess_processes_inside(
+    located: LocatedWorktree, scan: ProcessScan | None = None
+) -> tuple[list[CleanupBlocker], str | None]:
+    """The ``process`` blocker of a Worktree some process runs inside, and any gap.
+
+    One blocker names every process whose working directory is inside the
+    Worktree, so its count changing never changes the preview's blockers.
+    The evidence is positive only: finding none clears no other blocker,
+    and a scan that could not read every process says so in the returned
+    sentence instead of a blocker (ADR 0104). The main Worktree is never
+    removable, and its tree may hold linked Worktrees whose occupants are
+    not its own, so it is not scanned.
+    """
+    if located.role == "main":
+        return [], None
+    found = processes_inside(located.path, scan)
+    unchecked = (
+        unchecked_processes(found.incomplete) if found.incomplete is not None else None
+    )
+    if not found.processes:
+        return [], unchecked
+    named = [
+        f"pid {process.pid} ({process.command}) at {process.cwd}"
+        for process in found.processes[:NAMED_PROCESSES]
+    ]
+    rest = len(found.processes) - len(named)
+    if rest:
+        named.append(f"and {rest} more")
+    if len(found.processes) == 1:
+        opening = "A process is running inside this Worktree"
+        pronoun = "it"
+    else:
+        opening = f"{len(found.processes)} processes are running inside this Worktree"
+        pronoun = "them"
+    pids = ",".join(str(process.pid) for process in found.processes)
+    blocker = CleanupBlocker(
+        kind="process",
+        detail=f"{opening}: {'; '.join(named)}. Removing the Worktree would "
+        f"delete the directory it works in: end {pronoun} or move {pronoun} "
+        f"out of the Worktree.",
+        command=f"ps -ww -o pid=,args= -p {pids}",
+    )
+    return [blocker], unchecked
 
 
 def _unrecorded_opencode_session(work: ActiveWork, stores: Sequence[Path]) -> bool:

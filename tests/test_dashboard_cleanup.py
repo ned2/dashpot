@@ -672,6 +672,78 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         assert app.cleanups.cleaning == {}
 
 
+UNCHECKED = "Processes running inside this Worktree were not all checked: lsof failed."
+
+
+@pytest.mark.asyncio
+async def test_a_removable_worktree_says_its_processes_went_unchecked() -> None:
+    """The same sentence ``worktree check`` and ``worktree remove`` print (ADR 0104)."""
+    shown = WORKTREE_PREVIEW.model_copy(update={"unchecked_processes": UNCHECKED})
+    app = dashboard_app(
+        SequenceCollector(BEFORE, AFTER),
+        refresh_seconds=0,
+        cleaner=FakeCleaner(shown),
+    )
+
+    async with app.run_test(size=(140, 50)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await settle_screen(app, pilot, "the Cleanup preview")
+
+        screen = cleanup_screen(app)
+        scope = screen.query_one("#cleanup-scope", Static)
+        unchecked = screen.query_one("#cleanup-unchecked-processes", Static)
+        assert str(unchecked.render()) == UNCHECKED
+        assert scope.region.y < unchecked.region.y
+        assert unchecked.region.y < screen.query_one("#cleanup-targets").region.y
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
+
+
+@pytest.mark.asyncio
+async def test_a_process_inside_the_worktree_is_named_beside_it() -> None:
+    process = CleanupBlocker(
+        kind="process",
+        detail=f"A process is running inside this Worktree: pid 4242 (node) "
+        f"at {WORKTREE}/web. Removing the Worktree would delete the directory "
+        "it works in: end it or move it out of the Worktree.",
+        command="ps -ww -o pid=,args= -p 4242",
+    )
+    tree = TREE.model_copy(update={"blockers": (process,)})
+    shown = preview("worktree", WORKTREE, tree, ATTACHED).model_copy(
+        update={"unchecked_processes": UNCHECKED}
+    )
+    app = dashboard_app(
+        SequenceCollector(BEFORE, AFTER),
+        refresh_seconds=0,
+        cleaner=FakeCleaner(shown),
+    )
+
+    async with app.run_test(size=(140, 50)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await settle_screen(app, pilot, "the Cleanup preview")
+
+        screen = cleanup_screen(app)
+        reason = (
+            screen.query_one(CleanupTargetView).query(".cleanup-blocker").first(Static)
+        )
+        assert str(reason.render()) == (
+            "A process is running inside this Worktree; end it or move it out "
+            "before removal."
+        )
+        assert "pid 4242 (node)" in details(app)
+        assert "ps -ww -o pid=,args= -p 4242" in details(app)
+        # A blocked Worktree claims no absence of occupants to qualify.
+        assert not screen.query("#cleanup-unchecked-processes")
+        await pilot.press("escape")
+        await wait_until(lambda: not isinstance(app.screen, CleanupScreen))
+
+
 @dataclass(frozen=True, slots=True)
 class InspectingCleaner:
     """The real Cleanup inspection and performance, over a fake process table."""
