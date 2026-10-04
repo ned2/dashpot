@@ -193,7 +193,9 @@ def publish_hook_event(
         )
     if child:
         if record.get("event") == "SubagentStop":
-            _stop_kept_elsewhere(record, identity, worktrees, directory, destination)
+            _stop_kept_elsewhere(
+                record, identity, worktrees, directory, written_to=destination
+            )
         return HookPublication(destination, state=state)
     relocated = complete_session_work_relocation(
         record, identity, lookup, directory=destination.parent, worktrees=worktrees
@@ -235,9 +237,12 @@ def _stop_kept_elsewhere(
     identity: ProcessIdentity | None,
     worktrees: list[Path],
     directory: Path | None,
-    written: Path,
+    written_to: Path,
 ) -> None:
-    """Remove a stopped Sub-agent from every other record of its Host Process that keeps it.
+    """Remove a stopped Sub-agent from the other records of its Host Process that keep it.
+
+    Those are the process's ended records and the records the stop's own
+    session left behind.
 
     A session that ended at one Worktree and started again at another routes
     its Sub-agents' events to its live record there, while the record its
@@ -257,7 +262,7 @@ def _stop_kept_elsewhere(
     if identity is None or not isinstance(agent, str):
         return
     for item in _process_records(record, identity, worktrees, directory):
-        if agent not in item.record.live_subagents or same_path(item.path, written):
+        if agent not in item.record.live_subagents or same_path(item.path, written_to):
             continue
         store = HookRecordStore(item.store)
         if item.record.state == "ended":

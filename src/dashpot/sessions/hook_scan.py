@@ -406,10 +406,11 @@ def stored_process_records(
     sessions one Host Process holds, whose records share no filename: a
     Conversation Switch's new session takes over the sub-agents of the one
     it left, and a sub-agent's stop leaves every ended record of its process
-    (ADR 0101) and every live record its session left behind (ADR 0102). Like ``stored_session_records`` it probes no process. A
-    record that cannot be read or validated is no evidence and is skipped:
-    a caller changes a record only through its store, which re-reads it under
-    its own lock.
+    (ADR 0101) and every live record its session left behind (ADR 0102).
+    Like ``stored_session_records`` it probes no process. A record that
+    cannot be read or validated is no evidence and is skipped: a caller
+    changes a record only through its store, which re-reads it under its own
+    lock.
     """
     found: list[StoredSessionRecord] = []
     for store in stores:

@@ -1213,13 +1213,21 @@ def test_a_stop_leaves_another_live_sessions_record_alone(
     tmp_path: Path, mover: Mover
 ) -> None:
     # Only the stopping session's own live records let the agent go; another
-    # session's, here a thread of the same Codex Host Process, are left.
+    # session of the same harness and Host Process keeps its own listing.
     a, b = two_worktrees(tmp_path)
     mover.place(a)
     mover.publish(a, "SubagentStart", agent_id="worker-1")
     mover.move(b)
-    publish(a, "UserPromptSubmit", session=SECOND_THREAD)
-    publish(a, "SubagentStart", session=SECOND_THREAD, agent_id="worker-1")
+    for event in ("UserPromptSubmit", "SubagentStart"):
+        publish(
+            a,
+            event,
+            session=SECOND_THREAD,
+            harness=mover.harness,
+            process=mover.process,
+            lookup=mover.lookup,
+            **({"agent_id": "worker-1"} if event == "SubagentStart" else {}),
+        )
 
     mover.publish(b, "SubagentStop", agent_id="worker-1")
     other = recorded(session_directory(a), SECOND_THREAD)

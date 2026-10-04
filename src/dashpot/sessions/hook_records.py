@@ -55,6 +55,10 @@ CONVERSATION_SWITCH_REASONS = frozenset({"clear", "resume"})
 # What a session's own ``SessionStart`` says its Host Process did, when its
 # ``source`` says anything Dashpot acts on.
 SessionStartKind = Literal["compaction", "switch"]
+# Which records a stopped sub-agent is released from: an ended record of any
+# session of its Host Process (ADR 0101), or a live record its own session
+# left behind at another Worktree (ADR 0102).
+ReleasedRecord = Literal["ended", "left-behind"]
 # The states a live record holds; an ended record holds ``ended``.
 LIVE_STATES = frozenset({"running", "waiting"})
 # Where a record places its session; a Sub-agent's event keeps its parent's.
@@ -620,12 +624,12 @@ class HookRecordStore(LockedRecordStore):
         left as it is, and an ended record left listing none goes. Returns
         whether the record changed.
         """
-        return self._release(key, agents, by, live=False)
+        return self._release(key, agents, by, "ended")
 
     def release_left_behind(
         self, key: str, agents: Iterable[str], by: Mapping[str, Any]
     ) -> bool:
-        """Stop listing ``agents`` in the live record ``key`` that ``by``'s session left here.
+        """Stop listing ``agents`` in the live record ``key`` ``by``'s session left.
 
         A session that moves to another Worktree carries its sub-agents to
         the record it moves to, and the record it left keeps listing them;
@@ -636,16 +640,20 @@ class HookRecordStore(LockedRecordStore):
         as fresher than the record the session moved to, and it stays when
         it lists none. Returns whether the record changed.
         """
-        return self._release(key, agents, by, live=True)
+        return self._release(key, agents, by, "left-behind")
 
     def _release(
-        self, key: str, agents: Iterable[str], by: Mapping[str, Any], *, live: bool
+        self,
+        key: str,
+        agents: Iterable[str],
+        by: Mapping[str, Any],
+        kind: ReleasedRecord,
     ) -> bool:
-        """Remove ``agents`` from record ``key`` under its lock, if it is the kind asked for.
+        """Remove ``agents`` from record ``key`` under its lock, if it is ``kind``.
 
-        ``live`` asks for a live record of ``by``'s own session, else for an
-        ended record of any session; either names ``by``'s harness and Host
-        Process.
+        An ``ended`` record may be any session's, and goes once it lists
+        none; a ``left-behind`` record is a live one of ``by``'s own session,
+        and stays. Either names ``by``'s harness and Host Process.
         """
         released = set(agents)
         destination = self.record_path(key)
@@ -654,10 +662,16 @@ class HookRecordStore(LockedRecordStore):
                 previous = self._read(destination)
             except (HookRecordError, ValueError):
                 return False
+            if previous is None:
+                return False
+            if kind == "ended":
+                eligible = _is_ended(previous)
+            else:
+                eligible = not _is_ended(previous) and previous.get(
+                    "sessionId"
+                ) == by.get("sessionId")
             if (
-                previous is None
-                or _is_ended(previous) == live
-                or (live and previous.get("sessionId") != by.get("sessionId"))
+                not eligible
                 or previous.get("harness") != by.get("harness")
                 or not _same_named_process(by, previous)
             ):
@@ -666,10 +680,10 @@ class HookRecordStore(LockedRecordStore):
             remaining = [agent for agent in listed if agent not in released]
             if remaining == listed:
                 return False
-            if remaining or live:
-                self.replace(key, {**previous, "liveSubagents": remaining})
-            else:
+            if not remaining and kind == "ended":
                 destination.unlink(missing_ok=True)
+            else:
+                self.replace(key, {**previous, "liveSubagents": remaining})
             return True
 
     def prune(self, session_id: str, observed: Mapping[str, Any]) -> bool:

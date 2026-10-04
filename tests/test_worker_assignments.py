@@ -818,8 +818,8 @@ def test_assignment_refuses_a_worker_only_a_stale_record_lists(
 ) -> None:
     # The Lead moved to another Worktree's store, carrying its Worker, and
     # the Worker stopped there. Its stop now clears the record left behind
-    # too (ADR 0102); one a publisher before that left listing the Worker
-    # still lists it, but the Lead's freshest record does not.
+    # too (ADR 0102), so this simulates a record a publisher before ADR 0102
+    # left listing the Worker: the Lead's freshest record does not list it.
     main, first, _second = arc(tmp_path)
     leading(main, WORKER)
     publish(first, "UserPromptSubmit")

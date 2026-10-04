@@ -65,7 +65,9 @@ A sub-agent's stop releases it from the records its session left behind.
   resumes, it is started again on the session's freshest record
   ([#472](https://github.com/ned2/dashpot/issues/472)). A start written
   between the stop and its release must stay listed. Only records the stop
-  was not written to are released, and a start never goes to one of them.
+  was not written to are released, and a start goes to the session's
+  freshest record, which is the one the stop was written to unless the
+  session moves in between.
 - **It reuses ADR 0101's machinery.** `stored_process_records` finds the
   records, and each store re-reads its record under that record's lock
   before changing it. `release_left_behind` on `HookRecordStore` sits
@@ -130,6 +132,11 @@ A sub-agent's stop releases it from the records its session left behind.
     itself written after the stop, lists the stopped agent on the record it
     moves to. That window is the length of one hook write, and ADR 0067's
     seed already had it.
+  - A session that moves between a stop's write and its release, and whose
+    worker starts again on the record it moved to in that time, has the
+    worker released there too, and it is not listed until it starts again.
+    That errs toward allowing a removal, as an interim stop already does,
+    and its window is also the length of one hook write.
   - An interim `SubagentStop` (#472) releases its worker from every record,
     as it already did from the freshest. Nothing here treats a stop as more
     final than ADR 0016 does.
