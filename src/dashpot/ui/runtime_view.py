@@ -6,7 +6,7 @@ one row per event, and Stats, their aggregation. A header above both names
 the Event Level, the window and how many events it holds; ``l`` changes the
 level for the rest of the run from either tab. The screen sends no request
 and keeps no figure of its own: it redraws the shown tab from what the
-dashboard already holds, on a short interval while it is open (ADR 0097).
+dashboard already holds, on a short interval while it is open (ADR 0098).
 """
 
 from __future__ import annotations

@@ -782,6 +782,6 @@ itself — computed when read from an in-memory buffer, never kept as running
 totals ([#315](https://github.com/ned2/dashpot/issues/315)). It is the Stats
 tab of the dashboard's Runtime screen, whose Events tab lists the same
 buffered Runtime Events one by one
-([ADR 0097](adr/0097-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md)).
+([ADR 0098](adr/0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md)).
 _Avoid_: telemetry; metrics or counters kept beside the events; log for the
 Diagnostics a dashboard shows

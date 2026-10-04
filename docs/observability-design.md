@@ -380,7 +380,7 @@ output.
 ## Reading
 
 - **The Runtime screen**
-  ([ADR 0097](adr/0097-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md)),
+  ([ADR 0098](adr/0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md)),
   a full-screen temporary screen with two tabs, Events and Stats, opened from
   a Peer Screen by `e` or `s` or by the command palette's Runtime Events and
   Runtime Stats, and closed by `Escape` alone. Both tabs read the dashboard's
