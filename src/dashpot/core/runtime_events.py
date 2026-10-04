@@ -21,6 +21,7 @@ from typing import Annotated, Any, ClassVar, Literal, Self
 from pydantic import (
     ConfigDict,
     Field,
+    PlainSerializer,
     SerializationInfo,
     SerializeAsAny,
     SerializerFunctionWrapHandler,
@@ -78,6 +79,16 @@ Subcommand = Annotated[
     str, _identifier(r"^[a-z]+(-[a-z]+)*( [a-z]+(-[a-z]+)*){0,2}$", 64)
 ]
 ProgramName = Annotated[str, _identifier(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$", 64)]
+
+# Durations are written to the microsecond: a clock's full float carries up to
+# 17 significant digits that measure nothing and lengthen every span. A reader
+# takes any precision, so an older line still reads.
+DURATION_DIGITS = 6
+DurationSeconds = Annotated[
+    float,
+    Field(ge=0),
+    PlainSerializer(lambda seconds: round(seconds, DURATION_DIGITS), return_type=float),
+]
 # A command's subcommand words, never its arguments: ``rev-parse``,
 # ``api graphql DashpotQueryPage``.
 CommandWords = Annotated[
@@ -177,7 +188,7 @@ class ProcessEnd(EventBody):
 
     name: Literal["process.end"] = Field(default="process.end", alias="event.name")
     exit_code: int = Field(alias="process.exit.code")
-    duration_seconds: float = Field(ge=0, alias="dashpot.duration_seconds")
+    duration_seconds: DurationSeconds = Field(alias="dashpot.duration_seconds")
 
 
 class LevelChanged(EventBody):
@@ -328,7 +339,7 @@ class CommandOutcome(EventBody):
         default=None, ge=0, alias="dashpot.outcome.refusal_count"
     )
     dry_run: bool | None = Field(default=None, alias="dashpot.outcome.dry_run")
-    duration_seconds: float = Field(ge=0, alias="dashpot.duration_seconds")
+    duration_seconds: DurationSeconds = Field(alias="dashpot.duration_seconds")
     target_path: AbsolutePath | None = Field(default=None, alias="dashpot.target.path")
     target_branch: BranchName | None = Field(
         default=None, alias="dashpot.target.branch"
@@ -542,7 +553,7 @@ class SpanEnded(EventBody):
     span_name: SpanName = Field(alias="dashpot.span.name")
     span_id: SpanId = Field(alias="span_id")
     parent_span_id: SpanId | None = Field(default=None, alias="parent_span_id")
-    duration_seconds: float = Field(ge=0, alias="dashpot.duration_seconds")
+    duration_seconds: DurationSeconds = Field(alias="dashpot.duration_seconds")
     status: SpanStatus = Field(alias="otel.status_code")
     error_type: ErrorType | None = Field(default=None, alias="error.type")
     attributes: SerializeAsAny[SpanAttributes] | None = None

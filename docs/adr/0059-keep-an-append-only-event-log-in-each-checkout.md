@@ -144,7 +144,10 @@ reading it. The full design, with its measurements and sources, is in
 - An Event Log grows without bound until a person or their tools act. A
   dashboard at `full` writes about 45 MB a day on this Repository; at
   `standard` its volume follows the GitHub request rate, about 2 MB a day at
-  the 60-second GitHub Refresh Period.
+  the 60-second GitHub Refresh Period. These are the estimates the decision
+  was made on; [later measurements](../observability-design.md#measurements)
+  supersede them, and #337 found about 100 MB a day at `full` and 4 to 5.5 MB
+  at `standard`.
 
 ## Considered options
 

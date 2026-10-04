@@ -207,14 +207,16 @@ event_level = 'standard'
 
 `off` records nothing. `standard` records process starts and ends, hook and
 command outcomes, Agent Session and Agent Run changes, Diagnostics, every
-GitHub request and every failure, about 4.5 MB a day for a dashboard.
-`full` adds every refresh, local observation, query and command, which is
-useful when developing Dashpot and writes about 200 MB a day for a dashboard
-on a Repository with ten Worktrees. The `DASHPOT_EVENT_LEVEL`
-environment variable overrides the setting for the processes that inherit
-it, hooks included. A settings file that cannot be read leaves the level at
-`standard`; hooks and commands say nothing about it, and the dashboard
-shows the settings error as a Diagnostic.
+GitHub request and every failure: about 4 to 5.5 MB a day for a dashboard,
+and about 1.6 KB for each hook run. `full` adds every refresh, local
+observation, query and command, which is useful when developing Dashpot and
+writes about 100 MB a day for a dashboard on a Repository with 16
+Worktrees, so the `event-log-large` Diagnostic appears after about two days
+at `full` (see [Remove old Event Log files](#remove-old-event-log-files)).
+The `DASHPOT_EVENT_LEVEL` environment variable overrides the setting for the
+processes that inherit it, hooks included. A settings file that cannot be
+read leaves the level at `standard`; hooks and commands say nothing about
+it, and the dashboard shows the settings error as a Diagnostic.
 
 A write that fails is dropped, and never fails the work it describes. The
 dashboard reports the first one as an `event-log-unavailable` Diagnostic;

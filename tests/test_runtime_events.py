@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import typing
 from collections.abc import Iterable
 
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 from dashpot.core import runtime_events
 from dashpot.core.pydantic import validate_rfc3339_timestamp
 from dashpot.core.runtime_events import (
+    DURATION_DIGITS,
     SCHEMA_VERSION,
     AgentSessionChanged,
     CommandAttributes,
@@ -207,6 +209,44 @@ def test_reading_ignores_fields_a_newer_dashpot_added() -> None:
     raw = json.loads(written.line())
     raw["dashpot.something.new"] = [1, 2]
     raw["attributes"]["process.something.new"] = "x"
+
+    assert read_runtime_event(json.dumps(raw)) == written
+
+
+MEASURED = 0.43594890701933764
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        ProcessEnd(exit_code=0, duration_seconds=MEASURED),
+        SpanEnded(
+            span_name="command",
+            span_id=SPAN,
+            duration_seconds=MEASURED,
+            status="OK",
+        ),
+        CommandOutcome(
+            command="work start", result="succeeded", duration_seconds=MEASURED
+        ),
+    ],
+    ids=lambda body: body.name,
+)
+def test_a_duration_is_written_to_the_microsecond(
+    body: runtime_events.EventBody,
+) -> None:
+    line = event(body).line()
+
+    assert re.search(rb'"dashpot\.duration_seconds":0\.435949[,}]', line)
+    assert read_runtime_event(line) == event(
+        body.model_copy(update={"duration_seconds": round(MEASURED, DURATION_DIGITS)})
+    )
+
+
+def test_a_duration_an_older_dashpot_wrote_unrounded_still_reads() -> None:
+    written = event(ProcessEnd(exit_code=0, duration_seconds=MEASURED))
+    raw = json.loads(written.line())
+    raw["dashpot.duration_seconds"] = MEASURED
 
     assert read_runtime_event(json.dumps(raw)) == written
 
