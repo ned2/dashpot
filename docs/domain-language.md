@@ -494,6 +494,25 @@ parent, and a Sub-agent's own claim never authorizes Issue work
 _Avoid_: child session for a fork; treating a Sub-agent's location as its
 parent's Observation Location
 
+**Lead**:
+The Agent Session that runs the bundled `dashpot-execute-issues` skill to
+land an arc of Issues through Workers. It alone holds the arc's Agent Run
+and Issue Binding, creates and removes the Issue Worktrees, and merges only
+when the user grants it that authority. It stays at the Worktree where it
+bound while any Worker runs
+([ADR 0092](adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
+_Avoid_: lead for any Agent Session that merely delegates work;
+orchestrator or coordinator
+
+**Worker**:
+A background Sub-agent of a Lead that takes one Issue to an open PR in its
+own Issue Worktree. It shares the Lead's Agent Session, so it has no Agent
+Run or Issue Binding of its own and runs no `work` command. The Worktree it
+works in is where its commands run, never its Observation Location
+([ADR 0092](adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
+_Avoid_: worker for a Host Process, such as a Claude Code supervised worker
+process; reading a Worker's Issue Worktree as bound to its Issue
+
 **Session Liveness**:
 An observation of whether an Agent Session's recorded Host Process is live,
 gone, or unknown. Unknown means the process could not be observed, or that it

@@ -241,6 +241,48 @@ run where the work happens. There is no tracked `.envrc`; an `.envrc` you find
 in a checkout is local, ignored, and holds that user's `gh` credentials —
 leave it alone and never commit one.
 
+## Leading parallel Issue work
+
+A Lead running the bundled `dashpot-execute-issues` skill fills each
+Worker's brief from this file
+([ADR 0092](docs/adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
+In this Repository:
+
+- A Lead merges only when the operator grants it merge authority for the
+  arc; otherwise the operator merges, as
+  [ADR 0089](docs/adr/0089-leave-the-pr-merge-to-the-operator.md) decides.
+- Reserve ADR numbers per Issue, with a spare, before dispatch. Scan
+  `origin/main`, open PRs, remote branches and every local Worktree's
+  branch: the operator's own Worktrees take numbers too.
+- Every checkout shares one `.git/hooks`, installed from the main checkout
+  ([quality gates](README.md#quality-gates)). Never run `pre-commit install`
+  from a linked Worktree, whose `.venv` is removed with it, and after
+  removing a Worktree check the hooks still name the main checkout's
+  Python.
+- `scripts/maintain_docs.py` reads tracked files only: `git add -N` a new
+  document before `--write-adr-index`, and regenerate the index after
+  every rebase, since sibling Workers add ADRs too.
+- Give each Worker a share of the cores with `review_coverage.py --workers
+  N`; [development setup](README.md#development-setup) records sixteen
+  pytest workers failing where eight passed.
+- `code-review` reads the Issue itself
+  ([issue tracker](docs/agents/issue-tracker.md)), so a brief gives it the
+  Issue number, the review base and the evidence.
+- A pinned harness experiment under `scripts/experiments/` runs in a
+  disposable directory outside every Dashpot Project, with isolated
+  configuration and every updater off (Codex
+  `updater.autoUpdateEnabled=false`, Claude Code `DISABLE_AUTOUPDATER=1`).
+  Its runner is detached with `setsid -f` and refuses to start under a
+  harness process, whose ancestry would attach the fixture's hook records to
+  the Lead's session. Run a retained release read-only, through a
+  fixture-local `PATH` symlink: Codex's under
+  `~/.codex/packages/standalone/releases/`, Claude Code's under
+  `~/.local/share/claude/versions/`. Codex's `/tmp/codex-daemon-<uid>/` and
+  Claude Code's `/tmp/cc-daemon-<uid>/` are shared with the user's own
+  sessions, so never delete either wholesale. Read process arguments with
+  `ps -ww`. Before merging a PR that commits a trace, check every hash it
+  records against the PR head.
+
 ## Tracking and notes
 
 **Do not create or rely on a private agent memory store.** Durable context
