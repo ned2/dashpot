@@ -41,7 +41,7 @@ from .core.event_log_files import (
     remove_event_logs,
     repository_event_log_directories,
 )
-from .core.model import Harness
+from .core.model import HARNESS_DISPLAY, Harness
 from .core.runtime_events import ManagementCommand, RecordedLevel, RuntimeEvent
 from .core.state_paths import enclosing_checkout
 from .core.worktree_paths import worktree_root
@@ -89,9 +89,14 @@ from .serialization import (
     worktree_plan_document,
 )
 from .sessions.integrate import (
+    HarnessReport,
     IncompleteIntegrationError,
+    IntegrationError,
+    in_integration_order,
     install_integration,
+    install_integrations,
     integration_status,
+    integrations_status,
     remove_integration,
 )
 from .sessions.work import (
@@ -1194,17 +1199,37 @@ def worktree_remove(
 _integrate_action = Group("Action", validator=validators.MutuallyExclusive())
 
 
-@app.command
+@app.command(usage="Usage: dashpot integrate [OPTIONS] [HARNESS...]")
 def integrate(
-    harness: Annotated[Harness, Parameter(help="the agent harness to integrate")],
-    /,
-    *,
+    *harnesses: Annotated[
+        Harness,
+        Parameter(
+            name="HARNESS",
+            help=(
+                "the agent harnesses to integrate; several run in the order "
+                "claude-code, codex, opencode, each standing alone"
+            ),
+        ),
+    ],
+    installed: Annotated[
+        bool,
+        Parameter(
+            show_default=False,
+            help=(
+                "refresh every harness already integrated, with every lifecycle "
+                "hook registered, and no other"
+            ),
+        ),
+    ] = False,
     status: Annotated[
         bool,
         Parameter(
             group=_integrate_action,
             show_default=False,
-            help="report integration state without changing anything",
+            help=(
+                "report integration state without changing anything; with no "
+                "harness, of every harness"
+            ),
         ),
     ] = False,
     remove: Annotated[
@@ -1212,7 +1237,10 @@ def integrate(
         Parameter(
             group=_integrate_action,
             show_default=False,
-            help="remove exactly the Dashpot hooks, managed skills and agents",
+            help=(
+                "remove exactly the Dashpot hooks, managed skills and agents of "
+                "one named harness"
+            ),
         ),
     ] = False,
 ) -> int:
@@ -1221,27 +1249,77 @@ def integrate(
     Register, inspect, or remove the opt-in hooks that publish Agent Session
     lifecycle observations and the agent-facing skills Dashpot bundles, such
     as the Issue-work skill, and, for OpenCode, the bundled worker agent.
-    Nothing is installed without running this command.
+    Nothing is installed without running this command, and --installed
+    refreshes only a harness that is integrated already.
     """
+    named = in_integration_order(harnesses)
     with command_outcome("integrate") as outcome:
-        outcome.target_harness = harness
+        if installed and named:
+            raise IntegrationError(
+                "name the harnesses to integrate or pass --installed, not both"
+            )
+        if remove and len(named) != 1:
+            raise IntegrationError(
+                "--remove takes exactly one named harness, as in "
+                "'dashpot integrate codex --remove'"
+            )
+        if not named and not installed and not status:
+            raise IntegrationError(
+                "name a harness to integrate, or pass --installed to refresh "
+                "every integrated harness"
+            )
+        if len(named) == 1:
+            return _integrate_one(
+                named[0], status=status, remove=remove, outcome=outcome
+            )
         if status:
-            messages = integration_status(harness)
+            combined = integrations_status(named)
+            _report_harnesses(combined.harnesses)
+            _report(combined.messages)
             outcome.action = "reported"
-        elif remove:
-            messages = remove_integration(harness)
-            outcome.action = "removed"
-        else:
-            try:
-                messages = install_integration(harness)
-            except IncompleteIntegrationError as incomplete:
-                # What was written is reported before the failures it carried
-                # on past, which end the command as any refusal does.
-                _report(incomplete.messages)
-                raise
+            return 0
+        reports = install_integrations(named)
+        _report_harnesses(reports)
+        outcome.refusals = sum(report.outcome == "refused" for report in reports)
+        outcome.incomplete = any(report.outcome == "incomplete" for report in reports)
+        if any(report.outcome in ("installed", "incomplete") for report in reports):
             outcome.action = "installed"
-        _report(messages)
+        return USAGE_EXIT_CODE if outcome.refusals or outcome.incomplete else 0
+
+
+def _integrate_one(
+    harness: Harness, *, status: bool, remove: bool, outcome: OutcomeNote
+) -> int:
+    """Install, check or remove one named harness's integration, refusing as it does."""
+    outcome.target_harness = harness
+    if status:
+        messages = integration_status(harness)
+        outcome.action = "reported"
+    elif remove:
+        messages = remove_integration(harness)
+        outcome.action = "removed"
+    else:
+        try:
+            messages = install_integration(harness)
+        except IncompleteIntegrationError as incomplete:
+            # What was written is reported before the failures it carried
+            # on past, which end the command as any refusal does.
+            _report(incomplete.messages)
+            raise
+        outcome.action = "installed"
+    _report(messages)
     return 0
+
+
+def _report_harnesses(reports: Iterable[HarnessReport]) -> None:
+    """Print each harness's lines under its name, and its error as a refusal."""
+    for report in reports:
+        display = HARNESS_DISPLAY[report.harness]
+        print(f"{display}: {report.note}" if report.note else f"{display}:")
+        for message in report.messages:
+            print(f"  {message}")
+        if report.error is not None:
+            print(f"dashpot: {display}: {report.error}", file=sys.stderr)
 
 
 def _report(messages: Iterable[str]) -> None:

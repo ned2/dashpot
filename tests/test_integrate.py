@@ -5,7 +5,7 @@ import shlex
 import shutil
 import subprocess
 import sysconfig
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, cast
@@ -15,6 +15,7 @@ import pytest
 from dashpot.core.model import Harness
 from dashpot.repository.cleanup import DESPITE_SUBAGENTS_FLAG
 from dashpot.repository.cleanup.obstacles import session_exit
+from dashpot.sessions import integrate as integrate_module
 from dashpot.sessions.harnesses import HarnessError
 from dashpot.sessions.hook_records import HookRecordStore
 from dashpot.sessions.integrate import (
@@ -22,12 +23,18 @@ from dashpot.sessions.integrate import (
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
     ISSUE_WORK_SKILL,
+    OPENCODE_ACCEPTED_VERSION,
+    BundledSkill,
+    CombinedStatus,
+    HarnessReport,
     IntegrationError,
     codex_integration_status,
     install_codex_integration,
     install_integration,
+    install_integrations,
     integration,
     integration_status,
+    integrations_status,
     remove_codex_integration,
     remove_integration,
     resolve_hook_command,
@@ -1109,7 +1116,7 @@ def linked_worktree(root: Path) -> tuple[Path, Path]:
 def environment_publisher(tree: Path, harness: Harness) -> Path:
     """The publisher a ``.venv`` inside ``tree`` would install."""
     command = tree / ".venv" / "bin" / integration(harness).command_name
-    command.parent.mkdir(parents=True)
+    command.parent.mkdir(parents=True, exist_ok=True)
     command.write_text("#!/bin/sh\n")
     command.chmod(0o755)
     return command
@@ -1250,3 +1257,515 @@ def test_status_warns_about_a_linked_worktree_binding_until_its_file_is_gone(
     joined = "\n".join(messages)
     assert f"hook publisher missing at {handler['command']}" in joined
     assert "linked Worktree" not in joined
+
+
+# --- Several harnesses in one command (ADR 0111) ---------------------------
+
+
+@pytest.fixture
+def user_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Keep every harness's default user directories inside the test's own."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    monkeypatch.delenv("OPENCODE_CONFIG_DIR", raising=False)
+    return home
+
+
+def default_home(harness: Harness) -> Path:
+    """A harness's default configuration directory, as its first run leaves it."""
+    home = integration(harness).default_home
+    home.mkdir(parents=True, exist_ok=True)
+    return home
+
+
+def publishers(directory: Path) -> dict[Harness, Path]:
+    """One installed publisher per harness, outside every Git working tree."""
+    commands: dict[Harness, Path] = {}
+    for harness in ("claude-code", "codex", "opencode"):
+        command = directory / "bin" / integration(harness).command_name
+        command.parent.mkdir(parents=True, exist_ok=True)
+        command.write_text("#!/bin/sh\n")
+        command.chmod(0o755)
+        commands[harness] = command
+    return commands
+
+
+def opencode_accepted() -> str:
+    return f"opencode v{OPENCODE_ACCEPTED_VERSION}"
+
+
+def integrate_one(harness: Harness, tmp_path: Path, **options: Any) -> list[str]:
+    return install_integration(
+        harness,
+        default_home(harness),
+        command_path=publishers(tmp_path)[harness],
+        version_probe=opencode_accepted,
+        **options,
+    )
+
+
+def refresh(tmp_path: Path, *harnesses: Harness, **options: Any) -> list[HarnessReport]:
+    options.setdefault("version_probe", opencode_accepted)
+    return install_integrations(
+        harnesses, command_paths=publishers(tmp_path), **options
+    )
+
+
+def combined_status(
+    tmp_path: Path, *harnesses: Harness, **options: Any
+) -> CombinedStatus:
+    return integrations_status(
+        harnesses,
+        state_dir=tmp_path / "state",
+        current=tmp_path,
+        environ={},
+        version_probe=opencode_accepted,
+        **options,
+    )
+
+
+def outcomes(reports: Sequence[HarnessReport]) -> list[tuple[Harness, str]]:
+    return [(report.harness, report.outcome) for report in reports]
+
+
+def every_file(root: Path) -> dict[Path, bytes]:
+    return {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
+def test_installed_installs_nothing_when_no_harness_is_integrated(
+    tmp_path: Path, user_home: Path
+) -> None:
+    for harness in ("claude-code", "codex", "opencode"):
+        default_home(harness)
+
+    reports = refresh(tmp_path)
+
+    assert outcomes(reports) == [
+        ("claude-code", "not integrated"),
+        ("codex", "not integrated"),
+        ("opencode", "not integrated"),
+    ]
+    assert reports[1].note == (
+        f"not integrated (no Dashpot hooks at {user_home / '.codex' / 'hooks.json'})"
+    )
+    assert every_file(user_home) == {}
+
+
+def test_installed_refreshes_only_the_integrated_harnesses(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("claude-code", tmp_path)
+    codex = default_home("codex")
+    (codex / "hooks.json").write_text('{"hooks": {}}\n')
+
+    reports = refresh(tmp_path)
+
+    assert outcomes(reports) == [
+        ("claude-code", "installed"),
+        ("codex", "not integrated"),
+        ("opencode", "not integrated"),
+    ]
+    assert (
+        reports[0]
+        .messages[0]
+        .startswith("Claude Code lifecycle hooks already installed in ")
+    )
+    assert reports[2].note == (
+        "not integrated (no OpenCode configuration directory at "
+        f"{user_home / '.config' / 'opencode'})"
+    )
+    assert (codex / "hooks.json").read_text() == '{"hooks": {}}\n'
+    assert not (user_home / ".agents").exists()
+
+
+def test_installed_refreshes_a_stale_integration_with_a_skill_this_release_adds(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("claude-code", tmp_path, skills=(ISSUE_WORK_SKILL,))
+    added = added_skill(tmp_path)
+
+    reports = refresh(tmp_path, skills=(ISSUE_WORK_SKILL, added))
+
+    assert outcomes(reports)[0] == ("claude-code", "installed")
+    copy = user_home / ".claude" / "skills" / added.name
+    assert f"installed Dashpot Added skill in {copy}" in reports[0].messages
+    assert (copy / "SKILL.md").read_text() == (added.source / "SKILL.md").read_text()
+
+
+def added_skill(tmp_path: Path) -> BundledSkill:
+    """A bundled skill a later release adds beside the Issue work skill."""
+    source = tmp_path / "bundled" / "fixture-added-skill"
+    source.mkdir(parents=True)
+    skill = BundledSkill(name="fixture-added-skill", label="Added skill", source=source)
+    (source / "SKILL.md").write_text(
+        f"---\nname: {skill.name}\n---\n\n{skill.marker}\n"
+    )
+    return skill
+
+
+def test_installed_leaves_a_harness_missing_some_hooks_unchanged(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("claude-code", tmp_path)
+    settings = user_home / ".claude" / "settings.json"
+    document = json.loads(settings.read_text())
+    del document["hooks"]["Stop"]
+    settings.write_text(json.dumps(document))
+    before = every_file(user_home)
+
+    reports = refresh(tmp_path)
+
+    assert outcomes(reports)[0] == ("claude-code", "partial")
+    assert reports[0].note == "partial"
+    assert reports[0].error is None
+    assert reports[0].messages == (
+        f"left unchanged: missing hook events in {settings}: Stop; run 'dashpot "
+        "integrate claude-code' to complete it, or 'dashpot integrate "
+        "claude-code --remove' to clear it",
+    )
+    assert every_file(user_home) == before
+
+
+def test_installed_leaves_a_managed_skill_without_hooks_unchanged(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("codex", tmp_path)
+    hooks = user_home / ".codex" / "hooks.json"
+    hooks.unlink()
+    before = every_file(user_home)
+
+    reports = refresh(tmp_path)
+
+    copy = user_home / ".agents" / "skills" / ISSUE_WORK_SKILL.name
+    assert outcomes(reports)[1] == ("codex", "partial")
+    assert (
+        reports[1]
+        .messages[0]
+        .startswith(
+            f"left unchanged: no Dashpot hooks at {hooks}, but the Dashpot Issue "
+            f"work skill at {copy}"
+        )
+    )
+    assert every_file(user_home) == before
+
+
+def test_installed_refuses_a_harness_whose_hooks_cannot_be_read(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("claude-code", tmp_path)
+    hooks = default_home("codex") / "hooks.json"
+    hooks.write_text("{not json")
+
+    reports = refresh(tmp_path)
+
+    assert outcomes(reports)[:2] == [("claude-code", "installed"), ("codex", "refused")]
+    assert reports[1].error is not None
+    assert reports[1].error.startswith(f"cannot read Codex hooks at {hooks}: ")
+    assert hooks.read_text() == "{not json"
+
+
+def test_one_refused_harness_does_not_stop_the_others(
+    tmp_path: Path, user_home: Path
+) -> None:
+    for harness in ("claude-code", "codex", "opencode"):
+        default_home(harness)
+
+    reports = refresh(
+        tmp_path, "opencode", "codex", "claude-code", version_probe=lambda: "1.18.30"
+    )
+
+    assert outcomes(reports) == [
+        ("claude-code", "installed"),
+        ("codex", "installed"),
+        ("opencode", "refused"),
+    ]
+    assert reports[2].note == "refused"
+    assert reports[2].error is not None
+    assert reports[2].error.startswith("the opencode on PATH is OpenCode 1.18.30")
+    assert (user_home / ".claude" / "settings.json").is_file()
+    assert (user_home / ".codex" / "hooks.json").is_file()
+    assert not (user_home / ".config" / "opencode" / "plugins").exists()
+
+
+def test_a_harness_left_incomplete_does_not_stop_the_others(
+    tmp_path: Path, user_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for harness in ("claude-code", "codex"):
+        default_home(harness)
+    write_json = integrate_module._write_json
+
+    def full_disk(path: Path, document: dict[str, Any]) -> None:
+        if path.name == "settings.json":
+            raise OSError(28, "No space left on device")
+        write_json(path, document)
+
+    monkeypatch.setattr(integrate_module, "_write_json", full_disk)
+
+    reports = refresh(tmp_path, "codex", "claude-code")
+
+    assert outcomes(reports) == [("claude-code", "incomplete"), ("codex", "installed")]
+    claude = reports[0]
+    assert claude.note == "incomplete"
+    assert claude.error is not None
+    assert "No space left on device" in claude.error
+    copy = user_home / ".claude" / "skills" / ISSUE_WORK_SKILL.name
+    assert f"installed Dashpot Issue work skill in {copy}" in claude.messages
+    assert (user_home / ".codex" / "hooks.json").is_file()
+
+
+def test_a_combined_refresh_leaves_no_opencode_warning_about_copies_it_refreshed(
+    tmp_path: Path, user_home: Path
+) -> None:
+    for harness in ("opencode", "codex", "claude-code"):
+        integrate_one(harness, tmp_path)
+    for directory in (".claude/skills", ".agents/skills"):
+        skill = user_home / directory / ISSUE_WORK_SKILL.name / "SKILL.md"
+        skill.write_text(skill.read_text() + "\nAn earlier release's text.\n")
+
+    reports = refresh(tmp_path)
+
+    assert outcomes(reports) == [
+        ("claude-code", "installed"),
+        ("codex", "installed"),
+        ("opencode", "installed"),
+    ]
+    assert not any("also discovers" in message for message in reports[2].messages)
+
+
+def test_a_combined_refresh_still_warns_about_a_foreign_copy(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("opencode", tmp_path)
+    integrate_one("claude-code", tmp_path)
+    foreign = user_home / ".agents" / "skills" / ISSUE_WORK_SKILL.name
+    foreign.mkdir(parents=True)
+    (foreign / "SKILL.md").write_text("---\nname: dashpot-issue-work\n---\nMine.\n")
+
+    reports = refresh(tmp_path)
+
+    assert outcomes(reports) == [
+        ("claude-code", "installed"),
+        ("codex", "not integrated"),
+        ("opencode", "installed"),
+    ]
+    assert [m for m in reports[2].messages if "also discovers" in m] == [
+        f"warning: OpenCode also discovers the Issue work skill at {foreign}, "
+        "which differs from this Dashpot's, and may use either; run 'dashpot "
+        "integrate codex' or move it"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("named", "arguments"),
+    [((), "--installed"), (("codex", "claude-code"), "claude-code codex")],
+)
+def test_a_linked_worktree_publisher_refuses_every_harness_before_any_changes(
+    tmp_path: Path,
+    user_home: Path,
+    named: tuple[Harness, ...],
+    arguments: str,
+) -> None:
+    integrate_one("claude-code", tmp_path)
+    integrate_one("codex", tmp_path)
+    for directory in (".claude/skills", ".agents/skills"):
+        skill = user_home / directory / ISSUE_WORK_SKILL.name / "SKILL.md"
+        skill.write_text(skill.read_text() + "\nAn earlier release's text.\n")
+    before = every_file(user_home)
+    main, linked = linked_worktree(tmp_path / "repos")
+    harnesses: tuple[Harness, ...] = ("claude-code", "codex")
+    commands: dict[Harness, Path] = {
+        harness: environment_publisher(linked, harness) for harness in harnesses
+    }
+
+    with pytest.raises(IntegrationError) as refusal:
+        install_integrations(named, command_paths=commands)
+
+    assert str(refusal.value).startswith(
+        "cannot bind the Claude Code and Codex hooks to their publishers in "
+        f"{linked / '.venv' / 'bin'}: those publishers live in the linked "
+        f"Worktree {linked}, which is removed"
+    )
+    assert (
+        f"run 'dashpot integrate {arguments}' from the main working tree {main}"
+        in str(refusal.value)
+    )
+    assert every_file(user_home) == before
+
+
+def test_one_linked_worktree_publisher_is_named_as_one_harness_names_it(
+    tmp_path: Path, user_home: Path
+) -> None:
+    default_home("codex")
+    _main, linked = linked_worktree(tmp_path / "repos")
+    command = environment_publisher(linked, "codex")
+
+    with pytest.raises(IntegrationError) as refusal:
+        install_integrations(("codex",), command_paths={"codex": command})
+
+    assert str(refusal.value).startswith(
+        f"cannot bind the Codex hooks to {command}: that publisher lives in the "
+        f"linked Worktree {linked}"
+    )
+    assert not (user_home / ".codex" / "hooks.json").exists()
+
+
+def test_a_missing_publisher_refuses_its_harness_alone(
+    tmp_path: Path, user_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    integrate_one("claude-code", tmp_path)
+    monkeypatch.setattr(sysconfig, "get_path", lambda _name: str(tmp_path / "none"))
+    monkeypatch.setenv("PATH", str(tmp_path / "none"))
+
+    reports = install_integrations(
+        command_paths={"codex": publishers(tmp_path)["codex"]}
+    )
+
+    assert outcomes(reports)[0] == ("claude-code", "refused")
+    assert reports[0].error == (
+        "cannot locate the dashpot-claude-code-hook publisher installed with "
+        "Dashpot; reinstall Dashpot and retry"
+    )
+
+
+def test_combined_status_reports_each_harness_and_the_records_once(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("claude-code", tmp_path)
+    integrate_one("codex", tmp_path)
+    (user_home / ".codex" / "hooks.json").unlink()
+
+    status = combined_status(tmp_path)
+
+    claude, codex, opencode = status.harnesses
+    assert (claude.outcome, claude.note) == ("reported", None)
+    assert claude.messages[0].startswith(
+        f"installed in {user_home / '.claude' / 'settings.json'} for: "
+    )
+    assert (codex.outcome, codex.note) == ("partial", "partial")
+    assert codex.messages[0].startswith(
+        f"no Dashpot hooks at {user_home / '.codex' / 'hooks.json'}, but the "
+        "Dashpot Issue work skill at "
+    )
+    assert codex.messages[0].endswith(
+        "; run 'dashpot integrate codex' to complete it, or 'dashpot integrate "
+        "codex --remove' to clear it"
+    )
+    assert f"not installed: no {user_home / '.codex' / 'hooks.json'}" in codex.messages
+    assert (opencode.outcome, opencode.messages) == ("not integrated", ())
+    assert opencode.note is not None
+    assert opencode.note.startswith("not integrated (no OpenCode configuration")
+    for report in status.harnesses:
+        assert not any(m.startswith("session records") for m in report.messages)
+    assert [m for m in status.messages if m.startswith("session records")] == [
+        "session records outside configured Projects: none "
+        f"({tmp_path / 'state'} does not exist yet)"
+    ]
+
+
+def test_combined_status_reports_a_named_harness_even_when_not_integrated(
+    tmp_path: Path, user_home: Path
+) -> None:
+    status = combined_status(tmp_path, "opencode", "codex")
+
+    assert outcomes(status.harnesses) == [
+        ("codex", "reported"),
+        ("opencode", "reported"),
+    ]
+    assert status.harnesses[0].messages[0] == (
+        f"Codex configuration directory not found: {user_home / '.codex'}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("named", "rerun"),
+    [
+        ((), "--installed"),
+        (("opencode", "codex", "claude-code"), "claude-code codex opencode"),
+    ],
+)
+def test_combined_status_names_one_command_for_several_harnesses_behind(
+    tmp_path: Path, user_home: Path, named: tuple[Harness, ...], rerun: str
+) -> None:
+    for harness in ("claude-code", "codex", "opencode"):
+        integrate_one(harness, tmp_path)
+    added = added_skill(tmp_path)
+
+    status = combined_status(tmp_path, *named, skills=(ISSUE_WORK_SKILL, added))
+
+    assert status.messages[-1] == (
+        "updates available for Claude Code, Codex, and OpenCode; run 'dashpot "
+        f"integrate {rerun}' to update them together"
+    )
+
+
+def test_combined_status_counts_a_changed_plugin_or_a_missing_agent_as_behind(
+    tmp_path: Path, user_home: Path
+) -> None:
+    for harness in ("claude-code", "codex", "opencode"):
+        integrate_one(harness, tmp_path)
+    skill = user_home / ".claude" / "skills" / ISSUE_WORK_SKILL.name / "SKILL.md"
+    skill.write_text(skill.read_text() + "\nAn earlier release's text.\n")
+    together = (
+        "updates available for Claude Code and OpenCode; run 'dashpot integrate "
+        "--installed' to update them together"
+    )
+
+    def summary(*named: Harness) -> list[str]:
+        messages = combined_status(tmp_path, *named).messages
+        return [message for message in messages if message.startswith("updates")]
+
+    assert summary() == []
+
+    plugin = user_home / ".config" / "opencode" / "plugins" / "dashpot.js"
+    plugin.write_text(plugin.read_text() + "// an earlier release\n")
+    assert summary() == [together]
+
+    integrate_one("opencode", tmp_path)
+    assert summary() == []
+    (user_home / ".config" / "opencode" / "agent" / "dashpot-worker.md").unlink()
+    assert summary() == [together]
+    assert summary("codex", "opencode") == []
+
+
+def test_an_unreadable_plugin_refuses_opencode_alone_and_is_reported_in_full(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("claude-code", tmp_path)
+    plugin = default_home("opencode") / "plugins" / "dashpot.js"
+    plugin.parent.mkdir()
+    plugin.write_bytes(b"\xff not a plugin\n")
+
+    reports = refresh(tmp_path)
+    status = combined_status(tmp_path)
+
+    assert outcomes(reports) == [
+        ("claude-code", "installed"),
+        ("codex", "not integrated"),
+        ("opencode", "refused"),
+    ]
+    assert reports[2].error is not None
+    assert reports[2].error.startswith(
+        f"cannot tell whether OpenCode is integrated: cannot read {plugin}: "
+    )
+    assert plugin.read_bytes() == b"\xff not a plugin\n"
+    opencode = status.harnesses[2]
+    assert opencode.outcome == "reported"
+    assert opencode.messages[0].startswith(
+        f"plugin conflict: cannot read the plugin at {plugin}: "
+    )
+
+
+def test_a_skill_copy_that_is_not_text_is_no_update(
+    tmp_path: Path, user_home: Path
+) -> None:
+    integrate_one("claude-code", tmp_path)
+    integrate_one("codex", tmp_path)
+    for directory in (".claude/skills", ".agents/skills"):
+        skill = user_home / directory / ISSUE_WORK_SKILL.name / "SKILL.md"
+        skill.write_bytes(b"\xff not a skill Dashpot wrote\n")
+
+    messages = combined_status(tmp_path).messages
+
+    assert not any(message.startswith("updates available") for message in messages)

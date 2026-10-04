@@ -91,6 +91,10 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   and agent it would change before writing any, so an unwritable copy refuses
   the installation instead of leaving it part-updated; a write that still
   fails does not stop the others, and every failure is reported together.
+  `dashpot integrate --installed` refreshes every harness already
+  integrated, and never installs into another; one command can also name
+  several harnesses, each standing alone, and `--status` with no harness
+  reports every harness.
 - `dashpot integrate opencode` also installs, updates, checks and removes the
   `dashpot-worker` OpenCode agent, whose permissions deny `*session_move` so
   that a worker Sub-agent the `dashpot-execute-issues` skill launches cannot

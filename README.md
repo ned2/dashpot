@@ -67,7 +67,9 @@ and finding each harness's real lower bound, is tracked in
 | [OpenCode](docs/agent-sessions.md#opencode-hosting-modes) | A plugin | 2.0.22 | 1.x is refused; another 2.x release is observed with a warning; a later major release is warned about and not observed ([details](docs/installation.md#observe-agent-sessions)) |
 
 Install a harness's integration with `dashpot integrate codex`,
-`dashpot integrate claude-code`, or `dashpot integrate opencode`; see
+`dashpot integrate claude-code`, or `dashpot integrate opencode`, or several
+at once, and refresh every integrated one after an upgrade with `dashpot
+integrate --installed`; see
 [Agent session observation](#agent-session-observation).
 
 ## Installation
@@ -498,6 +500,14 @@ uv run pre-commit install
 uv run pytest -q
 # Run serially for debugging or reproduction:
 uv run pytest -q -n 0
+```
+
+After pulling a change to the hooks, skills or agents Dashpot bundles,
+refresh every harness you have integrated from the main checkout, never
+from a linked Worktree, whose `.venv` is removed with it:
+
+```bash
+uv run dashpot integrate --installed
 ```
 
 Tests run in parallel by default, reserving half the available CPUs and using
