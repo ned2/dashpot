@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-01
-amended-by: 0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md
+amended-by: 0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md, 0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md
 ---
 
 # Observe conversations apart from the runtimes that serve them
@@ -171,3 +171,7 @@ Who may trigger such a move stays #148's decision.
   daemon autostart, input joined to a running Codex turn, a sub-agent live
   during a move, Remote Control on both harnesses, and every remote, SDK,
   cloud and V2 mode.
+- Amended by [ADR 0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md)
+  ([#459](https://github.com/ned2/dashpot/issues/459)): the `SessionStart` an OpenCode root's move to another
+  Project writes there seeds from the store of the Project the move left,
+  beside the new Repository's stores.

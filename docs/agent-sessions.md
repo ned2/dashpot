@@ -164,7 +164,12 @@ record left behind never places the session there again
 A record left in another Repository's store is out of the stop's reach:
 once the session has left the Repository, the record it left there holds
 the block until that Worktree records the session's end or the session's
-process exits. A session at the Worktree itself is
+process exits. An OpenCode root moved to another Project instead takes its
+sub-agents along: the move begins its record in the new Project's store
+listing them, and the record it left stops listing those its own Host
+Process runs, so they block the Project the root is in now until their
+stop
+([ADR 0109](adr/0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md)). A session at the Worktree itself is
 reported as that Worktree's `agent-session` occupant instead.
 
 A session's end does not clear its sub-agents
@@ -680,7 +685,10 @@ model's own tool instead. Within the Repository its
 hook record and a bound run move with it, as a Live Relocation. A move
 requested while the session works takes effect when its execution ends. A
 move to another Repository, or outside every Project, leaves the run where
-it was, reported as `work-session-elsewhere`. Resuming a session from
+it was, reported as `work-session-elsewhere`. A move to another Project
+begins the session's record there at once, and takes the sub-agents still
+working with it
+([ADR 0109](adr/0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md)). Resuming a session from
 another directory, with `opencode <directory> --session <id>`, does not move
 it: it still runs, and keeps its run, where it was.
 
