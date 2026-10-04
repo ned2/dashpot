@@ -56,18 +56,56 @@ HOOK_TIMEOUT = 3
 # Codex also keeps its hook trust ledger under ``[hooks.state...]``, which is
 # not a definition and must not trigger the coexistence note.
 CONFIG_HOOKS_TABLE = re.compile(r"^\s*\[+\s*hooks\s*(?:\]|\.(?!state\b))", re.MULTILINE)
-ISSUE_WORK_SKILL_NAME = "dashpot-issue-work"
-ISSUE_WORK_SKILL_VERSION = "0.1.0"
-ISSUE_WORK_SKILL_MARKER = "<!-- dashpot-managed-skill: dashpot-issue-work -->"
-ISSUE_WORK_SKILL_FILES = (
-    Path("SKILL.md"),
-    Path("references/dispatch.md"),
-    Path("references/recovery.md"),
-)
+# The Dashpot release the bundled skills are written for, kept aligned with
+# the package version (docs/releasing.md).
+BUNDLED_SKILL_VERSION = "0.1.0"
+BUNDLED_SKILLS_ROOT = Path(__file__).parents[1] / "skills"
 
 
 class IntegrationError(DashpotError):
     """A hook or skill installation refused with the file left as it was."""
+
+
+@dataclass(frozen=True, slots=True)
+class BundledSkill:
+    """One agent skill Dashpot ships, which ``integrate`` installs for each harness.
+
+    A copy is Dashpot's to manage only while its ``SKILL.md`` carries this
+    skill's own marker: a directory of the same name without it is the
+    user's, and is never overwritten or removed.
+    """
+
+    name: str
+    # What ``integrate``'s messages call the skill, such as "Issue work skill".
+    label: str
+    source: Path
+
+    @property
+    def marker(self) -> str:
+        """The line that marks an installed copy as Dashpot's to manage."""
+        return f"<!-- dashpot-managed-skill: {self.name} -->"
+
+    @property
+    def files(self) -> tuple[Path, ...]:
+        """Every file the skill ships, relative to its directory."""
+        return tuple(
+            sorted(
+                path.relative_to(self.source)
+                for path in self.source.rglob("*")
+                if path.is_file()
+            )
+        )
+
+
+ISSUE_WORK_SKILL = BundledSkill(
+    name="dashpot-issue-work",
+    label="Issue work skill",
+    source=BUNDLED_SKILLS_ROOT / "dashpot-issue-work",
+)
+
+# Every skill ``integrate`` installs, updates, checks and removes. Adding a
+# skill is an entry here and its directory under ``skills/``.
+BUNDLED_SKILLS: tuple[BundledSkill, ...] = (ISSUE_WORK_SKILL,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,11 +305,15 @@ def install_integration(
     *,
     command_path: Path | None = None,
     version_probe: Callable[[], str | None] | None = None,
+    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
 ) -> list[str]:
-    """Idempotently register one harness's lifecycle hooks for this user.
+    """Idempotently register one harness's lifecycle hooks and bundled skills.
 
     OpenCode's plugin is refused while the ``opencode`` on PATH, which
-    ``version_probe`` asks by default, is a v1 release (ADR 0090).
+    ``version_probe`` asks by default, is a v1 release (ADR 0090). Every
+    skill's destination is checked before anything is written, so a
+    directory of a bundled skill's name that Dashpot does not manage refuses
+    the whole installation.
     """
     spec = integration(harness)
     home = home or spec.default_home
@@ -280,8 +322,8 @@ def install_integration(
             f"no {spec.display} configuration directory at {home}; install "
             f"and run {spec.display} once before integrating"
         )
-    skill = issue_work_skill_directory(spec, home)
-    _validate_skill_destination(skill)
+    destinations = _skill_copies(spec, home, skills)
+    _validate_skill_destinations(destinations)
     command = command_path or resolve_hook_command(spec)
     # Refuse before anything is loaded or written: the binding would outlive
     # the environment it names, so the file is left exactly as it was.
@@ -304,8 +346,8 @@ def install_integration(
             *_opencode_release_status("OpenCode release on PATH", reported),
             *install_plugin(spec, home, command),
             f"hook publisher: {command}",
-            _install_issue_work_skill(skill),
-            *_opencode_skill_copies(skill),
+            *(_install_skill(skill, target) for skill, target in destinations),
+            *_opencode_skill_copies(destinations),
         ]
     path = home / spec.hooks_file
     document = _load_hooks_document(spec, path)
@@ -346,13 +388,18 @@ def install_integration(
     else:
         messages.append(f"{spec.display} lifecycle hooks already installed in {path}")
     messages.append(f"hook publisher: {command}")
-    messages.append(_install_issue_work_skill(skill))
+    messages.extend(_install_skill(skill, target) for skill, target in destinations)
     messages.extend(_config_toml_coexistence_warning(spec, home))
     return messages
 
 
-def remove_integration(harness: Harness, home: Path | None = None) -> list[str]:
-    """Remove exactly Dashpot's hooks and managed skill for one harness."""
+def remove_integration(
+    harness: Harness,
+    home: Path | None = None,
+    *,
+    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
+) -> list[str]:
+    """Remove exactly Dashpot's hooks and managed skills for one harness."""
     spec = integration(harness)
     home = home or spec.default_home
     path = home / spec.hooks_file
@@ -394,7 +441,10 @@ def remove_integration(harness: Harness, home: Path | None = None) -> list[str]:
             else:
                 path.unlink()
                 messages.append(f"removed {path}; it contained only the Dashpot hooks")
-    messages.append(_remove_issue_work_skill(issue_work_skill_directory(spec, home)))
+    messages.extend(
+        _remove_skill(skill, target)
+        for skill, target in _skill_copies(spec, home, skills)
+    )
     return messages
 
 
@@ -407,6 +457,7 @@ def integration_status(
     lookup: ProcessLookup = host_process_lookup,
     environ: Mapping[str, str] | None = None,
     version_probe: Callable[[], str | None] | None = None,
+    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
 ) -> list[str]:
     """Report the observable state of one harness's integration."""
     spec = integration(harness)
@@ -454,14 +505,14 @@ def integration_status(
                         messages.append(
                             f"warning: {_linked_worktree_consequence(spec, binding)}"
                         )
-    messages.append(
-        _issue_work_skill_status(
-            issue_work_skill_directory(spec, home), harness=spec.harness
-        )
+    destinations = _skill_copies(spec, home, skills)
+    messages.extend(
+        _skill_status(skill, target, harness=spec.harness)
+        for skill, target in destinations
     )
     messages.extend(_config_toml_coexistence_warning(spec, home))
     if spec.plugin:
-        messages.extend(_opencode_skill_copies(issue_work_skill_directory(spec, home)))
+        messages.extend(_opencode_skill_copies(destinations))
         messages.extend(_opencode_plugin_copies(path, current, environ))
         messages.extend(_opencode_runtime_status(version_probe, environ, lookup))
     messages.extend(_record_store_status(state_dir, current, lookup))
@@ -499,109 +550,147 @@ def codex_integration_status(
     )
 
 
-def issue_work_skill_directory(spec: HarnessIntegration, home: Path) -> Path:
-    """Locate this harness's user-wide Dashpot Issue-work skill."""
+def skill_directory(spec: HarnessIntegration, home: Path, skill: BundledSkill) -> Path:
+    """Locate this harness's user-wide copy of one bundled skill."""
     if spec.plugin:
-        return home / spec.skills_home / ISSUE_WORK_SKILL_NAME
+        return home / spec.skills_home / skill.name
     if home == spec.default_home:
-        return spec.default_skills_home / ISSUE_WORK_SKILL_NAME
-    return home.parent / spec.skills_home / ISSUE_WORK_SKILL_NAME
+        return spec.default_skills_home / skill.name
+    return home.parent / spec.skills_home / skill.name
 
 
-def _bundled_issue_work_skill() -> Path:
-    return Path(__file__).parents[1] / "skills" / ISSUE_WORK_SKILL_NAME
+def _skill_copies(
+    spec: HarnessIntegration, home: Path, skills: tuple[BundledSkill, ...]
+) -> list[tuple[BundledSkill, Path]]:
+    """Each bundled skill, paired with where this harness keeps its copy."""
+    return [(skill, skill_directory(spec, home, skill)) for skill in skills]
 
 
-def _validate_skill_destination(destination: Path) -> None:
-    if destination.exists() and not destination.is_dir():
-        raise IntegrationError(
-            f"cannot install the Dashpot Issue work skill at {destination}: "
-            "the path is not a directory; move it and retry"
-        )
-    skill_file = destination / "SKILL.md"
-    if not destination.exists() or not any(destination.iterdir()):
-        return
+def _skill_text(destination: Path) -> str:
+    """An installed copy's ``SKILL.md``; raises ``OSError`` or ``ValueError``."""
+    return (destination / "SKILL.md").read_text(encoding="utf-8")
+
+
+def _is_managed(skill: BundledSkill, destination: Path) -> bool:
+    """Whether a copy's ``SKILL.md`` is readable and carries this skill's marker."""
     try:
-        text = skill_file.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise IntegrationError(
-            f"cannot install the Dashpot Issue work skill at {destination}: "
-            "an existing skill is not managed by Dashpot; move it and retry"
-        ) from exc
-    if ISSUE_WORK_SKILL_MARKER not in text:
-        raise IntegrationError(
-            f"cannot install the Dashpot Issue work skill at {destination}: "
-            "an existing skill is not managed by Dashpot; move it and retry"
-        )
+        return skill.marker in _skill_text(destination)
+    except (OSError, ValueError):
+        return False
 
 
-def _install_issue_work_skill(destination: Path) -> str:
-    source = _bundled_issue_work_skill()
-    current = all(
+def _is_vacant(destination: Path) -> bool:
+    """Whether nothing is at a skill's destination, or only an empty directory."""
+    if not destination.exists():
+        return True
+    return destination.is_dir() and not any(destination.iterdir())
+
+
+def _is_current(skill: BundledSkill, destination: Path) -> bool:
+    """Whether a copy holds every file this Dashpot ships for the skill, unchanged."""
+    return all(
         (destination / relative).is_file()
-        and (destination / relative).read_bytes() == (source / relative).read_bytes()
-        for relative in ISSUE_WORK_SKILL_FILES
+        and (destination / relative).read_bytes()
+        == (skill.source / relative).read_bytes()
+        for relative in skill.files
     )
-    if current:
-        return f"Dashpot Issue work skill already installed in {destination}"
+
+
+def _validate_skill_destinations(destinations: list[tuple[BundledSkill, Path]]) -> None:
+    """Refuse when any bundled skill's destination holds what Dashpot does not manage.
+
+    An empty or absent directory is free to install into; any other
+    directory must already carry that skill's own marker.
+    """
+    refusals: list[str] = []
+    for skill, destination in destinations:
+        if destination.exists() and not destination.is_dir():
+            refusals.append(
+                f"cannot install the Dashpot {skill.label} at {destination}: "
+                "the path is not a directory; move it and retry"
+            )
+        elif not _is_vacant(destination) and not _is_managed(skill, destination):
+            refusals.append(
+                f"cannot install the Dashpot {skill.label} at {destination}: "
+                "an existing skill is not managed by Dashpot; move it and retry"
+            )
+    if refusals:
+        raise IntegrationError("; ".join(refusals))
+
+
+def _install_skill(skill: BundledSkill, destination: Path) -> str:
+    if _is_current(skill, destination):
+        return f"Dashpot {skill.label} already installed in {destination}"
     existed = destination.exists()
-    for relative in ISSUE_WORK_SKILL_FILES:
+    for relative in skill.files:
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         replace_atomically(
             target,
-            (source / relative).read_text(encoding="utf-8"),
+            (skill.source / relative).read_text(encoding="utf-8"),
             temporary_prefix=f".{target.name}.",
         )
     verb = "updated" if existed else "installed"
-    return f"{verb} Dashpot Issue work skill in {destination}"
+    return f"{verb} Dashpot {skill.label} in {destination}"
 
 
-def _remove_issue_work_skill(destination: Path) -> str:
+def _remove_skill(skill: BundledSkill, destination: Path) -> str:
     skill_file = destination / "SKILL.md"
+    # SKILL.md is looked for before the directory is listed, so a copy that
+    # can be entered but not listed is still inspected by its marker.
     if not skill_file.is_file():
-        return f"Dashpot Issue work skill is not installed: no {skill_file}"
+        if _is_vacant(destination):
+            return f"Dashpot {skill.label} is not installed: no {skill_file}"
+        # A file, or a directory holding no SKILL.md, is not Dashpot's copy.
+        return f"left unmanaged {skill.label} unchanged at {destination}"
     try:
-        text = skill_file.read_text(encoding="utf-8")
-    except OSError as exc:
-        return f"could not inspect Dashpot Issue work skill at {destination}: {exc}"
-    if ISSUE_WORK_SKILL_MARKER not in text:
-        return f"left unmanaged Issue work skill unchanged at {destination}"
-    for relative in ISSUE_WORK_SKILL_FILES:
+        text = _skill_text(destination)
+    except (OSError, ValueError) as exc:
+        return f"could not inspect Dashpot {skill.label} at {destination}: {exc}"
+    if skill.marker not in text:
+        return f"left unmanaged {skill.label} unchanged at {destination}"
+    files = skill.files
+    for relative in files:
         path = destination / relative
         if path.is_file():
             path.unlink()
-    references = destination / "references"
-    if references.is_dir() and not any(references.iterdir()):
-        references.rmdir()
+    # Only the directories the skill ships are pruned, deepest first, and
+    # only once empty: anything else in them is the user's.
+    nested = {
+        ancestor
+        for relative in files
+        for ancestor in relative.parents
+        if ancestor != Path(".")
+    }
+    for relative in sorted(nested, key=lambda path: len(path.parts), reverse=True):
+        directory = destination / relative
+        if directory.is_dir() and not any(directory.iterdir()):
+            directory.rmdir()
     if destination.is_dir() and not any(destination.iterdir()):
         destination.rmdir()
-    return f"removed the Dashpot Issue work skill from {destination}"
+    return f"removed the Dashpot {skill.label} from {destination}"
 
 
-def _issue_work_skill_status(destination: Path, *, harness: Harness) -> str:
+def _skill_status(skill: BundledSkill, destination: Path, *, harness: Harness) -> str:
     skill_file = destination / "SKILL.md"
+    conflict = f"{skill.label} conflict at {destination}: not managed by Dashpot"
     if not skill_file.is_file():
-        return f"Issue work skill not installed: no {skill_file}"
+        if _is_vacant(destination):
+            return f"{skill.label} not installed: no {skill_file}"
+        return conflict
     try:
-        text = skill_file.read_text(encoding="utf-8")
-    except OSError as exc:
-        return f"Issue work skill unreadable at {destination}: {exc}"
-    if ISSUE_WORK_SKILL_MARKER not in text:
-        return f"Issue work skill conflict at {destination}: not managed by Dashpot"
-    source = _bundled_issue_work_skill()
-    if not all(
-        (destination / relative).is_file()
-        and (destination / relative).read_bytes() == (source / relative).read_bytes()
-        for relative in ISSUE_WORK_SKILL_FILES
-    ):
+        text = _skill_text(destination)
+    except (OSError, ValueError) as exc:
+        return f"{skill.label} unreadable at {destination}: {exc}"
+    if skill.marker not in text:
+        return conflict
+    if not _is_current(skill, destination):
         return (
-            f"Issue work skill update available at {destination}; run "
+            f"{skill.label} update available at {destination}; run "
             f"'dashpot integrate {harness}' to repair"
         )
     return (
-        f"Issue work skill installed in {destination} for Dashpot "
-        f"{ISSUE_WORK_SKILL_VERSION}"
+        f"{skill.label} installed in {destination} for Dashpot {BUNDLED_SKILL_VERSION}"
     )
 
 
@@ -944,39 +1033,28 @@ def plugin_status(spec: HarnessIntegration, home: Path) -> list[str]:
     return messages
 
 
-def _opencode_skill_copies(own: Path) -> list[str]:
-    """Report the other Dashpot Issue work skills OpenCode also discovers.
+def _opencode_skill_copies(destinations: list[tuple[BundledSkill, Path]]) -> list[str]:
+    """Report the other copies of each bundled skill OpenCode also discovers.
 
     OpenCode reads skills from Claude Code's and the shared ``.agents``
     directories too, and when two share a name it uses either. Each harness's
     integration owns only its own copy, so a copy that differs from the one
     this Dashpot ships is reported for its own harness to repair.
     """
-    source = _bundled_issue_work_skill()
     messages: list[str] = []
-    for owner, directory in (
-        ("claude-code", CLAUDE_CODE.default_skills_home / ISSUE_WORK_SKILL_NAME),
-        ("codex", CODEX.default_skills_home / ISSUE_WORK_SKILL_NAME),
-    ):
-        if same_path(directory, own) or not (directory / "SKILL.md").is_file():
-            continue
-        try:
-            managed = ISSUE_WORK_SKILL_MARKER in (directory / "SKILL.md").read_text(
-                encoding="utf-8"
-            )
-        except (OSError, UnicodeDecodeError):
-            managed = False
-        current = managed and all(
-            (directory / relative).is_file()
-            and (directory / relative).read_bytes() == (source / relative).read_bytes()
-            for relative in ISSUE_WORK_SKILL_FILES
-        )
-        if not current:
-            messages.append(
-                f"warning: OpenCode also discovers the Issue work skill at "
-                f"{directory}, which differs from this Dashpot's, and may use "
-                f"either; run 'dashpot integrate {owner}' or move it"
-            )
+    for skill, own in destinations:
+        for owner, directory in (
+            ("claude-code", CLAUDE_CODE.default_skills_home / skill.name),
+            ("codex", CODEX.default_skills_home / skill.name),
+        ):
+            if same_path(directory, own) or not (directory / "SKILL.md").is_file():
+                continue
+            if not (_is_managed(skill, directory) and _is_current(skill, directory)):
+                messages.append(
+                    f"warning: OpenCode also discovers the {skill.label} at "
+                    f"{directory}, which differs from this Dashpot's, and may use "
+                    f"either; run 'dashpot integrate {owner}' or move it"
+                )
     return messages
 
 

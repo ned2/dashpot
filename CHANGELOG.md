@@ -27,6 +27,10 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   metacharacters. `dashpot integrate` refuses to bind the hooks to a publisher
   inside a linked Worktree, whose removal would break every hook event, and
   `--status` warns about such a binding while its file still exists.
+- `dashpot integrate <harness>` installs, updates and removes every agent
+  skill Dashpot bundles, and `--status` reports each one as installed,
+  missing, or with an update available. A directory of a bundled skill's name
+  that Dashpot did not write is reported and never overwritten or removed.
 - Keep an Agent Run whose session ended without `SessionEnd` listed as
   orphaned (`orphaned`, `hostRestarted` in JSON) rather than as a Diagnostic,
   and continue it when its Claude Code session resumes at the same Worktree.

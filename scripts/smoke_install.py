@@ -61,15 +61,17 @@ async def check_tui(root: Path) -> None:
 def check_integrations(root: Path) -> None:
     """Execute installed publishers and preserve unrelated harness settings."""
     from dashpot.sessions.integrate import (
-        ISSUE_WORK_SKILL_VERSION,
+        BUNDLED_SKILL_VERSION,
+        BUNDLED_SKILLS,
+        ISSUE_WORK_SKILL,
         install_integration,
         integration,
         integration_status,
-        issue_work_skill_directory,
         remove_integration,
+        skill_directory,
     )
 
-    assert version("dashpot") == ISSUE_WORK_SKILL_VERSION
+    assert version("dashpot") == BUNDLED_SKILL_VERSION
     for harness in ("codex", "claude-code"):
         spec = integration(harness)
         config_home = root / "harnesses" / harness / spec.home_name
@@ -82,9 +84,14 @@ def check_integrations(root: Path) -> None:
         first = settings.read_bytes()
         install_integration(harness, config_home)
         assert settings.read_bytes() == first
-        skill = issue_work_skill_directory(spec, config_home)
-        assert (skill / "references/dispatch.md").is_file()
-        assert (skill / "references/recovery.md").is_file()
+        # Every bundled skill is installed whole, from the installed package.
+        skills = [skill_directory(spec, config_home, s) for s in BUNDLED_SKILLS]
+        for bundled, skill in zip(BUNDLED_SKILLS, skills, strict=True):
+            assert bundled.files, bundled.name
+            assert all((skill / relative).is_file() for relative in bundled.files)
+        issue_work = skill_directory(spec, config_home, ISSUE_WORK_SKILL)
+        assert (issue_work / "references/dispatch.md").is_file()
+        assert (issue_work / "references/recovery.md").is_file()
         document = json.loads(settings.read_text())
         command = document["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         event = {
@@ -108,7 +115,7 @@ def check_integrations(root: Path) -> None:
         )
         remove_integration(harness, config_home)
         assert json.loads(settings.read_text()) == original
-        assert not (skill / "SKILL.md").exists()
+        assert not any((skill / "SKILL.md").exists() for skill in skills)
     check_opencode_integration(root)
 
 

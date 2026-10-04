@@ -427,9 +427,14 @@ a tool installation or the Repository's main working tree, never a linked
 Issue Worktree, whose `.venv` is removed with it. Review any hook-trust
 prompt in the harness, and start or resume a session in the configured
 Project. The
-integration installs lifecycle hooks and the managed `dashpot-issue-work`
-skill. It preserves unrelated settings; repeated installation refreshes its
-own entries. An Agent Session declares Issue work with `dashpot work start`
+integration installs lifecycle hooks and every agent skill Dashpot bundles,
+such as `dashpot-issue-work`, each as a managed copy marked as Dashpot's. It
+preserves unrelated settings; repeated installation refreshes its own entries.
+A directory of a bundled skill's name that Dashpot did not write is never
+overwritten or removed: installation is refused until it is moved, `--status`
+reports it as a conflict, and `--remove` leaves it in place. `--status` also
+reports each bundled skill as installed, missing, or with an update
+available. An Agent Session declares Issue work with `dashpot work start`
 from inside that session, as described in [Agent sessions](agent-sessions.md).
 
 Dashpot observes OpenCode v2 only
@@ -439,7 +444,7 @@ and its OpenCode support is pinned to 2.0.22, the release its
 `dashpot integrate opencode` refuses to install while the `opencode` on PATH
 is a 1.x release, and installs for any other release with a warning. It
 installs a managed plugin,
-`plugins/dashpot.js`, and the Issue work skill in OpenCode's global
+`plugins/dashpot.js`, and the bundled skills in OpenCode's global
 configuration directory (`$XDG_CONFIG_HOME/opencode`, by default
 `~/.config/opencode`). A plugin of that name that Dashpot did not write is
 refused and left in place. `dashpot integrate opencode --status` reports
@@ -447,7 +452,7 @@ whether the plugin is current and bound to an executable helper, the
 `opencode` release on PATH, and the release of the shared OpenCode service
 that `$XDG_STATE_HOME/opencode/service.json` registers, which can differ:
 a client of another release replaces the service when it connects. It also
-reports a differing Issue work skill in
+reports a differing copy of any bundled skill in
 Claude Code's or the `.agents` directory that OpenCode would also discover,
 a second copy of the plugin, under any name, in a `plugin/` or `plugins/`
 directory OpenCode also reads (its global configuration directory,

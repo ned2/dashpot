@@ -748,10 +748,11 @@ defaults its Work list to open Issues. Both adapters are currently read-only.
 
 Dashpot observes Codex and Claude Code sessions through opt-in lifecycle hooks,
 and OpenCode sessions through an opt-in plugin, installed once per user with
-`dashpot integrate`. The same command installs the
-model-invoked `dashpot-issue-work` skill in the harness's user skill directory;
-the skill resolves and declares Issue work, dispatches Worktree handoffs, and
-holds the Issue Binding through the repository's delivery workflow. A declared
+`dashpot integrate`. The same command installs the agent skills Dashpot
+bundles in the harness's user skill directory, and updates, checks and removes
+them with the hooks. Among them, the model-invoked `dashpot-issue-work` skill
+resolves and declares Issue work, dispatches Worktree handoffs, and holds the
+Issue Binding through the repository's delivery workflow. A declared
 Codex resume can preserve the same Agent Run and `startedAt` across client
 processes; Claude Code continues to relocate its live client. The
 commands, the Work Store, and how a session is identified are documented in

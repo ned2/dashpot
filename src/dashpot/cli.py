@@ -1064,15 +1064,16 @@ def integrate(
         Parameter(
             group=_integrate_action,
             show_default=False,
-            help="remove exactly the Dashpot hooks and managed skill",
+            help="remove exactly the Dashpot hooks and managed skills",
         ),
     ] = False,
 ) -> int:
-    """Install the opt-in agent lifecycle and Issue-work integration.
+    """Install the opt-in agent lifecycle integration and bundled skills.
 
     Register, inspect, or remove the opt-in hooks that publish Agent Session
-    lifecycle observations and the agent-facing Issue-work skill. Nothing is
-    installed without running this command.
+    lifecycle observations and the agent-facing skills Dashpot bundles, such
+    as the Issue-work skill. Nothing is installed without running this
+    command.
     """
     with command_outcome("integrate") as outcome:
         outcome.target_harness = harness
