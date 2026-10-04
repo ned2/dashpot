@@ -83,7 +83,8 @@ rule of ADR 0079 and the bundled skills:
 - `--remove` deletes the managed file, and leaves the `agent/` directory and
   every other file in it.
 - Only that one path is checked. OpenCode also reads agents from `agents/`,
-  from project `.opencode` directories, and from the `agents` map in
+  `mode/` and `modes/`, from project `.opencode` directories, and from the
+  `agents` map in
   `opencode.json`, and merges every definition of one name. A user's own
   `dashpot-worker` defined in one of those places is neither reported nor
   touched, and is merged with Dashpot's, which can undo the deny.

@@ -451,8 +451,7 @@ configuration directory (`$XDG_CONFIG_HOME/opencode`, by default
 `dashpot-execute-issues` skill launches each worker Sub-agent as. Its
 permissions deny `*session_move`, so a worker Sub-agent cannot move its lead
 session, or its own, by mistake. The deny is no security boundary, since a
-shell can still move a
-session through OpenCode's HTTP API
+shell can still move a session through OpenCode's HTTP API
 ([ADR 0093](adr/0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md)).
 Codex and Claude Code get no agent definition. A plugin or an agent file of
 that name that Dashpot did not write is refused and left in place.
@@ -474,8 +473,8 @@ its instances up again when installing or updating changes the plugin file;
 after removing the plugin, run `opencode reload`, or restart the OpenCode
 service, so that no instance keeps it. A 2.0.22 server also reloads its
 agents when a file in its agent directory changes; if it still lists the
-worker agent after its removal, the same reload or restart drops it. The supported ways to run OpenCode, and what each one's
-state means, are in
+worker agent after its removal, the same reload or restart drops it. The
+supported ways to run OpenCode, and what each one's state means, are in
 [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes).
 
 Each OpenCode release `--status` reports reads as one of:
