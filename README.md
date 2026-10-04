@@ -458,9 +458,14 @@ every management command's `--json` (`issue show`, `worktree create`,
 every documented field is present, and
 an unknown value is an explicit `null` rather than an omitted key, so a
 consumer can tell "unknown" from "not emitted by this version". A shape change
-is a compatibility change. The one exception is each Runtime Event inside
-`dashpot events --json`, which keeps the field names it has in the Event Log
-([ADR 0064](docs/adr/0064-publish-runtime-events-under-their-event-log-field-names.md)). `src/dashpot/serialization.py` owns the documents
+is a compatibility change. The one exception is `dashpot events --json`,
+which prints JSON Lines rather than one document: one Runtime Event per line,
+oldest first, each under the field names it has in the Event Log, with every
+field present and an unknown one as `null`, and nothing at all when no event
+matches. Unreadable lines and files are reported on standard error
+([ADR 0064](docs/adr/0064-publish-runtime-events-under-their-event-log-field-names.md),
+[ADR 0099](docs/adr/0099-print-runtime-events-as-json-lines.md)).
+`src/dashpot/serialization.py` owns the documents
 and `tests/test_serialization.py` pins each command's key set.
 `--compact-json` prints the same document without indentation.
 

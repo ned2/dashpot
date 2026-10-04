@@ -42,7 +42,7 @@ from .core.event_log_files import (
     repository_event_log_directories,
 )
 from .core.model import Harness
-from .core.runtime_events import ManagementCommand, RecordedLevel
+from .core.runtime_events import ManagementCommand, RecordedLevel, RuntimeEvent
 from .core.state_paths import enclosing_checkout
 from .core.worktree_paths import worktree_root
 from .event_logs import open_event_log, route_event_log
@@ -76,12 +76,12 @@ from .repository.worktrees.removability import (
 )
 from .serialization import (
     cleanup_report_document,
-    event_log_reading_document,
     event_log_removal_document,
     issue_document,
     list_page_document,
     removability_document,
     render_json,
+    runtime_event_document,
     snapshot_document,
     worktree_plan_document,
 )
@@ -630,16 +630,16 @@ def events_read(
             name="--json",
             show_default=False,
             help=(
-                "print the events as JSON, each under its Event Log field "
-                "names, with the lines that could not be read"
+                "print the events as JSON Lines, one event per line under its "
+                "Event Log field names"
             ),
         ),
     ] = False,
 ) -> int:
     """Read the Event Log of every Worktree of this Repository, oldest event first.
 
-    Lines that cannot be read are reported on stderr and skipped. Only
-    .jsonl files are read, so a compressed file is not.
+    Lines that cannot be read are reported on stderr and skipped, with or
+    without --json. Only .jsonl files are read, so a compressed file is not.
     """
     own = _EVENT_LOG.get()
     reading = read_event_logs(
@@ -654,13 +654,13 @@ def events_read(
             exclude_run=None if own is None else own.identity.run_id,
         ),
     )
-    if json_output:
-        print(render_json(event_log_reading_document(reading)))
-        return 0
-    if not reading.events:
-        print("no matching Runtime Events")
-    for event in reading.events:
-        print(describe_runtime_event(event))
+    try:
+        _print_events(reading.events, json_output=json_output)
+        # Flush inside the guard: a short output still sits in the buffer,
+        # and the interpreter's own flush at exit would meet the closed pipe.
+        sys.stdout.flush()
+    except BrokenPipeError:
+        _discard_stdout()
     for unreadable in reading.unreadable:
         if unreadable.error is not None:
             print(
@@ -675,6 +675,32 @@ def events_read(
                 file=sys.stderr,
             )
     return 0
+
+
+def _print_events(events: Sequence[RuntimeEvent], *, json_output: bool) -> None:
+    """Print each event on a line of its own, as JSON Lines or for a person."""
+    if json_output:
+        for event in events:
+            print(render_json(runtime_event_document(event), compact=True))
+    elif not events:
+        print("no matching Runtime Events")
+    else:
+        for event in events:
+            print(describe_runtime_event(event))
+
+
+def _discard_stdout() -> None:
+    """Send what is left for stdout to the null device once its reader has gone.
+
+    ``dashpot events --json | head`` closes the pipe once it has its lines:
+    that is the reader finished, not the command failed, so the status
+    stays 0 and the interpreter's last flush must not raise again.
+    """
+    null = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(null, sys.stdout.fileno())
+    finally:
+        os.close(null)
 
 
 @events.command(name="remove")

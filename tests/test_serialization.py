@@ -11,12 +11,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from dashpot.core.event_log_files import (
-    EventLogFileRemoval,
-    EventLogReading,
-    EventLogRemoval,
-    UnreadableEventLog,
-)
+from dashpot.core.event_log_files import EventLogFileRemoval, EventLogRemoval
 from dashpot.core.model import (
     AssignedWorker,
     Branch,
@@ -36,12 +31,12 @@ from dashpot.repository.cleanup import CleanupBlocker
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
 from dashpot.serialization import (
-    event_log_reading_document,
     event_log_removal_document,
     issue_document,
     list_page_document,
     removability_document,
     render_json,
+    runtime_event_document,
     snapshot_document,
     worktree_plan_document,
 )
@@ -249,8 +244,6 @@ SOURCE_CONTEXT_KEYS = {
     "configuration",
 }
 QUERY_REQUEST_KEYS = {"kind", "query", "state", "ordering", "pageSize", "cursor"}
-EVENT_LOG_READING_KEYS = {"directories", "events", "unreadable"}
-UNREADABLE_EVENT_LOG_KEYS = {"path", "lines", "error"}
 # Every Runtime Event keeps its Event Log field names, and every field its
 # kind has, known or not.
 RUNTIME_EVENT_KEYS = {
@@ -520,43 +513,37 @@ def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None
     assert totals_document["lastGoodAt"] is None
 
 
-def test_the_events_document_keeps_each_events_log_field_names_and_nulls() -> None:
+def test_each_events_line_keeps_its_event_log_field_names_and_nulls() -> None:
     process = ProcessIdentity(run_id="a" * 32, kind="command:work-start")
-    reading = EventLogReading(
-        directories=["/w/x/.dashpot/state/events"],
-        events=[
-            RuntimeEvent(
-                time="2026-09-27T12:00:00.000000Z",
-                level="standard",
-                process=process,
-                body=ProcessStart(
-                    version="0.1.0",
-                    install_kind="wheel",
-                    revision="unknown",
-                    pid=42,
-                    python_version="3.14.0",
-                ),
+    events = [
+        RuntimeEvent(
+            time="2026-09-27T12:00:00.000000Z",
+            level="standard",
+            process=process,
+            body=ProcessStart(
+                version="0.1.0",
+                install_kind="wheel",
+                revision="unknown",
+                pid=42,
+                python_version="3.14.0",
             ),
-            RuntimeEvent(
-                time="2026-09-27T12:00:01.000000Z",
-                level="full",
-                process=process,
-                body=SpanEnded(
-                    span_name="command",
-                    span_id="b" * 16,
-                    duration_seconds=0.5,
-                    status="OK",
-                    attributes=CommandAttributes(program="git"),
-                ),
+        ),
+        RuntimeEvent(
+            time="2026-09-27T12:00:01.000000Z",
+            level="full",
+            process=process,
+            body=SpanEnded(
+                span_name="command",
+                span_id="b" * 16,
+                duration_seconds=0.5,
+                status="OK",
+                attributes=CommandAttributes(program="git"),
             ),
-        ],
-        unreadable=[UnreadableEventLog(path="/w/x/events-2026-09-27.jsonl")],
-    )
+        ),
+    ]
 
-    document = event_log_reading_document(reading)
+    start, span = (runtime_event_document(event) for event in events)
 
-    assert set(document) == EVENT_LOG_READING_KEYS
-    start, span = document["events"]
     assert set(start) == RUNTIME_EVENT_KEYS | PROCESS_FACT_KEYS
     assert start["dashpot.agent_session.id"] is None
     assert start["dashpot.source.dirty"] is None
@@ -564,12 +551,6 @@ def test_the_events_document_keeps_each_events_log_field_names_and_nulls() -> No
     assert span["parent_span_id"] is None
     assert set(span["attributes"]) == COMMAND_ATTRIBUTE_KEYS
     assert span["attributes"]["process.exit.code"] is None
-    (unreadable,) = document["unreadable"]
-    assert unreadable == {
-        "path": "/w/x/events-2026-09-27.jsonl",
-        "lines": [],
-        "error": None,
-    }
 
 
 def test_the_events_remove_document_keeps_its_keys_and_nulls() -> None:

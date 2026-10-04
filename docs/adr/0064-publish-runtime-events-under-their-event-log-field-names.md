@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-27
+amended-by: 0099-print-runtime-events-as-json-lines.md
 ---
 
 # Publish Runtime Events under their Event Log field names
@@ -38,6 +39,12 @@ with an unknown value as an explicit `null`
   README's JSON contract names the exception.
 - An event #314 or a later Issue adds appears in the output under its own
   field names with no serializer change.
+- Amended by [ADR 0099](0099-print-runtime-events-as-json-lines.md)
+  ([#450](https://github.com/ned2/dashpot/issues/450)): `dashpot events
+  --json` prints JSON Lines, one event per line with this ADR's field names
+  and nulls, reports unreadable lines and files on standard error only, and
+  drops `directories`. That supersedes "The document is camelCase" and the
+  rejected JSON Lines option for this command.
 
 ## Considered options
 

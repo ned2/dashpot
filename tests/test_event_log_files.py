@@ -25,8 +25,10 @@ from dashpot.core.event_log_files import (
     LARGE_EVENT_LOG_BYTES,
     EventSelection,
     describe_runtime_event,
+    event_fields,
     event_log_large_diagnostic,
     event_log_size,
+    published_event_fields,
     read_event_logs,
     recent_events,
     remove_event_logs,
@@ -124,18 +126,20 @@ def repository_with_linked_worktree(tmp_path: Path) -> tuple[Path, Path]:
 
 def read_json(
     capsys: pytest.CaptureFixture[str], *argv: str, own: Path | None = None
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
+    """The events ``dashpot events --json`` prints, one JSON object per line."""
     destination = None if own is None else EventLogDestination(own)
     assert cli.main(["events", *argv, "--json"], event_log=destination) == 0
-    document: dict[str, Any] = json.loads(capsys.readouterr().out)
-    return document
+    events: list[dict[str, Any]] = []
+    for line in capsys.readouterr().out.splitlines():
+        event = json.loads(line)
+        assert isinstance(event, dict)
+        events.append(event)
+    return events
 
 
-def names_and_runs(document: dict[str, Any]) -> list[tuple[str, str]]:
-    return [
-        (event["event.name"], event["service.instance.id"])
-        for event in document["events"]
-    ]
+def names_and_runs(events: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    return [(event["event.name"], event["service.instance.id"]) for event in events]
 
 
 # --- File names --------------------------------------------------------------
@@ -181,21 +185,15 @@ def test_events_merge_every_worktree_and_the_fallback_in_time_order(
     in_linked.end(0)
     monkeypatch.chdir(main)
 
-    document = read_json(capsys)
+    events = read_json(capsys)
 
-    assert names_and_runs(document) == [
+    assert names_and_runs(events) == [
         ("process.start", RUN_B),
         ("process.start", RUN_C),
         ("process.start", RUN_A),
         ("process.continued", RUN_B),
         ("process.end", RUN_B),
     ]
-    assert document["directories"] == [
-        str(events_directory(main)),
-        str(events_directory(linked)),
-        str(fallback_directory()),
-    ]
-    assert document["unreadable"] == []
 
 
 def test_events_outside_every_repository_read_the_fallback_alone(
@@ -208,10 +206,9 @@ def test_events_outside_every_repository_read_the_fallback_alone(
     outside.mkdir()
     monkeypatch.chdir(outside)
 
-    document = read_json(capsys)
+    events = read_json(capsys)
 
-    assert names_and_runs(document) == [("process.start", RUN_A)]
-    assert document["directories"] == [str(fallback_directory())]
+    assert names_and_runs(events) == [("process.start", RUN_A)]
 
 
 @pytest.mark.skipif(
@@ -233,12 +230,11 @@ def test_events_under_an_unreadable_git_file_read_the_fallback_alone(
     monkeypatch.chdir(unreadable)
 
     try:
-        document = read_json(capsys)
+        events = read_json(capsys)
     finally:
         gitfile.chmod(0o644)
 
-    assert names_and_runs(document) == [("process.start", RUN_A)]
-    assert document["directories"] == [str(fallback_directory())]
+    assert names_and_runs(events) == [("process.start", RUN_A)]
 
 
 def test_events_leave_out_the_reading_process_itself(
@@ -310,8 +306,8 @@ def test_events_filter_by_session_issue_project_and_level(
     assert names_and_runs(by_issue) == [("process.start", RUN_B), ("span", RUN_B)]
     assert names_and_runs(by_project) == names_and_runs(by_issue)
     assert [run for _name, run in names_and_runs(standard)] == [RUN_A, RUN_B, RUN_C]
-    assert len(full["events"]) == 4
-    assert nothing["events"] == []
+    assert len(full) == 4
+    assert nothing == []
 
 
 def test_events_since_a_day_or_an_instant(
@@ -330,8 +326,7 @@ def test_events_since_a_day_or_an_instant(
     monkeypatch.chdir(main)
 
     def since(value: str) -> list[str]:
-        document = read_json(capsys, "--since", value)
-        return [event["event.name"] for event in document["events"]]
+        return [event["event.name"] for event in read_json(capsys, "--since", value)]
 
     assert since("2026-09-27") == ["process.start", "level.changed", "process.end"]
     assert since("2026-09-27T12:00:00Z") == ["level.changed", "process.end"]
@@ -384,23 +379,121 @@ def test_events_report_unreadable_lines_and_read_the_rest(
     (events_directory(main) / "events-2026-09-01.jsonl.gz").write_bytes(b"\x1f\x8b")
     monkeypatch.chdir(main)
 
-    document = read_json(capsys)
+    assert cli.main(["events", "--json"]) == 0
+    json_text = capsys.readouterr()
     assert cli.main(["events"]) == 0
     text = capsys.readouterr()
 
-    assert [event["event.name"] for event in document["events"]] == [
+    events = [json.loads(line) for line in json_text.out.splitlines()]
+    assert [event["event.name"] for event in events] == [
         "process.start",
         "process.end",
     ]
-    assert "dashpot.added_later" not in document["events"][1]
-    assert document["unreadable"] == [
-        {"path": str(log.path), "lines": [2, 3], "error": None}
-    ]
+    assert "dashpot.added_later" not in events[1]
+    # With --json too, what could not be read goes to stderr, never stdout.
+    assert json_text.err == f"dashpot: skipped 2 unreadable lines in {log.path}\n"
     assert text.out.splitlines()[0].startswith(
         "2026-09-27T12:00:00.000000Z standard command:observe process.start"
     )
     assert "process.exit.code=0" in text.out.splitlines()[1]
     assert text.err == f"dashpot: skipped 2 unreadable lines in {log.path}\n"
+
+
+def test_events_json_prints_each_event_on_one_line_with_every_field(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    main, _linked = repository_with_linked_worktree(tmp_path)
+    log = writer(events_directory(main), Clock())
+    log.start()
+    with log.start_as_current_span(
+        "command", attributes=CommandAttributes(program="git")
+    ):
+        pass
+    monkeypatch.chdir(main)
+
+    assert cli.main(["events", "--json"]) == 0
+    out = capsys.readouterr().out
+
+    read = read_event_logs((events_directory(main),), EventSelection()).events
+    assert out.endswith("\n")
+    lines = out.splitlines()
+    assert len(lines) == len(read) == 2
+    # Each line is the event's published projection: its Event Log field
+    # names, every field present, an unknown one as null (ADR 0064, 0099).
+    assert [json.loads(line) for line in lines] == [
+        published_event_fields(event) for event in read
+    ]
+    start, span = (json.loads(line) for line in lines)
+    assert start["dashpot.agent_session.id"] is None
+    assert span["parent_span_id"] is None
+    assert span["attributes"]["process.exit.code"] is None
+    # The same names as the on-disk projection, with the unknown ones added.
+    assert set(event_fields(read[0])) < set(start)
+
+
+def test_events_json_with_none_matching_prints_nothing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert cli.main(["events", "--session", SESSION, "--json"]) == 0
+
+    assert capsys.readouterr() == ("", "")
+
+
+class _ClosedPipe:
+    """A stdout whose reader has gone, as ``head`` leaves one.
+
+    With ``buffered``, writes land in the buffer and the closed pipe is met
+    only when it is flushed, as a short output meets it.
+    """
+
+    def __init__(self, fd: int, *, buffered: bool) -> None:
+        self.fd = fd
+        self.buffered = buffered
+
+    def write(self, text: str) -> int:
+        if self.buffered:
+            return len(text)
+        raise BrokenPipeError(32, "Broken pipe")
+
+    def flush(self) -> None:
+        if self.buffered:
+            raise BrokenPipeError(32, "Broken pipe")
+
+    def fileno(self) -> int:
+        return self.fd
+
+
+@pytest.mark.parametrize("buffered", [False, True], ids=["writing", "flushing"])
+@pytest.mark.parametrize("json_output", [True, False], ids=["json", "text"])
+def test_events_stop_quietly_when_the_reader_closes_the_pipe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    json_output: bool,
+    buffered: bool,
+) -> None:
+    main, _linked = repository_with_linked_worktree(tmp_path)
+    writer(events_directory(main), Clock()).start()
+    monkeypatch.chdir(main)
+    target = tmp_path / "stdout"
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT)
+    try:
+        monkeypatch.setattr("sys.stdout", _ClosedPipe(fd, buffered=buffered))
+        argv = ["events", "--json"] if json_output else ["events"]
+        assert cli.main(argv) == 0
+        # stdout now goes nowhere, so the interpreter's last flush cannot fail.
+        os.write(fd, b"after")
+    finally:
+        os.close(fd)
+
+    assert target.read_bytes() == b""
+    assert capsys.readouterr().err == ""
 
 
 def test_events_say_so_when_none_match(
@@ -431,7 +524,6 @@ def test_a_directory_that_cannot_be_listed_is_reported_not_fatal(
     assert [(item.path, item.error) for item in reading.unreadable] == [
         (str(tmp_path / "locked"), "Permission denied")
     ]
-    assert reading.directories == (str(readable),)
 
 
 def test_a_file_removed_while_reading_is_skipped(tmp_path: Path) -> None:
