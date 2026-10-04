@@ -56,7 +56,10 @@ mode` line. The mode is read from the argument vector of the process
 | `standalone` | `<install>/opencode serve --stdio --port 0` |
 | `unknown` | Anything else: a process that could not be observed or has exited, one whose arguments could not be read, and an `opencode serve` a person started for `--server <url>` |
 
-The mode is a closed `Literal` with one reader, the status line. A
+The mode is a closed `Literal` with one reader, the status line.
+`standalone` means any private `opencode serve --stdio`; by the source,
+`opencode acp` starts one too, so #455 may split it when it measures that
+arrangement. A
 non-shared mode's line also says that the session moves itself and leads
 Workers only on the shared service. The line is reported only beside a
 confirmed identity, since an unconfirmed claim's pid names no session's

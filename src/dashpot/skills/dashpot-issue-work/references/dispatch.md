@@ -115,8 +115,9 @@ tell the user what holds the Worktree, as after a failed move back.
 
 The move has failed when the tool fails or is unknown, the user declines it,
 or step 3 does not confirm it. A session whose Host Process mode is not
-`shared-service` hands off the same way without trying the move. Do not retry the move, change directory with
-the shell, or run `work start` where the session is.
+`shared-service` hands off the same way without trying the move. Do not
+retry the move, change directory with the shell, or run `work start` where
+the session is.
 
 When step 3's `pwd` printed the Worktree but its status did not confirm the
 identity there, the move took effect without Dashpot recording it, and

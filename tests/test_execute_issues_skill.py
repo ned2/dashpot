@@ -309,8 +309,9 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     assert (
         "read the `OpenCode Host Process mode` line of "
         "`<dashpot> integrate opencode --status`. Lead only when it reads "
-        "`shared-service`. On `standalone` or `unknown`, stop before binding or "
-        "launching any worker"
+        "`shared-service`. On `unknown`, run it once more first, since a busy "
+        "machine can leave the server unread. On `standalone` or `unknown`, stop "
+        "before binding or launching any worker"
     ) in flowed
     assert "start the lead again with a plain `opencode`, without `--standalone`" in (
         flowed

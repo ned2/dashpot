@@ -1122,6 +1122,8 @@ def _claimed_identity_status(
             f"not here"
         ]
     confirmed = f"{prefix}, confirmed by its {validated.record.outcome} hook record"
+    # Validation refuses an OpenCode claim without the plugin's pid, so every
+    # confirmed OpenCode claim names its server.
     if claim.harness != "opencode" or claim.pid is None:
         return [confirmed]
     return [confirmed, _opencode_host_mode_status(claim.pid, lookup)]
