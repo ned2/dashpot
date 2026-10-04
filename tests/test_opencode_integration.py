@@ -155,6 +155,26 @@ def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
         "The move has failed when the tool fails or is unknown, the user "
         "declines it, or step 3 does not confirm it."
     ) in flowed_dispatch
+    # Only a session on the shared service moves itself; any other mode
+    # hands off as after a failed move, without trying it (ADR 0108).
+    assert (
+        "A session moves itself only on the user's shared OpenCode service"
+    ) in flowed_dispatch
+    assert (
+        "move only when it reads `shared-service`. On `standalone` or `unknown`, "
+        "make no move."
+    ) in flowed_dispatch
+    assert (
+        "A session whose Host Process mode is not `shared-service` hands off the "
+        "same way without trying the move."
+    ) in flowed_dispatch
+    assert dispatch.index("move only when it reads `shared-service`") < (
+        dispatch.index("1. Move once every Sub-agent")
+    )
+    # Binding stays open in a ``--standalone`` session, with one warning.
+    assert (
+        "quitting that `--standalone` client stops its server and orphans the Agent Run"
+    ) in " ".join(text.split())
     # A move that applied without Dashpot's record leaves the session where
     # Cleanup cannot see it, so it moves back before handing off.
     assert (

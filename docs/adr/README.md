@@ -107,3 +107,4 @@ of date.
 | 0101 | [Move a conversation switch's sub-agents to the session that runs them](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md) | accepted | — |
 | 0102 | [Clear a stopped sub-agent from the records a moved session left behind](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md) | accepted | — |
 | 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | accepted | — |
+| 0108 | [Keep OpenCode self-move and leading Workers on the shared service](0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md) | accepted | — |

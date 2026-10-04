@@ -750,7 +750,14 @@ def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
     )
     assert "`opencode session delete <session-id>`" in opencode_case
     assert "opencode session delete {session_id}" in session_exit("opencode").end
-    assert "quitting a client leaves it running" in opencode_case
+    flowed_opencode = flowed(opencode_case)
+    assert (
+        "quitting a client of the shared service leaves it running, and quitting "
+        "a `--standalone` client stops its server" in flowed_opencode
+    )
+    # A session off the shared service makes no move back (ADR 0108).
+    assert "Move only when its Host Process mode is `shared-service`" in flowed_opencode
+    assert "or the mode rules it out, tell the user" in flowed_opencode
     follow_up_text = text[follow_up:]
     assert "enters it again with `EnterWorktree`" in follow_up_text
     assert "OpenCode moves there with every step of the [OpenCode move]" in (

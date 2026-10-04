@@ -45,8 +45,8 @@ you act on it, and leave alone what you did not create.
   work. Use it for those steps; this skill does not repeat them.
 - Your harness's background workers. Read your harness's section of
   [harnesses.md](references/harnesses.md) before you set up. It names how to
-  launch, message, wait for and resume a worker, and the fallback where a
-  mechanism is missing.
+  launch, message, wait for and resume a worker, the fallback where a
+  mechanism is missing, and, for OpenCode, the hosting mode a lead needs.
 
 Everything specific to the repository comes from the repository itself, in
 step 2.

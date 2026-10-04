@@ -19,6 +19,7 @@ from dashpot.sessions.harnesses import (
     is_child_scoped,
     locates_session,
     native_claims,
+    opencode_host_mode,
     opencode_shell_refusal,
     override_claim,
 )
@@ -271,6 +272,52 @@ def test_opencode_adapter_hosts_only_the_opencode_backend() -> None:
     assert OPENCODE.is_host_process(backend) is True
     assert OPENCODE.is_host_process(command) is False
     assert OPENCODE.exclusive_session_process is False
+
+
+@pytest.mark.parametrize(
+    ("command", "arguments", "mode"),
+    [
+        # The command lines the #163 acceptance run recorded at 2.0.22.
+        (
+            "opencode",
+            "/home/person/.opencode/bin/opencode serve --service",
+            "shared-service",
+        ),
+        (
+            "opencode",
+            "/home/person/.opencode/bin/opencode serve --stdio --port 0",
+            "standalone",
+        ),
+        # The npm install's server, and a home directory with a space in it.
+        (
+            "opencode.exe",
+            "/usr/lib/node_modules/opencode.exe serve --service",
+            "shared-service",
+        ),
+        (
+            "opencode",
+            "/home/a person/.opencode/bin/opencode serve --stdio --port 0",
+            "standalone",
+        ),
+        # A server a person started for ``--server <url>`` is neither.
+        (
+            "opencode",
+            "/home/person/.opencode/bin/opencode serve --port 4096",
+            "unknown",
+        ),
+        # A client is never a Host Process, whatever its flags.
+        ("opencode", "opencode run --standalone --title S", "unknown"),
+        ("node", "node opencode serve --service", "unknown"),
+        ("opencode", None, "unknown"),
+        ("opencode", "", "unknown"),
+    ],
+)
+def test_opencode_host_mode_reads_the_servers_argument_vector(
+    command: str, arguments: str | None, mode: str
+) -> None:
+    process = ProcessIdentity(4100, 1, command, STARTED, arguments)
+
+    assert opencode_host_mode(process) == mode
 
 
 def test_opencode_adapter_claims_only_a_models_shell_the_plugin_prepared() -> None:

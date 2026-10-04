@@ -148,3 +148,8 @@ requires "confirmed" at the intended Worktree, mean what it says.
   [#416](https://github.com/ned2/dashpot/issues/416)).
 - Amends ADR 0090: who may trigger a move is #148's question only for a move
   made by anyone other than the session itself.
+- Amended by
+  [ADR 0108](0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md):
+  a session moves itself only when `integrate opencode --status` reports its
+  Host Process as the shared service; a `--standalone` session, or one whose
+  mode is unknown, hands off instead.

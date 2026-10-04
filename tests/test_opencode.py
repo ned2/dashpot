@@ -27,6 +27,7 @@ from dashpot.core.event_log import EventLogDestination
 from dashpot.core.model import Diagnostic
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
+from dashpot.sessions import integrate
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import (
     project_session_store,
@@ -37,6 +38,7 @@ from dashpot.sessions.hook_scan import (
     reachable_hook_stores,
     sessions_with_live_subagents,
 )
+from dashpot.sessions.integrate import integration_status
 from dashpot.sessions.opencode_publish import (
     OpenCodeOutcome,
     parse_request,
@@ -44,6 +46,7 @@ from dashpot.sessions.opencode_publish import (
 )
 from dashpot.sessions.opencode_publishers import PublisherStore
 from dashpot.sessions.processes import (
+    ProcessAbsent,
     ProcessIdentity,
     ProcessLookup,
     ProcessObservation,
@@ -1186,6 +1189,149 @@ def test_issue_work_survives_a_reload(project: Path, server: Server) -> None:
     assert resumed.written == ("UserPromptSubmit",)
     (held,) = [run for run in runs(project, server.lookup) if run.issue_id]
     assert (held.state, held.orphaned) == ("running", False)
+
+
+# --- The Host Process mode ``integrate --status`` reports --------------------
+
+# A ``--standalone`` client's private server, as the #163 acceptance run
+# recorded it at 2.0.22: the client's child, never registered as the service.
+STANDALONE = ProcessIdentity(
+    4200,
+    4150,
+    "opencode",
+    "Thu Oct 01 09:30:00 2026",
+    "/home/person/.opencode/bin/opencode serve --stdio --port 0",
+)
+
+
+def claimed_here(
+    tmp_path: Path, project: Path, lookup: ProcessLookup, environ: Mapping[str, str]
+) -> list[str]:
+    """The lines of ``integrate opencode --status`` about this command's session."""
+    messages = integration_status(
+        "opencode",
+        tmp_path / "opencode-home",
+        state_dir=tmp_path / "state",
+        current=project,
+        lookup=lookup,
+        environ={**environ, "XDG_STATE_HOME": str(tmp_path / "xdg-state")},
+        version_probe=lambda: "opencode v2.0.22",
+    )
+    return [
+        message
+        for message in messages
+        if message.startswith(
+            ("Agent Session identity claimed here", "OpenCode Host Process mode")
+        )
+    ]
+
+
+def test_status_names_the_shared_service_as_a_confirmed_sessions_host(
+    tmp_path: Path, project: Path, server: Server
+) -> None:
+    server.turn(project)
+
+    assert claimed_here(tmp_path, project, server.lookup, server.claim()) == [
+        f"Agent Session identity claimed here: OpenCode session {ROOT} (from "
+        "OpenCode environment), confirmed by its live hook record",
+        f"OpenCode Host Process mode: shared-service (pid {SERVER.pid}, the "
+        "shared 'opencode serve --service')",
+    ]
+
+
+def test_status_names_a_standalone_clients_private_server(
+    tmp_path: Path, project: Path, below: Callable[..., ProcessLookup]
+) -> None:
+    standalone = Server(below(STANDALONE), host=STANDALONE)
+    standalone.turn(project)
+
+    lines = claimed_here(tmp_path, project, standalone.lookup, standalone.claim())
+
+    assert lines[0].endswith("confirmed by its live hook record")
+    assert lines[1:] == [
+        f"OpenCode Host Process mode: standalone (pid {STANDALONE.pid}, a "
+        "--standalone client's private 'opencode serve --stdio'); this session "
+        "moves itself and leads Workers only on the shared service"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("lookup", "detail"),
+    [
+        (unobservable("ps-timeout"), "could not be observed (ps-timeout)"),
+        # Observed without its arguments, the server is no mode Dashpot knows.
+        (
+            table_lookup(
+                {
+                    SERVER.pid: ProcessIdentity(
+                        SERVER.pid, 1, "opencode", SERVER.started_at
+                    )
+                }
+            ),
+            "is neither 'opencode serve --service' nor 'opencode serve --stdio'",
+        ),
+    ],
+)
+def test_status_reads_a_server_it_cannot_read_as_unknown(
+    tmp_path: Path,
+    project: Path,
+    server: Server,
+    lookup: ProcessLookup,
+    detail: str,
+) -> None:
+    server.turn(project)
+
+    lines = claimed_here(tmp_path, project, lookup, server.claim())
+
+    # An unobservable server still reads as unknown, never gone, so the claim
+    # stays confirmed and only the mode is in doubt.
+    assert lines[0].endswith("hook record")
+    assert "confirmed" in lines[0]
+    assert lines[1:] == [
+        f"OpenCode Host Process mode: unknown (pid {SERVER.pid} {detail}); this "
+        "session moves itself and leads Workers only on the shared service"
+    ]
+
+
+def test_status_reads_a_server_that_exits_after_confirming_as_unknown(
+    tmp_path: Path,
+    project: Path,
+    server: Server,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server.turn(project)
+    confirmed = False
+    validate = integrate.validate_session_claim
+
+    def confirm(*args: Any, **kwargs: Any) -> Any:
+        nonlocal confirmed
+        validated = validate(*args, **kwargs)
+        confirmed = True
+        return validated
+
+    def lookup(pid: int) -> ProcessObservation:
+        return ProcessAbsent(pid) if confirmed else server.lookup(pid)
+
+    monkeypatch.setattr(integrate, "validate_session_claim", confirm)
+
+    lines = claimed_here(tmp_path, project, lookup, server.claim())
+
+    assert lines[1:] == [
+        f"OpenCode Host Process mode: unknown (pid {SERVER.pid} has exited); this "
+        "session moves itself and leads Workers only on the shared service"
+    ]
+
+
+def test_status_names_no_mode_for_a_claim_it_does_not_confirm(
+    tmp_path: Path, project: Path, server: Server
+) -> None:
+    server.turn(project)
+    server.event("deleted", project)
+
+    lines = claimed_here(tmp_path, project, server.lookup, server.claim())
+
+    assert len(lines) == 1
+    assert "rejected" in lines[0]
 
 
 # --- The helper -------------------------------------------------------------

@@ -181,6 +181,18 @@ Dashpot supports OpenCode v2.
 the TUI invokes a skill was not measured: there, name the skill in your
 request and confirm the model loaded it before going on.
 
+**Lead only on the shared service.** While you set up, before you bind,
+read the `OpenCode Host Process mode` line of
+`<dashpot> integrate opencode --status`. Lead only when it reads
+`shared-service`. On `unknown`, run it once more first, since a busy
+machine can leave the server unread. On `standalone` or `unknown`, stop
+before binding or launching any worker, and ask the user to start the
+lead again with a plain `opencode`, without `--standalone`, which runs it
+on their shared OpenCode service. A worker's report is a client of that shared service: to a
+`--standalone` lead, whose session its client's private server also serves,
+the shared service and your client's private server would both run your
+session at once, which has not been measured.
+
 **Launch.** Call `subagent` with `agent: "dashpot-worker"`, a
 `description`, a short `prompt` pointing at the brief, and
 `background: true`. It returns at once with the worker's `sessionID`.

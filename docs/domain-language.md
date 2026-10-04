@@ -469,7 +469,11 @@ process, a Codex TUI, `exec`, app-server or daemon process, or the OpenCode
 server that runs the session's shells: the shared `opencode serve
 --service`, or a `--standalone` client's private server
 ([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)). It is the session's liveness and runtime
-evidence. Each span of one Host Process holding a session, begun by
+evidence. An OpenCode Host Process's **mode**, which `integrate opencode
+--status` reports beside a confirmed identity, is `shared-service`,
+`standalone` (a private `opencode serve --stdio`), or `unknown`; the bundled
+skills move a session, and lead Workers, only in `shared-service`
+([ADR 0108](adr/0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md)). Each span of one Host Process holding a session, begun by
 `SessionStart`, is an incarnation; every `SessionStart` begins another,
 whether a resume in a new process, a cold resume inside the same daemon, or
 a `/clear`. A hook record keeps the start of the latest incarnation its
