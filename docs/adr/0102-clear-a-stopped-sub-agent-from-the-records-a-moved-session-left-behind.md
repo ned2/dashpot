@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-05
+amended-by: 0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md
 ---
 
 # Clear a stopped sub-agent from the records a moved session left behind
@@ -141,3 +142,10 @@ A sub-agent's stop releases it from the records its session left behind.
   - An interim `SubagentStop` (#472) releases its worker from every record,
     as it already did from the freshest. Nothing here treats a stop as more
     final than ADR 0016 does.
+- Amended by [ADR 0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md)
+  ([#459](https://github.com/ned2/dashpot/issues/459)): a record an OpenCode root left in another Project's
+  store lets the moving Host Process's sub-agents go at the move, once the
+  record the root begins there lists them. The "Not changed" item for a
+  store the publisher cannot reach now covers only a record left some
+  other way, and an OpenCode move's record, which names where the session
+  went, never blocked the Repository it left.

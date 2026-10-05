@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-04
-amended-by: 0100-keep-a-compacted-sessions-turn-state.md, 0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md
+amended-by: 0100-keep-a-compacted-sessions-turn-state.md, 0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md, 0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md
 ---
 
 # Carry a live session's sub-agents through its own SessionStart
@@ -128,3 +128,8 @@ or until a person forgets it after the session ends.
   process that runs it, and drops those of a gone one. It closes the "Not
   changed" item for an OpenCode root prompted by a second, standalone Host
   Process: the `sub-agent` blocker holds until the service's child stops.
+- Amended by [ADR 0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md)
+  ([#459](https://github.com/ned2/dashpot/issues/459)): an OpenCode root moved to another Project takes the
+  Sub-agents its Host Process runs into the record it begins there, and the
+  record it left stops listing them, closing the "Not changed" item for
+  that move.

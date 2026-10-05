@@ -686,20 +686,26 @@ def test_a_move_to_another_repository_leaves_its_run_behind(
 
     moved = server.event("moved", project, to=other)
 
-    assert moved.written == ("SessionMoved",)
-    # Written where the session was, naming where it went.
+    # Written where the session was, naming where it went, then beginning
+    # an incarnation in the other Repository (ADR 0109).
+    assert moved.written == ("SessionMoved", "SessionStart")
+    assert [publication.work for publication in moved.publications] == [
+        "unchanged",
+        "unchanged",
+    ]
     left = record(project)
     assert left is not None
     assert left["cwd"] == str(other)
     (held,) = WorkStore(project).active()[0]
     assert held.issue_id == "I_observer"
+    assert WorkStore(other).active()[0] == []
     _runs, diagnostics = observed(project, server.lookup, other)
     assert [item.code for item in diagnostics] == ["work-session-elsewhere"]
-    # Its next event begins an incarnation in the other Repository.
-    assert server.finish(other) == "accepted"
     arrived = record(other)
     assert arrived is not None
     assert arrived["lastSessionStartAt"] is not None
+    # Its next event there begins nothing more.
+    assert server.event("execution.succeeded", other).written == ("Stop",)
 
 
 def test_a_move_outside_every_project_is_written_where_it_left(

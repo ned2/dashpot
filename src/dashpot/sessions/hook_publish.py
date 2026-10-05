@@ -91,6 +91,7 @@ def publish_hook_event(
     harness: Harness = "codex",
     lookup: ProcessLookup = host_process_lookup,
     settle: Settler = spawn_settler,
+    moved_from: Path | None = None,
 ) -> HookPublication:
     """Publish one hook event and reconcile its session's Agent Run.
 
@@ -111,6 +112,10 @@ def publish_hook_event(
     most one route, in order: a declared relocation's completion (ADR 0029),
     a Live Relocation (ADR 0067), or an orphan continuation (ADR 0053).
     ``directory``, when given, is the one store every record is written to.
+    ``moved_from``, when given, is the store of another Project that the
+    session's move left: its records are read beside the session's own, so
+    they seed this one with the sub-agents the event's Host Process runs,
+    and once this record lists those they stop listing them (ADR 0109).
     """
     identity = process
     process_unobservable: str | None = None
@@ -126,7 +131,7 @@ def publish_hook_event(
     )
     child = is_child_record(record)
     worktrees = event_worktrees(record)
-    session_records = _session_records(record, worktrees, directory)
+    session_records = _session_records(record, worktrees, directory, moved_from)
     freshest = _freshest_elsewhere(session_records, child=child)
     if directory is not None:
         store = HookRecordStore(directory)
@@ -164,6 +169,13 @@ def publish_hook_event(
         if child or freshest is None or same_path(freshest.store, store.directory)
         else freshest.raw
     )
+    if (
+        seed is not None
+        and freshest is not None
+        and moved_from is not None
+        and same_path(freshest.store, moved_from)
+    ):
+        seed = _own_listing(seed, record.get("sessionProcess"))
     switched = _records_switched_from(record, identity, worktrees, directory)
     adopted = sorted(
         {
@@ -184,6 +196,8 @@ def publish_hook_event(
     # blocking Cleanup rather than toward forgetting a working sub-agent.
     for item in switched:
         HookRecordStore(item.store).release_subagents(item.path.stem, adopted, record)
+    if moved_from is not None:
+        _release_moved_from(record, moved_from, session_records, destination)
     if ending:
         remove_ended_session_records(
             record,
@@ -363,19 +377,83 @@ def _process_records(
 
 
 def _session_records(
-    record: dict[str, Any], worktrees: list[Path], directory: Path | None
+    record: dict[str, Any],
+    worktrees: list[Path],
+    directory: Path | None,
+    moved_from: Path | None,
 ) -> list[StoredSessionRecord]:
     """The session's readable records across the stores it could be in.
 
     Those are the stores of its Repository's Worktrees and the global one (or
-    ``directory``); no process is probed.
+    ``directory``), and the store of another Project its move left
+    (``moved_from``); no process is probed.
     """
+    stores = reachable_hook_stores(worktrees, directory)
+    if moved_from is not None and not any(
+        same_path(store, moved_from) for store in stores
+    ):
+        stores.append(moved_from)
     records, _unreadable = stored_session_records(
-        reachable_hook_stores(worktrees, directory),
+        stores,
         cast("Harness", record["harness"]),
         str(record["sessionId"]),
     )
     return records
+
+
+def _own_listing(seed: Mapping[str, Any], process: object) -> dict[str, Any]:
+    """``seed`` listing only the sub-agents the Host Process ``process`` names runs.
+
+    A move to another Project takes along only the moving process's own
+    sub-agents: another process's plugin never sees the move, so its
+    sub-agents' events go on reaching the record left behind, and one listed
+    in the new Project too would block there with no stop to clear it
+    (ADR 0109).
+    """
+    own = {
+        **seed,
+        "liveSubagents": subagents_hosted_by(seed, process),
+    }
+    own.pop("subagentProcesses", None)
+    return own
+
+
+def _release_moved_from(
+    record: dict[str, Any],
+    moved_from: Path,
+    session_records: Iterable[StoredSessionRecord],
+    written_to: Path,
+) -> None:
+    """Stop listing, in the records a move to another Project left, the sub-agents this record took.
+
+    A session moved to another Project carries its sub-agents to the record
+    it begins there, seeded from the record it left (ADR 0109). The Project
+    it left is out of reach of their later stops, which reach only the
+    stores of the Repository the session is in now (ADR 0102), so the
+    records left there let them go at once, as a Conversation Switch's do
+    (ADR 0101). Only the agents the written record lists leave, and only
+    those listed as run by its Host Process: ``release_left_behind`` re-reads
+    each record under its lock and changes only its list.
+    """
+    written, _unreadable = stored_session_records(
+        [written_to.parent],
+        cast("Harness", record["harness"]),
+        str(record["sessionId"]),
+    )
+    listed = {
+        agent
+        for item in written
+        if same_path(item.path, written_to)
+        for agent in item.record.live_subagents
+    }
+    for item in session_records:
+        if not same_path(item.store, moved_from) or same_path(item.path, written_to):
+            continue
+        taken = [agent for agent in item.record.live_subagents if agent in listed]
+        if taken:
+            HookRecordStore(item.store).release_left_behind(
+                item.path.stem, taken, record
+            )
 
 
 def _freshest_elsewhere(

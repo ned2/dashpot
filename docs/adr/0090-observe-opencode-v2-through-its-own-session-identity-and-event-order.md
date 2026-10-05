@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-05
-amended-by: 0094-let-a-root-opencode-session-move-itself-for-issue-work.md
+amended-by: 0094-let-a-root-opencode-session-move-itself-for-issue-work.md, 0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md
 ---
 
 # Observe OpenCode v2 through its own session identity and event order
@@ -395,6 +395,11 @@ it.
   a root session may move itself within its Repository for Issue work the
   person asked for, so who may trigger a move stays #148's question only
   for a move made by anyone other than the session itself.
+- Amended by [ADR 0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md)
+  ([#459](https://github.com/ned2/dashpot/issues/459)): a move to another Repository writes the root's
+  `SessionStart` in the new Project's store at the move, seeded from the
+  record the move left, and the session's next event there writes only
+  itself.
 - **Supersessions.** This ADR supersedes ADR 0078 and ADR 0081, and amends:
   - ADR 0077: generations no longer fence publication; OpenCode's sequence
     orders it; the Publisher Record is per hook store; the translation

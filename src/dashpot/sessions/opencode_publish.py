@@ -12,7 +12,9 @@ module decides what they mean (ADR 0090):
   and it is never an Agent Session of its own (ADR 0016, ADR 0067);
 - a root's publication begins an incarnation, writing ``SessionStart`` first,
   where its hook store holds no record of the session or one that names
-  another Host Process; a move never does.
+  another Host Process; a move does only in the store of another Project it
+  takes the session to, which takes over the session's Sub-agents from the
+  store it left (ADR 0109).
 
 A publication is written to the hook store of the Worktree holding its root
 session's OpenCode location, under that store's Publisher Record lock, so
@@ -394,6 +396,9 @@ class Route:
     # The one store every record is written to, for a move written where the
     # session was; otherwise ``publish_hook_event`` routes by ``cwd``.
     directory: Path | None = None
+    # The other Project a move took the session to, whose store begins its
+    # incarnation there with the Sub-agents it had (ADR 0109).
+    arrival: Place | None = None
 
 
 def _route(session: PluginSession, event: PluginEvent | None) -> Route | None:
@@ -401,7 +406,8 @@ def _route(session: PluginSession, event: PluginEvent | None) -> Route | None:
 
     A move within one Git Repository is written at the new location's store,
     where a bound run follows it (ADR 0067). Any other move is written where
-    the session was, naming where it went, so it no longer reads as there.
+    the session was, naming where it went, so it no longer reads as there;
+    one to another Project then arrives there too (ADR 0109).
     """
     origin = _location(session.location)
     here = place_of(origin)
@@ -413,7 +419,7 @@ def _route(session: PluginSession, event: PluginEvent | None) -> Route | None:
         return Route(there, destination)
     if here is None:
         return None
-    return Route(here, destination, directory=here.store)
+    return Route(here, destination, directory=here.store, arrival=there)
 
 
 def _publish(
@@ -480,8 +486,56 @@ def _publish(
         publishers.write(
             record.model_copy(update={"sessions": sessions, "deleted": deleted})
         )
+    if route.arrival is not None and event is not None and names:
+        arrived = _arrive(route, route.arrival, session, event, host, lookup)
+        if arrived is not None:
+            publications = (*publications, arrived)
+            names.append("SessionStart")
     reason = None if event is None else event.reason
     return _acknowledge("accepted", reason, publications, tuple(names))
+
+
+def _arrive(
+    move: Route,
+    arrival: Place,
+    session: PluginSession,
+    event: PluginEvent,
+    host: ProcessIdentity,
+    lookup: ProcessLookup,
+) -> HookPublication | None:
+    """Begin a root's incarnation in ``arrival``, the other Project ``move`` took it to.
+
+    Written once the move is written where the session was, under the new
+    store's own Publisher Record lock, never both at once. The
+    ``SessionStart`` seeds from the record the move left, as ADR 0097 has a
+    ``SessionStart`` of the same Host Process do, so the new record lists
+    the Sub-agents this Host Process still runs, and the record left behind
+    then stops listing them: their later events reach only the new
+    Project's stores (ADR 0109). The plugin publishes a root's events and
+    its children's in order, so none of them is written there before the
+    move. A store that refuses the session, or has seen a later event of
+    it, takes nothing.
+    """
+    ensure_state_directory(arrival.worktree)
+    publishers = PublisherStore(arrival.store, checkout=arrival.worktree)
+    with publishers.locked(PUBLISHER_KEY):
+        record = publishers.read()
+        entry = record.sessions.get(session.id)
+        if record.refuses(session.id, session.root) or (
+            entry is not None and event.sequence <= entry.sequence
+        ):
+            return None
+        publication = publish_hook_event(
+            _hook_event("SessionStart", session, move.cwd),
+            process=host,
+            harness="opencode",
+            lookup=lookup,
+            moved_from=move.place.store,
+        )
+        sessions = dict(record.sessions)
+        sessions[session.id] = SessionEntry(sequence=event.sequence, root=None)
+        publishers.write(record.model_copy(update={"sessions": sessions}))
+    return publication
 
 
 def _begins_incarnation(
@@ -491,8 +545,9 @@ def _begins_incarnation(
 
     It does where the store holds no record of the root, or one naming
     another Host Process: the session began there, or resumed in a new
-    server. A move never begins one, nor does an end, nor a Sub-agent's stop
-    where there is no record to stop it on.
+    server. A move never begins one where it is written, nor does an end,
+    nor a Sub-agent's stop where there is no record to stop it on; a move to
+    another Project begins one in that Project's store (``_arrive``).
     """
     if name in {"SessionMoved", "SessionEnd"}:
         return False

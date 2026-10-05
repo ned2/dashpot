@@ -136,6 +136,10 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   does with a root whose child the shared service runs; it was dropped at
   that process's `SessionStart`, and its exit then cleared the blocker while
   the child still worked.
+- Move an OpenCode root's working sub-agents with it when it moves to another
+  Project: the other Project's Cleanup now sees them until they stop, where
+  they were listed only in the record the root left behind, which their
+  stop never reached.
 - Support Codex `codex-cli` 0.160.0 on Linux in each measured hosting mode:
   the managed daemon a plain terminal starts, an App Server with attached
   clients, a standalone terminal, and `codex exec`. A real-harness acceptance
