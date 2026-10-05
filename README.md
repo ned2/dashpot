@@ -575,8 +575,8 @@ checkout:
   comments, requires
   the frontmatter described in the
   [documentation map](#documentation-map), requires each ADR's number to
-  be its own, requires the [ADR index](docs/adr/README.md) to be the file
-  the script generates, and requires the [code map](docs/code-map.md) to link
+  be its own, requires the [ADR index](docs/adr/README.md) and each `docs/`
+  kind index to be what the script generates, and requires the [code map](docs/code-map.md) to link
   every module and asset the package ships; it always reads the whole
   document set, because a link resolves against files the commit need not
   touch, and neither an ADR's number nor the index's or the map's
@@ -1198,8 +1198,12 @@ The top level of [`docs/`](docs/) holds only `living` documents: those above,
 [`textual-implementation-notes.md`](docs/textual-implementation-notes.md).
 The other documents are grouped by kind, never by `status`, so a document
 keeps its path when its status changes. Each kind directory has a `README.md`
-index giving every document's title, `status`, and date; a new document is
-added to its directory's index in the change that creates it:
+index giving every document's title, `status`, and date, newest first. Its
+introduction is written by hand; its frontmatter and the table below it are
+generated from the documents beside it, as the ADR index is, so a new
+document or a changed title, `status` or `date` is listed by running
+`uv run python scripts/maintain_docs.py --write-indexes` in the change that
+makes it:
 
 - [`docs/research/`](docs/research/README.md) — investigations of upstream
   capabilities and of Dashpot's data access that informed a decision.
@@ -1275,12 +1279,19 @@ themselves and gated against them rather than maintained by hand, so it cannot
 describe a set of decisions that no longer exists; it carries no number of its own, because it
 records no decision, and it declares a document `status` for the same reason.
 Its `date:` is its newest ADR's, which makes the file a function of its inputs
-and lets the gate compare it whole. Run
-`uv run python scripts/maintain_docs.py --write-adr-index` after adding or
-changing an ADR.
+and lets the gate compare it whole. A kind index is generated the same way
+between two marker comments, below its hand-written introduction, and its
+`date:` is its newest document's. The documents of a subdirectory are not its
+kind's: [`docs/spikes/measurements/`](docs/spikes/measurements/README.md)
+keeps a hand-written index of the retained traces, whose provenance no
+frontmatter carries. Run
+`uv run python scripts/maintain_docs.py --write-indexes` after adding or
+changing an ADR or a document of a kind; it rewrites every generated index, so
+it also resolves a rebase conflict confined to them. `--write-adr-index` is
+its older name and does the same.
 
 `uv run python scripts/maintain_docs.py` enforces the frontmatter, every
-in-repo Markdown link, ADR numbering, the index's freshness, and the
+in-repo Markdown link, ADR numbering, the indexes' freshness, and the
 [code map](docs/code-map.md)'s coverage of every shipped module and asset,
 and runs as part of the [quality gates](#quality-gates).
 

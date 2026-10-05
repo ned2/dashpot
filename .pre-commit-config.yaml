@@ -67,7 +67,7 @@ repos:
         require_serial: true
 
       - id: check-docs
-        name: markdown links, document frontmatter, ADR numbering, the ADR index, and the code map
+        name: links in Markdown and in Python docstrings and comments, document frontmatter, ADR numbering, the generated indexes, and the code map
         entry: uv run --locked python scripts/maintain_docs.py
         language: system
         # Every check is cross-document: a link resolves against files the

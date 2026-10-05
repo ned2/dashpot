@@ -162,15 +162,18 @@ and force-push the branch with an explicit lease on its previous head
 (`--force-with-lease=refs/heads/<branch>:<old-head>`), without asking first.
 
 A rebase is content-preserving when it applies without conflicts, or when its
-only conflict is in the generated [ADR index](docs/adr/README.md) and is
-resolved by running `uv run python scripts/maintain_docs.py --write-adr-index`.
-Two branches that each add an ADR always conflict there, and the script
-resolves it mechanically. Confirm it with
+only conflicts are in the generated indexes — the
+[ADR index](docs/adr/README.md), and the frontmatter and table of each kind
+index, the `README.md` of `docs/research/`, `docs/spikes/`, `docs/reviews/`
+and `docs/proposals/` — and are resolved by running
+`uv run python scripts/maintain_docs.py --write-indexes`. Two branches that
+each add an ADR, or a document of one kind, always conflict there, and the
+script resolves it mechanically. Confirm it with
 `git range-diff <old-base>..<old-head> <new-base>..<new-head>`: no commit's
-added or removed lines change outside `docs/adr/README.md`. Context lines may
-differ where `main` edited nearby. A content-preserving rebase needs no
-further review: in place of the local review gate, rerun only
-`uv run pre-commit run --all-files`, which checks the regenerated index, and
+added or removed lines change outside those indexes' generated parts. Context
+lines may differ where `main` edited nearby. A content-preserving rebase needs
+no further review: in place of the local review gate, rerun only
+`uv run pre-commit run --all-files`, which checks the regenerated indexes, and
 keep the coverage evidence of the head it rebased. The PR's CI on the rebased
 head is the check for a semantic conflict with the new base. Any other rebase
 resolves conflicts that change the reviewed diff: rerun the local review gate
@@ -274,10 +277,13 @@ The conventions the tooling enforces or the code assumes:
   comments of the Python under `src/` and `scripts/`, where a path is
   relative to the module.
   `scripts/maintain_docs.py` fails the gate on any of them. The
-  [ADR index](docs/adr/README.md) is generated from the ADRs, so after adding
-  or changing one run
-  `uv run python scripts/maintain_docs.py --write-adr-index` and commit the
-  result; the gate fails while the committed index is not what the script
+  [ADR index](docs/adr/README.md) is generated from the ADRs, and each kind
+  index's frontmatter and table (`docs/research/`, `docs/spikes/`,
+  `docs/reviews/`, `docs/proposals/`) from its documents' titles and
+  frontmatter, below a hand-written introduction. So after adding or changing
+  an ADR or such a document run
+  `uv run python scripts/maintain_docs.py --write-indexes` and commit the
+  result; the gate fails while a committed index is not what the script
   produces. When you move or rename a
   section, fix the pointers in the same change; when you finish work an ADR or
   a research note described as future, update that document's `status` rather
@@ -325,9 +331,9 @@ In this Repository:
   set, and never change `core.hooksPath` from a Worker: the setting is
   shared by every checkout.
 - `scripts/maintain_docs.py` reads tracked files only: `git add -N` a new
-  document before `--write-adr-index`, and regenerate the index after
-  every rebase, since sibling Workers add ADRs too. A rebase whose only
-  conflict is that index stays content-preserving
+  document before `--write-indexes`, and regenerate the indexes after
+  every rebase, since sibling Workers add ADRs and documents too. A rebase
+  whose only conflicts are those indexes stays content-preserving
   ([integration and rebase](#integration-and-rebase)).
 - Give each Worker a share of the cores with `review_coverage.py --workers
   N`; [development setup](README.md#development-setup) records sixteen
