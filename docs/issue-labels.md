@@ -189,19 +189,17 @@ such as a harness measurement, may carry none. Consumers: the dashboard's
 `harness-server` and `logging` each gather one body of work. A `harness/*`
 label goes on an Issue only when it concerns a single harness, so a
 cross-harness Issue carries none. A `harness/*` label can sit beside
-`harness-server`: `harness-server` names the body of work, and the `harness/*` label
-names the harness. Consumer: the dashboard's label search, used by a person
-or an agent picking up one body of work, such as one harness's Issues before
-a re-pin or a harness acceptance run.
+`harness-server`: `harness-server` names the body of work, and the
+`harness/*` label names the harness. Consumer: the dashboard's label search,
+used by a person or an agent picking up one body of work, such as one
+harness's Issues before a re-pin or a harness acceptance run.
 
 `tasks.md` was the marker label of the upstream tasks.md tool's GitHub
 backend, which tracked this Repository's first Issues before
 [ADR 0001](adr/0001-own-project-and-issue-model.md) replaced TASKS.md as a
 backend. Nothing applies it now, and no one should apply it by hand. Its
 consumer is the record: it shows which closed Issues were tracked through
-TASKS.md. It is kept as it is by the maintainer's decision, an exception to
-[principle 5](#the-principles) that holds while it stays on closed Issues
-only.
+TASKS.md, so it is kept while it marks closed Issues only.
 
 ### Closing
 
