@@ -7,6 +7,7 @@ are written with ``update-ref`` so nothing talks to the network.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Sequence
 from contextvars import copy_context
 from pathlib import Path
@@ -1730,6 +1731,34 @@ def test_a_worktree_nested_after_the_preview_refuses_the_removal(
     assert (nested / "uncommitted.txt").exists()
 
 
+def test_a_stale_record_inside_a_worktree_blocks_until_it_is_pruned(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    ignore_claude(root)
+    nested = nest_worktree(root, worktree, "inner")
+    # Its directory deleted by hand, its record left behind as prunable.
+    shutil.rmtree(nested)
+    request = WorktreeCleanupRequest(root, worktree)
+
+    stale = inspect_cleanup(request)
+    git(root, "worktree", "prune")
+    pruned = inspect_cleanup(request)
+
+    assert stale.targets[0].blockers == (
+        CleanupBlocker(
+            kind="nested-worktree",
+            detail=f"a stale record of the Worktree {nested}, whose directory is "
+            f"gone, is inside this one: prune it first",
+            command="git worktree prune",
+        ),
+    )
+    assert pruned.targets[0].available is True
+
+
 def test_the_main_worktree_lists_no_worktree_inside_it(tmp_path: Path) -> None:
     root = repo(tmp_path)
     ignore_claude(root)
@@ -1791,7 +1820,8 @@ def test_an_ignored_inventory_git_refuses_blocks_the_removal(tmp_path: Path) -> 
             kind="ignored-content",
             detail="cannot list the ignored content removing this Worktree would "
             "delete: fatal: index file corrupt",
-            command=f"git -C {worktree.resolve()} status --ignored",
+            command=f"git -C {worktree.resolve()} status --ignored "
+            "--untracked-files=normal",
         ),
     )
     assert kinds(local) == {"checked-out"}

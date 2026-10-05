@@ -239,8 +239,10 @@ unavailable, and hold their Branches unavailable with them. That includes
 every Worktree of a Repository while an Agent Session in it lists a
 live sub-agent, even after that session ended, since Dashpot cannot tell which Worktree a sub-agent works in
 ([sub-agents and Worktree Cleanup](docs/agent-sessions.md#sub-agents-and-worktree-cleanup)),
-and a Worktree with a process running inside it
-([processes inside a Worktree](docs/agent-sessions.md#processes-inside-a-worktree)).
+a Worktree with a process running inside it
+([processes inside a Worktree](docs/agent-sessions.md#processes-inside-a-worktree)),
+and one that holds another registered Worktree
+([ADR 0125](docs/adr/0125-block-removing-a-worktree-that-holds-another-worktree.md)).
 When listed sub-agents are all that hold a Worktree, the dialog names each
 session and its count of sub-agents beside an unticked toggle, "I have
 checked that none of these sub-agents works in this Worktree"; ticking it is

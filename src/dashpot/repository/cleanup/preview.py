@@ -345,9 +345,9 @@ def _inspect_worktree(
     blockers, unchecked = _worktree_blockers(
         located, lookup, lock_probe, protected, scan
     )
-    listed, uninventoried = ignored_content(located.git, path)
+    listed, inventory_blockers = ignored_content(located.git, path)
     ignored = tuple(listed)
-    blockers.extend(uninventoried)
+    blockers.extend(inventory_blockers)
     identity = f"worktree:{path}"
     branch = located.branch
     consequences = [f"removes {path} with git worktree remove"]

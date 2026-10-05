@@ -59,7 +59,8 @@ Two cases let that removal destroy work the preview never named
   entry such as `.venv/` whatever the person's configuration says.
 - **A failed inventory blocks.** When Git answers the inventory with a
   non-zero exit, the Worktree gets an `ignored-content` blocker carrying
-  Git's reason and `git -C <path> status --ignored` as its command. Failing
+  Git's reason and `git -C <path> status --ignored --untracked-files=normal`
+  as its command. Failing
   to list ignored content is not finding none. A runner failure, such as a
   timeout, still fails the whole preview, as for every other Git read.
 
@@ -88,7 +89,7 @@ Two cases let that removal destroy work the preview never named
 - `BlockerKind` gains `nested-worktree` and `ignored-content`. The dashboard
   shows both by their detail, as it shows every blocker kind without a
   summary of its own.
-- A prunable record inside the Worktree also blocks, until
-  `git worktree prune` clears it; `dashpot worktree remove` on that path
-  names the same command. A stale record is cheap to clear, and removing
-  the outer Worktree must not decide on its own that the inner one is gone.
+- A record inside the Worktree whose directory is gone also blocks, as a
+  stale record with `git worktree prune` as its command. Clearing it costs
+  one command, and removing the outer Worktree must not decide on its own
+  that the inner one is gone.

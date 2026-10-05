@@ -530,22 +530,38 @@ def assess_nested_worktrees(located: LocatedWorktree) -> list[CleanupBlocker]:
     status, where a Worktree inside it shows at most as an untracked or
     ignored directory, and then deletes the directory recursively: the
     Worktree inside goes too, its uncommitted work included, without any of
-    its own checks running (ADR 0125). The main Worktree is never removable,
-    and its tree may hold linked Worktrees by design, so it is not assessed.
+    its own checks running (ADR 0125). A record whose directory is gone
+    loses nothing with this one, but removal does not decide that for the
+    person: it blocks until ``git worktree prune`` clears it. The main
+    Worktree is never removable, and its tree may hold linked Worktrees by
+    design, so it is not assessed.
     """
     if located.role == "main":
         return []
-    return [
-        CleanupBlocker(
-            kind="nested-worktree",
-            detail=f"the Worktree {nested} is inside this one, and removing "
-            f"this Worktree would delete it without checking it: remove it "
-            f"first, or move it out with git worktree move",
-            command=f"dashpot worktree remove {nested}",
-        )
-        for nested in sorted(located.worktrees)
-        if nested != located.path and is_within(nested, located.path)
-    ]
+    blockers: list[CleanupBlocker] = []
+    for nested in sorted(located.worktrees):
+        if nested == located.path or not is_within(nested, located.path):
+            continue
+        if nested.is_dir():
+            blockers.append(
+                CleanupBlocker(
+                    kind="nested-worktree",
+                    detail=f"the Worktree {nested} is inside this one, and "
+                    f"removing this Worktree would delete it without checking "
+                    f"it: remove it first, or move it out with git worktree move",
+                    command=f"dashpot worktree remove {nested}",
+                )
+            )
+        else:
+            blockers.append(
+                CleanupBlocker(
+                    kind="nested-worktree",
+                    detail=f"a stale record of the Worktree {nested}, whose "
+                    f"directory is gone, is inside this one: prune it first",
+                    command="git worktree prune",
+                )
+            )
+    return blockers
 
 
 def ignored_content(git: Git, path: Path) -> tuple[list[str], list[CleanupBlocker]]:
@@ -574,7 +590,7 @@ def ignored_content(git: Git, path: Path) -> tuple[list[str], list[CleanupBlocke
                 kind="ignored-content",
                 detail=f"cannot list the ignored content removing this Worktree "
                 f"would delete: {listing.stderr.strip() or 'git status failed'}",
-                command=f"git -C {path} status --ignored",
+                command=f"git -C {path} status --ignored --untracked-files=normal",
             )
         ]
     ignored: list[str] = []
