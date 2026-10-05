@@ -65,8 +65,12 @@ class DetailFields(VerticalScroll):
             self.rows.append(row)
             yield row
 
-    def update(self, *items: DetailItem) -> None:
-        """Replace displayed items while reusing already mounted rows."""
+    def update(self, *items: DetailItem, keep_scroll: bool = False) -> None:
+        """Replace displayed items while reusing already mounted rows.
+
+        The fields scroll back to the top unless ``keep_scroll`` holds, as it
+        does when the same subject is rendered again.
+        """
 
         self.items = tuple(items)
         for index, item in enumerate(items):
@@ -80,7 +84,8 @@ class DetailFields(VerticalScroll):
                 self.mount(row)
         for row in self.rows[len(items) :]:
             row.display = False
-        self.scroll_home(animate=False)
+        if not keep_scroll:
+            self.scroll_home(animate=False)
 
     @property
     def plain(self) -> str:

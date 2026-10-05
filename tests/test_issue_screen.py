@@ -22,6 +22,7 @@ from app_harness import (
     footer_showing,
     issue,
     issue_metadata_text,
+    observation_landed,
     open_issue_view,
     pane_title,
     serve_snapshot,
@@ -436,7 +437,7 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         assert markdown.region.y == heading.region.bottom
         assert markdown.query("MarkdownH1")
         assert markdown.query("MarkdownBulletList")
-        assert not view.query("#issue-view-empty")
+        assert not view.query_one("#issue-view-empty").display
         # Both panes share the main screen's thin inline-title border.
         body = view.query_one("#issue-view-body")
         metadata = view.query_one("#issue-view-metadata")
@@ -459,7 +460,7 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
 
 
 # Opening an Issue resolves the identities it relates to, and the view
-# recomposes when they land; the chrome its mount set must survive that.
+# updates its panes when they land; the chrome its mount set must survive that.
 @pytest.mark.asyncio
 async def test_the_issue_view_keeps_its_chrome_after_its_identities_resolve() -> None:
     app = _issue_view_app(issue("test/repo#1", "First"))
@@ -507,17 +508,136 @@ async def test_a_newer_projection_keeps_the_pane_a_person_is_reading() -> None:
         view.show(replace(view.context, related_issues=(related,)))
         await pilot.pause()
 
-        # The panes are new widgets after the recompose, dressed like the old.
-        assert view.query_one("#issue-view-metadata") is not metadata
+        # The panes are updated in place, so focus never leaves them.
+        assert view.query_one("#issue-view-metadata") is metadata
         assert view.context.related_issues == (related,)
-        assert view.query_one("#issue-view-metadata").has_focus
+        assert metadata.has_focus
         assert pane_title(view, "#issue-view-body") == "#1: First"
         assert pane_title(view, "#issue-view-metadata") == "DETAILS"
         assert not view.stacked
 
 
+LONG_BODY = "\n\n".join(f"Paragraph {number}." for number in range(80))
+
+
+@pytest.mark.parametrize("body_changes", [False, True])
 @pytest.mark.asyncio
-async def test_a_recompose_after_the_view_closed_is_a_no_op() -> None:
+async def test_a_refresh_keeps_the_place_a_person_is_reading(
+    body_changes: bool,
+) -> None:
+    long_issue = issue(
+        "test/repo#1",
+        "Long",
+        body=LONG_BODY,
+        relationships={
+            "parent": None,
+            "subIssues": [f"I_child{number}" for number in range(30)],
+            "blockedBy": [],
+            "blocking": [],
+        },
+    )
+    before = workspace_snapshot(long_issue)
+    # The newer observation took longer, which the view never renders; a
+    # changed body is rendered, and still keeps the reader's place.
+    revised = (
+        long_issue.model_copy(update={"body": LONG_BODY + "\n\nRevised ending."})
+        if body_changes
+        else long_issue
+    )
+    after = workspace_snapshot(revised, elapsed_ms=34)
+    app = dashboard_app(SequenceCollector(before, after))
+
+    async with app.run_test(size=(120, 24)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        view = await open_issue_view(app, pilot)
+        body = view.query_one("#issue-view-body", VerticalScroll)
+        metadata = view.query_one("#issue-view-metadata", DetailFields)
+        markdown = view.query_one("#issue-view-markdown", Markdown)
+        assert body.max_scroll_y > 20
+        assert metadata.max_scroll_y > 5
+        body.scroll_to(y=20, animate=False, immediate=True)
+        metadata.scroll_to(y=5, animate=False, immediate=True)
+        await wait_until(lambda: body.scroll_y == 20 and metadata.scroll_y == 5)
+        blocks = list(markdown.children)
+
+        serve_snapshot(app, after)
+        await app.run_action("refresh")
+        await wait_until(lambda: observation_landed(app, 2))
+        # The next query period renders the open Issue against the newer
+        # observation, as every period does once a local one has landed.
+        app.timer_query_refresh()
+        await wait_until(
+            lambda: view.context.project.elapsed_ms == 34 and not app.queries.busy
+        )
+        if body_changes:
+            await wait_until(
+                lambda: any(
+                    "Revised ending." in str(block.render())
+                    for block in markdown.query("MarkdownParagraph").results(Static)
+                )
+            )
+        await settle_screen(app, pilot, "the refreshed Issue view")
+        # The body is parsed again only when it changed.
+        assert (list(markdown.children) == blocks) is not body_changes
+
+        assert app.screen is view
+        assert view.query_one("#issue-view-body") is body
+        assert view.query_one("#issue-view-metadata") is metadata
+        assert view.query_one("#issue-view-markdown") is markdown
+        assert body.scroll_y == 20
+        assert metadata.scroll_y == 5
+        assert body.has_focus
+
+
+@pytest.mark.asyncio
+async def test_a_newer_projection_updates_every_pane_it_changes() -> None:
+    first = issue("test/repo#1", "First")
+    app = _issue_view_app(first)
+
+    async with app.run_test(size=(120, 36)) as pilot:
+        await wait_until(
+            lambda: app.query_screen.issue_table.selected_row_key is not None
+        )
+        view = await open_issue_view(app, pilot)
+        assert str(
+            view.query_one("#issue-view-location", Static).render()
+        ) == issue_location(first)
+
+        moved = "https://github.com/ned2/dashpot/issues/10"
+        closed = issue(
+            "test/repo#1",
+            "Closed",
+            body="  ",
+            state="closed",
+            stateReason="completed",
+            closedAt=NOW,
+            author="someone",
+            location={"kind": "github", "url": moved},
+        )
+        view.show(replace(view.context, issue=closed))
+        markdown = view.query_one("#issue-view-markdown", Markdown)
+        empty = view.query_one("#issue-view-empty", Static)
+        await wait_until(lambda: empty.display and not markdown.display)
+
+        assert view.query_one("#issue-view").has_class("-issue-completed")
+        assert not view.query_one("#issue-view").has_class("-issue-open")
+        assert pane_title(view, "#issue-view-body") == "#1: Closed"
+        assert str(view.query_one("#issue-view-location", Static).render()) == moved
+        assert str(view.query_one("#issue-view-subtitle", Static).render()).endswith(
+            " by someone"
+        )
+        assert "State: closed as completed" in detail_plain(
+            view, "#issue-view-metadata"
+        )
+
+        view.show(replace(view.context, issue=first))
+        await wait_until(lambda: markdown.display and not empty.display)
+        assert markdown.source == first.body
+        assert view.query_one("#issue-view").has_class("-issue-open")
+
+
+@pytest.mark.asyncio
+async def test_a_projection_after_the_view_closed_is_a_no_op() -> None:
     app = _issue_view_app(issue("test/repo#1", "First"))
 
     async with app.run_test(size=(120, 36)) as pilot:
@@ -529,7 +649,10 @@ async def test_a_recompose_after_the_view_closed_is_a_no_op() -> None:
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
 
         # A projection landing after Escape must not touch the dismissed view.
-        await view.recompose()
+        view.show(
+            replace(view.context, issue=view.issue.model_copy(update={"title": "Late"}))
+        )
+        await pilot.pause()
 
         assert not view.is_attached
         assert not view.query("#issue-view-body")
@@ -579,7 +702,8 @@ async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() ->
             )
         )
         view = await open_issue_view(app, pilot)
-        assert not view.query("#issue-view-markdown")
+        assert not view.query_one("#issue-view-markdown").display
+        assert view.query_one("#issue-view-empty").display
         assert (
             str(view.query_one("#issue-view-empty", Static).render())
             == "This Issue has no description."

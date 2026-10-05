@@ -542,7 +542,9 @@ copying and refresh scope (`r`); only
 the Issue table drives the Issue selection, `Enter`
 on an Issue opens it in the full-screen Issue view (its location on the left
 of the heading line, `opened 3d ago by ned2` on the right, and both panes'
-borders in the Issue's state colour). `Enter` is unbound on Sessions and Pull
+borders in the Issue's state colour). A refresh updates the open Issue view in
+place, changing only what it renders differently, so each pane keeps the place
+a person scrolled it to. `Enter` is unbound on Sessions and Pull
 Requests. Each list pane is declared once as a spec in
 [`panes.py`](../src/dashpot/ui/panes.py) — its columns, empty state, the read
 model it lists, its filtering controls, and how its rows take part in
