@@ -12,8 +12,8 @@ review of 2026-10-05 measured that whole read
 ([#557](https://github.com/ned2/dashpot/issues/557)). The reader parsed every
 line through the Pydantic models before asking whether the selection kept
 it. It then held every selected event and sorted them before printing the
-first. On this Repository's own Event Log, 33.7 MB took about 2 s and peaked
-at 208 MB of memory, about 4.2 KB per event against about 680 B on disk.
+first. The review measured this Repository's own Event Log at 33.7 MB: it
+took about 2 s and peaked at 208 MB of memory, about 4.2 KB per event against about 680 B on disk.
 [ADR 0059](0059-keep-an-append-only-event-log-in-each-checkout.md) lets an
 Event Log grow until a person removes it, and about 100 MB a day at `full`
 would need gigabytes of memory, and more than a minute, before
@@ -52,7 +52,9 @@ read.
   ran past midnight, and a span held across a night's suspended machine. A
   longer one, which only a long-lived dashboard's span held across a longer
   suspension could make, prints once its file is read, after later events
-  already printed. The command's help and the installation guide say so.
+  already printed. The command's help and the installation guide say so. At
+  its peak a read holds about three days of selected events: the two the
+  carry-over spans and the day being read.
 - **What could not be read is reported when the read ends,** as before, but
   only for what was read: a reader that closed the pipe early stopped the
   reading too.
@@ -62,7 +64,8 @@ read.
 
 ## Measurements
 
-On this Repository's Event Log of 2026-10-05: 36 MB over nine UTC days,
+Taken while writing this decision, after the review's figures above, on
+this Repository's Event Log of 2026-10-05: 36 MB over nine UTC days,
 about 55,000 events, the busiest day 7.9 MB. Peaks were taken with
 `tracemalloc`; times were taken without it, on a loaded machine, so they
 are approximate.

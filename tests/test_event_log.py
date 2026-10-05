@@ -540,15 +540,15 @@ def test_a_write_that_fails_closes_the_file_and_the_next_event_opens_it_again(
     assert failures == ["ENOSPC"]
     path = tmp_path / "events-2026-09-27.jsonl"
     read = [read_runtime_event(line) for line in path.read_bytes().splitlines()]
-    names = [None if event is None else event.body.name for event in read]
+    read_names = [None if event is None else event.body.name for event in read]
     if fragment:
         # The file was opened again, but the fragment has no newline, so it
         # swallows the next line, the writer's ``process.continued``; the
         # event after that is whole. Recovering that line is deferred (#561).
         assert path.read_bytes().splitlines()[1].startswith(b'{"sch{"schema"')
-        assert names == ["process.start", None, "process.end"]
+        assert read_names == ["process.start", None, "process.end"]
     else:
-        assert names == ["process.start", "process.continued", "process.end"]
+        assert read_names == ["process.start", "process.continued", "process.end"]
 
 
 def test_a_span_failed_with_a_message_is_refused_where_it_fails(

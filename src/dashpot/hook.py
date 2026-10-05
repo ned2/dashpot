@@ -127,7 +127,7 @@ def hook_event_log(
 
 
 @dataclass(slots=True)
-class HookRun:
+class HookOutcomeNote:
     """What one hook process has learned about its run so far.
 
     It is filled while the run goes, so unlike the values it collects it is
@@ -148,18 +148,21 @@ class HookRun:
 
 
 @contextmanager
-def hook_process(log: EventLog, *, label: str | None = None) -> Iterator[HookRun]:
+def hook_process(
+    log: EventLog, *, label: str | None = None
+) -> Iterator[HookOutcomeNote]:
     """Run one hook process's work against its Event Log, which the block's spans go to.
 
     The process starts, and when the block ends its outcome is recorded from
-    the :class:`HookRun` it filled, then the process ends with its exit
+    the :class:`HookOutcomeNote` it filled, then the process ends with its exit
     status and the log is closed. A failure in :data:`HOOK_FAILURES` ends
     the block, is printed to standard error under ``label`` when one is
     given, and fails the run without blocking the session. Any other
-    exception goes on, leaving no ``process.end``: a missing end is a crash.
+    exception goes on, leaving no ``process.end`` and the log unclosed: a
+    missing end is a crash.
     """
     log.start()
-    run = HookRun()
+    run = HookOutcomeNote()
     try:
         with use_event_log(log):
             yield run

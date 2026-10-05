@@ -738,7 +738,10 @@ def test_events_stream_before_a_later_days_file_is_read(tmp_path: Path) -> None:
         return original(self, *args, **kwargs)
 
     with mock.patch.object(Path, "open", note):
-        stream = read_event_logs((tmp_path,), EventSelection())
+        unreadable: list[UnreadableEventLog] = []
+        stream = read_event_logs(
+            (tmp_path,), EventSelection(), unreadable=unreadable.append
+        )
         first = next(stream)
         assert later not in opened
         rest = list(stream)
@@ -746,6 +749,7 @@ def test_events_stream_before_a_later_days_file_is_read(tmp_path: Path) -> None:
     assert first.body.name == "process.start"
     assert [event.body.name for event in rest] == ["process.continued", "process.end"]
     assert opened[-1] == later
+    assert unreadable == []
 
 
 def test_a_span_filed_days_after_it_started_comes_out_in_order(tmp_path: Path) -> None:
@@ -1233,3 +1237,21 @@ def test_event_log_large_warns_past_its_size_and_acts_on_nothing(
     )
     assert elsewhere is not None
     assert elsewhere.message.endswith("run outside every configured checkout")
+
+
+def test_recent_events_skip_a_directory_that_cannot_be_listed(tmp_path: Path) -> None:
+    readable = tmp_path / "readable"
+    now = datetime.now(UTC)
+    writer(readable, Clock(now)).end(1)
+
+    with mock.patch(
+        "dashpot.core.event_log_files.os.scandir",
+        side_effect=[PermissionError(13, "Permission denied"), os.scandir(readable)],
+    ):
+        found = recent_events(
+            (tmp_path / "locked", readable),
+            EventSelection(since=now - timedelta(days=1)),
+            limit=5,
+        )
+
+    assert [event.body.name for event in found] == ["process.continued", "process.end"]

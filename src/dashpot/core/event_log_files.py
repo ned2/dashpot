@@ -190,7 +190,8 @@ def is_session_outcome(event: RuntimeEvent) -> bool:
     Hook and command outcomes, Agent Session and Agent Run changes and
     failures are; a process's start, a successful end, a level change and a
     successful span are not. An event a later Dashpot adds is an outcome
-    when it is written at ``standard``.
+    when it is written at ``standard``. ``_may_be_outcome`` asks the same of
+    a line's raw fields, and changes with it.
     """
     body = event.body
     if body.name in PROCESS_BOOKKEEPING:
@@ -246,7 +247,7 @@ class EventSelection:
         """
         return None if self.since is None else self.since.astimezone(UTC).date()
 
-    def _wanted(self) -> dict[str, str]:
+    def _identity_filters(self) -> dict[str, str]:
         """The identity fields this selection filters on, by their on-disk names."""
         return {
             field: value
@@ -286,11 +287,15 @@ class EventSelection:
         return all(
             fields.get(field) == value
             or (isinstance(attributes, Mapping) and attributes.get(field) == value)
-            for field, value in self._wanted().items()
+            for field, value in self._identity_filters().items()
         )
 
     def admits(self, event: RuntimeEvent) -> bool:
-        """Whether the event is one this selection keeps."""
+        """Whether the event is one this selection keeps.
+
+        :meth:`may_admit` asks the same of a line's raw fields, so a filter
+        added here is added there too.
+        """
         if self.level == "standard" and event.level != "standard":
             return False
         if self.exclude_run is not None and event.process.run_id == self.exclude_run:
@@ -299,7 +304,7 @@ class EventSelection:
             return False
         if self.outcomes_only and not is_session_outcome(event):
             return False
-        wanted = self._wanted()
+        wanted = self._identity_filters()
         if not wanted:
             return True
         fields = event_fields(event)
@@ -393,11 +398,11 @@ def read_event_logs(
     directories: Sequence[Path],
     selection: EventSelection,
     *,
-    unreadable: Callable[[UnreadableEventLog], None] = _ignore,
+    unreadable: Callable[[UnreadableEventLog], None],
 ) -> Iterator[RuntimeEvent]:
     """Stream the selected events of every Event Log in ``directories``, oldest first.
 
-    Files are read one UTC day at a time, each directory's file of that day
+    Files are read one UTC day at a time, each directory's files of that day
     in turn. A span is stamped when it started but written to the file of
     the day it ended, so an event is held back until it is older than
     :data:`SPAN_CARRY_OVER` before the next day's files, which then cannot

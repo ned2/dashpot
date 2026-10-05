@@ -665,7 +665,7 @@ def events_read(
     file is not.
     """
     own = _EVENT_LOG.get()
-    problems: list[UnreadableEventLog] = []
+    unreadable_logs: list[UnreadableEventLog] = []
     events = read_event_logs(
         repository_event_log_directories(current_directory(), timeout=timeout),
         EventSelection(
@@ -677,7 +677,7 @@ def events_read(
             # This command's own start is not what anyone reads it for.
             exclude_run=None if own is None else own.identity.run_id,
         ),
-        unreadable=problems.append,
+        unreadable=unreadable_logs.append,
     )
     try:
         _print_events(events, json_output=json_output)
@@ -688,7 +688,7 @@ def events_read(
         _discard_stdout()
     # A reader that closed the pipe stopped the reading too, so only what
     # was read before it is reported.
-    for unreadable in problems:
+    for unreadable in unreadable_logs:
         if unreadable.error is not None:
             print(
                 f"dashpot: cannot read {unreadable.path}: {unreadable.error}",
