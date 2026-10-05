@@ -492,9 +492,9 @@ matches. Unreadable lines and files are reported on standard error
 ([ADR 0064](docs/adr/0064-publish-runtime-events-under-their-event-log-field-names.md),
 [ADR 0099](docs/adr/0099-print-runtime-events-as-json-lines.md)).
 `src/dashpot/serialization.py` owns the documents,
-`tests/test_serialization.py` pins each command's key set, and
 `tests/test_cleanup.py` pins the Cleanup documents of `worktree remove` and
-`branch delete`.
+`branch delete`, and `tests/test_serialization.py` pins every other command's
+key set.
 `--compact-json` prints the same document without indentation.
 
 ## Domain language

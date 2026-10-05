@@ -39,12 +39,7 @@ from dashpot.core.runtime_events import (
     RuntimeEvent,
     SpanEnded,
 )
-from dashpot.queries.pages import (
-    PageObservation,
-    ProjectTotals,
-    QueryPage,
-    QueryRequest,
-)
+from dashpot.queries.pages import PageObservation, QueryRequest
 from dashpot.repository.cleanup import CleanupBlocker
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
@@ -60,7 +55,9 @@ from dashpot.serialization import (
 )
 from factories import agent_run, project, pull_request, target, workspace
 from helpers import make_issue
-from test_query_pages import markdown
+from test_github_issues import REPOSITORY_ID
+from test_github_pull_requests import pull_request_node
+from test_query_pages import context, github, markdown, search
 
 SNAPSHOT_KEYS = {
     "collectedAt",
@@ -497,8 +494,6 @@ def test_the_removability_document_keeps_its_keys_and_nulls() -> None:
 
 
 def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None:
-    # The ``issue list`` and ``pr list`` document is in the contract, so a
-    # consumer of either command's ``--json`` can rely on these key sets (#589).
     source = markdown(tmp_path)
     page = source.query_page(QueryRequest(kind="issues", page_size=1)).page
     # A Markdown Project has no Pull Requests, so their totals are all nulls.
@@ -542,45 +537,33 @@ def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None
 def test_the_pull_request_list_document_keeps_its_record_keys_and_nulls(
     tmp_path: Path,
 ) -> None:
-    context = markdown(tmp_path).query_page(QueryRequest(kind="issues")).page.context
-    request = QueryRequest(kind="pull-requests", page_size=1)
-    page = QueryPage(
-        context=context,
-        request=request,
-        effective_ordering=request.ordering,
-        status="fresh",
-        attempted_at="2026-10-06T00:00:00Z",
-        last_good_at="2026-10-06T00:00:00Z",
-        pull_requests=[pull_request(mergeability=None)],
-        returned_count=1,
-        matched_count=2,
-        next_cursor="next",
-        continuation="more",
-        result_limit=None,
-    )
-    totals = ProjectTotals(
-        context=context,
-        kind="pull-requests",
-        status="fresh",
-        attempted_at="2026-10-06T00:00:00Z",
-        last_good_at="2026-10-06T00:00:00Z",
-        open_count=1,
-        closed_count=1,
-    )
+    # A ghost author and an unknown mergeability are observed, not omitted.
+    pull = {
+        **pull_request_node(1, author=None, mergeable="UNKNOWN"),
+        "__typename": "PullRequest",
+        "repository": {"id": REPOSITORY_ID},
+    }
+    source, _ = github(tmp_path, context(), search(pull, count=2, cursor="next"))
 
-    document = list_page_document(PageObservation(page, totals))
+    document = list_page_document(
+        source.query_page(QueryRequest(kind="pull-requests", page_size=1))
+    )
 
     assert set(document) == LIST_PAGE_KEYS
     page_document = document["page"]
     assert set(page_document) == QUERY_PAGE_KEYS
+    assert page_document["request"]["kind"] == "pull-requests"
     assert page_document["issues"] == []
     assert page_document["auxiliary"] == {}
     (record,) = page_document["pullRequests"]
     assert set(record) == PULL_REQUEST_KEYS
+    assert record["author"] is None
     assert record["mergeability"] is None
-    assert page_document["nextCursor"] == "next"
-    assert set(document["totals"]) == PROJECT_TOTALS_KEYS
-    assert document["totals"]["openCount"] == 1
+    assert page_document["continuation"] == "more"
+    totals_document = document["totals"]
+    assert set(totals_document) == PROJECT_TOTALS_KEYS
+    assert totals_document["kind"] == "pull-requests"
+    assert totals_document["openCount"] == 3
 
 
 def test_each_events_line_keeps_its_event_log_field_names_and_nulls() -> None:
