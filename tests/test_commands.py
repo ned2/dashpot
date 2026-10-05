@@ -344,13 +344,23 @@ time.sleep(30)
 """
 
 # The command itself: starts the helper, then outlasts any test timeout,
-# ignoring a termination request only when both are told to.
+# ignoring a termination request only when both are told to. When both honour
+# it and the command leads its own group, the request reached the helper too,
+# and the command waits for the helper before stopping. Dashpot kills what is
+# left of the group once the leader exits, which would otherwise race the
+# helper's record of the request.
 COMMAND = """
-import signal, subprocess, sys, time
+import os, signal, subprocess, sys, time
 helper, asked, ready, ignore = sys.argv[1:5]
+def stop(*_):
+    os.wait()
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.raise_signal(signal.SIGTERM)
 if ignore == "ignore":
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
-subprocess.Popen([sys.executable, "-c", helper, asked, ready, ignore])
+elif ignore == "honour" and os.getpgrp() == os.getpid():
+    signal.signal(signal.SIGTERM, stop)
+child = subprocess.Popen([sys.executable, "-c", helper, asked, ready, ignore])
 time.sleep(30)
 """
 
