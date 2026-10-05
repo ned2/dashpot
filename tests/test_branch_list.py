@@ -179,7 +179,6 @@ def test_sessions_join_the_branch_they_are_on_and_the_store_serves_the_query() -
 
     result = store.query_branches()
 
-    assert result.revision == 1
     assert [row.name for row in result.rows] == ["issue/1"]
     assert [run.id for run in result.rows[0].sessions] == ["codex:1"]
 

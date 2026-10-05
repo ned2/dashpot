@@ -1,4 +1,4 @@
-"""The page runner queues one query per key and publishes with a revision bump."""
+"""The page runner queues one query per key and publishes what lands into the store."""
 
 from __future__ import annotations
 
@@ -81,9 +81,8 @@ def runner() -> tuple[PageRunner, PagedObservationStore, FakeHost]:
     return PageRunner(sources, store, host), store, host
 
 
-def test_a_page_landing_changes_the_revision_the_read_models_report() -> None:
+def test_a_landed_page_is_what_the_read_models_list() -> None:
     pages, store, host = runner()
-    before = store.query_issues().revision
     assert store.revision == 1
     assert "issues" not in store.pages
 
@@ -95,34 +94,24 @@ def test_a_page_landing_changes_the_revision_the_read_models_report() -> None:
     pages.finish_page(message)
     assert set(store.totals) == {"issues"}
     assert store.totals["issues"].open_count == 2
-    assert store.source_revision == 1
+    assert store.query_issues().rows == ()
     pages.publish()
 
     assert "issues" not in pages.busy
     assert store.pages["issues"] is pages.navigation["issues"].page
-    # The observation revision is untouched; the joined revision moved on.
+    # A page is no observation: the observation revision is untouched.
     assert store.revision == 1
-    assert store.source_revision == 2
-    assert store.query_issues().revision == before + 2
     assert len(store.query_issues().rows) == 2
-    # Landing and publishing the same page and totals again changes nothing.
-    store.accept_totals(store.totals["issues"])
-    pages.publish()
-    assert store.source_revision == 2
 
 
-def test_identities_land_with_a_revision_bump() -> None:
+def test_identities_land_in_the_store() -> None:
     pages, store, host = runner()
     pages.request_identities(("I_test/repo#1",))
     identities = host.pop_call("identities").land()
     assert isinstance(identities, IdentitiesFinished)
     pages.finish_identities(identities)
     assert "I_test/repo#1" in store.resolved
-    assert store.source_revision == 1
-    assert store.query_sessions().revision == store.revision + 1
-    # Landing the same identities again changes nothing.
-    store.accept_identities(tuple(store.resolved.values()))
-    assert store.source_revision == 1
+    assert store.revision == 1
 
 
 def test_what_the_sources_report_about_themselves_lands_once() -> None:
@@ -142,7 +131,6 @@ def test_what_the_sources_report_about_themselves_lands_once() -> None:
     assert isinstance(identities, IdentitiesFinished)
     pages.finish_identities(identities)
     assert [entry.diagnostic for entry in store.diagnostics()].count(low) == 1
-    assert store.source_revision == 2
 
     # A query that failed as a whole still lands what the sources now report.
     for source in pages.sources.values():
@@ -153,7 +141,6 @@ def test_what_the_sources_report_about_themselves_lands_once() -> None:
     assert isinstance(failed, PageFinished)
     pages.finish_page(failed)
     assert low not in [entry.diagnostic for entry in store.diagnostics()]
-    assert store.source_revision == 3
 
 
 def test_a_failed_query_frees_its_key_without_a_store_write() -> None:
@@ -162,7 +149,8 @@ def test_a_failed_query_frees_its_key_without_a_store_write() -> None:
     host.pop_call("identities")
     pages.finish_identities(IdentitiesFinished(error="boom"))
     assert pages.busy == set()
-    assert store.source_revision == 0
+    assert store.resolved == {}
+    assert store.source_diagnostics == ()
 
     pages.submit("issues", query="Second")
     failed = host.pop_call("issues").land(error="Issue Source exploded")

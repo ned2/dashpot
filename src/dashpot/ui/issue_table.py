@@ -21,10 +21,8 @@ from textual.binding import BindingType
 from ..issues.ordering import (
     PRIORITY_BY_LABEL,
     PriorityLevel,
-    issue_activity,
     issue_priority,
 )
-from ..issues.search import IssueSearchField
 from ..observation.issue_list import (
     IssueListRow,
     IssueListSummary,
@@ -105,7 +103,6 @@ class ColumnSpec:
     # Share of the table's spare width: ``None`` follows the content width,
     # ``0`` keeps the column at its content, as for a one-glyph icon.
     spread_weight: int | None = None
-    search_field: IssueSearchField | None = None
     # A conditional column is shown only while some row satisfies this; a
     # column without one is shown whenever it is chosen.
     shown_when: Callable[[IssueListRow], bool] | None = None
@@ -216,14 +213,12 @@ COLUMN_SPECS = (
         "#",
         NUMBER_DESCRIPTION,
         header_justify="right",
-        search_field=IssueSearchField.NUMBER,
     ),
     ColumnSpec(
         "title",
         "TITLE",
         TITLE_DESCRIPTION,
         sortable=False,
-        search_field=IssueSearchField.TITLE,
     ),
     ColumnSpec(
         "waiting_on",
@@ -237,37 +232,31 @@ COLUMN_SPECS = (
         "labels",
         "LABELS",
         LABELS_DESCRIPTION,
-        search_field=IssueSearchField.LABELS,
     ),
     ColumnSpec(
         "project",
         "PROJECT",
         PROJECT_DESCRIPTION,
-        search_field=IssueSearchField.PROJECT,
     ),
     ColumnSpec(
         "assignees",
         "ASSIGNEES",
         ASSIGNEES_DESCRIPTION,
-        search_field=IssueSearchField.ASSIGNEES,
     ),
     ColumnSpec(
         "author",
         "AUTHOR",
         AUTHOR_DESCRIPTION,
-        search_field=IssueSearchField.AUTHOR,
     ),
     ColumnSpec(
         "milestone",
         "MILESTONE",
         MILESTONE_DESCRIPTION,
-        search_field=IssueSearchField.MILESTONE,
     ),
     ColumnSpec(
         "type",
         "TYPE",
         TYPE_DESCRIPTION,
-        search_field=IssueSearchField.TYPE,
     ),
     ColumnSpec("comments", "COMMENTS", COMMENTS_DESCRIPTION),
     ColumnSpec("created", "CREATED", CREATED_DESCRIPTION),
@@ -344,14 +333,6 @@ def _is_shown(spec: ColumnSpec, rows: Sequence[IssueListRow]) -> bool:
     return shown_when is None or any(shown_when(row) for row in rows)
 
 
-def searchable_columns() -> frozenset[IssueSearchField]:
-    return frozenset(
-        column.search_field
-        for column in COLUMN_SPECS
-        if column.search_field is not None
-    )
-
-
 def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
     if not column.sortable:
         return column.label
@@ -422,9 +403,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
             comments_cell(row.auxiliary.activity)
             if row.auxiliary and row.auxiliary.activity
             else unobserved_auxiliary(row)
-        )
-        if row.queried
-        else comments_cell(issue_activity(issue, project)),
+        ),
         "created": date_cell(issue.created_at),
         "last_action": date_cell(issue.updated_at),
     }

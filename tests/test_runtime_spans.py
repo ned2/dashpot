@@ -471,30 +471,6 @@ def test_a_malformed_github_response_is_recorded_by_its_code(
     assert "secret" not in json.dumps(written(recording))
 
 
-def test_each_request_of_a_fan_out_records_its_own_reading(
-    recording: Path, tmp_path: Path
-) -> None:
-    answers = iter([4990, 4980, 4970])
-
-    def runner(args: object, cwd: Path, timeout: float) -> CommandResult:
-        body = {"data": {**reading(next(answers)), "node": None}}
-        return CommandResult([], 0, json.dumps(body), "")
-
-    gateway = GitHubGateway(tmp_path, runner=runner)
-    log = current_event_log()
-    assert log is not None
-    with log.start_as_current_span("query") as parent:
-        gateway.graphql_many(QUERY, [{"id": "a"}, {"id": "b"}, {"id": "c"}])
-
-    requests = spans(recording, "github.request")
-    assert len(requests) == 3
-    assert {request["parent_span_id"] for request in requests} == {parent.span_id}
-    assert sorted(
-        request["attributes"]["dashpot.github.rate_limit.remaining"]
-        for request in requests
-    ) == [4970, 4980, 4990]
-
-
 def test_an_attempt_answered_after_the_pause_was_due_records_a_lapse(
     recording: Path, tmp_path: Path
 ) -> None:

@@ -1,8 +1,9 @@
-"""Build the Issue Source and Pull Request source a Project's configuration declares.
+"""Build the Issue Source a Project's configuration declares.
 
-The module every source consumer goes through, so a configured kind is
-interpreted the same way at every seam and the coordinator and Issue
-resolution build the same source without either importing the other.
+Issue resolution builds its source here, and the coordinator checks here
+that the Repository Anchor can serve the configured source, so a configured
+kind is interpreted the same way at every seam and neither imports the
+other.
 """
 
 from __future__ import annotations
@@ -18,17 +19,29 @@ from ..project.project_config import (
     ProjectConfig,
 )
 from .github_issues import GitHubIssuesSource
-from .github_pull_requests import GitHubPullRequestsSource
 from .issue_sources import IssueSource
 from .local_markdown_issues import LocalMarkdownIssuesSource
-from .pull_request_sources import (
-    PullRequestSource,
-    UnconfiguredPullRequestSource,
-)
 
 
 class IssueSourceError(DashpotError):
     """A configured Issue Source the Repository Anchor cannot serve."""
+
+
+def check_issue_source(
+    root: Path, config: ProjectConfig, *, git: Git | None = None
+) -> None:
+    """Refuse a configured Issue Source the Repository Anchor cannot serve.
+
+    A GitHub Issue Source needs a GitHub origin remote. ``git`` reuses a
+    caller's adapter for that check instead of probing again.
+    """
+    if isinstance(
+        config.issue_source, GitHubIssueSourceConfig
+    ) and not github_repo_from_remote(root, git):
+        raise IssueSourceError(
+            "A GitHub Issue Source requires the Repository Anchor to have "
+            "a GitHub origin remote"
+        )
 
 
 def build_issue_source(
@@ -43,12 +56,8 @@ def build_issue_source(
     ``git`` reuses a caller's adapter for the origin-remote check instead of
     probing again.
     """
+    check_issue_source(root, config, git=git)
     if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        if not github_repo_from_remote(root, git):
-            raise IssueSourceError(
-                "A GitHub Issue Source requires the Repository Anchor to have "
-                "a GitHub origin remote"
-            )
         return GitHubIssuesSource(
             root,
             project_id=config.project_id,
@@ -61,26 +70,6 @@ def build_issue_source(
             project_id=config.project_id,
             issues_path=Path(config.issue_source.path),
         )
-    raise RuntimeError(  # pragma: no cover - exhaustive guard for future kinds.
-        "unsupported configured Issue Source"
-    )
-
-
-def build_pull_request_source(
-    root: Path,
-    config: ProjectConfig,
-    *,
-    timeout: float,
-) -> PullRequestSource | UnconfiguredPullRequestSource:
-    """Build the Project's GitHub source or its honest unconfigured result."""
-    if isinstance(config.issue_source, GitHubIssueSourceConfig):
-        return GitHubPullRequestsSource(
-            root,
-            repository_id=config.repository_id,
-            timeout=timeout,
-        )
-    if isinstance(config.issue_source, LocalMarkdownIssueSourceConfig):
-        return UnconfiguredPullRequestSource()
     raise RuntimeError(  # pragma: no cover - exhaustive guard for future kinds.
         "unsupported configured Issue Source"
     )

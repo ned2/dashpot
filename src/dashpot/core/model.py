@@ -275,8 +275,8 @@ class ProjectSnapshot(ObservationModel):
     issues: LaxSequence[IssueProfile]
     diagnostics: LaxSequence[Diagnostic]
     # Worktree topology is observed independently of the Issue Source, so its
-    # freshness is reported separately. ``None`` timestamps mean the targets
-    # were never attempted for this snapshot (single-shot collectors).
+    # freshness is reported separately. ``None`` timestamps mean no target
+    # observation was recorded for this snapshot.
     target_status: SourceStatus = "fresh"
     target_attempted_at: str | None = None
     target_last_good_at: str | None = None

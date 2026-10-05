@@ -22,6 +22,7 @@ from app_harness import (
     footer_showing,
     issue,
     issue_metadata_text,
+    issue_rows,
     observation_landed,
     open_issue_view,
     pane_title,
@@ -35,7 +36,6 @@ from app_harness import (
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import AgentRun, IssueActivity, LinkedPullRequest
 from dashpot.observation.issue_list import IssueListQuery, row_key
-from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.ui.app import DashpotApp, legend_keys
 from dashpot.ui.column_editor import IssueColumnEditor
 from dashpot.ui.detail_fields import DetailFields, detail_items_text
@@ -308,11 +308,7 @@ def test_issue_metadata_excludes_labels_used_as_priority() -> None:
             "low",
         ],
     )
-    context = (
-        WorkspaceObservationStore(workspace_snapshot(selected_issue))
-        .query_issues()
-        .rows[0]
-    )
+    context = issue_rows(workspace_snapshot(selected_issue)).rows[0]
 
     detail = issue_metadata_text(context)
 
@@ -329,11 +325,7 @@ def test_issue_metadata_excludes_labels_used_as_priority() -> None:
         "Second",
         labels=["bug"],
     )
-    context = (
-        WorkspaceObservationStore(workspace_snapshot(unprioritised))
-        .query_issues()
-        .rows[0]
-    )
+    context = issue_rows(workspace_snapshot(unprioritised)).rows[0]
 
     assert "Priority: -" in issue_metadata_text(context)
 
@@ -778,9 +770,7 @@ def test_issue_metadata_names_each_related_issue_with_its_state() -> None:
     snapshot = workspace_snapshot(open_blocker, closed_blocker, blocked, subject)
     context = next(
         row
-        for row in WorkspaceObservationStore(snapshot)
-        .query_issues(IssueListQuery(lifecycle="all"))
-        .rows
+        for row in issue_rows(snapshot, IssueListQuery(lifecycle="all")).rows
         if row.issue.id == subject.id
     )
 
@@ -821,7 +811,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
         observation_target="/repo",
         observation_project_id="project:test-repo",
         branch="feature/child",
-        issue_id=None,
+        issue_id=child.id,
         issue_reference_hint=None,
     )
     snapshot = workspace_snapshot(parent, child, runs=[run])
@@ -844,11 +834,7 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
             )
         },
     )
-    context = next(
-        row
-        for row in WorkspaceObservationStore(snapshot).query_issues().rows
-        if row.issue is child
-    )
+    context = next(row for row in issue_rows(snapshot).rows if row.issue is child)
 
     text = detail_items_text(issue_metadata_items(context, now=now))
 
@@ -893,11 +879,11 @@ def test_issue_metadata_covers_the_profile_and_marks_absent_values() -> None:
         stateReason="not-planned",
         closedAt="2026-08-29T11:00:00Z",
     )
-    bare_context = (
-        WorkspaceObservationStore(workspace_snapshot(bare))
-        .query_issues(IssueListQuery(lifecycle="closed"))
-        .rows[0]
+    # Observed with no comments and no Linked Pull Requests.
+    observed = with_first_project_snapshot(
+        workspace_snapshot(bare), issue_activity={bare.id: IssueActivity()}
     )
+    bare_context = issue_rows(observed, IssueListQuery(lifecycle="closed")).rows[0]
 
     bare_text = detail_items_text(issue_metadata_items(bare_context, now=now))
 
@@ -921,7 +907,7 @@ def test_issue_view_renders_labels_as_tracker_coloured_chips() -> None:
     snapshot = with_first_project_snapshot(
         workspace_snapshot(labelled), label_colors={"bug": "d73a4a"}
     )
-    context = WorkspaceObservationStore(snapshot).query_issues().rows[0]
+    context = issue_rows(snapshot).rows[0]
 
     items = issue_metadata_items(context)
     labels = next(item for item in items if item.label == "Labels")

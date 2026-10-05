@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from typing import override
 
 from ..core.model import Diagnostic, PullRequest, SourceStatus
-from ..core.timestamps import utc_now
-from .retaining_source import Clock, RetainingSource, SourceRefreshError
+from .retaining_source import RetainingSource, SourceRefreshError
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,30 +73,3 @@ class PullRequestSource(
                 )
             identities.add(pull_request.id)
             numbers.add(pull_request.number)
-
-
-class UnconfiguredPullRequestSource:
-    """Report that a Project has no configured GitHub Pull Request source."""
-
-    def __init__(self, *, clock: Clock | None = None) -> None:
-        self._clock = clock or utc_now
-
-    def refresh(self) -> PullRequestSourceObservation:
-        attempted_at = self._clock()
-        return PullRequestSourceObservation(
-            status="unavailable",
-            attempted_at=attempted_at,
-            last_good_at=None,
-            pull_requests=(),
-            diagnostics=(
-                Diagnostic(
-                    source="pull-requests",
-                    code="pull-requests-not-configured",
-                    severity="info",
-                    message=(
-                        "Pull Requests are not configured for a Project whose "
-                        "Issue Source is Local Markdown"
-                    ),
-                ),
-            ),
-        )

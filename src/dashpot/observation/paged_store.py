@@ -1,13 +1,9 @@
 """Join Query Pages and Resolved Issues without populating export inventories.
 
-The accepted observations advance the inherited ``revision``; the accepted
-source results — pages, totals, identities, and what the sources report
-about themselves — advance ``source_revision``.
-A write that changes what the store holds moves exactly one of them by one,
-so their sum advances with every change, and it is what this store's read
-models report as their ``revision``: the joined state each was built from.
-A write that repeats what is held — a page published on every redraw, a
-total or identity resolved again unchanged — moves neither.
+A page's Issues join the Projects the store holds: a Query Source answers
+for the one Project it was built from, and the store never forgets a
+Project, so an Issue on an accepted page always finds its Project once
+that Project has been published.
 """
 
 from __future__ import annotations
@@ -27,20 +23,13 @@ from ..queries.source_queries import (
     ResourceKind,
 )
 from .issue_list import (
-    IssueListQuery,
     IssueListRow,
     IssueListSummary,
     row_key,
     worker_states,
 )
 from .list_result import ListResult
-from .observation_store import (
-    IssueContext,
-    ObservedDiagnostic,
-    StoreChange,
-    StoreState,
-    WorkspaceObservationStore,
-)
+from .observation_store import ObservedDiagnostic, WorkspaceObservationStore
 from .session_list import SessionListRow, query_indexed_session_list
 
 
@@ -69,62 +58,18 @@ class PagedObservationStore(WorkspaceObservationStore):
         # What the Query Sources last reported about themselves rather than
         # about one observation, such as a rate limit running low.
         self.source_diagnostics: tuple[Diagnostic, ...] = ()
-        self.source_revision = 0
-        # The Project each Issue on the shown page last joined with, by Issue
-        # identity. A transferred Issue's refreshed page and its Project
-        # observation land separately: while the page is in flight, an Issue
-        # whose Project the observation no longer names keeps the Project it
-        # last joined with, so its row and the selection on it survive until
-        # the page lands; a landed page joins strictly.
-        self.joined_projects: dict[str, ProjectObservation] = {}
-        self.issues_in_flight = False
         super().__init__(snapshot)
 
-    @property
-    def result_revision(self) -> int:
-        """Identify the joined state a read model was built from."""
-        return self.revision + self.source_revision
-
-    @override
-    def _commit(self, candidate: StoreState) -> StoreChange:
-        change = super()._commit(candidate)
-        if change.project_ids:
-            self._join_projects()
-        return change
-
-    def accept_page(
-        self, kind: ResourceKind, page: QueryPage | None, *, in_flight: bool = False
-    ) -> None:
-        """Show ``page`` as the kind's current page, or none, ``in_flight`` while queried again."""
+    def accept_page(self, kind: ResourceKind, page: QueryPage | None) -> None:
+        """Show ``page`` as the kind's current page, or none."""
         if page is None:
-            changed = self.pages.pop(kind, None) is not None
+            self.pages.pop(kind, None)
         else:
-            changed = self.pages.get(kind) != page
             self.pages[kind] = page
-        # Only Issue rows join a Project; Pull Request rows read their page.
-        if kind == "issues":
-            self.issues_in_flight = in_flight
-            self._join_projects()
-        if changed:
-            self.source_revision += 1
-
-    def _join_projects(self) -> None:
-        """Join each Issue on the shown page with its Project, or its last one in flight."""
-        page = self.pages.get("issues")
-        remembered = self.joined_projects
-        self.joined_projects = {}
-        for issue in page.issues if page else ():
-            project = self.project(issue.project_id)
-            if project is None and self.issues_in_flight:
-                project = remembered.get(issue.id)
-            if project is not None:
-                self.joined_projects[issue.id] = project
 
     def accept_totals(self, totals: ProjectTotals) -> None:
         """Accept a kind's Project Totals."""
-        if self.totals.get(totals.kind) != totals:
-            self.totals[totals.kind] = totals
-            self.source_revision += 1
+        self.totals[totals.kind] = totals
 
     def accept_identities(self, outcomes: Sequence[ResolvedIssue]) -> None:
         """Hold the outcomes of the identities last requested, and only those.
@@ -133,16 +78,11 @@ class PagedObservationStore(WorkspaceObservationStore):
         relationships; an outcome for an identity no longer among them is
         forgotten, so it neither hides a row nor stays in the Diagnostics.
         """
-        resolved = {outcome.issue_id: outcome for outcome in outcomes}
-        if resolved != self.resolved:
-            self.resolved = resolved
-            self.source_revision += 1
+        self.resolved = {outcome.issue_id: outcome for outcome in outcomes}
 
     def accept_source_diagnostics(self, diagnostics: Sequence[Diagnostic]) -> None:
         """Replace what the Query Sources report about themselves."""
-        if self.source_diagnostics != tuple(diagnostics):
-            self.source_diagnostics = tuple(diagnostics)
-            self.source_revision += 1
+        self.source_diagnostics = tuple(diagnostics)
 
     def row_for(self, issue_id: str) -> IssueListRow | None:
         """Project one Issue by identity, from the newer of its page and its outcome.
@@ -168,7 +108,7 @@ class PagedObservationStore(WorkspaceObservationStore):
             return None
         if issue is None:
             return None
-        project = self.project(issue.project_id) or self.joined_projects.get(issue_id)
+        project = self.project(issue.project_id)
         if project is None:
             return None
         project = self._presentation_project(project, auxiliary)
@@ -182,7 +122,6 @@ class PagedObservationStore(WorkspaceObservationStore):
             runs,
             tuple(run.activity for run in runs)
             + worker_states(self._state.agent_runs.values(), issue_id),
-            True,
             auxiliary,
             tuple(result.issue for result in self.resolved.values() if result.issue),
         )
@@ -202,10 +141,8 @@ class PagedObservationStore(WorkspaceObservationStore):
             }
         )
 
-    @override
-    def query_issues(
-        self, query: IssueListQuery = IssueListQuery()
-    ) -> ListResult[IssueListRow, IssueListSummary]:
+    def query_issues(self) -> ListResult[IssueListRow, IssueListSummary]:
+        """Project the accepted Issue page's rows, in the source's order."""
         page = self.pages.get("issues")
         rows: list[IssueListRow] = []
         if page:
@@ -221,7 +158,6 @@ class PagedObservationStore(WorkspaceObservationStore):
         totals = self.totals.get("issues")
         return ListResult(
             rows=tuple(rows),
-            revision=self.result_revision,
             summary=IssueListSummary(
                 matched_issue_count=page.matched_count or 0 if page else 0,
                 observed_issue_count=len(rows),
@@ -242,22 +178,10 @@ class PagedObservationStore(WorkspaceObservationStore):
             issues=issues,
             agent_runs=self._state.agent_runs,
             issue_runs=self._state.issue_runs,
-            revision=self.result_revision,
         )
 
-    @override
-    def issue(
-        self, issue_id: str, *, project_id: str | None = None
-    ) -> IssueContext | None:
-        row = self.row_for(issue_id)
-        if row is None or (
-            project_id is not None and row.project.project_id != project_id
-        ):
-            return None
-        return IssueContext(row.project, row.issue, row.observed_runs)
-
-    @override
     def detail_for(self, row: IssueListRow) -> IssueListRow | None:
+        """Resolve a listed row's Issue against what the store holds now."""
         return self.row_for(row.issue.id)
 
     @override

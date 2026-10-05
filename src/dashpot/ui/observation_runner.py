@@ -196,11 +196,7 @@ class ObservationRunner:
 
     def git_keys(self, project_id: str) -> list[ObservationKey]:
         """Name the keys that observe a Project's Git state, which a mutation changes."""
-        return [
-            key
-            for key in self.scheduler.keys(project_id)
-            if key.kind in ("targets", "workspace")
-        ]
+        return [key for key in self.scheduler.keys(project_id) if key.kind == "targets"]
 
     def shutdown(self) -> None:
         """Release the pool without waiting for observations still running."""

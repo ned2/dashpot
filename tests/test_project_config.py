@@ -8,15 +8,8 @@ import pytest
 from pydantic import ValidationError
 
 from dashpot.issues.github_issues import GitHubIssuesSource
-from dashpot.issues.github_pull_requests import GitHubPullRequestsSource
 from dashpot.issues.issue_resolution import configured_issue_source
-from dashpot.issues.local_markdown_issues import LocalMarkdownIssuesSource
-from dashpot.issues.pull_request_sources import UnconfiguredPullRequestSource
-from dashpot.issues.source_factories import (
-    IssueSourceError,
-    build_issue_source,
-    build_pull_request_source,
-)
+from dashpot.issues.source_factories import IssueSourceError, build_issue_source
 from dashpot.observation.collect import ObservationError, create_project_collector
 from dashpot.project.project_config import (
     PROJECT_CONFIG_NAME,
@@ -28,6 +21,8 @@ from dashpot.project.project_config import (
     parse_project_config,
 )
 from dashpot.project.workspace import ResolvedProject
+from dashpot.queries.github_queries import GitHubQuerySource
+from dashpot.queries.markdown_queries import MarkdownQuerySource
 from factories import completed, fake_git, init_repository, write_project_config
 
 PROJECT_ID = "project:01947e42-3f67-7c38-a41c-218df18a169b"
@@ -76,7 +71,7 @@ def test_loads_github_project_configuration(tmp_path: Path) -> None:
 def test_loads_configured_github_reconciliation_period(tmp_path: Path) -> None:
     write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 90})
 
-    config = load_project_config(tmp_path, polling_seconds=15)
+    config = load_project_config(tmp_path)
 
     assert isinstance(config.issue_source, GitHubIssueSourceConfig)
     assert retired_reconciliation_seconds(config.issue_source) == 90
@@ -109,26 +104,6 @@ def test_github_config_model_rejects_non_finite_reconciliation_period(
 ) -> None:
     with pytest.raises(ValidationError):
         GitHubIssueSourceConfig(kind="github", reconciliation_seconds=value)
-
-
-def test_deprecated_reconciliation_period_does_not_constrain_polling(
-    tmp_path: Path,
-) -> None:
-    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 14.5})
-    config = load_project_config(tmp_path, polling_seconds=15)
-    assert isinstance(config.issue_source, GitHubIssueSourceConfig)
-    assert retired_reconciliation_seconds(config.issue_source) == pytest.approx(14.5)
-
-
-def test_accepts_short_reconciliation_period_without_a_polling_schedule(
-    tmp_path: Path,
-) -> None:
-    write_config(tmp_path, {"kind": "github", "reconciliationSeconds": 1})
-
-    config = load_project_config(tmp_path, polling_seconds=None)
-
-    assert isinstance(config.issue_source, GitHubIssueSourceConfig)
-    assert retired_reconciliation_seconds(config.issue_source) == 1
 
 
 def test_reading_the_retired_reconciliation_period_is_a_deprecation(
@@ -297,13 +272,12 @@ def test_project_collector_builds_local_markdown_source(tmp_path: Path) -> None:
 
     collector = create_project_collector(project(tmp_path), git=git)
 
-    assert isinstance(collector.source, LocalMarkdownIssuesSource)
-    assert collector.source.project_id == PROJECT_ID
-    assert collector.source.issues_path == Path("issues")
-    assert isinstance(collector.pull_request_source, UnconfiguredPullRequestSource)
-    pull_requests = collector.pull_request_source.refresh()
+    source = collector.query_source
+    assert isinstance(source, MarkdownQuerySource)
+    assert source.config.project_id == PROJECT_ID
+    assert source.path == (tmp_path / "issues").resolve()
+    pull_requests = source.enumerate_source("pull-requests")
     assert pull_requests.status == "unavailable"
-    assert pull_requests.diagnostics[0].code == "pull-requests-not-configured"
 
 
 def test_project_collector_builds_github_source_for_github_anchor(
@@ -315,13 +289,12 @@ def test_project_collector_builds_github_source_for_github_anchor(
         completed("https://github.com/ned2/dashpot.git\n"),
     )
 
-    collector = create_project_collector(project(tmp_path), git=git)
+    collector = create_project_collector(project(tmp_path), git=git, timeout=7)
 
-    assert isinstance(collector.source, GitHubIssuesSource)
-    assert collector.source.project_id == PROJECT_ID
-    assert collector.source.repository_id == "R_dashpot"
-    assert isinstance(collector.pull_request_source, GitHubPullRequestsSource)
-    assert collector.pull_request_source.repository_id == "R_dashpot"
+    source = collector.query_source
+    assert isinstance(source, GitHubQuerySource)
+    assert source.config.repository_id == "R_dashpot"
+    assert source.gateway.timeout == 7
 
 
 def test_github_source_requires_github_repository_anchor(tmp_path: Path) -> None:
@@ -359,25 +332,6 @@ def test_build_issue_source_requires_github_repository_anchor(tmp_path: Path) ->
         build_issue_source(tmp_path, load_project_config(tmp_path), timeout=7, git=git)
 
 
-def test_build_pull_request_source_follows_the_configured_issue_source(
-    tmp_path: Path,
-) -> None:
-    write_config(tmp_path, {"kind": "github"})
-    config = load_project_config(tmp_path)
-
-    source = build_pull_request_source(tmp_path, config, timeout=7)
-
-    assert isinstance(source, GitHubPullRequestsSource)
-    assert source.repository_id == "R_dashpot"
-    assert source.gateway.timeout == 7
-
-    write_config(tmp_path, {"kind": "markdown", "path": "issues"})
-    local_source = build_pull_request_source(
-        tmp_path, load_project_config(tmp_path), timeout=7
-    )
-    assert isinstance(local_source, UnconfiguredPullRequestSource)
-
-
 def test_every_entry_point_builds_the_same_issue_source(tmp_path: Path) -> None:
     root = init_repository(
         tmp_path / "repo", origin="https://github.com/ned2/dashpot.git"
@@ -388,8 +342,12 @@ def test_every_entry_point_builds_the_same_issue_source(tmp_path: Path) -> None:
     resolved = configured_issue_source(root)
     collector = create_project_collector(project(root))
 
-    for source in (direct, resolved, collector.source):
+    for source in (direct, resolved):
         assert isinstance(source, GitHubIssuesSource)
         assert source.project_id == PROJECT_ID
         assert source.repository_id == "R_dashpot"
         assert source.timeout == 10
+    # The collector observes through the Query Source the dashboard pages.
+    assert isinstance(collector.query_source, GitHubQuerySource)
+    assert collector.query_source.config == load_project_config(root)
+    assert collector.query_source.gateway.timeout == 10

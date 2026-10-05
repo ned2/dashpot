@@ -27,11 +27,11 @@ from app_harness import (
     workspace_snapshot,
 )
 from app_harness import issue as app_issue
+from app_harness import issue_rows as paged_issue_rows
 from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.model import AgentRun, AssignedWorker, WorkerState, WorkspaceSnapshot
 from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.observation.issue_list import IssueListRow, row_key
-from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.source_queries import QueryRequest
 from dashpot.sessions.agents import observe_agent_runs
@@ -162,18 +162,18 @@ def issue_rows(*runs: AgentRun) -> dict[str, IssueListRow]:
             author=None,
             milestone=None,
             issueType=None,
+            projectId="project:test",
         )
         for spec in ARC_ISSUES.values()
     ]
-    store = WorkspaceObservationStore(
-        factories.workspace(factories.project("project:test", *issues))
-    )
     bindings: dict[str, list[str]] = {}
     for run in runs:
         if run.issue_id is not None:
             bindings.setdefault(run.issue_id, []).append(run.id)
-    store.replace_agent_runs(list(runs), bindings)
-    return {row.issue.id: row for row in store.query_issues().rows}
+    snapshot = factories.workspace(
+        factories.project("project:test", *issues), runs=list(runs), issue_runs=bindings
+    )
+    return {row.issue.id: row for row in paged_issue_rows(snapshot).rows}
 
 
 def activity(*runs: AgentRun) -> dict[str, tuple[str, ...]]:
@@ -470,37 +470,36 @@ def leading_run(
     ).model_copy(update={"workers": workers})
 
 
-def test_a_changed_worker_reports_the_issues_it_left_and_joined() -> None:
-    store = WorkspaceObservationStore(
-        factories.workspace(
-            factories.project(
-                "project:test",
-                *(
-                    make_issue(id=issue_id, number=number)
-                    for number, issue_id in enumerate(
-                        ("I_arc", "I_first", "I_second"), start=1
-                    )
-                ),
-            )
-        )
+def test_a_moved_worker_leaves_the_issue_it_left_and_joins_the_next() -> None:
+    arc_issue = app_issue("test-repo#1", "Arc")
+    first = app_issue("test-repo#2", "First")
+    second = app_issue("test-repo#3", "Second")
+    snapshot = workspace_snapshot(arc_issue, first, second)
+    store = PagedObservationStore(snapshot)
+    store.accept_page(
+        "issues",
+        SnapshotQuerySource(snapshot).query_page(QueryRequest(kind="issues")).page,
     )
-    bindings = {"I_arc": ["codex:lead"]}
-    store.replace_agent_runs([leading_run(worker("I_first"))], bindings)
+    bindings = {arc_issue.id: ["codex:lead"]}
 
-    stopped = store.replace_agent_runs([leading_run(worker("I_first", None))], bindings)
-    moved = store.replace_agent_runs([leading_run(worker("I_second"))], bindings)
+    def lead(assigned: AssignedWorker) -> AgentRun:
+        return leading_run(assigned, project_id=PROJECT_ID, arc_id=arc_issue.id)
 
-    assert stopped.issue_keys == frozenset(
-        {("project:test", "I_arc"), ("project:test", "I_first")}
-    )
-    assert moved.issue_keys == frozenset(
-        {
-            ("project:test", "I_arc"),
-            ("project:test", "I_first"),
-            ("project:test", "I_second"),
-        }
-    )
-    row = next(row for row in store.query_issues().rows if row.issue.id == "I_second")
+    def activity() -> dict[str, tuple[str, ...]]:
+        return {row.issue.id: row.session_states for row in store.query_issues().rows}
+
+    store.replace_agent_runs([lead(worker(first.id))], bindings)
+    assert activity()[first.id] == ("running",)
+    store.replace_agent_runs([lead(worker(first.id, None))], bindings)
+    assert activity()[first.id] == ()
+    store.replace_agent_runs([lead(worker(second.id))], bindings)
+
+    assert activity() == {
+        arc_issue.id: ("waiting",),
+        first.id: (),
+        second.id: ("running",),
+    }
+    row = next(row for row in store.query_issues().rows if row.issue.id == second.id)
     detail = store.detail_for(row)
     assert detail is not None
     assert detail.session_states == ("running",)
@@ -793,24 +792,6 @@ def test_a_claude_code_worker_runs_until_unassigned_when_no_stop_arrives(
     assert activity(run)["I_first"] == ("running",)
     unassign_worker(main, CLAUDE_WORKER, lookup=live, environ=lead)
     assert activity(lead_run(live, main))["I_first"] == ()
-
-
-def test_no_worker_counts_toward_an_issue_two_projects_observe() -> None:
-    shared = make_issue(id="I_first", number=2)
-    store = WorkspaceObservationStore(
-        factories.workspace(
-            factories.project("project:test", shared),
-            factories.project("project:other", shared),
-        )
-    )
-    store.replace_agent_runs([leading_run(worker("I_first"))], {})
-
-    rows = [row for row in store.query_issues().rows if row.issue.id == "I_first"]
-
-    assert len(rows) == 2
-    assert all(row.session_states == () for row in rows)
-    details = [store.detail_for(row) for row in rows]
-    assert all(detail is not None and detail.session_states == () for detail in details)
 
 
 def test_assignment_refuses_a_worker_only_a_stale_record_lists(

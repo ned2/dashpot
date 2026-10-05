@@ -155,8 +155,8 @@ class RunningCommands:
 
 # The registry a thread's interruptible commands belong to, set by the pool
 # that started the thread. A context variable rather than a thread-local so a
-# thread that fans out — ``GitHubGateway.graphql_many`` — can copy it into
-# the threads it starts, which are as much the dashboard's as their parent.
+# thread that fans out can copy it into the threads it starts, which are as
+# much the dashboard's as their parent; no thread fans out today.
 _adopted: ContextVar[RunningCommands | None] = ContextVar(
     "dashpot_running_commands", default=None
 )

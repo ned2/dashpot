@@ -371,7 +371,7 @@ def test_a_superseded_outcome_is_dropped() -> None:
 
 
 def test_a_publish_with_changes_schedules_its_follow_ups_whatever_the_trigger() -> None:
-    change = StoreChange(1, frozenset({"projects"}))
+    change = StoreChange(agent_dependency_project_ids=frozenset({"alpha"}))
     scheduler = FakeScheduler(
         all_keys=(ALPHA, TARGETS),
         follow_up_keys=(TARGETS,),
@@ -433,7 +433,8 @@ def test_a_real_observation_is_published_into_the_store() -> None:
     assert isinstance(published, PublishedObservation)
     assert store.has_observations
     assert store.checkpoint() == snapshot
-    assert published.changes[0].revision == 1
+    assert store.revision == 1
+    assert len(published.changes) == 1
     observations.shutdown()
 
 
@@ -545,7 +546,7 @@ def test_a_rerun_keeps_the_refresh_that_asked_for_it() -> None:
 
 
 def test_a_follow_up_keeps_the_refresh_of_the_observation_that_caused_it() -> None:
-    change = StoreChange(1, frozenset({"projects"}))
+    change = StoreChange(agent_dependency_project_ids=frozenset({"alpha"}))
     scheduler = FakeScheduler(
         all_keys=(ALPHA,), follow_up_keys=(TARGETS,), changes_per_publish=[change]
     )

@@ -10,8 +10,8 @@ from pathlib import Path
 from textual.message import Message
 
 from app_harness import (
+    HARNESS_KEY,
     PROJECT_ID,
-    WORKSPACE_KEY,
     SequenceCollector,
     SnapshotScheduler,
     issue,
@@ -100,7 +100,7 @@ class FakeHost:
         return matching[0]
 
     def observed_groups(self) -> list[str]:
-        return [call.group for call in self.calls if call.group == WORKSPACE_KEY.group]
+        return [call.group for call in self.calls if call.group == HARNESS_KEY.group]
 
 
 def observed(branch_anchor: str | None = ANCHOR) -> WorkspaceSnapshot:
@@ -197,7 +197,7 @@ def test_a_landed_fetch_releases_the_project_and_reobserves_its_git_facts() -> N
         ("information", "Dashpot fetch", f"{LABEL}: fetched and pruned origin")
     ]
     assert host.diagnostics == 1
-    assert host.observed_groups() == [WORKSPACE_KEY.group]
+    assert host.observed_groups() == [HARNESS_KEY.group]
 
 
 def test_a_failure_is_kept_until_a_fetch_there_succeeds() -> None:

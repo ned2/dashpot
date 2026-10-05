@@ -57,8 +57,8 @@ of date.
 | 0039 | [Anchor the default Worktree Root on the main working tree](0039-anchor-the-default-worktree-root-on-the-main-working-tree.md) | accepted | — |
 | 0040 | [Summarize integration across a Branch row's refs](0040-summarize-integration-across-a-branch-rows-refs.md) | amended | [0050](0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md) |
 | 0041 | [Distinguish GitHub wire models from configuration](0041-distinguish-github-wire-models-from-configuration.md) | accepted | — |
-| 0042 | [Group leaf and domain modules into subpackages](0042-group-leaf-and-domain-modules-into-subpackages.md) | accepted | — |
-| 0043 | [Retain distinct query and collection adapters](0043-retain-distinct-query-and-collection-adapters.md) | amended | [0139](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md) |
+| 0042 | [Group leaf and domain modules into subpackages](0042-group-leaf-and-domain-modules-into-subpackages.md) | amended | [0137](0137-hold-only-what-was-published-last-in-the-observation-store.md) |
+| 0043 | [Retain distinct query and collection adapters](0043-retain-distinct-query-and-collection-adapters.md) | amended | [0139](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md), [0137](0137-hold-only-what-was-published-last-in-the-observation-store.md) |
 | 0044 | [Integrate pull requests through a merge queue](0044-integrate-pull-requests-through-a-merge-queue.md) | amended | [0045](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md), [0089](0089-leave-the-pr-merge-to-the-operator.md) |
 | 0045 | [Drop the up-to-date rule where a merge queue is unavailable](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md) | amended | [0089](0089-leave-the-pr-merge-to-the-operator.md) |
 | 0046 | [Raise every refusal as a DashpotError subclass](0046-raise-every-refusal-as-a-dashpoterror-subclass.md) | accepted | — |
@@ -99,7 +99,7 @@ of date.
 | 0093 | [Install an OpenCode worker agent that cannot move sessions](0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md) | accepted | — |
 | 0094 | [Let a root OpenCode session move itself for Issue work](0094-let-a-root-opencode-session-move-itself-for-issue-work.md) | accepted | — |
 | 0095 | [Keep an ended session's sub-agents listed until they stop](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md) | amended | [0097](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md), [0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md), [0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md), [0132](0132-refuse-a-session-end-only-on-another-named-host-process.md) |
-| 0096 | [Attribute a Lead's Workers to their Issues by explicit assignment](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md) | accepted | — |
+| 0096 | [Attribute a Lead's Workers to their Issues by explicit assignment](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md) | amended | [0137](0137-hold-only-what-was-published-last-in-the-observation-store.md) |
 | 0097 | [Carry a live session's sub-agents through its own SessionStart](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md) | amended | [0100](0100-keep-a-compacted-sessions-turn-state.md), [0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md), [0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md), [0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md) |
 | 0098 | [Show Runtime Events and Stats as tabs of one temporary screen](0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md) | accepted | — |
 | 0099 | [Print Runtime Events as JSON Lines](0099-print-runtime-events-as-json-lines.md) | accepted | — |
@@ -122,4 +122,5 @@ of date.
 | 0130 | [Write integrate's configuration where each harness reads it, and finish `--remove` past a failed step](0130-write-integrates-configuration-where-each-harness-reads-it.md) | accepted | — |
 | 0131 | [Judge Session Liveness in the recorded PID namespace](0131-judge-session-liveness-in-the-recorded-pid-namespace.md) | accepted | — |
 | 0132 | [Refuse a session's end only on another named Host Process](0132-refuse-a-session-end-only-on-another-named-host-process.md) | accepted | — |
+| 0137 | [Hold only what was published last in the observation store](0137-hold-only-what-was-published-last-in-the-observation-store.md) | accepted | — |
 | 0139 | [Share the Local Issue reader and contain Linked Pull Request completion](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md) | accepted | — |

@@ -6,10 +6,12 @@ import json
 import tempfile
 import threading
 import unittest
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, override
 
+from app_harness import NOW, PROJECT_ID, SnapshotQuerySource, workspace_snapshot
+from app_harness import issue as harness_issue
 from dashpot.core.commands import CommandResult
 from dashpot.core.issue_profile import IssueProfile, conform_issue
 from dashpot.core.model import (
@@ -27,17 +29,24 @@ from dashpot.github.github_repository import (
     RepositoryIdentityError,
     observe_github_repository_identity,
 )
-from dashpot.issues.issue_sources import (
-    CollectedIssues,
-    IssueSource,
-    IssueSourceObservation,
-)
+from dashpot.issues.issue_sources import IssueSourceObservation
 from dashpot.issues.pull_request_sources import PullRequestSourceObservation
-from dashpot.observation.collect import ObservationCoordinator, ProjectCollector
+from dashpot.observation.collect import (
+    ObservationCoordinator,
+    ProjectCollector,
+    create_project_collector,
+)
 from dashpot.project.workspace import ResolvedProject
+from dashpot.queries.markdown_queries import MarkdownQuerySource
+from dashpot.queries.source_queries import (
+    AuxiliaryObservation,
+    QuerySource,
+    ResourceKind,
+    SourceEnumeration,
+)
 from dashpot.repository.repository import BranchObservation
-from factories import observation_target
-from helpers import jsonable
+from factories import dashpot_project, observation_target
+from helpers import jsonable, snapshot_of
 
 ROOT = Path(__file__).resolve().parents[1]
 ISSUE_FIXTURE = json.loads(
@@ -98,60 +107,6 @@ def issue_payload(reference: str = "example/project#7") -> dict[str, Any]:
 
 def issue(reference: str = "example/project#7") -> IssueProfile:
     return conform_issue(issue_payload(reference))
-
-
-class FakeSource(IssueSource):
-    @property
-    @override
-    def name(self) -> str:
-        return "fake"
-
-    @override
-    def _collect(self) -> CollectedIssues:
-        return CollectedIssues((issue(),))
-
-
-class EmptySource(IssueSource):
-    @property
-    @override
-    def name(self) -> str:
-        return "empty"
-
-    @override
-    def _collect(self) -> CollectedIssues:
-        return CollectedIssues(())
-
-
-class PaletteSource(FakeSource):
-    @override
-    def _collect(self) -> CollectedIssues:
-        return CollectedIssues(
-            issues=(issue(),),
-            label_colors={"enhancement": "a2eeef"},
-            issue_activity={
-                issue().id: IssueActivity(
-                    comment_count=2,
-                    linked_pull_requests=[
-                        LinkedPullRequest(
-                            number=41,
-                            url="https://example.test/pull/41",
-                            state="merged",
-                        )
-                    ],
-                )
-            },
-        )
-
-
-class CountingSource(FakeSource):
-    def __init__(self) -> None:
-        super().__init__()
-        self.collection_count = 0
-
-    @override
-    def _collect(self) -> CollectedIssues:
-        self.collection_count += 1
-        return super()._collect()
 
 
 class RepositoryTests(unittest.TestCase):
@@ -227,249 +182,359 @@ class FixedRunner:
         return self.result
 
 
-class ProjectCollectorTests(unittest.TestCase):
-    def test_combines_issue_and_target_observations(self) -> None:
-        collector = ProjectCollector(
-            resolved_project(),
-            FakeSource(),
-            target_observer=lambda _anchors: target_inventory(),
-        )
+class EnumeratingSource(SnapshotQuerySource):
+    """Enumerate a snapshot's Project, with the auxiliary facts a provider reports."""
 
-        snapshot = collector.refresh()
+    def __init__(
+        self,
+        snapshot: WorkspaceSnapshot,
+        auxiliary: Mapping[str, AuxiliaryObservation] | None = None,
+    ) -> None:
+        super().__init__(snapshot)
+        self.auxiliary = dict(auxiliary or {})
+        self.enumerations: list[ResourceKind] = []
 
-        self.assertEqual("Build observer", snapshot.issues[0].title)
-        self.assertEqual("project:example", snapshot.project_id)
-        self.assertEqual("Example", snapshot.display_label)
-        self.assertEqual("/repo", snapshot.observation_targets[0].path)
-        self.assertEqual({}, snapshot.label_colors)
+    @override
+    def enumerate_source(self, kind: ResourceKind) -> SourceEnumeration:
+        self.enumerations.append(kind)
+        enumeration = super().enumerate_source(kind)
+        if kind != "issues":
+            return enumeration
+        return enumeration.model_copy(update={"auxiliary": self.auxiliary})
 
-    def test_branches_travel_with_the_targets_half_of_the_snapshot(self) -> None:
-        branch = Branch(
-            refname="refs/heads/main",
-            name="main",
-            remote=None,
-            head="abc123",
-            committed_at="2026-08-27T00:00:00Z",
-            unintegrated_commits=0,
-        )
-        anchors_seen: list[list[Path]] = []
 
-        def observe_branches(anchors: Sequence[Path]) -> BranchObservation:
-            anchors_seen.append(list(anchors))
-            return BranchObservation(
-                [branch],
-                "2026-08-27T01:00:00Z",
-                [],
-                "refs/remotes/origin/main",
-            )
+def no_branches(_anchors: Sequence[Path]) -> BranchObservation:
+    return BranchObservation([], None, [])
 
-        collector = ProjectCollector(
-            resolved_project(),
-            FakeSource(),
-            target_observer=lambda _anchors: target_inventory(),
-            branch_observer=observe_branches,
-        )
 
-        snapshot = collector.refresh()
-        inventory = collector.observe_targets()
-
-        self.assertEqual([[Path("/repo")], [Path("/repo")]], anchors_seen)
-        self.assertEqual((branch,), snapshot.branches)
-        self.assertEqual("2026-08-27T01:00:00Z", snapshot.fetched_at)
-        self.assertEqual("refs/remotes/origin/main", snapshot.integration_ref)
-        self.assertEqual((branch,), inventory.branches)
-        self.assertEqual("2026-08-27T01:00:00Z", inventory.fetched_at)
-        self.assertEqual("refs/remotes/origin/main", inventory.integration_ref)
-        payload = jsonable(snapshot)
-        self.assertEqual("refs/heads/main", payload["branches"][0]["refname"])
-        self.assertEqual(0, payload["branches"][0]["unintegratedCommits"])
-        self.assertEqual("2026-08-27T01:00:00Z", payload["fetchedAt"])
-        self.assertEqual("refs/remotes/origin/main", payload["integrationRef"])
-
-    def test_source_label_palette_travels_with_the_snapshot(self) -> None:
-        collector = ProjectCollector(
-            resolved_project(),
-            PaletteSource(),
-            target_observer=lambda _anchors: target_inventory(),
-        )
-
-        snapshot = collector.refresh()
-
-        self.assertEqual({"enhancement": "a2eeef"}, snapshot.label_colors)
-        self.assertEqual({"enhancement": "a2eeef"}, jsonable(snapshot)["labelColors"])
-        activity = jsonable(snapshot)["issueActivity"][issue().id]
-        self.assertEqual(2, activity["commentCount"])
-        self.assertEqual(
-            [{"number": 41, "url": "https://example.test/pull/41", "state": "merged"}],
-            activity["linkedPullRequests"],
-        )
-
-    def test_empty_issue_project_retains_identity_and_display_label(self) -> None:
-        collector = ProjectCollector(
-            resolved_project(),
-            EmptySource(),
-            target_observer=lambda _anchors: target_inventory(),
-        )
-
-        snapshot = collector.refresh()
-        payload = jsonable(snapshot)
-
-        self.assertEqual((), snapshot.issues)
-        self.assertEqual("project:example", payload["projectId"])
-        self.assertEqual("Example", payload["displayLabel"])
-        self.assertEqual("repository:example", payload["repositoryId"])
-
-    def test_headless_issue_json_preserves_required_null_fields(self) -> None:
-        payload = issue_payload()
-        payload.update(
-            {
-                "stateReason": None,
-                "author": None,
-                "issueType": None,
-                "milestone": None,
-                "closedAt": None,
-            }
-        )
-        payload["relationships"]["parent"] = None
-        complete = conform_issue(payload)
-        snapshot = project_snapshot(issues=[complete])
-
-        serialized = jsonable(snapshot)["issues"][0]
-
-        self.assertEqual(complete, conform_issue(serialized))
-        self.assertEqual(complete.number, serialized["number"])
-        self.assertIsNone(serialized["stateReason"])
-        self.assertIsNone(serialized["relationships"]["parent"])
-        self.assertIsNone(serialized["issueType"])
-        self.assertIsNone(serialized["milestone"])
-
-    def test_observes_all_anchors_but_refreshes_issues_once(self) -> None:
-        source = CountingSource()
-        project = ResolvedProject(
-            "project:example",
-            "Example",
-            "repository:example",
-            ("personal",),
-            ("/clone-one", "/clone-two"),
-            "/clone-one",
-        )
-        target = ObservationTarget(
-            path="/clone-two-linked",
-            head="def456",
-            branch="feature",
-            detached=False,
-            dirty=True,
-            availability="available",
-            elapsed_ms=7,
-            diagnostics=[],
-            role="linked",
-        )
-        observed_anchors: list[Path] = []
-
-        def observe_targets(anchors):
-            observed_anchors.extend(anchors)
-            return RepositoryStateInventory(targets=[target], diagnostics=[])
-
-        collector = ProjectCollector(
+def exported(
+    tmp_path: Path,
+    source: QuerySource,
+    *,
+    anchors: Sequence[str] = ("repo",),
+    target_observer: Callable[[Sequence[Path]], RepositoryStateInventory] = (
+        lambda _anchors: target_inventory()
+    ),
+    branch_observer: Callable[[Sequence[Path]], BranchObservation] = no_branches,
+    clock: Callable[[], str] = lambda: NOW,
+) -> ProjectSnapshot:
+    """The one Project a headless export observes through ``source``."""
+    paths = [tmp_path / anchor for anchor in anchors]
+    for path in paths:
+        path.mkdir(exist_ok=True)
+    project = ResolvedProject(
+        PROJECT_ID,
+        "Test Repository",
+        "repository:test-repo",
+        ("test",),
+        tuple(str(path) for path in paths),
+        str(paths[0]),
+    )
+    coordinator = ObservationCoordinator(
+        [project],
+        factory=lambda project, **_kwargs: ProjectCollector(
             project,
             source,
-            target_observer=observe_targets,
+            target_observer=target_observer,
+            branch_observer=branch_observer,
+        ),
+        agent_observer=lambda _targets: ([], []),
+        clock=clock,
+    )
+    return snapshot_of(coordinator.refresh().projects[0])
+
+
+def test_combines_issue_and_target_observations(tmp_path: Path) -> None:
+    source = EnumeratingSource(
+        workspace_snapshot(harness_issue("test/repo#7", "Build"))
+    )
+
+    snapshot = exported(tmp_path, source)
+
+    assert snapshot.issues[0].title == "Build"
+    assert snapshot.project_id == PROJECT_ID
+    assert snapshot.display_label == "Test Repository"
+    assert snapshot.observation_targets[0].path == "/repo"
+    assert snapshot.label_colors == {}
+    assert source.enumerations.count("issues") == 1
+    assert source.enumerations.count("pull-requests") == 1
+
+
+def test_branches_travel_with_the_targets_half_of_the_snapshot(
+    tmp_path: Path,
+) -> None:
+    branch = Branch(
+        refname="refs/heads/main",
+        name="main",
+        remote=None,
+        head="abc123",
+        committed_at="2026-08-27T00:00:00Z",
+        unintegrated_commits=0,
+    )
+    anchors_seen: list[list[Path]] = []
+
+    def observe_branches(anchors: Sequence[Path]) -> BranchObservation:
+        anchors_seen.append(list(anchors))
+        return BranchObservation(
+            [branch],
+            "2026-08-27T01:00:00Z",
+            [],
+            "refs/remotes/origin/main",
         )
 
-        snapshot = collector.refresh()
+    snapshot = exported(
+        tmp_path,
+        EnumeratingSource(workspace_snapshot()),
+        branch_observer=observe_branches,
+    )
 
-        self.assertEqual([Path("/clone-one"), Path("/clone-two")], observed_anchors)
-        self.assertEqual((target,), snapshot.observation_targets)
-        self.assertEqual(1, len(snapshot.issues))
-        self.assertEqual(1, source.collection_count)
-        self.assertEqual(
-            "/clone-two-linked",
-            jsonable(snapshot)["observationTargets"][0]["path"],
+    assert anchors_seen == [[tmp_path / "repo"]]
+    assert snapshot.branches == (branch,)
+    assert snapshot.fetched_at == "2026-08-27T01:00:00Z"
+    assert snapshot.integration_ref == "refs/remotes/origin/main"
+    payload = jsonable(snapshot)
+    assert payload["branches"][0]["refname"] == "refs/heads/main"
+    assert payload["branches"][0]["unintegratedCommits"] == 0
+    assert payload["fetchedAt"] == "2026-08-27T01:00:00Z"
+    assert payload["integrationRef"] == "refs/remotes/origin/main"
+
+
+def test_source_label_palette_and_activity_travel_with_the_snapshot(
+    tmp_path: Path,
+) -> None:
+    listed = harness_issue("test/repo#7", "Build")
+    activity = IssueActivity(
+        comment_count=2,
+        linked_pull_requests=[
+            LinkedPullRequest(
+                number=41, url="https://example.test/pull/41", state="merged"
+            )
+        ],
+    )
+    source = EnumeratingSource(
+        workspace_snapshot(listed),
+        {
+            listed.id: AuxiliaryObservation(
+                status="fresh",
+                attempted_at=NOW,
+                last_good_at=NOW,
+                activity=activity,
+                label_colors={"enhancement": "a2eeef"},
+            )
+        },
+    )
+
+    snapshot = exported(tmp_path, source)
+
+    assert snapshot.label_colors == {"enhancement": "a2eeef"}
+    assert jsonable(snapshot)["labelColors"] == {"enhancement": "a2eeef"}
+    observed = jsonable(snapshot)["issueActivity"][listed.id]
+    assert observed["commentCount"] == 2
+    assert observed["linkedPullRequests"] == [
+        {"number": 41, "url": "https://example.test/pull/41", "state": "merged"}
+    ]
+
+
+def test_empty_issue_project_retains_identity_and_display_label(
+    tmp_path: Path,
+) -> None:
+    snapshot = exported(tmp_path, EnumeratingSource(workspace_snapshot()))
+    payload = jsonable(snapshot)
+
+    assert snapshot.issues == ()
+    assert payload["projectId"] == PROJECT_ID
+    assert payload["displayLabel"] == "Test Repository"
+    assert payload["repositoryId"] == "repository:test-repo"
+
+
+def test_headless_issue_json_preserves_required_null_fields() -> None:
+    payload = issue_payload()
+    payload.update(
+        {
+            "stateReason": None,
+            "author": None,
+            "issueType": None,
+            "milestone": None,
+            "closedAt": None,
+        }
+    )
+    payload["relationships"]["parent"] = None
+    complete = conform_issue(payload)
+    snapshot = project_snapshot(issues=[complete])
+
+    serialized = jsonable(snapshot)["issues"][0]
+
+    assert conform_issue(serialized) == complete
+    assert serialized["number"] == complete.number
+    assert serialized["stateReason"] is None
+    assert serialized["relationships"]["parent"] is None
+    assert serialized["issueType"] is None
+    assert serialized["milestone"] is None
+
+
+def test_observes_all_anchors_but_enumerates_issues_once(tmp_path: Path) -> None:
+    source = EnumeratingSource(
+        workspace_snapshot(harness_issue("test/repo#7", "Build"))
+    )
+    target = ObservationTarget(
+        path="/clone-two-linked",
+        head="def456",
+        branch="feature",
+        detached=False,
+        dirty=True,
+        availability="available",
+        elapsed_ms=7,
+        diagnostics=[],
+        role="linked",
+    )
+    observed_anchors: list[Path] = []
+
+    def observe_targets(anchors: Sequence[Path]) -> RepositoryStateInventory:
+        observed_anchors.extend(anchors)
+        return RepositoryStateInventory(targets=[target], diagnostics=[])
+
+    snapshot = exported(
+        tmp_path,
+        source,
+        anchors=("clone-one", "clone-two"),
+        target_observer=observe_targets,
+    )
+
+    assert observed_anchors == [tmp_path / "clone-one", tmp_path / "clone-two"]
+    assert snapshot.observation_targets == (target,)
+    assert len(snapshot.issues) == 1
+    assert source.enumerations.count("issues") == 1
+    assert jsonable(snapshot)["observationTargets"][0]["path"] == "/clone-two-linked"
+
+
+def test_unavailable_target_does_not_degrade_issue_source(tmp_path: Path) -> None:
+    target = observation_target(
+        availability="unavailable",
+        dirty=None,
+        diagnostics=[
+            Diagnostic(
+                source="target:/repo",
+                severity="warning",
+                message="target unavailable",
+                code="target-inaccessible",
+            )
+        ],
+    )
+
+    snapshot = exported(
+        tmp_path,
+        EnumeratingSource(workspace_snapshot(harness_issue("test/repo#7", "Build"))),
+        target_observer=lambda _anchors: RepositoryStateInventory(
+            targets=[target], diagnostics=[]
+        ),
+    )
+
+    assert snapshot.issue_source_status == "fresh"
+    assert len(snapshot.issues) == 1
+    assert snapshot.observation_targets[0].availability == "unavailable"
+
+
+def test_target_observer_failure_preserves_fresh_issues(tmp_path: Path) -> None:
+    def crash(_anchors: Sequence[Path]) -> RepositoryStateInventory:
+        raise RuntimeError("target discovery crashed")
+
+    snapshot = exported(
+        tmp_path,
+        EnumeratingSource(workspace_snapshot(harness_issue("test/repo#7", "Build"))),
+        target_observer=crash,
+        clock=lambda: "2026-09-02T00:00:03Z",
+    )
+
+    assert snapshot.issue_source_status == "fresh"
+    assert len(snapshot.issues) == 1
+    assert snapshot.observation_targets == ()
+    assert snapshot.target_status == "unavailable"
+    assert snapshot.target_attempted_at == "2026-09-02T00:00:03Z"
+    assert snapshot.target_last_good_at is None
+    assert "target discovery crashed" in " ".join(
+        diagnostic.message for diagnostic in snapshot.diagnostics
+    )
+
+
+def test_the_export_stamps_its_observations_from_the_coordinators_clock(
+    tmp_path: Path,
+) -> None:
+    snapshot = exported(
+        tmp_path,
+        EnumeratingSource(workspace_snapshot()),
+        clock=lambda: "2026-09-02T00:00:02Z",
+    )
+
+    assert snapshot.target_attempted_at == "2026-09-02T00:00:02Z"
+    assert snapshot.target_last_good_at == "2026-09-02T00:00:02Z"
+    assert snapshot.collected_at == "2026-09-02T00:00:02Z"
+
+
+def test_the_export_observes_a_configured_project_through_its_query_source(
+    tmp_path: Path,
+) -> None:
+    root = dashpot_project(tmp_path / "repo").resolve()
+    project = ResolvedProject(
+        "project:test", "Test", "repository:test", ("test",), (str(root),), str(root)
+    )
+    built: list[ProjectCollector] = []
+
+    def factory(project: ResolvedProject, **kwargs: Any) -> ProjectCollector:
+        collector = create_project_collector(project, **kwargs)
+        built.append(collector)
+        return collector
+
+    coordinator = ObservationCoordinator(
+        [project], factory=factory, agent_observer=lambda _targets: ([], [])
+    )
+
+    snapshot = snapshot_of(coordinator.refresh().projects[0])
+
+    assert [type(collector.query_source) for collector in built] == [
+        MarkdownQuerySource
+    ]
+    assert sorted(issue.title for issue in snapshot.issues) == [
+        "Build observer",
+        "Fix crash",
+    ]
+    assert snapshot.issue_source_status == "fresh"
+    # A Markdown Project has no Pull Requests to enumerate.
+    assert snapshot.pull_request_status == "unavailable"
+    assert [target.path for target in snapshot.observation_targets] == [str(root)]
+
+
+def test_the_export_builds_each_projects_collector_once(tmp_path: Path) -> None:
+    roots = [tmp_path / name for name in ("alpha", "beta")]
+    for root in roots:
+        root.mkdir()
+    projects = [resolved_project(str(root), f"project:{root.name}") for root in roots]
+    # Every half of every Project asks for its collector at once; each
+    # build waits until all of them have asked, so a coordinator that built
+    # per half would build each collector three times. A coordinator that
+    # builds once holds the other halves on its lock, short of the barrier,
+    # so on correct code the barrier breaks after its timeout: no observable
+    # point marks a half waiting on that lock to release it sooner.
+    arrived = threading.Barrier(len(projects) * 3, timeout=0.5)
+    builds: list[str] = []
+    lock = threading.Lock()
+
+    def factory(project: ResolvedProject, **_kwargs: Any) -> FakeProjectCollector:
+        with lock:
+            builds.append(project.project_id)
+        with contextlib.suppress(threading.BrokenBarrierError):
+            arrived.wait()
+        return FakeProjectCollector(
+            project_snapshot(project.primary_anchor, project_id=project.project_id)
         )
 
-    def test_unavailable_target_does_not_degrade_issue_source(self) -> None:
-        target = observation_target(
-            availability="unavailable",
-            dirty=None,
-            diagnostics=[
-                Diagnostic(
-                    source="target:/repo",
-                    severity="warning",
-                    message="target unavailable",
-                    code="target-inaccessible",
-                )
-            ],
-        )
-        collector = ProjectCollector(
-            resolved_project(),
-            FakeSource(),
-            target_observer=lambda _anchors: RepositoryStateInventory(
-                targets=[target], diagnostics=[]
-            ),
-        )
+    coordinator = ObservationCoordinator(
+        projects, factory=factory, agent_observer=lambda _targets: ([], [])
+    )
 
-        snapshot = collector.refresh()
+    snapshot = coordinator.refresh()
 
-        self.assertEqual("fresh", snapshot.issue_source_status)
-        self.assertEqual(1, len(snapshot.issues))
-        self.assertEqual("unavailable", snapshot.observation_targets[0].availability)
-
-    def test_target_observer_failure_preserves_fresh_issues(self) -> None:
-        collector = ProjectCollector(
-            resolved_project(),
-            FakeSource(),
-            target_observer=lambda _anchors: (_ for _ in ()).throw(
-                RuntimeError("target discovery crashed")
-            ),
-        )
-
-        snapshot = collector.refresh()
-
-        self.assertEqual("fresh", snapshot.issue_source_status)
-        self.assertEqual(1, len(snapshot.issues))
-        self.assertEqual((), snapshot.observation_targets)
-        self.assertIn(
-            "target-discovery", [diagnostic.code for diagnostic in snapshot.diagnostics]
-        )
-
-    def test_refresh_stamps_timestamps_from_the_injected_clock(self) -> None:
-        ticks = iter(
-            [
-                "2026-09-02T00:00:01Z",
-                "2026-09-02T00:00:02Z",
-                "2026-09-02T00:00:03Z",
-            ]
-        )
-        collector = ProjectCollector(
-            resolved_project(),
-            FakeSource(),
-            target_observer=lambda _anchors: target_inventory(),
-            clock=lambda: next(ticks),
-        )
-
-        snapshot = collector.refresh()
-
-        self.assertEqual("2026-09-02T00:00:01Z", snapshot.pull_request_attempted_at)
-        self.assertEqual("2026-09-02T00:00:02Z", snapshot.target_attempted_at)
-        self.assertEqual("2026-09-02T00:00:02Z", snapshot.target_last_good_at)
-        self.assertEqual("2026-09-02T00:00:03Z", snapshot.collected_at)
-
-    def test_refresh_target_failure_leaves_no_last_good_timestamp(self) -> None:
-        collector = ProjectCollector(
-            resolved_project(),
-            FakeSource(),
-            target_observer=lambda _anchors: (_ for _ in ()).throw(
-                RuntimeError("target discovery crashed")
-            ),
-            clock=lambda: "2026-09-02T00:00:03Z",
-        )
-
-        snapshot = collector.refresh()
-
-        self.assertEqual("unavailable", snapshot.target_status)
-        self.assertEqual("2026-09-02T00:00:03Z", snapshot.target_attempted_at)
-        self.assertIsNone(snapshot.target_last_good_at)
-        self.assertEqual("2026-09-02T00:00:03Z", snapshot.collected_at)
+    assert sorted(builds) == ["project:alpha", "project:beta"]
+    assert [project.status for project in snapshot.projects] == ["fresh", "fresh"]
 
 
 class FakeProjectCollector:
@@ -751,8 +816,7 @@ def test_enumeration_keeps_fallback_diagnostic_codes_for_both_source_families():
         last_good_at=None,
         diagnostics=diagnostics,
     )
-    collector = ProjectCollector(resolved_project(), FakeSource())
-    collector.query_source = query
+    collector = ProjectCollector(resolved_project(), query)
     for observation in (collector.observe_issues(), collector.observe_pull_requests()):
         assert [d.code for d in observation.diagnostics] == [
             "source-unavailable",

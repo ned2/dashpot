@@ -1,4 +1,4 @@
-"""Carry one list query's rows, revision, and summary together."""
+"""Carry one list query's rows and summary together."""
 
 from __future__ import annotations
 
@@ -7,11 +7,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ListResult[Row, Summary = None]:
-    """Carry queried rows, their revision, and their typed summary."""
+    """Carry queried rows and their typed summary."""
 
     rows: tuple[Row, ...]
     summary: Summary
-    revision: int = 0
 
     @property
     def count(self) -> int:

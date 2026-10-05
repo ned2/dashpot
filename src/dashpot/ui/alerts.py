@@ -335,10 +335,6 @@ def _ordered_scopes(
 def _scope_label(key: ObservationKey, labels: Mapping[str, str]) -> str:
     if key.kind == "agent-runs":
         return "Agent Runs"
-    if key.kind == "workspace":
-        # A single-shot collector observes every Project at once; name them
-        # when there are few enough to be meaningful.
-        return _join(list(labels.values())) if labels else "Workspace"
     return labels.get(key.project_id, key.project_id)
 
 

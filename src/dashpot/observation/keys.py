@@ -5,9 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-ScheduledObservationKind = Literal[
-    "issues", "pull-requests", "targets", "agent-runs", "workspace"
-]
+ScheduledObservationKind = Literal["issues", "pull-requests", "targets", "agent-runs"]
 WORKSPACE_SCOPE = "*"
 
 
@@ -24,7 +22,6 @@ class ObservationKey:
 
 
 AGENT_RUNS_KEY = ObservationKey("agent-runs")
-WORKSPACE_KEY = ObservationKey("workspace")
 
 
 @dataclass(frozen=True, slots=True)

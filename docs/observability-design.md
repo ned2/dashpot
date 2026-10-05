@@ -362,8 +362,7 @@ same in a file and in the command's output.
   the span successful, with the exit status recorded. So does a `gh`
   command whose failure `GitHubGateway` reads from the response body rather
   than the exit: the failure is recorded on its `github.request` span, by
-  code. GitHub requests: each `GitHubGateway` request,
-  including each request of a `graphql_many` fan-out, with its own
+  code. GitHub requests: each `GitHubGateway` request, with its own
   rate-limit reading, and its `gh` command a child span. Refreshes: the
   dashboard's first load, `r`, the two Refresh Period timers, a Remote Fetch
   and a Cleanup each start a refresh span, and every observation and query

@@ -3,7 +3,7 @@
 The shipped ``DashpotApp`` under ``run_test`` needs the same scaffolding
 everywhere: an Issue built on the conformance fixture, a one-Project Workspace
 Snapshot with copy-with-update conveniences, a scriptable collector and the
-scheduler that observes it as one Workspace key, a Query Source serving a
+scheduler that observes it as one key, a Query Source serving a
 snapshot to the app's page queries and their totals, and small readers over the
 dashboard's panes.
 """
@@ -39,18 +39,19 @@ from dashpot.issues.lifecycle import collection_open_blockers, in_lifecycle
 from dashpot.issues.ordering import is_issue_sort_column, sort_issues
 from dashpot.issues.search import IssueSearchField, matches_issue_search, parse_search
 from dashpot.observation.collect import ObservationScheduler
-from dashpot.observation.issue_list import IssueListRow
+from dashpot.observation.issue_list import (
+    IssueListQuery,
+    IssueListRow,
+    IssueListSummary,
+)
 from dashpot.observation.keys import (
-    WORKSPACE_KEY,
     ObservationKey,
     ObservationOutcome,
     ObservationTicket,
 )
+from dashpot.observation.list_result import ListResult
 from dashpot.observation.observation_store import StoreChange, WorkspaceObservationStore
-from dashpot.observation.pull_request_list import (
-    PullRequestLifecycle,
-    PullRequestListQuery,
-)
+from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.source_queries import (
     QUERY_SOURCE_KEYS,
     AuxiliaryObservation,
@@ -183,12 +184,18 @@ def with_first_target(
     )
 
 
+# The one key a SnapshotScheduler schedules. It is the Project's Repository
+# State kind, so a flow that re-observes a Project's Git state after a
+# mutation re-observes the whole scripted snapshot.
+HARNESS_KEY = ObservationKey("targets", PROJECT_ID)
+
+
 class SnapshotCollector(Protocol):
     def refresh(self) -> WorkspaceSnapshot: ...
 
 
 class SnapshotScheduler:
-    """Schedule a single-shot ``refresh()`` collector as one Workspace key.
+    """Schedule a single-shot ``refresh()`` collector as one key.
 
     The shipped coordinator observes each key on its own; a test scripts one
     whole snapshot per refresh instead. The checkpoint is published
@@ -203,19 +210,19 @@ class SnapshotScheduler:
         self._pending: WorkspaceSnapshot | None = None
 
     def keys(self, project_id: str | None = None) -> list[ObservationKey]:
-        return [WORKSPACE_KEY]
+        return [HARNESS_KEY]
 
     def follow_ups(self, changes: Sequence[StoreChange]) -> list[ObservationKey]:
         return []
 
     def request(self, keys: Sequence[ObservationKey]) -> list[ObservationTicket]:
-        # Any key means the one Workspace key; no key means no ticket. A
+        # Any key means the one harness key; no key means no ticket. A
         # single-shot collector observes everything afresh whatever is asked.
         if not keys:
             return []
         with self._lock:
             self._generation += 1
-            return [ObservationTicket(WORKSPACE_KEY, self._generation)]
+            return [ObservationTicket(HARNESS_KEY, self._generation)]
 
     def is_current(self, ticket: ObservationTicket) -> bool:
         with self._lock:
@@ -269,8 +276,8 @@ class SnapshotQuerySource:
     so a test can drive the app with the snapshot it hands the collector,
     and ``serve`` swaps that snapshot for the one a later observation carries.
     An Issue page honours the submitted search text and column ordering the
-    way the local Markdown source does, and a Pull Request page the same
-    search the Pull Request read model applies locally.
+    way the local Markdown source does, and a Pull Request page a small
+    stand-in for the provider's search.
     """
 
     search_prompt = "Search Issues (Enter)"
@@ -360,17 +367,39 @@ class SnapshotQuerySource:
         return sort_issues(found, self.project, column, descending=direction == "desc")
 
     def _matching_pull_requests(self, request: QueryRequest) -> list[PullRequest]:
-        """The Pull Requests the submitted state and search text select."""
+        """The Pull Requests the submitted state and search text select.
+
+        A stand-in for the provider's search: plain terms match the number,
+        title, Project, Branches and author, and ``draft:`` and ``author:``
+        qualifiers filter as GitHub's do; newest updated first.
+        """
         state = request.state
         # A Pull Request query never asks for Ready; the request refuses it.
         assert state != "ready"
-        states: frozenset[PullRequestLifecycle] = (
-            frozenset({"open", "closed"}) if state == "all" else frozenset({state})
-        )
-        result = WorkspaceObservationStore(
-            factories.workspace(self.project)
-        ).query_pull_requests(PullRequestListQuery(text=request.query, states=states))
-        return [row.pull_request for row in result.rows]
+        states = {"open", "closed"} if state == "all" else {state}
+        terms: list[str] = []
+        qualifiers: list[tuple[str, str]] = []
+        for token in parse_search(request.query).terms:
+            field, separator, value = token.casefold().partition(":")
+            if separator and field in {"draft", "author"}:
+                qualifiers.append((field, value))
+            else:
+                terms.append(token.casefold())
+        found = [
+            pull_request
+            for pull_request in self._pull_requests()
+            if ("open" if pull_request.state == "open" else "closed") in states
+            and all(
+                term in _pull_request_text(pull_request, self.project) for term in terms
+            )
+            and all(
+                pull_request.is_draft == (value == "true")
+                if field == "draft"
+                else (pull_request.author or "").casefold() == value
+                for field, value in qualifiers
+            )
+        ]
+        return sorted(found, key=lambda found: found.updated_at, reverse=True)
 
     def query_page(self, request: QueryRequest) -> PageObservation:
         self._wait_for_release()
@@ -509,6 +538,41 @@ class SnapshotQuerySource:
         )
 
 
+def issue_rows(
+    snapshot: WorkspaceSnapshot, query: IssueListQuery | None = None
+) -> ListResult[IssueListRow, IssueListSummary]:
+    """List a snapshot's Issues as the dashboard lists the page ``query`` asks for.
+
+    The first Project's Issues are served as one Query Page with its Project
+    Totals, the way ``SnapshotQuerySource`` serves the app, and the store
+    projects that page's rows.
+    """
+    query = query or IssueListQuery()
+    observed = SnapshotQuerySource(snapshot).query_page(
+        QueryRequest(
+            kind="issues", query=query.text, state=query.lifecycle, page_size=100
+        )
+    )
+    store = PagedObservationStore(snapshot)
+    store.accept_page("issues", observed.page)
+    store.accept_totals(observed.totals)
+    return store.query_issues()
+
+
+def _pull_request_text(pull_request: PullRequest, project: ProjectObservation) -> str:
+    """The text a plain search term is matched against, casefolded."""
+    return "\n".join(
+        (
+            f"#{pull_request.number}",
+            pull_request.title,
+            project.display_label,
+            pull_request.head_branch,
+            pull_request.base_branch,
+            pull_request.author or "",
+        )
+    ).casefold()
+
+
 def dashboard_app(
     collector: SnapshotCollector | ObservationScheduler,
     *,
@@ -527,7 +591,7 @@ def dashboard_app(
 ) -> DashpotApp:
     """Build the shipped app over a collector, its queries served from a snapshot.
 
-    A snapshot collector is scheduled as one Workspace key. Without an
+    A snapshot collector is scheduled as ``HARNESS_KEY``. Without an
     explicit ``snapshot`` the Query Sources answer from the first one a
     scripted collector will observe; ``serve_snapshot`` moves them on when a
     later observation should be queried too.

@@ -470,16 +470,13 @@ async def test_unavailable_issue_source_empties_the_page_but_not_the_store() -> 
         await wait_until(lambda: observation_landed(app, 2) and table.row_count == 0)
 
         # The page owns the rows, so an unavailable source shows none; the
-        # store still holds the last good Issue the observed run is bound to.
+        # observed run keeps the binding its own observation reported.
         count = app.query_screen.query_one("#issue-count", Static)
         assert str(count.render()) == "0/? matches · unavailable"
         assert "GitHub unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
         assert "Unavailable Issues: Test Repository" in alert_text(app)
-        assert [item.id for item in snapshot_of(app.store.projects()[0]).issues] == [
-            "I_test/repo#1"
-        ]
         assert app.store.checkpoint().agent_runs[0].issue_id == "I_test/repo#1"
 
         gate = hold_sources(app)
@@ -720,6 +717,10 @@ def transferred_snapshots() -> tuple[WorkspaceSnapshot, WorkspaceSnapshot, str]:
         project_id="project:new-repository",
         display_label="New Repository",
         snapshot=second_snapshot,
+    )
+    # The store never forgets a Project, so the old one stays beside the new.
+    second = second.model_copy(
+        update={"projects": (*second.projects, first.projects[0])}
     )
     return first, second, row_key("issue", transferred.id)
 

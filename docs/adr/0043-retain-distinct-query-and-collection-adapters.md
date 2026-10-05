@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-17
-amended-by: 0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md
+amended-by: 0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md, 0137-hold-only-what-was-published-last-in-the-observation-store.md
 ---
 
 # Retain distinct query and collection adapters
@@ -88,6 +88,13 @@ Amended by [ADR 0139](0139-share-the-local-issue-reader-and-contain-linked-pull-
 traversals had diverged in their Diagnostic codes, duplicate messages and
 decoding, so the Markdown Query Source and the Issue Source now share one
 Local Issue document reader while each keeps its own contract.
+
+Amended by [ADR 0137](0137-hold-only-what-was-published-last-in-the-observation-store.md)
+([#548](https://github.com/ned2/dashpot/issues/548)): the configured collector
+no longer builds the unused fallback collection sources, and `ProjectCollector`
+no longer takes injected collection sources; it observes through its Project's
+Query Source alone. The enumeration round trip and the two adapter contracts
+stay as chosen above.
 
 ## Verification evidence
 

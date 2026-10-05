@@ -31,16 +31,9 @@ from ..core.model import (
 from ..core.observation_errors import OBSERVATION_FAILURES
 from ..core.timestamps import utc_now
 from ..core.worktree_paths import worktree_root
-from ..issues.issue_sources import IssueSource, IssueSourceObservation
-from ..issues.pull_request_sources import (
-    PullRequestSource,
-    PullRequestSourceObservation,
-    UnconfiguredPullRequestSource,
-)
-from ..issues.source_factories import (
-    build_issue_source,
-    build_pull_request_source,
-)
+from ..issues.issue_sources import IssueSourceObservation
+from ..issues.pull_request_sources import PullRequestSourceObservation
+from ..issues.source_factories import check_issue_source
 from ..project.project_config import load_project_config
 from ..project.workspace import ResolvedProject
 from ..queries.query_source import configured_query_source
@@ -100,33 +93,26 @@ class ProjectObserver(Protocol):
 
 
 class ProjectCollector:
-    """Observe one Project's Issue Source and worktree topology independently."""
+    """Observe one Project's sources and its Repository State independently.
+
+    Issues and Pull Requests are enumerated through the Project's Query
+    Source, the one source the dashboard queries pages from too.
+    """
 
     def __init__(
         self,
         project: ResolvedProject,
-        source: IssueSource,
+        query_source: QuerySource,
         target_observer: ObservationTargetObserver = observe_observation_targets,
         branch_observer: BranchObserver = observe_branches,
-        clock: Callable[[], str] = utc_now,
-        pull_request_source: PullRequestSource
-        | UnconfiguredPullRequestSource
-        | None = None,
     ) -> None:
         self.project = project
-        self.root = Path(project.primary_anchor)
-        self.source = source
-        self.query_source: QuerySource | None = None
-        self.pull_request_source = pull_request_source or UnconfiguredPullRequestSource(
-            clock=clock
-        )
+        self.query_source = query_source
         self.target_observer = target_observer
         self.branch_observer = branch_observer
-        self.clock = clock
 
     def observe_issues(self) -> IssueSourceObservation:
-        if self.query_source is None:
-            return self.source.refresh()
+        """Enumerate the Project's Issues as the Issues half of a Project."""
         result = self.query_source.enumerate_source("issues")
         colors: dict[str, str] = {}
         activity: dict[str, IssueActivity] = {}
@@ -145,8 +131,7 @@ class ProjectCollector:
         )
 
     def observe_pull_requests(self) -> PullRequestSourceObservation:
-        if self.query_source is None:
-            return self.pull_request_source.refresh()
+        """Enumerate the Project's Pull Requests as their independent half."""
         result = self.query_source.enumerate_source("pull-requests")
         return PullRequestSourceObservation(
             status=result.status,
@@ -170,43 +155,17 @@ class ProjectCollector:
             branch_anchor=branches.anchor,
         )
 
-    def refresh(self) -> ProjectSnapshot:
-        """Observe every Project source in one call (single-shot convenience)."""
-        issues = _issue_half(self.observe_issues())
-        pull_requests = _pull_request_half(self.observe_pull_requests())
-        attempted_at = self.clock()
-        try:
-            targets = _target_half(self.observe_targets(), attempted_at)
-        except OBSERVATION_FAILURES as exc:
-            # Single-shot: there is no previous half to retain, so a failure
-            # is always "unavailable" with no last-good timestamp.
-            targets = _failed_half(
-                None,
-                attempted_at,
-                _target_discovery_diagnostic(self.project.project_id, exc),
-                project_failure=False,
-            )
-        return _project_snapshot(
-            self.project,
-            collected_at=self.clock(),
-            issues=issues,
-            pull_requests=pull_requests,
-            targets=targets,
-        )
-
 
 def create_project_collector(
     project: ResolvedProject,
     timeout: float = 10,
-    state_dir: Path | None = None,
     git: Git | None = None,
-    polling_seconds: float | None = 15,
 ) -> ProjectCollector:
     requested_root = Path(project.primary_anchor)
     adapter = git if git is not None else Git(requested_root, timeout)
     root = worktree_root(requested_root, adapter)
     adapter = adapter.at(root)
-    config = load_project_config(root, polling_seconds=polling_seconds)
+    config = load_project_config(root)
     if (
         config.project_id != project.project_id
         or config.display_label != project.display_label
@@ -215,21 +174,20 @@ def create_project_collector(
         raise ObservationError(
             f"Project configuration changed after resolving Repository Anchor {root}"
         )
+    # A source the Repository Anchor cannot serve fails the Project here,
+    # once, rather than every enumeration later.
+    check_issue_source(root, config, git=adapter)
     integration_cache = IntegrationCache()
-    collector = ProjectCollector(
+    return ProjectCollector(
         project,
-        build_issue_source(root, config, timeout=timeout, git=adapter),
+        configured_query_source(root, timeout=timeout),
         target_observer=lambda anchors: observe_observation_targets(
             anchors, git=adapter, process_lookup=lock_holder_probe
         ),
         branch_observer=lambda anchors: observe_branches(
             anchors, git=adapter, cache=integration_cache
         ),
-        pull_request_source=build_pull_request_source(root, config, timeout=timeout),
     )
-
-    collector.query_source = configured_query_source(root, timeout=timeout)
-    return collector
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,7 +379,6 @@ class ObservationCoordinator:
         diagnostics: Sequence[Diagnostic] = (),
         agent_observer: WorkspaceAgentObserver | None = None,
         clock: Callable[[], str] = utc_now,
-        polling_seconds: float | None = 15,
         query_driven: bool = False,
     ) -> None:
         # Query-driven dashboards observe source pages separately from local state.
@@ -436,8 +393,8 @@ class ObservationCoordinator:
             lambda targets: observe_agent_runs(targets, self.state_dir)
         )
         self.clock = clock
-        self.polling_seconds = polling_seconds
         self.collectors: dict[str, ProjectObserver] = {}
+        self._collector_locks: dict[str, threading.Lock] = {}
         self.refresh_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._key_locks: dict[ObservationKey, threading.Lock] = {}
@@ -520,9 +477,6 @@ class ObservationCoordinator:
                     self._agent = agent
                     self._agent_pending = True
                 return ObservationOutcome(ticket, accepted=True)
-            if key.kind not in ("issues", "pull-requests", "targets"):
-                # A closed union with no fourth member: a programmer fault.
-                raise RuntimeError(f"unsupported observation kind: {key.kind}")
             with self._state_lock:
                 previous = self._observations.get(key)
             observation = self._observe_project_half(key, previous)
@@ -627,16 +581,20 @@ class ObservationCoordinator:
                 f"repository root does not exist or is not a directory: {root}"
             )
         with self._state_lock:
-            collector = self.collectors.get(project.project_id)
-        if collector is None:
-            collector = self.factory(
-                project,
-                timeout=self.timeout,
-                state_dir=self.state_dir,
-                polling_seconds=self.polling_seconds,
+            build_lock = self._collector_locks.setdefault(
+                project.project_id, threading.Lock()
             )
+        # A headless refresh observes a Project's halves at once; the first
+        # builds its collector and the others wait for it, rather than each
+        # running the Git probe and reading the configuration only to discard
+        # what they built.
+        with build_lock:
             with self._state_lock:
-                collector = self.collectors.setdefault(project.project_id, collector)
+                collector = self.collectors.get(project.project_id)
+            if collector is None:
+                collector = self.factory(project, timeout=self.timeout)
+                with self._state_lock:
+                    self.collectors[project.project_id] = collector
         return collector
 
     def _observe_project_half(

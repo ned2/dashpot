@@ -72,9 +72,7 @@ class ProjectConfig(ConfigModel):
 _FIELD_ORDER = ("projectId", "displayLabel", "repositoryId", "issueSource")
 
 
-def load_project_config(
-    root: Path, *, polling_seconds: float | None = None
-) -> ProjectConfig:
+def load_project_config(root: Path) -> ProjectConfig:
     """Read the Project configuration tracked at a Worktree's root."""
     path = root / PROJECT_CONFIG_PATH
     try:
@@ -85,7 +83,7 @@ def load_project_config(
         raise ProjectConfigError(
             f"cannot read Project configuration {path}: {exc}"
         ) from exc
-    return parse_project_config(text, path, polling_seconds=polling_seconds)
+    return parse_project_config(text, path)
 
 
 def declared_project_id(root: Path) -> str | None:
@@ -101,9 +99,7 @@ def declared_project_id(root: Path) -> str | None:
         return None
 
 
-def parse_project_config(
-    text: str, path: Path, *, polling_seconds: float | None = None
-) -> ProjectConfig:
+def parse_project_config(text: str, path: Path) -> ProjectConfig:
     """Validate Project configuration text; ``path`` names it in diagnostics."""
     try:
         raw: Any = json.loads(text)

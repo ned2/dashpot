@@ -1,7 +1,8 @@
 """The Pull Requests pane's rendered values: its columns, Glyphs and cells.
 
-Everything here turns a queried Pull Request into what the pane shows; the
-query itself lives in ``pull_request_list``. Each column carries its own
+Everything here turns a Pull Request on the accepted page into what the
+pane shows; the source filters and orders that page, and
+``ui/panes.pull_request_pane_rows`` lists it. Each column carries its own
 Column Description and the Glyphs its cells render, from which its header
 tooltip and Legend section are built.
 """

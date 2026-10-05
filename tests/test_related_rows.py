@@ -2,10 +2,11 @@ from dataclasses import replace
 
 import pytest
 
-from app_harness import issue
+from app_harness import issue, issue_rows
 from dashpot.core.model import AgentRun
 from dashpot.observation.issue_list import IssueListQuery
 from dashpot.observation.observation_store import WorkspaceObservationStore
+from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.observation.related_rows import query_related_rows
 from factories import agent_run, project, target, workspace
 from test_branch_list import local
@@ -17,8 +18,19 @@ def records(store, query=IssueListQuery(), *, issues=None):
         *store.query_sessions().rows,
         *store.query_worktrees().rows,
         *store.query_branches().rows,
-        *(store.query_issues(query).rows if issues is None else issues),
+        *(listed_issues(store, query).rows if issues is None else issues),
     )
+
+
+def listed_issues(store, query=IssueListQuery()):
+    """The Issue page's rows over what ``store`` holds, as the dashboard lists them.
+
+    A dashboard's store lists the page it accepted; a seeded store lists the
+    page its first Project's Issues would serve for ``query``.
+    """
+    if isinstance(store, PagedObservationStore):
+        return store.query_issues()
+    return issue_rows(store.checkpoint(), query)
 
 
 def query_source(store, source, *, issues=None):
@@ -47,7 +59,7 @@ def test_every_source_uses_direct_membership_without_recursive_expansion():
         for row in store.query_branches().rows
         if row.project.project_id == "project:alpha"
     }
-    issues = {row.issue.number: row for row in store.query_issues().rows}
+    issues = {row.issue.number: row for row in listed_issues(store).rows}
     selected = query_source(store, worktrees["/alpha"])
     assert selected.sessions == {sessions["one"].key, sessions["two"].key}
     assert selected.branches == {branches["main"].key}
@@ -94,7 +106,7 @@ def test_unoccupied_topology_is_scoped_and_excludes_detached_unavailable_locatio
             ),
         )
         assert not query_source(store, detached).branches
-    for issue_row in store.query_issues().rows:
+    for issue_row in listed_issues(store).rows:
         result = query_source(store, issue_row)
         assert not result.sessions and not result.worktrees and not result.branches
 
@@ -115,7 +127,7 @@ def test_distinct_native_sessions_sharing_backend_do_not_leak_issue_context():
     )
     sessions = store.query_sessions().rows
     assert len({row.key for row in sessions}) == 2
-    for issue_row in store.query_issues().rows:
+    for issue_row in listed_issues(store).rows:
         result = query_source(store, issue_row)
         expected_run = "one" if issue_row.issue.number == 1 else "two"
         assert result.sessions == {
@@ -182,12 +194,12 @@ def related_snapshot(*, runs=None, bindings=None):
             ).model_copy(update={"session_id": "conversation-one"}),
             agent_run("two", target_path="/linked", branch="feature"),
         ]
-    return workspace(
-        alpha,
-        beta,
-        runs=runs,
-        issue_runs=bindings if bindings is not None else {first.id: ["one"]},
-    )
+    bindings = bindings if bindings is not None else {first.id: ["one"]}
+    # A run is bound to the Issue its binding names, whatever its hint says,
+    # as Agent Run binding records it.
+    bound = {run_id: issue_id for issue_id, ids in bindings.items() for run_id in ids}
+    runs = [run.model_copy(update={"issue_id": bound.get(run.id)}) for run in runs]
+    return workspace(alpha, beta, runs=runs, issue_runs=bindings)
 
 
 def related(store, run_id, query=IssueListQuery()):
@@ -223,7 +235,7 @@ def test_relationships_use_scoped_location_and_accepted_binding_not_hint():
         }
     )
     assert result.issues == frozenset(
-        {next(row.key for row in store.query_issues().rows if row.issue.number == 1)}
+        {next(row.key for row in listed_issues(store).rows if row.issue.number == 1)}
     )
     assert not related(store, "two").issues
     assert not related(store, "one", IssueListQuery(text="Second")).issues
@@ -258,7 +270,7 @@ def test_shared_rows_and_only_current_page_issue_membership_are_highlighted():
     source = store.query_sessions().rows[0]
     assert not query_related_rows(source, ()).issues
     assert not query_related_rows(
-        source, (replace(store.query_issues().rows[0], observed_runs=()),)
+        source, (replace(listed_issues(store).rows[0], observed_runs=()),)
     ).issues
 
 
