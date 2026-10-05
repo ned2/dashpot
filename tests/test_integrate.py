@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import shlex
@@ -29,6 +30,7 @@ from dashpot.sessions.integrate import (
     HarnessOutcome,
     HarnessReport,
     IncompleteRemovalError,
+    IntegrationEnvironment,
     IntegrationError,
     configuration_directory,
     install_integration,
@@ -85,7 +87,7 @@ def read_hooks(home: Path) -> dict[str, Any]:
 
 
 def installed_skill(home: Path, harness: Harness = "codex") -> Path:
-    return skill_directory(integration(harness), home, ISSUE_WORK_SKILL)
+    return skill_directory(integration(harness), home, ISSUE_WORK_SKILL, os.environ)
 
 
 def test_fresh_install_registers_every_lifecycle_event(tmp_path: Path) -> None:
@@ -467,7 +469,11 @@ def test_status_lists_stale_session_records_without_pruning(tmp_path: Path) -> N
     HookRecordStore(state).write(HookRecord.model_validate(session_record("0199-live")))
 
     messages = integration_status(
-        "codex", home, state_dir=state, current=tmp_path, lookup=absent()
+        "codex",
+        home,
+        state_dir=state,
+        current=tmp_path,
+        environment=IntegrationEnvironment(lookup=absent()),
     )
 
     joined = "\n".join(messages)
@@ -482,7 +488,11 @@ def test_status_lists_stale_session_records_without_pruning(tmp_path: Path) -> N
     assert (state / "0199-stale.json").exists()
 
     messages = integration_status(
-        "codex", home, state_dir=state, current=tmp_path, lookup=present(CODEX)
+        "codex",
+        home,
+        state_dir=state,
+        current=tmp_path,
+        environment=IntegrationEnvironment(lookup=present(CODEX)),
     )
     assert "(2 live, 0 unknown, 0 stale, 0 unreadable)" in "\n".join(messages)
 
@@ -504,7 +514,11 @@ def test_status_names_the_sub_agents_that_keep_an_ended_record(
     )
 
     messages = integration_status(
-        "codex", home, state_dir=state, current=tmp_path, lookup=present(CODEX)
+        "codex",
+        home,
+        state_dir=state,
+        current=tmp_path,
+        environment=IntegrationEnvironment(lookup=present(CODEX)),
     )
 
     assert (
@@ -525,7 +539,7 @@ def test_status_shows_unknown_liveness_reasons(tmp_path: Path) -> None:
         home,
         state_dir=state,
         current=tmp_path,
-        lookup=unobservable("isolated-namespace"),
+        environment=IntegrationEnvironment(lookup=unobservable("isolated-namespace")),
     )
 
     assert "(0 live, 1 unknown [isolated-namespace], 0 stale, 0 unreadable)" in (
@@ -860,7 +874,11 @@ def test_claude_code_status_and_missing_home(tmp_path: Path) -> None:
     stale = {**session_record("claude-stale"), "harness": "claude-code"}
     HookRecordStore(state).write(HookRecord.model_validate(stale))
     messages = integration_status(
-        "claude-code", home, state_dir=state, current=tmp_path, lookup=absent()
+        "claude-code",
+        home,
+        state_dir=state,
+        current=tmp_path,
+        environment=IntegrationEnvironment(lookup=absent()),
     )
     joined = "\n".join(messages)
     assert "(0 live, 0 unknown, 1 stale, 0 unreadable)" in joined
@@ -903,7 +921,11 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     state = tmp_path / "state"
 
     none = integration_status(
-        "codex", home, state_dir=state, current=root, lookup=present(CODEX), environ={}
+        "codex",
+        home,
+        state_dir=state,
+        current=root,
+        environment=IntegrationEnvironment(lookup=present(CODEX), environ={}),
     )
     assert any(
         "Agent Session identity claimed here: none for Codex" in message
@@ -917,8 +939,7 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
         home,
         state_dir=state,
         current=root,
-        lookup=present(CODEX),
-        environ=claimed,
+        environment=IntegrationEnvironment(lookup=present(CODEX), environ=claimed),
     )
     assert any(
         "Codex session thread-9 (from Codex environment), rejected: no "
@@ -936,8 +957,7 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
         home,
         state_dir=state,
         current=root,
-        lookup=present(CODEX),
-        environ=claimed,
+        environment=IntegrationEnvironment(lookup=present(CODEX), environ=claimed),
     )
     assert any(
         "Codex session thread-9 (from Codex environment), confirmed by its "
@@ -950,8 +970,9 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
         home,
         state_dir=state,
         current=root,
-        lookup=present(CODEX),
-        environ={SESSION_OVERRIDE_VARIABLE: "codex:thread-9"},
+        environment=IntegrationEnvironment(
+            lookup=present(CODEX), environ={SESSION_OVERRIDE_VARIABLE: "codex:thread-9"}
+        ),
     )
     assert any(
         f"thread-9 (from {SESSION_OVERRIDE_VARIABLE}), confirmed" in message
@@ -982,8 +1003,9 @@ def test_status_confirms_an_identity_only_where_its_freshest_record_places_it(
             home,
             state_dir=tmp_path / "state",
             current=current,
-            lookup=present(CODEX),
-            environ={"CODEX_THREAD_ID": "thread-9"},
+            environment=IntegrationEnvironment(
+                lookup=present(CODEX), environ={"CODEX_THREAD_ID": "thread-9"}
+            ),
         )
 
     at_destination = [m for m in status(linked) if "identity claimed here" in m]
@@ -1009,7 +1031,12 @@ def test_status_of_the_other_harness_does_not_borrow_a_claim(tmp_path: Path) -> 
         home,
         state_dir=tmp_path / "state",
         current=tmp_path,
-        environ={SESSION_OVERRIDE_VARIABLE: "codex:thread-9", "CODEX_THREAD_ID": "x"},
+        environment=IntegrationEnvironment(
+            environ={
+                SESSION_OVERRIDE_VARIABLE: "codex:thread-9",
+                "CODEX_THREAD_ID": "x",
+            }
+        ),
     )
 
     assert any("none for Claude Code" in message for message in messages)
@@ -1321,7 +1348,7 @@ def user_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def default_home(harness: Harness) -> Path:
     """A harness's default configuration directory, as its first run leaves it."""
-    home = integration(harness).default_home
+    home = configuration_directory(integration(harness), os.environ).path
     home.mkdir(parents=True, exist_ok=True)
     return home
 
@@ -1342,35 +1369,42 @@ def opencode_accepted() -> str:
     return f"opencode v{OPENCODE_ACCEPTED_VERSION}"
 
 
-def integrate_one(harness: Harness, tmp_path: Path, **options: Any) -> list[str]:
+def accepting(**seams: Any) -> IntegrationEnvironment:
+    """This process's environment with ``seams`` in place, OpenCode's release accepted."""
+    return dataclasses.replace(
+        IntegrationEnvironment(version_probe=opencode_accepted), **seams
+    )
+
+
+def integrate_one(harness: Harness, tmp_path: Path, **seams: Any) -> list[str]:
     return install_integration(
         harness,
         default_home(harness),
         command_path=publishers(tmp_path)[harness],
-        version_probe=opencode_accepted,
-        **options,
+        environment=accepting(**seams),
     )
 
 
-def refresh(tmp_path: Path, *harnesses: Harness, **options: Any) -> list[HarnessReport]:
+def refresh(tmp_path: Path, *harnesses: Harness, **seams: Any) -> list[HarnessReport]:
     """Integrate the named harnesses, or refresh every integrated one when none is."""
-    options.setdefault("version_probe", opencode_accepted)
-    options["command_paths"] = publishers(tmp_path)
+    command_paths = publishers(tmp_path)
     if harnesses:
-        return install_integrations(harnesses, **options)
-    return refresh_integrations(**options)
+        return install_integrations(
+            harnesses, command_paths=command_paths, environment=accepting(**seams)
+        )
+    return refresh_integrations(
+        command_paths=command_paths, environment=accepting(**seams)
+    )
 
 
 def combined_status(
-    tmp_path: Path, *harnesses: Harness, **options: Any
+    tmp_path: Path, *harnesses: Harness, **seams: Any
 ) -> CombinedStatus:
     return integrations_status(
         harnesses,
         state_dir=tmp_path / "state",
         current=tmp_path,
-        environ={},
-        version_probe=opencode_accepted,
-        **options,
+        environment=accepting(**{"environ": {}} | seams),
     )
 
 
@@ -1836,7 +1870,8 @@ def removed_skills(home: Path) -> tuple[str, ...]:
     """What removing every bundled skill's Codex copy reports."""
     spec = integration("codex")
     return tuple(
-        f"removed the Dashpot {skill.label} from {skill_directory(spec, home, skill)}"
+        f"removed the Dashpot {skill.label} from "
+        f"{skill_directory(spec, home, skill, os.environ)}"
         for skill in BUNDLED_SKILLS
     )
 
@@ -2049,19 +2084,26 @@ def test_each_harness_reads_its_own_configuration_variable() -> None:
 
 
 def test_claude_code_is_integrated_where_claude_config_dir_names(
-    tmp_path: Path, user_home: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, user_home: Path
 ) -> None:
     configured = tmp_path / "work-claude"
     configured.mkdir()
     (user_home / ".claude").mkdir()
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(configured))
+    # The variable reaches integrate through its environment value alone, not
+    # through this process's environment.
+    environment = IntegrationEnvironment(environ={"CLAUDE_CONFIG_DIR": str(configured)})
     settings = configured / "settings.json"
 
     installed = install_integration(
-        "claude-code", command_path=publishers(tmp_path)["claude-code"]
+        "claude-code",
+        command_path=publishers(tmp_path)["claude-code"],
+        environment=environment,
     )
     report = integration_status(
-        "claude-code", state_dir=tmp_path / "state", current=tmp_path, environ={}
+        "claude-code",
+        state_dir=tmp_path / "state",
+        current=tmp_path,
+        environment=environment,
     )
 
     assert f"installed Claude Code lifecycle hooks in {settings}" in installed
@@ -2072,10 +2114,12 @@ def test_claude_code_is_integrated_where_claude_config_dir_names(
         f"Claude Code configuration directory: {configured} (from CLAUDE_CONFIG_DIR)"
     )
     assert report[1].startswith(f"installed in {settings} for: ")
-    assert integration_presence("claude-code").state == "integrated"
+    assert integration_presence("claude-code", environment=environment).state == (
+        "integrated"
+    )
     hooks = settings.read_text()
     settings.unlink()
-    partial = integration_presence("claude-code")
+    partial = integration_presence("claude-code", environment=environment)
     assert partial.state == "partial"
     assert partial.detail.startswith(
         f"no Dashpot hooks at {settings} (CLAUDE_CONFIG_DIR names {configured}), "
@@ -2083,12 +2127,16 @@ def test_claude_code_is_integrated_where_claude_config_dir_names(
     )
     settings.write_text(hooks)
 
-    removed = remove_integration("claude-code")
+    removed = remove_integration("claude-code", environment=environment)
 
     assert f"removed {settings}; it contained only the Dashpot hooks" in removed
     assert not copy.exists()
-    assert integration_presence("claude-code").detail == (
+    assert integration_presence("claude-code", environment=environment).detail == (
         f"no Dashpot hooks at {settings} (CLAUDE_CONFIG_DIR names {configured})"
+    )
+    # This process's own environment names no such directory.
+    assert integration_presence("claude-code").detail == (
+        f"no Dashpot hooks at {user_home / '.claude' / 'settings.json'}"
     )
 
 
@@ -2110,16 +2158,23 @@ def test_codex_is_integrated_where_codex_home_names_with_its_skills_in_agents(
 
 
 def test_a_configuration_variable_naming_no_directory_is_named_in_the_refusal(
-    tmp_path: Path, user_home: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, user_home: Path
 ) -> None:
     default_home("codex")
     missing = tmp_path / "missing"
-    monkeypatch.setenv("CODEX_HOME", str(missing))
+    environment = IntegrationEnvironment(environ={"CODEX_HOME": str(missing)})
 
     with pytest.raises(IntegrationError) as refused:
-        install_integration("codex", command_path=publishers(tmp_path)["codex"])
+        install_integration(
+            "codex",
+            command_path=publishers(tmp_path)["codex"],
+            environment=environment,
+        )
     report = integration_status(
-        "codex", state_dir=tmp_path / "state", current=tmp_path, environ={}
+        "codex",
+        state_dir=tmp_path / "state",
+        current=tmp_path,
+        environment=environment,
     )
 
     assert str(refused.value) == (
@@ -2130,7 +2185,7 @@ def test_a_configuration_variable_naming_no_directory_is_named_in_the_refusal(
         f"Codex configuration directory: {missing} (from CODEX_HOME)",
         f"Codex configuration directory not found: {missing} (from CODEX_HOME)",
     ]
-    assert integration_presence("codex").detail == (
+    assert integration_presence("codex", environment=environment).detail == (
         f"no Codex configuration directory at {missing} (from CODEX_HOME)"
     )
     assert list((user_home / ".codex").iterdir()) == []

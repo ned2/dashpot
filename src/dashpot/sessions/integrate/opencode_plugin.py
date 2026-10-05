@@ -9,11 +9,8 @@ skill copies OpenCode also discovers (ADR 0090).
 from __future__ import annotations
 
 import json
-import os
 import re
-import shutil
 import stat
-import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import override
@@ -32,9 +29,15 @@ from ..processes import (
     ProcessPresent,
     ProcessUnobservable,
 )
-from .installer import HookInstaller, StatusProbe
+from .environment import IntegrationEnvironment
+from .installer import HookInstaller
 from .publisher import publisher_status
-from .registry import BundledSkill, HarnessIntegration, integration
+from .registry import (
+    BundledSkill,
+    HarnessIntegration,
+    integration,
+    user_skills_directory,
+)
 from .skill_copies import SKILL_FILE, is_current, is_managed
 from .writes import IntegrationError, PendingWrite, Planned, file_mode
 
@@ -46,7 +49,6 @@ OPENCODE_RELEASE = re.compile(
 PLUGIN_MARKER = "// dashpot-managed-plugin: opencode"
 PLUGIN_HELPER_PLACEHOLDER = '"__DASHPOT_OPENCODE_HELPER__"'
 PLUGIN_HELPER = re.compile(r'^const HELPER = (".*");$', re.MULTILINE)
-VERSION_TIMEOUT_SECONDS = 5
 
 
 class OpenCodePlugin(HookInstaller):
@@ -64,14 +66,14 @@ class OpenCodePlugin(HookInstaller):
         home: Path,
         command: Path,
         *,
-        version_probe: Callable[[], str | None] | None,
+        version_probe: Callable[[], str | None],
     ) -> list[Planned]:
         """The plugin bound to ``command``, after the release on PATH it would run under.
 
         The plugin is refused while the ``opencode`` on PATH, which
-        ``version_probe`` asks by default, is a v1 release (ADR 0090).
+        ``version_probe`` asks, is a v1 release (ADR 0090).
         """
-        reported = (version_probe or _opencode_version)()
+        reported = version_probe()
         release = None if reported is None else opencode_release(reported)
         if release is not None and _major(release) == 1:
             raise IntegrationError(
@@ -124,20 +126,19 @@ class OpenCodePlugin(HookInstaller):
         spec: HarnessIntegration,
         home: Path,
         skills: Sequence[tuple[BundledSkill, Path]],
-        probe: StatusProbe | None,
+        environment: IntegrationEnvironment,
+        *,
+        status: bool,
+        current: Path | None = None,
     ) -> list[str]:
-        messages = _opencode_skill_copies(skills)
-        if probe is not None:
+        messages = _opencode_skill_copies(skills, environment.environ)
+        if status:
             messages.extend(
                 _opencode_plugin_copies(
-                    home / spec.hooks_file, probe.current, probe.environ
+                    home / spec.hooks_file, current, environment.environ
                 )
             )
-            messages.extend(
-                _opencode_runtime_status(
-                    probe.version_probe, probe.environ, probe.lookup
-                )
-            )
+            messages.extend(_opencode_runtime_status(environment))
         return messages
 
 
@@ -267,7 +268,7 @@ _OPENCODE_DISCOVERED_SKILLS: tuple[tuple[Harness, Path], ...] = (
 
 
 def _opencode_skill_copies(
-    destinations: Sequence[tuple[BundledSkill, Path]],
+    destinations: Sequence[tuple[BundledSkill, Path]], environ: Mapping[str, str]
 ) -> list[str]:
     """Report the other copies of each bundled skill OpenCode also discovers.
 
@@ -290,7 +291,9 @@ def _opencode_skill_copies(
                 spec = integration(owner)
                 repair = (
                     f"run 'dashpot integrate {owner}' or move it"
-                    if same_path(directory, spec.default_skills_home / skill.name)
+                    if same_path(
+                        directory, user_skills_directory(spec, environ) / skill.name
+                    )
                     else "move it"
                 )
                 messages.append(
@@ -311,7 +314,7 @@ def _may_hold_a_skill(directory: Path) -> bool:
 
 
 def _opencode_plugin_copies(
-    own: Path, current: Path | None, environ: Mapping[str, str] | None
+    own: Path, current: Path | None, environ: Mapping[str, str]
 ) -> list[str]:
     """Report other copies of the managed plugin that OpenCode would also load.
 
@@ -323,16 +326,15 @@ def _opencode_plugin_copies(
     bound to another helper, which then writes whichever events its instances
     admit first (ADR 0090).
     """
-    environment = environ if environ is not None else os.environ
     directories = [own.parent.parent]
-    if not _enabled(environment.get("OPENCODE_DISABLE_PROJECT_CONFIG")):
+    if not _enabled(environ.get("OPENCODE_DISABLE_PROJECT_CONFIG")):
         start = (current or current_directory()).resolve()
         for directory in (start, *start.parents):
             directories.append(directory / ".opencode")
             if (directory / ".git").exists():
                 break
     directories.append(Path.home() / ".opencode")
-    configured = environment.get("OPENCODE_CONFIG_DIR")
+    configured = environ.get("OPENCODE_CONFIG_DIR")
     if configured:
         directories.append(Path(configured))
     seen: set[Path] = set()
@@ -365,25 +367,6 @@ def _opencode_plugin_copies(
 def _enabled(value: str | None) -> bool:
     """Whether an OpenCode flag variable is set to true."""
     return (value or "").lower() in {"1", "true"}
-
-
-def _opencode_version() -> str | None:
-    """The version the ``opencode`` on PATH reports, or ``None`` when it cannot say."""
-    found = shutil.which("opencode")
-    if found is None:
-        return None
-    try:
-        completed = subprocess.run(
-            [found, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=VERSION_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    version = completed.stdout.strip()
-    return version if completed.returncode == 0 and version else None
 
 
 def opencode_release(reported: str) -> str | None:
@@ -505,20 +488,15 @@ def _opencode_service_status(
     ]
 
 
-def _opencode_runtime_status(
-    version_probe: Callable[[], str | None] | None,
-    environ: Mapping[str, str] | None,
-    lookup: ProcessLookup,
-) -> list[str]:
+def _opencode_runtime_status(environment: IntegrationEnvironment) -> list[str]:
     """Report the OpenCode releases and the settings that keep the plugin out."""
-    environment = environ if environ is not None else os.environ
     messages = [
         *_opencode_release_status(
-            "OpenCode release on PATH", (version_probe or _opencode_version)()
+            "OpenCode release on PATH", environment.version_probe()
         ),
-        *_opencode_service_status(environment, lookup),
+        *_opencode_service_status(environment.environ, environment.lookup),
     ]
-    if _enabled(environment.get("OPENCODE_PURE")):
+    if _enabled(environment.environ.get("OPENCODE_PURE")):
         messages.append(
             "warning: OPENCODE_PURE is set here; OpenCode started with it, or "
             "with --pure, loads no plugin and publishes nothing"

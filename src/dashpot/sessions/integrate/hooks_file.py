@@ -17,7 +17,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, override
 
-from .installer import HookInstaller, StatusProbe
+from .environment import IntegrationEnvironment
+from .installer import HookInstaller
 from .publisher import publisher_status
 from .registry import HOOK_COMMAND_NAMES, BundledSkill, HarnessIntegration, hook_label
 from .writes import IntegrationError, PendingWrite, Planned
@@ -44,7 +45,7 @@ class HooksFile(HookInstaller):
         home: Path,
         command: Path,
         *,
-        version_probe: Callable[[], str | None] | None,
+        version_probe: Callable[[], str | None],
     ) -> list[Planned]:
         return [_plan_hooks(spec, home, command)]
 
@@ -94,7 +95,10 @@ class HooksFile(HookInstaller):
         spec: HarnessIntegration,
         home: Path,
         skills: Sequence[tuple[BundledSkill, Path]],
-        probe: StatusProbe | None,
+        environment: IntegrationEnvironment,
+        *,
+        status: bool,
+        current: Path | None = None,
     ) -> list[str]:
         return _config_toml_coexistence_warning(spec, home)
 

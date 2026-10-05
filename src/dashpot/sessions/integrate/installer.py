@@ -2,24 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from ..processes import ProcessLookup
+from .environment import IntegrationEnvironment
 from .registry import BundledSkill, HarnessIntegration
 from .writes import Planned
-
-
-@dataclass(frozen=True, slots=True)
-class StatusProbe:
-    """What ``--status`` observes beyond the configuration directory."""
-
-    current: Path | None
-    lookup: ProcessLookup
-    environ: Mapping[str, str] | None
-    version_probe: Callable[[], str | None] | None
 
 
 class HookInstaller(Protocol):
@@ -41,7 +30,7 @@ class HookInstaller(Protocol):
         home: Path,
         command: Path,
         *,
-        version_probe: Callable[[], str | None] | None,
+        version_probe: Callable[[], str | None],
     ) -> list[Planned]:
         """The hooks bound to ``command``: a pending write, unless they are current.
 
@@ -77,7 +66,14 @@ class HookInstaller(Protocol):
         spec: HarnessIntegration,
         home: Path,
         skills: Sequence[tuple[BundledSkill, Path]],
-        probe: StatusProbe | None,
+        environment: IntegrationEnvironment,
+        *,
+        status: bool,
+        current: Path | None = None,
     ) -> list[str]:
-        """Advice that follows an installation, or with ``probe``, a ``--status`` report."""
+        """Advice that follows an installation, or with ``status``, a ``--status`` report.
+
+        ``current`` is the directory ``--status`` runs in; ``None`` reads
+        the working directory.
+        """
         ...

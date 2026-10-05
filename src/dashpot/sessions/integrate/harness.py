@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Literal
 
 from ...core.model import Harness
-from ..processes import ProcessLookup, host_process_lookup
 from .agent_copies import (
     agent_copies,
     agent_has_update,
@@ -24,13 +23,12 @@ from .agent_copies import (
     remove_agent,
 )
 from .diagnostics import claimed_identity_status, record_store_status
+from .environment import PROCESS_ENVIRONMENT, IntegrationEnvironment
 from .hooks_file import HOOKS_FILE
-from .installer import HookInstaller, StatusProbe
+from .installer import HookInstaller
 from .opencode_plugin import OPENCODE_PLUGIN
 from .publisher import linked_worktree_binding, linked_worktree_consequence
 from .registry import (
-    BUNDLED_AGENTS,
-    BUNDLED_SKILLS,
     BundledAgent,
     BundledSkill,
     HarnessIntegration,
@@ -61,19 +59,24 @@ def hook_installer(spec: HarnessIntegration) -> HookInstaller:
     return _INSTALLERS[spec.installer]
 
 
+def _skill_copies(
+    spec: HarnessIntegration, home: Path, environment: IntegrationEnvironment
+) -> list[tuple[BundledSkill, Path]]:
+    """Each of the environment's bundled skills, paired with this harness's copy."""
+    return skill_copies(spec, home, environment.skills, environment.environ)
+
+
 def install_integration(
     harness: Harness,
     home: Path | None = None,
     *,
     command_path: Path | None = None,
-    version_probe: Callable[[], str | None] | None = None,
-    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
-    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+    environment: IntegrationEnvironment = PROCESS_ENVIRONMENT,
 ) -> list[str]:
     """Idempotently register one harness's lifecycle hooks, bundled skills and agents.
 
-    OpenCode's plugin is refused while the ``opencode`` on PATH, which
-    ``version_probe`` asks by default, is a v1 release (ADR 0090). OpenCode
+    OpenCode's plugin is refused while the ``opencode`` on PATH, which the
+    environment's version probe asks, is a v1 release (ADR 0090). OpenCode
     also gets the bundled agent definitions (ADR 0093). Every destination is
     checked before anything is written: a directory of a bundled skill's
     name, or a file of a bundled agent's, that Dashpot does not manage, and
@@ -83,15 +86,15 @@ def install_integration(
     every failure once they are done (ADR 0110).
     """
     spec = integration(harness)
-    configuration = configuration_in_use(spec, home)
+    configuration = configuration_in_use(spec, home, environment.environ)
     home = configuration.path
     if not home.is_dir():
         raise IntegrationError(
             f"no {spec.display} configuration directory at {configuration}; "
             f"install and run {spec.display} once before integrating"
         )
-    destinations = skill_copies(spec, home, skills)
-    agent_destinations = agent_copies(spec, home, agents)
+    destinations = _skill_copies(spec, home, environment)
+    agent_destinations = agent_copies(spec, home, environment.agents)
     _validate_destinations(destinations, agent_destinations)
     command = command_path or resolve_hook_command(spec)
     # Refuse before anything is loaded or written: the binding would outlive
@@ -104,11 +107,11 @@ def install_integration(
         )
     hooks = hook_installer(spec)
     planned: list[Planned] = [
-        *hooks.plan(spec, home, command, version_probe=version_probe),
+        *hooks.plan(spec, home, command, version_probe=environment.version_probe),
         f"hook publisher: {command}",
         *(plan_skill(skill, target) for skill, target in destinations),
         *(plan_agent(agent, target) for agent, target in agent_destinations),
-        *hooks.notes(spec, home, destinations, None),
+        *hooks.notes(spec, home, destinations, environment, status=False),
     ]
     return write_planned(harness, planned)
 
@@ -131,8 +134,7 @@ def remove_integration(
     harness: Harness,
     home: Path | None = None,
     *,
-    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
-    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+    environment: IntegrationEnvironment = PROCESS_ENVIRONMENT,
 ) -> list[str]:
     """Remove exactly Dashpot's hooks, managed skills and agents for one harness.
 
@@ -142,11 +144,13 @@ def remove_integration(
     done (ADR 0130).
     """
     spec = integration(harness)
-    home = configuration_in_use(spec, home).path
+    home = configuration_in_use(spec, home, environment.environ).path
+    skills = _skill_copies(spec, home, environment)
+    agents = agent_copies(spec, home, environment.agents)
     steps: list[Callable[[], str]] = [
         partial(hook_installer(spec).remove, spec, home),
-        *(partial(remove_skill, *copy) for copy in skill_copies(spec, home, skills)),
-        *(partial(remove_agent, *copy) for copy in agent_copies(spec, home, agents)),
+        *(partial(remove_skill, *copy) for copy in skills),
+        *(partial(remove_agent, *copy) for copy in agents),
     ]
     messages: list[str] = []
     failures: list[str] = []
@@ -166,11 +170,7 @@ def integration_status(
     *,
     state_dir: Path | None = None,
     current: Path | None = None,
-    lookup: ProcessLookup = host_process_lookup,
-    environ: Mapping[str, str] | None = None,
-    version_probe: Callable[[], str | None] | None = None,
-    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
-    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+    environment: IntegrationEnvironment = PROCESS_ENVIRONMENT,
     records: bool = True,
 ) -> list[str]:
     """Report the observable state of one harness's integration.
@@ -180,7 +180,7 @@ def integration_status(
     """
     spec = integration(harness)
     hooks = hook_installer(spec)
-    configuration = configuration_in_use(spec, home)
+    configuration = configuration_in_use(spec, home, environment.environ)
     home = configuration.path
     messages: list[str] = []
     if configuration.variable is not None:
@@ -194,22 +194,23 @@ def integration_status(
             messages.extend(hooks.status_lines(spec, home))
         except IntegrationError as exc:
             return [*messages, str(exc)]
-    destinations = skill_copies(spec, home, skills)
+    destinations = _skill_copies(spec, home, environment)
     messages.extend(
         skill_status(skill, target, harness=spec.harness)
         for skill, target in destinations
     )
     messages.extend(
         agent_status(agent, target, harness=spec.harness)
-        for agent, target in agent_copies(spec, home, agents)
+        for agent, target in agent_copies(spec, home, environment.agents)
     )
-    probe = StatusProbe(
-        current=current, lookup=lookup, environ=environ, version_probe=version_probe
+    messages.extend(
+        hooks.notes(spec, home, destinations, environment, status=True, current=current)
     )
-    messages.extend(hooks.notes(spec, home, destinations, probe))
     if records:
-        messages.extend(record_store_status(state_dir, current, lookup))
-    messages.extend(claimed_identity_status(spec, current, lookup, environ))
+        messages.extend(record_store_status(state_dir, current, environment.lookup))
+    messages.extend(
+        claimed_identity_status(spec, current, environment.lookup, environment.environ)
+    )
     return messages
 
 
@@ -232,8 +233,7 @@ def integration_presence(
     harness: Harness,
     home: Path | None = None,
     *,
-    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
-    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+    environment: IntegrationEnvironment = PROCESS_ENVIRONMENT,
 ) -> IntegrationPresence:
     """Tell whether one harness is integrated: every lifecycle hook registered.
 
@@ -246,7 +246,7 @@ def integration_presence(
     """
     spec = integration(harness)
     hooks = hook_installer(spec)
-    configuration = configuration_in_use(spec, home)
+    configuration = configuration_in_use(spec, home, environment.environ)
     home = configuration.path
     if not home.is_dir():
         return IntegrationPresence(
@@ -266,12 +266,12 @@ def integration_presence(
     left = [
         *(
             f"the Dashpot {skill.label} at {target}"
-            for skill, target in skill_copies(spec, home, skills)
+            for skill, target in _skill_copies(spec, home, environment)
             if is_managed(skill, target)
         ),
         *(
             f"the Dashpot {agent.label} at {target}"
-            for agent, target in agent_copies(spec, home, agents)
+            for agent, target in agent_copies(spec, home, environment.agents)
             if is_managed_agent(agent, target)
         ),
     ]
@@ -291,10 +291,7 @@ def integration_presence(
 
 
 def has_update(
-    spec: HarnessIntegration,
-    home: Path,
-    skills: tuple[BundledSkill, ...],
-    agents: tuple[BundledAgent, ...],
+    spec: HarnessIntegration, home: Path, environment: IntegrationEnvironment
 ) -> bool:
     """Whether refreshing an integrated harness would update its skills, agents or hooks.
 
@@ -304,11 +301,11 @@ def has_update(
     return (
         any(
             skill_has_update(skill, target)
-            for skill, target in skill_copies(spec, home, skills)
+            for skill, target in _skill_copies(spec, home, environment)
         )
         or any(
             agent_has_update(agent, target)
-            for agent, target in agent_copies(spec, home, agents)
+            for agent, target in agent_copies(spec, home, environment.agents)
         )
         or hook_installer(spec).has_update(spec, home)
     )

@@ -7,7 +7,6 @@ each harness identifies an Agent Session.
 
 from __future__ import annotations
 
-import os
 import shutil
 import sysconfig
 from collections.abc import Mapping
@@ -156,18 +155,6 @@ class HarnessIntegration:
     skills_in_configuration: bool = False
 
     @property
-    def default_home(self) -> Path:
-        """The configuration directory the harness reads in this environment."""
-        return configuration_directory(self).path
-
-    @property
-    def default_skills_home(self) -> Path:
-        """The directory the harness reads user-wide skills from in this environment."""
-        if self.skills_in_configuration:
-            return self.default_home / self.skills_home
-        return Path.home() / self.skills_home
-
-    @property
     def hook_labels(self) -> tuple[str, ...]:
         """Every subscription, matched ones spelled ``Event(matcher)``."""
         return (
@@ -193,7 +180,7 @@ class ConfigurationDirectory:
 
 
 def configuration_directory(
-    spec: HarnessIntegration, environ: Mapping[str, str] | None = None
+    spec: HarnessIntegration, environ: Mapping[str, str]
 ) -> ConfigurationDirectory:
     """Resolve a harness's configuration directory as the harness itself does.
 
@@ -202,25 +189,31 @@ def configuration_directory(
     directory under ``$XDG_CONFIG_HOME``; a variable set but empty is read
     as unset (ADR 0130).
     """
-    environment = os.environ if environ is None else environ
     if spec.home_variable is not None:
-        configured = environment.get(spec.home_variable)
+        configured = environ.get(spec.home_variable)
         if configured:
             return ConfigurationDirectory(Path(configured), spec.home_variable)
     if spec.xdg_configuration:
-        configured = environment.get("XDG_CONFIG_HOME")
+        configured = environ.get("XDG_CONFIG_HOME")
         base = Path(configured) if configured else Path.home() / ".config"
         return ConfigurationDirectory(base / spec.home_name)
     return ConfigurationDirectory(Path.home() / spec.home_name)
 
 
 def configuration_in_use(
-    spec: HarnessIntegration, home: Path | None
+    spec: HarnessIntegration, home: Path | None, environ: Mapping[str, str]
 ) -> ConfigurationDirectory:
     """The configuration directory a command works in: the one named, else the harness's."""
-    return (
-        configuration_directory(spec) if home is None else ConfigurationDirectory(home)
-    )
+    if home is None:
+        return configuration_directory(spec, environ)
+    return ConfigurationDirectory(home)
+
+
+def user_skills_directory(spec: HarnessIntegration, environ: Mapping[str, str]) -> Path:
+    """The directory the harness reads user-wide skills from in an environment."""
+    if spec.skills_in_configuration:
+        return configuration_directory(spec, environ).path / spec.skills_home
+    return Path.home() / spec.skills_home
 
 
 def hook_label(event: str, matcher: str | None) -> str:

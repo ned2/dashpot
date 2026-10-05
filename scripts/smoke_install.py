@@ -64,6 +64,7 @@ def check_integrations(root: Path) -> None:
         BUNDLED_SKILL_VERSION,
         BUNDLED_SKILLS,
         ISSUE_WORK_SKILL,
+        IntegrationEnvironment,
         install_integration,
         integration,
         integration_status,
@@ -85,11 +86,13 @@ def check_integrations(root: Path) -> None:
         install_integration(harness, config_home)
         assert settings.read_bytes() == first
         # Every bundled skill is installed whole, from the installed package.
-        skills = [skill_directory(spec, config_home, s) for s in BUNDLED_SKILLS]
+        skills = [
+            skill_directory(spec, config_home, s, os.environ) for s in BUNDLED_SKILLS
+        ]
         for bundled, skill in zip(BUNDLED_SKILLS, skills, strict=True):
             assert bundled.files, bundled.name
             assert all((skill / relative).is_file() for relative in bundled.files)
-        issue_work = skill_directory(spec, config_home, ISSUE_WORK_SKILL)
+        issue_work = skill_directory(spec, config_home, ISSUE_WORK_SKILL, os.environ)
         assert (issue_work / "references/dispatch.md").is_file()
         assert (issue_work / "references/recovery.md").is_file()
         document = json.loads(settings.read_text())
@@ -107,7 +110,12 @@ def check_integrations(root: Path) -> None:
             json.loads(p.read_text())["sessionId"] == event["session_id"]
             for p in records
         )
-        messages = integration_status(harness, config_home, current=root, environ={})
+        messages = integration_status(
+            harness,
+            config_home,
+            current=root,
+            environment=IntegrationEnvironment(environ={}),
+        )
         assert not any("publisher missing" in message for message in messages)
         event["hook_event_name"] = "SessionEnd"
         assert (
@@ -123,6 +131,7 @@ def check_opencode_integration(root: Path) -> None:
     """Bind the managed OpenCode plugin to the installed helper and run it."""
     from dashpot.sessions.integrate import (
         BUNDLED_AGENTS,
+        IntegrationEnvironment,
         agent_file,
         install_integration,
         integration,
@@ -161,7 +170,12 @@ def check_opencode_integration(root: Path) -> None:
         "result": "rejected",
         "reason": "host-process-not-found",
     }
-    messages = integration_status("opencode", config_home, current=root, environ={})
+    messages = integration_status(
+        "opencode",
+        config_home,
+        current=root,
+        environment=IntegrationEnvironment(environ={}),
+    )
     assert not any("publisher missing" in message for message in messages)
     remove_integration("opencode", config_home)
     assert not plugin.exists()
