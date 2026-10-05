@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-04
+date: 2026-10-05
 ---
 
 # Domain language
@@ -529,6 +529,11 @@ A Sub-agent can outlive its parent: a session that ends while it lists live
 Sub-agents keeps them in an ended record until each one's stop, until their
 Host Process is gone, or until a person runs `dashpot work forget-subagents`
 ([ADR 0095](adr/0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)).
+A Sub-agent belongs to the Host Process that runs it, which another Host
+Process taking its session on does not end: it stays listed while that
+process lives, and its own events never change the Host Process a parent's
+record names
+([ADR 0107](adr/0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md)).
 _Avoid_: child session for a fork; treating a Sub-agent's location as its
 parent's Observation Location; treating a session's end as its Sub-agents'
 end

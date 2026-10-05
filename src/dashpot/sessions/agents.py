@@ -109,14 +109,20 @@ class LastSeenIndex:
     def prune_unclaimed(self, observed: frozenset[Path]) -> None:
         """Remove every gone record no Orphaned Agent Run still needs.
 
-        A record at a Worktree this pass did not observe is kept only while
-        that Worktree's Work Store holds an active run of the same session,
+        A gone record that still lists a sub-agent another, live Host Process
+        runs is kept too (ADR 0107). A record at a Worktree this pass did not
+        observe is kept only while that Worktree's Work Store holds an active
+        run of the same session,
         which an observation of it would claim; the records of unconfigured
         checkouts and removed Worktrees have no such run and are pruned.
         """
         pruned: dict[Path, HookRecordStore] = {}
         for index, gone in enumerate(self.records):
             if index in self._claimed:
+                continue
+            if gone.record.retains_other_host_subagents:
+                # Another Host Process still runs a sub-agent it lists, which
+                # keeps Cleanup's sub-agent blocker (ADR 0107).
                 continue
             root = gone.raw.get("repositoryRoot")
             if (

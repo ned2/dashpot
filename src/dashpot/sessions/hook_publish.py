@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -22,10 +22,13 @@ from .deferred_end import (
 from .hook_records import (
     HookRecordStore,
     build_hook_record,
+    hosts_subagent,
     is_child_record,
     project_session_store,
     session_start_kind,
     state_directory,
+    subagent_host_keys,
+    subagents_hosted_by,
     switched_from,
 )
 from .hook_scan import (
@@ -35,8 +38,10 @@ from .hook_scan import (
     stored_process_records,
     stored_session_records,
 )
+from .liveness import session_liveness
 from .processes import (
     ProcessIdentity,
+    ProcessKey,
     ProcessLookup,
     host_process_lookup,
     observe_agent_ancestry,
@@ -121,7 +126,8 @@ def publish_hook_event(
     )
     child = is_child_record(record)
     worktrees = event_worktrees(record)
-    freshest = _freshest_elsewhere(record, worktrees, directory, child=child)
+    session_records = _session_records(record, worktrees, directory)
+    freshest = _freshest_elsewhere(session_records, child=child)
     if directory is not None:
         store = HookRecordStore(directory)
     elif child and freshest is not None:
@@ -160,9 +166,18 @@ def publish_hook_event(
     )
     switched = _records_switched_from(record, identity, worktrees, directory)
     adopted = sorted(
-        {agent for item in switched for agent in item.record.live_subagents}
+        {
+            agent
+            for item in switched
+            for agent in subagents_hosted_by(item.raw, record.get("sessionProcess"))
+        }
     )
-    written = store.write(record, seed=seed, adopted=adopted)
+    written = store.write(
+        record,
+        seed=seed,
+        adopted=adopted,
+        gone_hosts=_gone_hosts(session_records, identity, lookup),
+    )
     destination, state = written.path, written.state
     # Released only once the new record lists them: a publisher that fails
     # between the two writes leaves them listed twice, which errs toward
@@ -198,7 +213,12 @@ def publish_hook_event(
     if child:
         if record.get("event") == "SubagentStop":
             _stop_kept_elsewhere(
-                record, identity, worktrees, directory, written_to=destination
+                record,
+                identity,
+                worktrees,
+                directory,
+                written_to=destination,
+                session_records=session_records,
             )
         return HookPublication(destination, state=state)
     relocated = complete_session_work_relocation(
@@ -236,12 +256,34 @@ def publish_hook_event(
     )
 
 
+def _gone_hosts(
+    records: Iterable[StoredSessionRecord],
+    identity: ProcessIdentity | None,
+    lookup: ProcessLookup,
+) -> frozenset[ProcessKey]:
+    """The Host Processes besides the event's that run a listed sub-agent and are gone.
+
+    A sub-agent stays listed while the process running it lives, even when
+    another process takes its session on (ADR 0107). Probed here, before the
+    store takes its locks, so only a process proved gone is named: one a
+    record names after this read is not probed, and its sub-agents carry
+    until the next write probes it. A session of one Host Process probes
+    nothing.
+    """
+    own = None if identity is None else identity.key
+    keys = {key for item in records for key in subagent_host_keys(item.raw)}
+    return frozenset(
+        key for key in keys - {own} if session_liveness(key, lookup).liveness == "gone"
+    )
+
+
 def _stop_kept_elsewhere(
     record: dict[str, Any],
     identity: ProcessIdentity | None,
     worktrees: list[Path],
     directory: Path | None,
     written_to: Path,
+    session_records: Iterable[StoredSessionRecord],
 ) -> None:
     """Remove a stopped Sub-agent from the other records of its Host Process that keep it.
 
@@ -258,14 +300,23 @@ def _stop_kept_elsewhere(
     moved to another Worktree carried its sub-agents to the record there,
     and the record it left behind lists them too, so the stop clears it from
     the session's own live records as well (ADR 0102); another live
-    session's records are left as they are. The record the stop was written
-    to is skipped: a start of the same agent may already have listed it
-    there again. Each store re-reads its record under its lock.
+    session's records are left as they are. A record of the stop's own
+    session that names another Host Process lists the sub-agent under its
+    own process's tag, and lets it go too (ADR 0107). The record the stop
+    was written to is skipped: a start of the same agent may already have
+    listed it there again. Each store re-reads its record under its lock.
     """
     agent = record.get("agentId")
     if identity is None or not isinstance(agent, str):
         return
-    for item in _process_records(record, identity, worktrees, directory):
+    candidates = {
+        item.path: item
+        for item in _process_records(record, identity, worktrees, directory)
+    }
+    for item in session_records:
+        if hosts_subagent(item.raw, agent, record.get("sessionProcess")):
+            candidates.setdefault(item.path, item)
+    for item in candidates.values():
         if agent not in item.record.live_subagents or same_path(item.path, written_to):
             continue
         store = HookRecordStore(item.store)
@@ -311,26 +362,32 @@ def _process_records(
     )
 
 
-def _freshest_elsewhere(
-    record: dict[str, Any],
-    worktrees: list[Path],
-    directory: Path | None,
-    *,
-    child: bool,
-) -> StoredSessionRecord | None:
-    """The session's freshest readable record across the stores it could be in.
+def _session_records(
+    record: dict[str, Any], worktrees: list[Path], directory: Path | None
+) -> list[StoredSessionRecord]:
+    """The session's readable records across the stores it could be in.
 
     Those are the stores of its Repository's Worktrees and the global one (or
-    ``directory``); no process is probed. It routes a Sub-agent's event and
-    seeds a session-scoped event that moves the session to another store. An
-    ended record seeds nothing, but one kept for the sub-agents its session
-    left working routes their events to it (ADR 0095).
+    ``directory``); no process is probed.
     """
     records, _unreadable = stored_session_records(
         reachable_hook_stores(worktrees, directory),
         cast("Harness", record["harness"]),
         str(record["sessionId"]),
     )
+    return records
+
+
+def _freshest_elsewhere(
+    records: Iterable[StoredSessionRecord], *, child: bool
+) -> StoredSessionRecord | None:
+    """The session's freshest record of ``records``, the session's across its stores.
+
+    It routes a Sub-agent's event and seeds a session-scoped event that
+    moves the session to another store. An ended record seeds nothing, but
+    one kept for the sub-agents its session left working routes their
+    events to it (ADR 0095).
+    """
     return freshest_stored_record(
         item
         for item in records

@@ -61,12 +61,17 @@ class HookRecordClassification:
     degraded: tuple[str, ...] = ()
     has_global_binding: bool = False
     # The ``agent_id`` of each sub-agent the store holds started and not yet
-    # stopped (ADR 0016), from Claude Code or Codex (ADR 0067).
+    # stopped (ADR 0016), from Claude Code or Codex (ADR 0067), save one
+    # whose Host Process is proved gone (ADR 0107).
     live_subagents: tuple[str, ...] = ()
     # Whether an ended record still holds sub-agents its session left
-    # working: it lists some and its Host Process is not proved gone (ADR
+    # working: it lists some whose Host Process is not proved gone (ADR
     # 0095). The session is over; those sub-agents may not be.
     retains_subagents: bool = False
+    # Whether a gone record still lists sub-agents another Host Process runs
+    # that is not proved gone: a second process that resumed the session
+    # exited while the first one's sub-agent works on (ADR 0107).
+    retains_other_host_subagents: bool = False
 
     @property
     def process_key(self) -> ProcessKey | None:
@@ -208,14 +213,11 @@ def _classify_validated_record(
 ) -> HookRecordClassification:
     """Derive one validated record's outcome from the pass's process evidence."""
     process = record.session_process.identity if record.session_process else None
-    retains_subagents = False
     if record.state == "ended":
         liveness = LivenessObservation("unknown")
         outcome: HookRecordOutcome = "ended"
-        retains_subagents = (
-            bool(record.live_subagents)
-            and process is not None
-            and probe.observe(process.key).liveness != "gone"
+        own_living = (
+            process is not None and probe.observe(process.key).liveness != "gone"
         )
     else:
         liveness = probe.observe(process.key if process else None)
@@ -231,10 +233,27 @@ def _classify_validated_record(
                 "unknown", record.session_process_unobservable
             )
         outcome = liveness.liveness
+        own_living = outcome != "gone"
+    living = tuple(
+        agent
+        for agent in record.live_subagents
+        if _subagent_living(record, agent, probe, own_living=own_living)
+    )
+    state = record.state
+    if (
+        state == "running"
+        and own_living
+        and record.turn_started_at is None
+        and record.live_subagents
+        and not living
+    ):
+        # No main turn runs, and every sub-agent that held the session
+        # running ran in a Host Process since gone (ADR 0107).
+        state = "waiting"
     return HookRecordClassification(
         session_id=record.session_id,
         harness=record.harness,
-        state=record.state,
+        state=state,
         cwd=record.cwd,
         repository_root=record.repository_root,
         branch=record.branch,
@@ -246,9 +265,23 @@ def _classify_validated_record(
         reason=liveness.reason,
         degraded=degraded,
         has_global_binding=record.has_global_binding,
-        live_subagents=tuple(record.live_subagents),
-        retains_subagents=retains_subagents,
+        live_subagents=living,
+        retains_subagents=outcome == "ended" and bool(living),
+        retains_other_host_subagents=outcome == "gone" and bool(living),
     )
+
+
+def _subagent_living(
+    record: HookRecord, agent: str, probe: LivenessProbe, *, own_living: bool
+) -> bool:
+    """Whether the Host Process running ``record``'s ``agent`` is not gone (ADR 0107).
+
+    That is the record's own process unless the agent is tagged with another.
+    """
+    host = record.subagent_processes.get(agent)
+    if host is None:
+        return own_living
+    return probe.observe(host.identity.key).liveness != "gone"
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +342,9 @@ def scan_hook_stores(
                 validated.state != "ended" or validated.live_subagents
             ):
                 keys.append(validated.session_process.identity.key)
+            keys.extend(
+                host.identity.key for host in validated.subagent_processes.values()
+            )
     probe.prepare(keys)
     for pending in readable:
         record = _classify_validated_record(pending.record, pending.degraded, probe)
@@ -570,7 +606,9 @@ def sessions_with_live_subagents(
     it from each of those records (ADR 0102). A session is counted while it is
     live or unknown, and once it has ended while an ended record still holds
     the sub-agents it left working (ADR 0095); that record is the one
-    reported when it is the freshest.
+    reported when it is the freshest. So is a session whose record is gone
+    while it lists a sub-agent another Host Process runs that is not gone
+    (ADR 0107).
     """
     found: list[SessionLocation] = []
     for history in session_histories(stores, lookup):
@@ -579,6 +617,7 @@ def sessions_with_live_subagents(
             location
             for location in history
             if location.record.retains_subagents
+            or location.record.retains_other_host_subagents
             or (running and location.record.outcome not in SESSION_OVER)
         ]
         if not current:

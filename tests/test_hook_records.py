@@ -597,6 +597,8 @@ class SubagentBoundaryTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.state_dir = Path(self.temporary.name)
         self.process = ProcessIdentity(42, 1, "claude", "Tue Aug 25 01:00:00 2026")
+        # The host's own process table unless a test names what runs.
+        self.running: dict[str, Any] = {}
 
     @override
     def tearDown(self) -> None:
@@ -615,6 +617,7 @@ class SubagentBoundaryTests(unittest.TestCase):
             self.state_dir,
             process=self.process,
             harness="claude-code",
+            **self.running,
         )
 
     def stored(self) -> dict[str, Any]:
@@ -693,7 +696,10 @@ class SubagentBoundaryTests(unittest.TestCase):
     def test_a_start_of_another_process_starts_with_no_live_subagents(self) -> None:
         self.publish("UserPromptSubmit")
         self.publish("SubagentStart", "agent-1")
+        # The first process is gone, as after a `claude --resume` replaced
+        # it; one still running keeps its sub-agents (ADR 0107).
         self.process = ProcessIdentity(43, 1, "claude", "Tue Aug 25 02:00:00 2026")
+        self.running = {"lookup": absent()}
 
         self.publish("SessionStart")
 
@@ -723,6 +729,33 @@ class SubagentBoundaryTests(unittest.TestCase):
             )
 
         self.assertEqual([], self.stored()["liveSubagents"])
+
+    def test_a_turn_naming_no_process_carries_its_live_subagents(self) -> None:
+        # Only a SessionStart drops an unnamed process's listing (ADR 0097);
+        # every other event of that process carries it (ADR 0107).
+        store = HookRecordStore(self.state_dir)
+        for event_name, agent_id in (
+            ("UserPromptSubmit", None),
+            ("SubagentStart", "agent-1"),
+            ("Stop", None),
+        ):
+            event: dict[str, Any] = {
+                "session_id": "delegating",
+                "cwd": "/repo",
+                "hook_event_name": event_name,
+            }
+            if agent_id is not None:
+                event["agent_id"] = agent_id
+            store.write(
+                build_hook_record(
+                    event, harness="claude-code", process_unobservable="sandboxed"
+                )
+            )
+
+        record = self.stored()
+        self.assertEqual(["agent-1"], record["liveSubagents"])
+        self.assertEqual("running", record["state"])
+        self.assertNotIn("subagentProcesses", record)
 
     def test_a_subagent_event_naming_no_agent_changes_nothing(self) -> None:
         self.publish("UserPromptSubmit")

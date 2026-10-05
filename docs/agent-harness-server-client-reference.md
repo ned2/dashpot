@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-04
+date: 2026-10-05
 ---
 
 # Agent harness server and client reference
@@ -519,6 +519,18 @@ daemon, the terminal's `/exit` runs `SessionEnd` at once and the resume is a
 new process with the same first-hook order. No read-only notice or picker
 appeared on any route. A resume launched while the old terminal is still
 attached was not measured.
+
+[#460's experiment](spikes/second-host-process-resume-spike.md) resumed a
+daemon-hosted lead from a second terminal at 0.160.0 (2026-10-05) while the
+lead's worker ran commands in the daemon. A plain `codex resume` attached to
+the daemon: its turn's hooks came from the daemon's process, it published no
+`SessionStart`, and its exit printed "Disconnected from this task. Any
+running work continues." A `codex --no-daemon resume` of the thread
+published nothing while it was open, through the worker's `SubagentStop` and
+30 s beyond, and nothing on exit. Once the daemon had stopped, the same
+command published `SessionStart` `resume` and its turn from its own process.
+Neither route puts a daemon-hosted thread's events on a second Host Process
+while the daemon holds it.
 
 ### Hosting modes and daemon autostart at 0.159.3
 
