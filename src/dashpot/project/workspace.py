@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
@@ -31,6 +30,7 @@ from .project_config import (
     ProjectConfig,
     load_project_config,
 )
+from .settings import machine_config_directory
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,9 +182,8 @@ def load_workspaces(path: Path) -> WorkspaceInventory:
 
 
 def default_workspace_config() -> Path:
-    config_home = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(config_home).expanduser() if config_home else Path.home() / ".config"
-    return base / "dashpot" / "workspaces.json"
+    """Locate this machine's Workspace inventory: ``workspaces.json`` beside its settings."""
+    return machine_config_directory() / "workspaces.json"
 
 
 def merge_workspaces(workspaces: Sequence[Workspace]) -> list[Workspace]:

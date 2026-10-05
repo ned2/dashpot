@@ -129,7 +129,9 @@ dashpot --workspace personal=/path/first-clone \
 
 Without arguments, Dashpot observes the current directory when it contains
 `.dashpot/config.json`. Outside a configured Project it loads explicit Repository
-Anchors from Dashpot's `~/.config/dashpot/workspaces.json`. Explicit
+Anchors from Dashpot's `~/.config/dashpot/workspaces.json`
+(`$XDG_CONFIG_HOME/dashpot/workspaces.json` when that variable is an absolute
+path). Explicit
 `--workspace` arguments each name one anchor and take precedence; repeat the
 same Workspace name to include independent clones of the same Project. Anchors
 that resolve to more than one Project are refused with a message naming them
@@ -894,7 +896,8 @@ moves anything. Its conventions are recorded in
 
 - **Worktree Root:** `--worktree-root DIR`, else `DASHPOT_WORKTREE_ROOT`,
   else `worktree_root` in the machine-local `~/.config/dashpot/config.toml`
-  (`XDG_CONFIG_HOME` respected), else the sibling directory
+  (`$XDG_CONFIG_HOME/dashpot/config.toml` when that variable is an absolute
+  path), else the sibling directory
   `<main parent>/<main name>.worktrees/` of the Repository's main working
   tree — the same pool whether the command runs in the main checkout or in
   a linked Worktree

@@ -204,3 +204,27 @@ def test_default_settings_path_follows_xdg_config_home(
     assert default_settings_path() == tmp_path / "dashpot" / "config.toml"
     monkeypatch.delenv("XDG_CONFIG_HOME")
     assert default_settings_path() == Path.home() / ".config/dashpot/config.toml"
+
+
+@pytest.mark.parametrize("value", ["config", "./config", ""])
+def test_a_relative_xdg_config_home_is_ignored_for_the_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    # The XDG specification makes a relative value invalid: honouring it
+    # would give each process the settings under its own working directory.
+    monkeypatch.setenv("XDG_CONFIG_HOME", value)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+
+    assert default_settings_path() == (
+        tmp_path / "home" / ".config" / "dashpot" / "config.toml"
+    )
+
+
+def test_xdg_config_home_may_name_the_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", "~/config")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert default_settings_path() == tmp_path / "config" / "dashpot" / "config.toml"
