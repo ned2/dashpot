@@ -24,7 +24,7 @@ from .composition import (
     run_cleanup,
 )
 from .core.command_outcomes import OutcomeNote, record_command_outcome
-from .core.errors import DashpotError
+from .core.errors import DashpotError, failure_text
 from .core.event_log import (
     DASHBOARD_KIND,
     EventLog,
@@ -33,7 +33,6 @@ from .core.event_log import (
     working_directory,
 )
 from .core.event_log_files import (
-    EventLogError,
     EventSelection,
     describe_event_log_removal,
     describe_runtime_event,
@@ -44,8 +43,9 @@ from .core.event_log_files import (
 from .core.model import HARNESS_DISPLAY, Harness
 from .core.runtime_events import ManagementCommand, RecordedLevel, RuntimeEvent
 from .core.state_paths import enclosing_checkout
+from .core.working_directory import current_directory
 from .core.worktree_paths import worktree_root
-from .event_logs import open_event_log, route_event_log
+from .event_logs import open_event_log, owned_event_log
 from .github.github import LatestRateLimit
 from .issues.issue_resolution import describe_issue, show_issue
 from .project.init import initialize_project
@@ -127,17 +127,16 @@ _EVENT_LOG: ContextVar[EventLog | None] = ContextVar(
 
 def parse_workspace_argument(value: str) -> Workspace:
     """Read one ``[NAME=]PATH`` token as a single-anchor Workspace."""
-    if "=" in value:
-        name, raw_root = value.split("=", 1)
-    else:
-        raw_root = value
-        name = Path(raw_root).expanduser().resolve().name
-    if not name.strip() or not raw_root.strip():
+    named, raw_root = value.split("=", 1) if "=" in value else ("", value)
+    if not raw_root.strip():
         raise ValueError("workspace must be PATH or NAME=PATH")
-    return Workspace(
-        name.strip(),
-        (RepositoryAnchor(str(Path(raw_root).expanduser().resolve())),),
-    )
+    given = Path(raw_root).expanduser()
+    # Only a relative path needs the working directory, which may be gone.
+    root = (given if given.is_absolute() else current_directory() / given).resolve()
+    name = named if "=" in value else root.name
+    if not name.strip():
+        raise ValueError("workspace must be PATH or NAME=PATH")
+    return Workspace(name.strip(), (RepositoryAnchor(str(root)),))
 
 
 def _convert_workspaces(type_: object, tokens: Sequence[Token]) -> list[Workspace]:
@@ -288,7 +287,7 @@ def observe(
             if reads_github(sources)
             else None
         )
-        DashpotApp(
+        dashboard = DashpotApp(
             collector,
             sources=sources,
             event_log=_EVENT_LOG.get(),
@@ -299,7 +298,12 @@ def observe(
             fetcher=remote_fetcher(timeout),
             cleaner=GitCleanupAdapter(timeout),
             launcher_configuration=configure_worktree_launcher(timeout),
-        ).run()
+        )
+        dashboard.run()
+        # Textual prints the traceback of a handler that raised and returns
+        # from ``run`` with return code 1 rather than raising, so the crash
+        # reaches the shell and ``process.end`` only through this status.
+        return dashboard.return_code or 0
     return 0
 
 
@@ -324,7 +328,7 @@ def init(
     repository identity is resolved through the authenticated gh CLI.
     """
     with command_outcome("init") as outcome:
-        current = Path.cwd().resolve()
+        current = current_directory()
         outcome.target_path = current
         _report(initialize_project(current, markdown_path=markdown, timeout=timeout))
         outcome.action = "initialized"
@@ -367,7 +371,7 @@ def start(
     with command_outcome("work start") as outcome:
         _report(
             start_issue_work(
-                Path.cwd().resolve(), reference, timeout=timeout, outcome=outcome
+                current_directory(), reference, timeout=timeout, outcome=outcome
             )
         )
     return 0
@@ -383,11 +387,12 @@ def relocate(
 ) -> int:
     """Prepare this Agent Run for a verified sequential Codex resume."""
     with command_outcome("work relocate") as outcome:
-        relocate_target = path.expanduser().resolve()
+        # Read the working directory first: a relative target resolves against
+        # it, and it may no longer exist.
+        current = current_directory()
+        relocate_target = (current / path.expanduser()).resolve()
         outcome.target_path = relocate_target
-        _report(
-            relocate_issue_work(Path.cwd().resolve(), relocate_target, outcome=outcome)
-        )
+        _report(relocate_issue_work(current, relocate_target, outcome=outcome))
     return 0
 
 
@@ -407,7 +412,7 @@ def stop(
     """End this session's active Issue work."""
     with command_outcome("work stop") as outcome:
         _report(
-            stop_issue_work(Path.cwd().resolve(), session_key=session, outcome=outcome)
+            stop_issue_work(current_directory(), session_key=session, outcome=outcome)
         )
     return 0
 
@@ -434,7 +439,7 @@ def forget_subagents(
     with command_outcome("work forget-subagents") as outcome:
         _report(
             forget_session_subagents(
-                Path.cwd().resolve(), session_id, harness=harness, outcome=outcome
+                current_directory(), session_id, harness=harness, outcome=outcome
             )
         )
     return USAGE_EXIT_CODE if outcome.incomplete else 0
@@ -478,7 +483,7 @@ def assign(
     with command_outcome("work assign") as outcome:
         _report(
             assign_worker(
-                Path.cwd().resolve(),
+                current_directory(),
                 reference,
                 worker,
                 worktree,
@@ -498,7 +503,7 @@ def unassign(
 ) -> int:
     """End one Worker Assignment of this session's Agent Run."""
     with command_outcome("work unassign") as outcome:
-        _report(unassign_worker(Path.cwd().resolve(), worker, outcome=outcome))
+        _report(unassign_worker(current_directory(), worker, outcome=outcome))
     return 0
 
 
@@ -510,7 +515,7 @@ def show() -> int:
     command outcomes, Agent Session and Agent Run changes and failures from
     the Event Log: at most 20, from the last 7 days.
     """
-    current = Path.cwd().resolve()
+    current = current_directory()
     _report(show_issue_work(current))
     _report(show_session_events(current))
     return 0
@@ -653,7 +658,7 @@ def events_read(
     """
     own = _EVENT_LOG.get()
     reading = read_event_logs(
-        repository_event_log_directories(Path.cwd(), timeout=timeout),
+        repository_event_log_directories(current_directory(), timeout=timeout),
         EventSelection(
             session=session,
             issue=issue,
@@ -742,15 +747,11 @@ def events_remove(
     Only files named as the Event Log names them are removed, and none is
     compressed or renamed. Run it from the checkout whose Event Log it is;
     outside every configured checkout it acts on the machine-local fallback.
+    A working directory that no longer exists, or whose checkout cannot be
+    told, is refused rather than taken to be outside every checkout.
     """
     with command_outcome("events remove", dry_run=dry_run) as outcome:
-        destination = route_event_log(working_directory())
-        if destination is None:
-            raise EventLogError(
-                "no Event Log to remove from: no configured checkout encloses "
-                "this directory and there is no home directory for the "
-                "machine-local one"
-            )
+        destination = owned_event_log(current_directory())
         outcome.target_path = destination.directory
         removal = remove_event_logs(destination, before, dry_run=dry_run)
         if not removal.succeeded:
@@ -784,7 +785,7 @@ def issue_show(
     json_output: _JsonOutput = False,
 ) -> int:
     """Resolve one Issue Hint and print the Issue Profile."""
-    found = show_issue(Path.cwd().resolve(), reference, timeout=timeout)
+    found = show_issue(current_directory(), reference, timeout=timeout)
     if json_output:
         print(render_json(issue_document(found)))
     else:
@@ -810,7 +811,7 @@ def _list_page(
     The page's Diagnostics carry what the source reports about itself
     beside it, such as a rate limit running low.
     """
-    root = worktree_root(Path.cwd().resolve())
+    root = worktree_root(current_directory())
     source = configured_query_source(root, timeout=timeout)
     observation = source.query_page(
         QueryRequest(
@@ -830,20 +831,60 @@ def _list_page(
     return 0
 
 
+_PageSize = Annotated[
+    int,
+    Parameter(
+        validator=validators.Number(gte=1, lte=100),
+        show_default=False,
+        help="the most records the page holds, from 1 to 100 (50 when omitted)",
+    ),
+]
+_Cursor = Annotated[
+    str | None,
+    Parameter(
+        help=(
+            "the nextCursor of the previous page, to continue the same query, "
+            "lifecycle and page size"
+        )
+    ),
+]
+# A Query Page has no line rendering: the list commands always print JSON,
+# and accept --json so a script that passes it keeps working.
+_ListJson = Annotated[
+    bool,
+    Parameter(
+        name="--json",
+        show_default=False,
+        help="accepted and ignored: the page is always printed as JSON",
+    ),
+]
+_CompactJson = Annotated[
+    bool,
+    Parameter(show_default=False, help="omit JSON indentation"),
+]
+
+
 @issue.command(name="list")
 def issue_list(
     *,
-    query: str = "",
+    query: Annotated[
+        str,
+        Parameter(
+            show_default=False,
+            help=(
+                "the search: GitHub advanced search syntax for a GitHub Issue "
+                "Source, local text for a Local Issue Markdown one"
+            ),
+        ),
+    ] = "",
     state: Lifecycle = "open",
-    page_size: Annotated[
-        int, Parameter(validator=validators.Number(gte=1, lte=100))
-    ] = 50,
-    cursor: str | None = None,
-    json_output: _JsonOutput = False,
-    compact_json: bool = False,
+    page_size: _PageSize = 50,
+    cursor: _Cursor = None,
+    json_output: _ListJson = False,
+    compact_json: _CompactJson = False,
     timeout: _Timeout = 10.0,
 ) -> int:
-    """Query one Issue page; GitHub advanced syntax or Markdown local text.
+    """Print one Issue Query Page, and the Project Totals it counted, as JSON.
 
     ``--state ready`` lists Ready Issues: open, with no Open Blocker.
     """
@@ -853,17 +894,20 @@ def issue_list(
 @pr.command(name="list")
 def pr_list(
     *,
-    query: str = "",
+    query: Annotated[
+        str,
+        Parameter(
+            show_default=False, help="the search, in GitHub advanced search syntax"
+        ),
+    ] = "",
     state: Literal["open", "closed", "all"] = "open",
-    page_size: Annotated[
-        int, Parameter(validator=validators.Number(gte=1, lte=100))
-    ] = 50,
-    cursor: str | None = None,
-    json_output: _JsonOutput = False,
-    compact_json: bool = False,
+    page_size: _PageSize = 50,
+    cursor: _Cursor = None,
+    json_output: _ListJson = False,
+    compact_json: _CompactJson = False,
     timeout: _Timeout = 10.0,
 ) -> int:
-    """Query one Pull Request page using GitHub advanced syntax."""
+    """Print one Pull Request Query Page, and the Project Totals it counted, as JSON."""
     return _list_page(
         "pull-requests", query, state, page_size, cursor, compact_json, timeout
     )
@@ -902,7 +946,8 @@ def worktree_create(
         str | None,
         Parameter(
             help=(
-                "NAME: the new Branch; defaults to <number>-<title-slug> "
+                # The help is Markdown: an unescaped ``<…>`` is an HTML tag.
+                r"NAME: the new Branch; defaults to \<number\>-\<title-slug\> "
                 "(a Local Issue's slug)"
             )
         ),
@@ -913,7 +958,7 @@ def worktree_create(
             help=(
                 "DIR: the parent directory for the Worktree; defaults to "
                 "DASHPOT_WORKTREE_ROOT, then the worktree_root setting, then "
-                "the main working tree's sibling <main>.worktrees/"
+                r"the main working tree's sibling \<main\>.worktrees/"
             )
         ),
     ] = None,
@@ -930,7 +975,7 @@ def worktree_create(
     """Create a linked Worktree on a new Branch for an Issue."""
     with command_outcome("worktree create", dry_run=dry_run) as outcome:
         plan = create_issue_worktree(
-            Path.cwd().resolve(),
+            current_directory(),
             reference,
             base=base,
             branch=branch,
@@ -973,7 +1018,7 @@ def worktree_check(
     json_output: _JsonOutput = False,
 ) -> int:
     """Report whether a Worktree is removable, and each reason it is not."""
-    current = Path.cwd().resolve()
+    current = current_directory()
     if path is not None:
         report = check_worktree(current, path, timeout=timeout)
         if json_output:
@@ -1092,7 +1137,7 @@ def branch_delete(
             raise CleanupError(
                 "name at least one target to delete: --local, --remote REMOTE"
             )
-        current = Path.cwd().resolve()
+        current = current_directory()
         # The identities are spelled out rather than picked from the preview
         # so a ref that is not there is refused by name.
         selected = [f"local:refs/heads/{name}"] if local else []
@@ -1163,7 +1208,6 @@ def worktree_remove(
     json_output: _JsonOutput = False,
 ) -> int:
     """Remove a linked Worktree without force, after a read-only preview."""
-    current = Path.cwd().resolve()
 
     def select(preview: CleanupPreview) -> tuple[str, ...]:
         kinds: set[TargetKind] = {"worktree"}
@@ -1184,6 +1228,7 @@ def worktree_remove(
         return tuple(target.identity for target in chosen)
 
     with command_outcome("worktree remove", dry_run=dry_run) as outcome:
+        current = current_directory()
         outcome.target_path = Path(os.path.abspath(current / path))
         return _cleanup(
             WorktreeCleanupRequest(current, path),
@@ -1274,7 +1319,7 @@ def integrate(
                 named[0], status=status, remove=remove, outcome=outcome
             )
         if status:
-            combined = integrations_status(named)
+            combined = integrations_status(named, current=current_directory())
             _report_harnesses(combined.harnesses)
             _report(combined.messages)
             outcome.action = "reported"
@@ -1294,7 +1339,7 @@ def _integrate_one(
     """Install, check or remove one named harness's integration, refusing as it does."""
     outcome.target_harness = harness
     if status:
-        messages = integration_status(harness)
+        messages = integration_status(harness, current=current_directory())
         outcome.action = "reported"
         _report(messages)
         return 0
@@ -1402,7 +1447,8 @@ def main(
     active = _EVENT_LOG.set(log)
     # A traceback leaves no ``process.end``: a missing end is a crash. An
     # orderly exit ends the process with its status; Cyclopts turns Ctrl-C
-    # into one, exit 130.
+    # into one, exit 130, and a dashboard whose handler raised exits 1 once
+    # Textual has printed the traceback.
     try:
         # The external commands and GitHub requests this invocation runs are
         # recorded as its spans.
@@ -1440,7 +1486,7 @@ def _dispatch(tokens: list[str]) -> int:
     except DashpotError as exc:
         # The stated error contract: every command failure is one
         # ``dashpot: <message>`` line on stderr and exit 2.
-        print(f"dashpot: {exc}", file=sys.stderr)
+        print(f"dashpot: {failure_text(exc)}", file=sys.stderr)
         return USAGE_EXIT_CODE
     return int(result)
 

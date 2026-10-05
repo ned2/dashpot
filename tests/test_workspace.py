@@ -121,6 +121,14 @@ def test_malformed_workspace_config_is_refused_by_entry(
         load_workspaces(config)
 
 
+def test_a_workspace_config_that_is_not_utf8_is_refused(tmp_path: Path) -> None:
+    config = tmp_path / "workspaces.json"
+    config.write_bytes(b'{"workspaces": [{"name": "caf\xe9", "anchors": ["/a"]}]}')
+
+    with pytest.raises(WorkspaceConfigError, match="cannot read workspace config"):
+        load_workspaces(config)
+
+
 def test_unknown_workspace_config_fields_are_ignored_with_a_diagnostic(
     tmp_path: Path,
 ) -> None:

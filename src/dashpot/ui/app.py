@@ -29,6 +29,7 @@ from textual.widgets import DataTable, Footer, Input, Select, Static
 from textual.worker import get_current_worker
 
 from ..core.commands import RunningCommands
+from ..core.errors import failure_text
 from ..core.event_log import (
     DASHBOARD_RECENT_EVENTS,
     DASHBOARD_RECENT_WINDOW,
@@ -1347,7 +1348,7 @@ class DashpotApp(App[None]):
         try:
             value = await self.off_loop(operation, executor=executor)
         except Exception as exc:  # UI boundary: an off-loop failure must not exit.
-            message = on_done(None, str(exc))
+            message = on_done(None, failure_text(exc))
         else:
             message = on_done(value, None)
         if not worker.is_cancelled:

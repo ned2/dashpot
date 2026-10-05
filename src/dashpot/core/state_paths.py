@@ -126,11 +126,14 @@ def machine_state_directory() -> Path:
     """Dashpot's machine-local state, for what belongs to no configured checkout.
 
     ``$XDG_STATE_HOME/dashpot``, else ``~/Library/Application Support/dashpot``
-    on macOS and ``~/.local/state/dashpot`` elsewhere.
+    on macOS and ``~/.local/state/dashpot`` elsewhere. A relative
+    ``XDG_STATE_HOME`` is ignored, as the XDG Base Directory specification
+    requires: it would put each process's state under its own working
+    directory, so a hook and the dashboard would read different stores.
     """
-    xdg = os.environ.get("XDG_STATE_HOME")
-    if xdg:
-        return Path(xdg).expanduser() / "dashpot"
+    xdg = Path(os.environ.get("XDG_STATE_HOME", "")).expanduser()
+    if xdg.is_absolute():
+        return xdg / "dashpot"
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "dashpot"
     return Path.home() / ".local" / "state" / "dashpot"

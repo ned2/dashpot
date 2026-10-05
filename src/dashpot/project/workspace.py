@@ -133,7 +133,7 @@ def load_workspaces(path: Path) -> WorkspaceInventory:
         raw: Any = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise WorkspaceConfigError(f"workspace config not found: {path}") from exc
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise WorkspaceConfigError(
             f"cannot read workspace config {path}: {exc}"
         ) from exc

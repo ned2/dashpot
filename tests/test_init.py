@@ -10,6 +10,12 @@ import pytest
 from dashpot.core.commands import CommandResult, CommandRunner
 from dashpot.github.github import GitHubRequestError
 from dashpot.project.init import InitError, initialize_project
+from dashpot.project.project_config import (
+    GitHubIssueSourceConfig,
+    LocalMarkdownIssueSourceConfig,
+    ProjectConfig,
+    load_project_config,
+)
 from factories import init_repository
 
 
@@ -23,8 +29,13 @@ def gh_runner(payload: dict[str, Any]) -> tuple[list[list[str]], CommandRunner]:
     return calls, runner
 
 
-def load_config(root: Path) -> dict[str, Any]:
-    return json.loads((root / ".dashpot" / "config.json").read_text())
+def load_config(root: Path) -> ProjectConfig:
+    """Read what init wrote the way every reader does, and check its keys."""
+    raw = json.loads((root / ".dashpot" / "config.json").read_text())
+    # Only the fields init chose: no default the loader supplies, such as the
+    # retired reconciliationSeconds, is written into the file.
+    assert set(raw) == {"projectId", "displayLabel", "repositoryId", "issueSource"}
+    return load_project_config(root)
 
 
 def test_github_origin_initializes_with_resolved_identity(tmp_path: Path) -> None:
@@ -36,10 +47,10 @@ def test_github_origin_initializes_with_resolved_identity(tmp_path: Path) -> Non
     messages = initialize_project(root, runner=runner)
 
     config = load_config(root)
-    assert config["repositoryId"] == "R_dashpot"
-    assert config["displayLabel"] == "dashpot"
-    assert config["issueSource"] == {"kind": "github"}
-    assert config["projectId"].startswith("project:")
+    assert config.repository_id == "R_dashpot"
+    assert config.display_label == "dashpot"
+    assert config.issue_source == GitHubIssueSourceConfig(kind="github")
+    assert config.project_id.startswith("project:")
     assert ["gh", "api", "repos/ned2/dashpot"] in calls
     assert messages[0] == f"created {root / '.dashpot' / 'config.json'}"
 
@@ -50,9 +61,11 @@ def test_markdown_initializes_without_github(git_repository: Path) -> None:
     initialize_project(root, markdown_path="issues")
 
     config = load_config(root)
-    assert config["repositoryId"].startswith("repository:")
-    assert config["displayLabel"] == "repo"
-    assert config["issueSource"] == {"kind": "markdown", "path": "issues"}
+    assert config.repository_id.startswith("repository:")
+    assert config.display_label == "repo"
+    assert config.issue_source == LocalMarkdownIssueSourceConfig(
+        kind="markdown", path="issues"
+    )
 
 
 def test_markdown_takes_precedence_over_github_origin(tmp_path: Path) -> None:
@@ -63,18 +76,57 @@ def test_markdown_takes_precedence_over_github_origin(tmp_path: Path) -> None:
 
     initialize_project(root, markdown_path="issues", runner=runner)
 
-    assert load_config(root)["issueSource"]["kind"] == "markdown"
+    assert load_config(root).issue_source.kind == "markdown"
     assert not [call for call in calls if call[0] == "gh"]
 
 
-@pytest.mark.parametrize("path", ["/absolute", "../outside"])
+@pytest.mark.parametrize(
+    ("path", "message"),
+    [
+        ("/absolute", "--markdown path must be a repository-relative POSIX path"),
+        ("../outside", "--markdown path must be a repository-relative POSIX path"),
+        (" ", "--markdown path must be a non-empty string"),
+    ],
+)
 def test_markdown_path_must_be_repository_relative(
-    git_repository: Path, path: str
+    git_repository: Path, path: str, message: str
 ) -> None:
     root = git_repository
 
-    with pytest.raises(InitError, match="repository-relative"):
+    with pytest.raises(InitError) as refused:
         initialize_project(root, markdown_path=path)
+
+    assert str(refused.value) == message
+    assert not (root / ".dashpot").exists()
+
+
+@pytest.mark.parametrize("blocker", [".dashpot", ".dashpot/config.json"])
+def test_a_configuration_that_cannot_be_written_is_a_refusal(
+    git_repository: Path, blocker: str
+) -> None:
+    # A file where the directory belongs, or a directory where the file does.
+    root = git_repository
+    if blocker == ".dashpot":
+        (root / ".dashpot").write_text("")
+    else:
+        (root / blocker).mkdir(parents=True)
+
+    with pytest.raises(InitError, match="cannot write Project configuration"):
+        initialize_project(root, markdown_path="issues")
+
+
+def test_a_label_the_configuration_refuses_is_refused_before_writing(
+    tmp_path: Path,
+) -> None:
+    root = init_repository(
+        tmp_path / "repo", origin="https://github.com/ned2/dashpot.git"
+    )
+    _calls, runner = gh_runner({"node_id": "R_dashpot", "full_name": "ned2/ "})
+
+    with pytest.raises(InitError, match="displayLabel must be a non-empty string"):
+        initialize_project(root, runner=runner)
+
+    assert not (root / ".dashpot").exists()
 
 
 def test_init_requires_a_git_repository(tmp_path: Path) -> None:

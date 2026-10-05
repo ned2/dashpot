@@ -81,7 +81,7 @@ def load_project_config(
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ProjectConfigError(f"Project configuration not found: {path}") from exc
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise ProjectConfigError(
             f"cannot read Project configuration {path}: {exc}"
         ) from exc
@@ -89,7 +89,12 @@ def load_project_config(
 
 
 def declared_project_id(root: Path) -> str | None:
-    """The Project Identity the configuration at a Worktree's root declares, if it reads."""
+    """The Project Identity the configuration at a Worktree's root declares, if it reads.
+
+    Every failure to read or validate it is a ``ProjectConfigError``, and
+    none is raised here: the identity only names a Project in a record, and
+    the command recording it has already done what it did.
+    """
     try:
         return load_project_config(root).project_id
     except ProjectConfigError:

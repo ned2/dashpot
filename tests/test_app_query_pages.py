@@ -25,11 +25,13 @@ from app_harness import (
     show_query_peer,
     workspace_snapshot,
 )
-from dashpot.core.model import RepositoryStateInventory, WorkspaceSnapshot
+from dashpot.composition import create_query_sources
+from dashpot.core.model import Diagnostic, RepositoryStateInventory, WorkspaceSnapshot
 from dashpot.observation.collect import ObservationCoordinator
 from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.project.workspace import ResolvedProject
 from dashpot.queries.page_navigation import PageNavigation, page_text, totals_text
+from dashpot.queries.query_source import UnresolvedQuerySource
 from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.legend import LegendScreen
@@ -130,6 +132,43 @@ async def test_first_page_navigation_and_submitted_text(tmp_path):
             ),
         )
         assert not app.store.checkpoint().projects[0].snapshot.issues
+
+
+@pytest.mark.asyncio
+async def test_with_no_project_resolved_the_anchor_diagnostics_are_the_only_ones():
+    anchor = Diagnostic(
+        source="workspace:gone",
+        severity="error",
+        code="workspace-anchor-missing",
+        message="/gone does not exist",
+    )
+    coordinator = ObservationCoordinator(
+        [],
+        query_driven=True,
+        diagnostics=[anchor],
+        agent_observer=lambda targets: ([], []),
+    )
+    app = DashpotApp(
+        coordinator,
+        sources=create_query_sources(coordinator),
+        refresh_seconds=0,
+        query_refresh_seconds=0,
+    )
+    async with app.run_test(size=(150, 55)) as pilot:
+        await wait_until(
+            lambda: (
+                not app.queries.busy
+                and all(
+                    app.queries.navigation[kind].error
+                    for kind in ("issues", "pull-requests")
+                )
+            )
+        )
+        await pilot.pause()
+        # Each page says why it is empty, in one line, and the Diagnostics
+        # are the anchor's alone: nothing was asked of the working directory.
+        assert app.queries.navigation["issues"].error == UnresolvedQuerySource.refusal
+        assert [entry.diagnostic for entry in app.shown_diagnostics()] == [anchor]
 
 
 @pytest.mark.asyncio

@@ -192,7 +192,9 @@ A process whose working directory is inside a configured checkout — one
 whose Worktree root carries `.dashpot/config.json` — writes to that
 checkout's `.dashpot/state/events/`, which is ignored with the rest of
 `.dashpot/state/`. Any other process writes to
-`$XDG_STATE_HOME/dashpot/events/`, else `~/.local/state/dashpot/events/`, or
+`$XDG_STATE_HOME/dashpot/events/` when that is an absolute path (a relative
+one is ignored, as the XDG specification requires), else
+`~/.local/state/dashpot/events/`, or
 `~/Library/Application Support/dashpot/events/` on macOS. Hooks and
 commands share one file per UTC day, `events-YYYY-MM-DD.jsonl`; each
 dashboard run writes its own, `dashboard-<run>-YYYY-MM-DD.jsonl`. Each line
@@ -293,7 +295,9 @@ dashpot events remove --before 2026-09-01
 ```
 
 `events remove` acts on the Event Log of the checkout it runs in, or on the
-machine-local fallback when it runs outside every configured checkout. It
+machine-local fallback when it runs outside every configured checkout. A
+working directory that no longer exists, such as a removed Worktree a shell
+is still in, is refused rather than read as outside every checkout. It
 removes only files named as the Event Log names them whose UTC day is before
 `--before`, never a file dated today or later, so a writer's current file is
 always safe. It asks nothing, prints each file with its size, prints the

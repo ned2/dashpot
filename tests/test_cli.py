@@ -15,9 +15,12 @@ from rich.console import Console
 from dashpot import cli, composition
 from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.errors import DashpotError
+from dashpot.core.event_log import EventLogDestination
 from dashpot.core.git import GitError
 from dashpot.core.issue_profile import IssueProfileError, conform_issue
 from dashpot.core.model import WorkspaceSnapshot
+from dashpot.core.working_directory import WorkingDirectoryError, current_directory
+from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.github.github import LatestRateLimit
 from dashpot.hook import publish_from_stream
 from dashpot.issues.issue_resolution import IssueResolutionError
@@ -32,7 +35,8 @@ from dashpot.project.workspace import (
     WorkspaceInventory,
     WorkspaceResolution,
 )
-from dashpot.queries.source_queries import QUERY_SOURCE_KEYS
+from dashpot.queries.query_source import ProjectUnresolvedError, UnresolvedQuerySource
+from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupBlocker,
@@ -63,7 +67,7 @@ from dashpot.sessions.integrate import (
 )
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
 from dashpot.sessions.work import IssueWorkError
-from factories import git, write_config_marker
+from factories import git, init_repository, write_config_marker, write_project_config
 from helpers import issue_payload, table_lookup
 from test_cleanup import (
     CLAUDE,
@@ -106,7 +110,7 @@ def test_workspace_argument_infers_name_from_resolved_dot_path(
     assert workspace == Workspace(tmp_path.name, (RepositoryAnchor(str(tmp_path)),))
 
 
-@pytest.mark.parametrize("value", ["", "=", "name="])
+@pytest.mark.parametrize("value", ["", "=", "name=", "=/anchor", " =/anchor", "/"])
 def test_workspace_argument_rejects_incomplete_values(value: str) -> None:
     with pytest.raises(ValueError, match="workspace must be"):
         cli.parse_workspace_argument(value)
@@ -509,19 +513,62 @@ def test_query_sources_are_configured_per_key_at_the_first_project_anchor(
     assert readings == [shared] * len(QUERY_SOURCE_KEYS)
 
 
-def test_query_sources_fall_back_to_the_current_directory_without_projects(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_with_no_project_resolved_no_query_reads_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        composition,
-        "configured_query_source",
-        lambda root, *, timeout, latest_rate_limit: (root, timeout),
+    # Started inside another configured Project, a dashboard whose one anchor
+    # fails to resolve must neither query that Project nor refuse over a
+    # configuration the working directory's subdirectory does not hold.
+    configured = init_repository(tmp_path / "configured")
+    write_project_config(configured)
+    nested = configured / "src"
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+    missing = tmp_path / "missing"
+    collector = composition.create_collector(
+        composition.ObservationOptions(
+            workspaces=(Workspace("gone", (RepositoryAnchor(str(missing)),)),)
+        ),
+        recurring=False,
     )
+    assert collector.projects == []
 
-    sources = composition.create_query_sources(mock.Mock(projects=[], timeout=3.0))
+    sources = composition.create_query_sources(collector)
 
-    assert set(sources.values()) == {(tmp_path.resolve(), 3.0)}
+    assert tuple(sources) == QUERY_SOURCE_KEYS
+    assert all(isinstance(each, UnresolvedQuerySource) for each in sources.values())
+    assert not composition.reads_github(sources)
+    for source in sources.values():
+        assert source.context is None
+        assert source.source_diagnostics() == ()
+        assert not source.supports_sort(QueryRequest(kind="issues"), "number")
+        assert source.resolve_identities(()) == ()
+        with pytest.raises(ProjectUnresolvedError, match="no Project resolved"):
+            source.query_page(QueryRequest(kind="issues"))
+        with pytest.raises(ProjectUnresolvedError):
+            source.resolve_identities(("issue:1",))
+        with pytest.raises(ProjectUnresolvedError):
+            source.enumerate_source("issues")
+
+
+def test_a_dashboard_with_no_project_resolved_opens_with_its_anchor_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured = init_repository(tmp_path / "configured")
+    write_project_config(configured)
+    (configured / "src").mkdir()
+    monkeypatch.chdir(configured / "src")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    with mock.patch.object(cli, "DashpotApp") as app:
+        app.return_value.return_code = None
+        assert cli.main(["--workspace", str(tmp_path / "missing")]) == 0
+
+    collector = app.call_args.args[0]
+    assert collector.projects == []
+    assert [diagnostic.code for diagnostic in collector.diagnostics]
+    sources = app.call_args.kwargs["sources"]
+    assert all(isinstance(each, UnresolvedQuerySource) for each in sources.values())
 
 
 def test_compact_json_mode_has_no_recurring_polling_schedule() -> None:
@@ -616,6 +663,122 @@ def test_every_error_family_is_one_line_and_exits_two(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == f"dashpot: {error}\n"
+
+
+GONE = (
+    "dashpot: the working directory no longer exists; change to a directory "
+    "that does and run the command again\n"
+)
+
+
+def remove_working_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave this process in a directory that has been removed, as a shell can be."""
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["--workspace", "relative"],
+        ["init"],
+        ["work", "start", "1"],
+        ["work", "relocate", "elsewhere"],
+        ["work", "stop"],
+        ["work", "forget-subagents", "session"],
+        ["work", "assign", "1", "--worker", "agent", "--worktree", "elsewhere"],
+        ["work", "unassign", "agent"],
+        ["work", "show"],
+        ["events"],
+        ["events", "remove", "--before", "2026-09-01"],
+        ["issue", "show", "1"],
+        ["issue", "list"],
+        ["pr", "list"],
+        ["worktree", "create", "1"],
+        ["worktree", "check"],
+        ["worktree", "remove", "elsewhere"],
+        ["branch", "delete", "feature", "--local"],
+        ["integrate", "claude-code", "--status"],
+        ["integrate", "codex", "opencode", "--status"],
+    ],
+)
+def test_a_command_run_in_a_removed_directory_refuses_on_one_line(
+    argv: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    remove_working_directory(tmp_path, monkeypatch)
+
+    assert cli.main(argv) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == GONE
+
+
+def test_an_absolute_workspace_needs_no_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    remove_working_directory(tmp_path, monkeypatch)
+
+    assert cli.parse_workspace_argument(str(tmp_path)) == Workspace(
+        tmp_path.name, (RepositoryAnchor(str(tmp_path)),)
+    )
+    with pytest.raises(WorkingDirectoryError):
+        cli.parse_workspace_argument("relative")
+
+
+def test_an_unreadable_working_directory_is_refused_with_its_reason() -> None:
+    with (
+        mock.patch.object(Path, "cwd", side_effect=PermissionError("denied")),
+        pytest.raises(WorkingDirectoryError, match="cannot read the working directory"),
+    ):
+        current_directory()
+
+
+def test_a_refusal_without_text_is_named_by_its_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(cli, "show_issue", side_effect=IssueResolutionError()):
+        assert cli.main(["issue", "show", "1"]) == 2
+
+    assert capsys.readouterr().err == "dashpot: IssueResolutionError\n"
+
+
+def test_an_unreadable_configuration_never_hides_what_a_command_did(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The command's outcome names its Project from the configuration once it
+    # is done; one that does not decode names none rather than failing it.
+    checkout = init_repository(tmp_path / "checkout")
+    (checkout / ".dashpot").mkdir()
+    (checkout / ".dashpot" / "config.json").write_bytes(b'{"projectId": "caf\xe9"}')
+    monkeypatch.chdir(checkout)
+    monkeypatch.setenv(LEVEL_VARIABLE, "standard")
+    events = tmp_path / "events"
+
+    assert (
+        cli.main(
+            ["events", "remove", "--before", "2020-01-01"],
+            event_log=EventLogDestination(events),
+        )
+        == 0
+    )
+
+    (outcome,) = [
+        record
+        for path in events.glob("*.jsonl")
+        for line in path.read_text().splitlines()
+        if (record := json.loads(line))["event.name"] == "command.outcome"
+    ]
+    assert outcome["dashpot.outcome.result"] == "succeeded"
+    assert "dashpot.project.id" not in outcome
 
 
 def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
@@ -1731,14 +1894,20 @@ def test_cleanup_protects_this_checkout_and_every_configured_anchor(
     assert perform.call_args.kwargs["protected"] == expected
 
 
+@pytest.mark.parametrize(
+    "content",
+    [b"not json", b'{"workspaces": [{"name": "caf\xe9", "anchors": ["/a"]}]}'],
+    ids=["malformed", "not-utf-8"],
+)
 def test_cleanup_refuses_when_the_workspace_inventory_cannot_be_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    content: bytes,
 ) -> None:
     xdg = tmp_path / "xdg"
     (xdg / "dashpot").mkdir(parents=True)
-    (xdg / "dashpot" / "workspaces.json").write_text("not json")
+    (xdg / "dashpot" / "workspaces.json").write_bytes(content)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
     monkeypatch.chdir(tmp_path)
 
@@ -1770,7 +1939,7 @@ def test_integrate_codex_dispatches_install_remove_and_status(
         cli, "integration_status", return_value=["installed in x"]
     ) as status:
         assert cli.main(["integrate", "claude-code", "--status"]) == 0
-    status.assert_called_once_with("claude-code")
+    status.assert_called_once_with("claude-code", current=current_directory())
 
     output = capsys.readouterr().out
     assert "installed hooks" in output
@@ -1898,7 +2067,7 @@ def test_integrate_status_without_a_harness_reports_every_harness(
     with mock.patch.object(cli, "integrations_status", return_value=combined) as run:
         assert cli.main(argv) == 0
 
-    run.assert_called_once_with(())
+    run.assert_called_once_with((), current=current_directory())
     assert capsys.readouterr().out.splitlines() == [
         "Claude Code:",
         "  installed in /c",
@@ -2149,6 +2318,21 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
     assert "Usage: dashpot worktree create [OPTIONS] REFERENCE" in create
     for option in ("--base", "--branch", "--worktree-root", "--dry-run", "--json"):
         assert option in create
+    # The help is Markdown, which would take a bare placeholder for a tag.
+    flat_create = " ".join(create.replace("│", " ").split())
+    assert "defaults to <number>-<title-slug> (a Local Issue's slug)" in flat_create
+    assert "the main working tree's sibling <main>.worktrees/" in flat_create
+    for listing in (["issue", "list", "--help"], ["pr", "list", "--help"]):
+        text = " ".join(help_text(listing).replace("│", " ").split())
+        # These commands print JSON only, and say so.
+        assert "instead of lines" not in text
+        assert "as JSON" in text
+        assert "accepted and ignored: the page is always printed as JSON" in text
+        assert "[default: False]" not in text
+        for option in ("--query", "--page-size", "--cursor", "--compact-json"):
+            described = text.split(option, 1)[1].split(" --", 1)[0].strip()
+            assert described and not described.startswith("["), option
+            assert "[default:" not in described, option
     remove = help_text(["worktree", "remove", "--help"])
     assert "Usage: dashpot worktree remove [OPTIONS] PATH" in remove
     for option in ("--delete-branch", "--delete-ignored", "--dry-run", "--json"):

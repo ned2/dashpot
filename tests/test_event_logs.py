@@ -8,11 +8,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 from unittest import mock
 
 import pytest
 from cyclopts import CycloptsError
+from textual.app import App
 
 from dashpot import cli, event_logs, hook
 from dashpot.core import state_paths
@@ -393,6 +394,44 @@ def test_the_dashboard_is_handed_the_command_lines_event_log(
     assert cli._EVENT_LOG.get() is None
 
 
+class CrashingDashboard(App[None]):
+    """A dashboard whose first handler raises, which Textual reports and survives."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__()
+
+    def on_mount(self) -> None:
+        raise ValueError("a handler fault")
+
+    @override
+    def run(self, **kwargs: Any) -> None:
+        # No terminal under the suite: the same run, drawn nowhere.
+        return super().run(headless=True, **kwargs)
+
+
+def test_a_crashed_dashboard_exits_1_and_records_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv(LEVEL_VARIABLE, "standard")
+
+    with (
+        mock.patch.object(cli, "create_collector"),
+        mock.patch.object(cli, "create_query_sources", return_value={}),
+        mock.patch.object(cli, "DashpotApp", CrashingDashboard),
+    ):
+        code = cli.main(
+            ["--workspace", "/repo"], event_log=EventLogDestination(tmp_path)
+        )
+
+    assert code == 1
+    # Textual printed the traceback; the status is what reaches the shell.
+    assert "a handler fault" in capsys.readouterr().err
+    assert [
+        (event["event.name"], event.get("process.exit.code"))
+        for event in written(tmp_path)
+    ] == [("process.start", None), ("process.end", 1)]
+
+
 # --- Hooks ------------------------------------------------------------------
 
 
@@ -587,6 +626,31 @@ def test_the_machine_local_state_follows_the_platform_without_xdg(
 
     assert state_paths.machine_state_directory() == tmp_path / expected
     assert route_event_log(None) == EventLogDestination(tmp_path / expected / "events")
+
+
+@pytest.mark.parametrize("value", ["state", "./state", ""])
+def test_a_relative_xdg_state_home_is_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    # The XDG specification makes a relative value invalid: honouring it
+    # would put each process's state under its own working directory.
+    monkeypatch.setenv("XDG_STATE_HOME", value)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(state_paths.sys, "platform", "linux")
+    monkeypatch.chdir(tmp_path)
+
+    assert state_paths.machine_state_directory() == (
+        tmp_path / "home" / ".local" / "state" / "dashpot"
+    )
+
+
+def test_xdg_state_home_may_name_the_home_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", "~/state")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert state_paths.machine_state_directory() == tmp_path / "state" / "dashpot"
 
 
 def test_a_working_directory_that_is_gone_has_no_checkout(
