@@ -55,18 +55,20 @@ def observation_attributes(key: ObservationKey) -> ObservationAttributes:
     return attributes
 
 
-# The explicit work the refresh pool serves beside its keys that is not one
-# per Project: the Worktree launch, the tmux attachment probe and the Event
-# Log measurement, each of which runs at most once at a time.
+# The pool's work beside its keys and each Project's Remote Fetch or
+# Cleanup: the Worktree launch, the tmux attachment probe and the Event Log
+# measurement, each of which runs at most once at a time.
 SINGLE_FLOW_THREADS = 3
 
 
 def refresh_pool_size(keys: Sequence[ObservationKey]) -> int:
     """Size the refresh pool to the keys plus the explicit work that shares it.
 
-    A key is observed at most once at a time, and each Project runs at most
-    one Remote Fetch or Cleanup operation at a time, which hold one another
-    off; the remaining explicit work is ``SINGLE_FLOW_THREADS``.
+    The pool serves every key and every off-loop operation the app runs
+    without an executor of its own. A key is observed at most once at a
+    time; each Project runs at most one Remote Fetch or Cleanup operation
+    at a time, since the two hold one another off; and the rest is
+    ``SINGLE_FLOW_THREADS``.
     """
     projects = {key.project_id for key in keys if key.project_id != WORKSPACE_SCOPE}
     return len(keys) + len(projects) + SINGLE_FLOW_THREADS
@@ -165,12 +167,10 @@ class ObservationRunner:
         self.indicator_seconds = indicator_seconds
         self.indicator_timer: TimerHandle | None = None
         self.refreshing_visible = False
-        # The pool serves every key and the explicit work the app runs off
-        # the loop: Remote Fetches, Cleanups, the Worktree launch, the tmux
-        # probe and the Event Log measurement. Sized for all of them at
-        # once, every key runs concurrently even while a fetch or Cleanup
-        # holds a thread per Project. The pool's threads adopt the app's
-        # registry so an exit can stop their commands.
+        # Sized for every key and all the app's other off-loop work at once
+        # (``refresh_pool_size``), so every key runs concurrently even while
+        # a Remote Fetch or Cleanup holds a thread per Project. The pool's
+        # threads adopt the app's registry so an exit can stop their commands.
         self.executor = start_pool(
             running,
             max_workers=refresh_pool_size(scheduler.keys()),

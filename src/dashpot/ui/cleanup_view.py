@@ -43,8 +43,7 @@ from ..repository.cleanup import (
     unchecked_processes_note,
     worktree_target,
 )
-from ..repository.refs import REMOTE_REF_PREFIX
-from ..repository.refs import short_ref as ref_name
+from ..repository.refs import REMOTE_REF_PREFIX, short_ref
 from .branch_cells import fetch_age_text
 from .marked_widgets import MarkedCheckbox
 
@@ -56,7 +55,7 @@ CHANGED_HELP = (
 
 def integration_ref_label(ref: str | None) -> str:
     """Label the ref integration was judged against, or name the Integration Branch."""
-    return ref_name(ref) if ref else "the Integration Branch"
+    return short_ref(ref) if ref else "the Integration Branch"
 
 
 def judged_against_remote_tracking(target: CleanupTarget) -> bool:
@@ -74,7 +73,7 @@ def judged_against_remote_tracking(target: CleanupTarget) -> bool:
 
 def target_ref_label(target: CleanupTarget) -> str:
     """Label a Branch target's ref as a person reads it."""
-    return ref_name(target.ref or "")
+    return short_ref(target.ref or "")
 
 
 def remote_branch_name(target: CleanupTarget) -> str:
@@ -513,7 +512,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         return self.preview.kind == "branch" and bool(self.preview.selectable)
 
     def unverified_remote(self, target: CleanupTarget) -> bool:
-        """Whether the latest fetch here left a remote Branch's remote unverified."""
+        """Whether the latest fetch here left a Remote Branch's remote unverified."""
         return (
             target.kind == "remote-branch"
             and self.verified_remotes is not None

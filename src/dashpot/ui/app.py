@@ -988,7 +988,8 @@ class DashpotApp(App[None]):
         """Redraw every mounted peer from the shared facts, recording Diagnostic changes.
 
         ``lists`` re-lists each peer's records as well as its status bar and
-        readouts: a landed change or page needs it, a failure does not.
+        readouts: a landing that changed records, or a page, needs it; an
+        unchanged landing does not.
         """
         self.diagnostic_changes.observe(self.shown_diagnostics())
         for peer in self.mounted_peers():
@@ -1170,9 +1171,8 @@ class DashpotApp(App[None]):
         self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
     ) -> T:
         """Run one blocking operation on an executor thread and return its value."""
-        # Remote Fetches, Cleanups, the Worktree launch, the tmux probe and
-        # the Event Log measurement share the observation pool, which is
-        # sized for them beside its keys (``refresh_pool_size``).
+        # Off-loop work without an executor of its own shares the
+        # observation pool, which ``refresh_pool_size`` sizes for all of it.
         # The operation keeps the current span but runs in its thread's own
         # context, where the command registry the thread adopted lives; its
         # commands are recorded to this run's Event Log even outside a span.
