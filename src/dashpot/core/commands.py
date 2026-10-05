@@ -496,7 +496,7 @@ def _signal(
         process.send_signal(signum)
         return
     # A group left with only its unreaped leader has nothing to signal: Linux
-    # answers that it is gone, macOS that it is not permitted, since a zombie
-    # takes no signal there.
+    # accepts the signal for the zombie, macOS refuses it as not permitted.
+    # A group already gone answers that it is.
     with suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signum)

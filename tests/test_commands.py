@@ -515,3 +515,24 @@ def test_a_command_sharing_dashpot_s_group_that_will_not_stop_is_killed(
     assert process.returncode == -signal.SIGKILL
     assert not gone(helper)
     os.kill(helper, signal.SIGKILL)
+
+
+def test_a_group_left_only_its_stopped_leader_is_not_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # macOS refuses a signal to a group of zombies as not permitted, where
+    # Linux accepts it; either way the stop completes.
+    real_killpg = os.killpg
+
+    def refusing_the_kill(pgid: int, signum: int) -> None:
+        if signum == signal.SIGKILL:
+            raise PermissionError(1, "Operation not permitted")
+        real_killpg(pgid, signum)
+
+    monkeypatch.setattr(os, "killpg", refusing_the_kill)
+
+    process, helper, asked = run_timing_out(tmp_path, non_interactive=True)
+
+    assert process.returncode == -signal.SIGTERM
+    wait_for(lambda: gone(helper))
+    assert asked.read_text() == "terminated"
