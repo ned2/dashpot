@@ -351,6 +351,145 @@ class HookRecordStoreTests(unittest.TestCase):
 
                 self.assertEqual(not removed, (self.state_dir / "opaque.json").exists())
 
+    def test_a_session_end_beside_an_unnamed_process_ends_the_session(self) -> None:
+        # A hook whose ancestry probe failed names no Host Process, only why
+        # (#543). That is no evidence of another process, so the newer end
+        # ends the session on either side of it.
+        unnamed: dict[str, Any] = {
+            "sessionProcess": None,
+            "sessionProcessUnobservable": "ps-timeout",
+        }
+        named: dict[str, Any] = {"sessionProcess": self.process.as_record()}
+        for session_id, previous, ending in (
+            ("unnamed-before", unnamed, named),
+            ("unnamed-end", named, unnamed),
+        ):
+            with self.subTest(previous=previous, ending=ending):
+                store = HookRecordStore(self.state_dir)
+                base = hook_record_document("/repo", session_id, "codex")
+                store.write(
+                    {
+                        **base,
+                        **previous,
+                        "state": "waiting",
+                        "event": "Stop",
+                        "lastActivityAt": "2026-08-25T16:00:00.000000Z",
+                    }
+                )
+
+                written = store.write(
+                    {
+                        **base,
+                        **ending,
+                        "state": "ended",
+                        "event": "SessionEnd",
+                        "lastActivityAt": "2026-08-25T16:01:00.000000Z",
+                    }
+                )
+
+                self.assertEqual("ended", written.state)
+                runs, _diagnostics = observe_agent_runs(
+                    {"project:example": [observation_target()]},
+                    self.state_dir,
+                    lookup=present(self.process),
+                )
+                self.assertEqual([], runs)
+
+    def test_an_older_session_end_beside_an_unnamed_process_ends_nothing(
+        self,
+    ) -> None:
+        store = HookRecordStore(self.state_dir)
+        base = hook_record_document("/repo", "late-end", "codex")
+        store.write(
+            {
+                **base,
+                "sessionProcess": None,
+                "sessionProcessUnobservable": "ps-timeout",
+                "state": "waiting",
+                "event": "Stop",
+                "lastActivityAt": "2026-08-25T16:01:00.000000Z",
+            }
+        )
+
+        written = store.write(
+            {
+                **base,
+                "sessionProcess": self.process.as_record(),
+                "state": "ended",
+                "event": "SessionEnd",
+                "lastActivityAt": "2026-08-25T16:00:00.000000Z",
+            }
+        )
+
+        self.assertIsNone(written.state)
+        runs, _diagnostics = observe_agent_runs(
+            {"project:example": [observation_target()]},
+            self.state_dir,
+            lookup=present(self.process),
+        )
+        self.assertEqual(["unknown"], [run.state for run in runs])
+
+    def test_a_session_end_beside_an_unnamed_process_keeps_its_sub_agents(
+        self,
+    ) -> None:
+        # Accepted on no contrary evidence, the end is the named process's,
+        # so the working sub-agent stays listed until that process is gone
+        # (ADR 0095, ADR 0132).
+        unnamed: dict[str, Any] = {
+            "sessionProcess": None,
+            "sessionProcessUnobservable": "ps-timeout",
+        }
+        named: dict[str, Any] = {"sessionProcess": self.process.as_record()}
+        for session_id, previous, ending in (
+            ("delegated-unnamed", unnamed, named),
+            ("delegated-named", named, unnamed),
+        ):
+            with self.subTest(previous=previous, ending=ending):
+                directory = self.state_dir / session_id
+                store = HookRecordStore(directory)
+                base = hook_record_document("/repo", session_id, "codex")
+                for event, state in (("Stop", "waiting"), ("SubagentStart", "running")):
+                    store.write(
+                        {
+                            **base,
+                            **previous,
+                            "state": state,
+                            "event": event,
+                            "agentId": "worker" if event == "SubagentStart" else None,
+                            "lastActivityAt": "2026-08-25T16:00:00.000000Z",
+                        }
+                    )
+
+                written = store.write(
+                    {
+                        **base,
+                        **ending,
+                        "state": "ended",
+                        "event": "SessionEnd",
+                        "lastActivityAt": "2026-08-25T16:01:00.000000Z",
+                    }
+                )
+
+                self.assertEqual("ended", written.state)
+                (blocking,) = sessions_with_live_subagents(
+                    [Path("/repo")], [directory], lookup=present(self.process)
+                )
+                self.assertEqual(
+                    (session_id, "ended", self.process, ("worker",)),
+                    (
+                        blocking.record.session_id,
+                        blocking.record.state,
+                        blocking.record.process,
+                        blocking.record.live_subagents,
+                    ),
+                )
+                self.assertEqual(
+                    [],
+                    sessions_with_live_subagents(
+                        [Path("/repo")], [directory], lookup=absent()
+                    ),
+                )
+
     def test_session_end_with_a_malformed_binding_still_removes_the_record(
         self,
     ) -> None:

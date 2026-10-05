@@ -398,13 +398,15 @@ def _retained_subagents(
     until their ``SubagentStop``, or until the Host Process running them is
     gone, so only an end that names one keeps any: nothing else could ever
     clear them. They are those the session's records of that process list,
-    with the process each runs in (ADR 0107).
+    with the process each runs in (ADR 0107). A record that names no Host
+    Process is no evidence of another, so its sub-agents are the ending
+    process's as far as anything can tell (ADR 0132).
     """
     if ending.get("sessionProcess") is None:
         return {}
     kept: dict[str, Any] = {}
     for record in (previous, seed):
-        if record is not None and _same_host_process(record, ending):
+        if record is not None and not _names_another_process(record, ending):
             kept.update(_carried_by_host(ending, subagent_hosts(record), gone_hosts))
     return kept
 
@@ -556,6 +558,42 @@ def _same_process(first: object, second: object) -> bool:
     return first_key == second_key
 
 
+def _names_another_process(one: Mapping[str, Any], other: Mapping[str, Any]) -> bool:
+    """Whether two hook records each name a Host Process, and not the same one.
+
+    A record that names none, as a hook whose ancestry probe failed leaves,
+    is no evidence of another process (ADR 0132).
+    """
+    return (
+        one.get("sessionProcess") is not None
+        and other.get("sessionProcess") is not None
+        and not _same_host_process(one, other)
+    )
+
+
+def _ending_process(
+    ending: Mapping[str, Any], previous: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """``ending`` naming the Host Process ``previous`` names, when it names none itself.
+
+    An end accepted beside a named process is that process's end, so an
+    ended record it keeps for its sub-agents waits on that process rather
+    than on one nothing can observe (ADR 0132).
+    """
+    if (
+        previous is None
+        or ending.get("sessionProcess") is not None
+        or previous.get("sessionProcess") is None
+    ):
+        return dict(ending)
+    named = dict(ending)
+    for field in ("sessionProcess", "sessionProcessUnobservable"):
+        named.pop(field, None)
+        if field in previous:
+            named[field] = previous[field]
+    return named
+
+
 def _same_named_process(
     current: Mapping[str, Any], previous: Mapping[str, Any]
 ) -> bool:
@@ -631,7 +669,10 @@ class HookRecordStore(LockedRecordStore):
         this store, so a move never forgets a live Sub-agent (ADR 0067). A
         child-scoped event instead keeps this store's previous record's
         location, never ends it, and writes nothing but a sub-agent's start
-        where there is no record. A ``SessionEnd`` whose session still lists
+        where there is no record. A ``SessionEnd`` older than the previous
+        record, or naming another Host Process than it, keeps nothing; where
+        only one of the two names a process, the end is that process's
+        (ADR 0132). A ``SessionEnd`` whose session still lists
         live sub-agents keeps them in an ended record of its Host Process,
         which only their boundaries change and which a ``SessionStart`` of
         that process carries on (ADR 0095), as it carries a live record's
@@ -675,15 +716,18 @@ class HookRecordStore(LockedRecordStore):
             destination = self.record_path(key)
             child = is_child_record(record)
             if _is_ended(record) and not child:
+                # Only another named Host Process, or a newer record, refuses
+                # an end: a side that names none is no evidence (ADR 0132).
                 if previous is not None and (
-                    not _same_host_process(previous, record)
+                    _names_another_process(previous, record)
                     or observed_instant(previous.get("lastActivityAt"))
                     > observed_instant(record.get("lastActivityAt"))
                 ):
                     return HookRecordWrite(destination, None)
-                retained = _retained_subagents(record, previous, seed, gone_hosts)
+                ending = _ending_process(record, previous)
+                retained = _retained_subagents(ending, previous, seed, gone_hosts)
                 if retained:
-                    self.replace(key, _with_listing(record, retained))
+                    self.replace(key, _with_listing(ending, retained))
                 else:
                     destination.unlink(missing_ok=True)
                 return HookRecordWrite(destination, "ended")
