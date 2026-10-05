@@ -1,8 +1,21 @@
 """Pin the headless JSON contract per command, independently of model defaults.
 
-Every key set here is the documented first-release contract (#78): a key
-added to or dropped from a model shows up as a failure in this module, and
-an unknown value is asserted to be an explicit ``null``, never an omission.
+Every key set here is the documented first-release contract (#78), which
+ADR 0034 keeps compatible within ``0.1.x``: a key added to or dropped from a
+model shows up as a failure in this module, and an unknown value is asserted
+to be an explicit ``null``, never an omission. The documents pinned here as
+contract, with the command whose ``--json`` prints each:
+
+- the Workspace Snapshot, ``dashpot --json``;
+- the Issue Profile, ``issue show``;
+- the Query Page and its Project Totals, ``issue list`` and ``pr list``;
+- the Worktree plan, ``worktree create``;
+- the removability report, ``worktree check``;
+- each Runtime Event line, ``events``;
+- the Event Log removal, ``events remove``.
+
+The Cleanup preview and report that ``worktree remove`` and ``branch delete``
+print are pinned beside the Cleanup they describe, in ``test_cleanup.py``.
 """
 
 from __future__ import annotations
@@ -26,7 +39,12 @@ from dashpot.core.runtime_events import (
     RuntimeEvent,
     SpanEnded,
 )
-from dashpot.queries.pages import PageObservation, QueryRequest
+from dashpot.queries.pages import (
+    PageObservation,
+    ProjectTotals,
+    QueryPage,
+    QueryRequest,
+)
 from dashpot.repository.cleanup import CleanupBlocker
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
@@ -479,6 +497,8 @@ def test_the_removability_document_keeps_its_keys_and_nulls() -> None:
 
 
 def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None:
+    # The ``issue list`` and ``pr list`` document is in the contract, so a
+    # consumer of either command's ``--json`` can rely on these key sets (#589).
     source = markdown(tmp_path)
     page = source.query_page(QueryRequest(kind="issues", page_size=1)).page
     # A Markdown Project has no Pull Requests, so their totals are all nulls.
@@ -517,6 +537,50 @@ def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None
     assert totals_document["status"] == "unavailable"
     assert totals_document["openCount"] is None
     assert totals_document["lastGoodAt"] is None
+
+
+def test_the_pull_request_list_document_keeps_its_record_keys_and_nulls(
+    tmp_path: Path,
+) -> None:
+    context = markdown(tmp_path).query_page(QueryRequest(kind="issues")).page.context
+    request = QueryRequest(kind="pull-requests", page_size=1)
+    page = QueryPage(
+        context=context,
+        request=request,
+        effective_ordering=request.ordering,
+        status="fresh",
+        attempted_at="2026-10-06T00:00:00Z",
+        last_good_at="2026-10-06T00:00:00Z",
+        pull_requests=[pull_request(mergeability=None)],
+        returned_count=1,
+        matched_count=2,
+        next_cursor="next",
+        continuation="more",
+        result_limit=None,
+    )
+    totals = ProjectTotals(
+        context=context,
+        kind="pull-requests",
+        status="fresh",
+        attempted_at="2026-10-06T00:00:00Z",
+        last_good_at="2026-10-06T00:00:00Z",
+        open_count=1,
+        closed_count=1,
+    )
+
+    document = list_page_document(PageObservation(page, totals))
+
+    assert set(document) == LIST_PAGE_KEYS
+    page_document = document["page"]
+    assert set(page_document) == QUERY_PAGE_KEYS
+    assert page_document["issues"] == []
+    assert page_document["auxiliary"] == {}
+    (record,) = page_document["pullRequests"]
+    assert set(record) == PULL_REQUEST_KEYS
+    assert record["mergeability"] is None
+    assert page_document["nextCursor"] == "next"
+    assert set(document["totals"]) == PROJECT_TOTALS_KEYS
+    assert document["totals"]["openCount"] == 1
 
 
 def test_each_events_line_keeps_its_event_log_field_names_and_nulls() -> None:
