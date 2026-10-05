@@ -75,9 +75,8 @@ def test_state_written_without_an_ignore_rule_leaves_the_worktree_clean(
         lookup=present(CODEX),
         environ={"CODEX_THREAD_ID": SESSION},
     )
-    # With a Work Store present, a Codex hook locks every Worktree's hook
-    # store, creating the linked Worktree's state directory too.
-    publish(root, "UserPromptSubmit")
+    # A hook at the linked Worktree writes that checkout's state directory.
+    publish(linked, "SessionStart")
 
     state = root / ".dashpot" / "state"
     assert record.parent == state / "sessions"

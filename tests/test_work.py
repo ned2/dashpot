@@ -472,6 +472,7 @@ ISOLATED = unobservable("isolated-namespace")
 CODEX_SESSION = "01a05099-1563-79a3-8504-e30d50949ca6"
 CLAUDE_SESSION = "01c7192b-2990-4f83-ad33-290ac22eb4d1"
 CODEX_ENVIRON = {"CODEX_THREAD_ID": CODEX_SESSION}
+OTHER_CODEX_SESSION = "01a05099-1563-79a3-8504-e30d50949cb7"
 CLAUDE_ENVIRON = {"CLAUDE_CODE_SESSION_ID": CLAUDE_SESSION, "CLAUDE_PID": "7777"}
 
 
@@ -1034,6 +1035,89 @@ def test_target_hook_repairs_the_persisted_two_record_crash_window(
     assert continued.relocation is None
 
 
+def test_a_retry_from_a_new_process_repairs_the_two_record_crash_window(
+    tmp_path: Path,
+) -> None:
+    # A crash between the two writes leaves the copy the pre-crash client
+    # completed at B; after a reboot the resumed client has another process.
+    a, b = two_worktrees(tmp_path)
+    before_crash = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    after_reboot = ProcessIdentity(6161, 1, "codex", "Sat Sep 05 06:30:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (pending,) = WorkStore(a).active()[0]
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+    WorkStore(b).start(
+        replace(
+            pending,
+            session_label=f"codex pid {before_crash.pid}",
+            session_process=SessionProcess(
+                pid=before_crash.pid, started_at=before_crash.started_at
+            ),
+            working_directory=str(b),
+            branch="linked",
+            relocation=None,
+        )
+    )
+
+    publication = publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "UserPromptSubmit",
+        },
+        process=after_reboot,
+        harness="codex",
+        lookup=table_lookup({after_reboot.pid: after_reboot}),
+    )
+
+    assert (publication.work, publication.issue_id) == ("relocated", pending.issue_id)
+    assert WorkStore(a).active()[0] == []
+    (continued,) = WorkStore(b).active()[0]
+    assert continued.run_id == pending.run_id
+    assert continued.started_at == pending.started_at
+    assert continued.relocation is None
+    assert continued.session_process == SessionProcess(
+        pid=after_reboot.pid, started_at=after_reboot.started_at
+    )
+    assert continued.session_label == f"codex pid {after_reboot.pid}"
+
+
+def test_a_different_run_at_the_target_is_never_taken_for_an_interrupted_move(
+    tmp_path: Path,
+) -> None:
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (pending,) = WorkStore(a).active()[0]
+    session_end(a, CODEX_SESSION, "codex", CODEX)
+    other = replace(
+        pending,
+        started_at="2026-09-05T06:00:00Z",
+        working_directory=str(b),
+        relocation=None,
+    )
+    WorkStore(b).start(other)
+
+    publication = publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "UserPromptSubmit",
+        },
+        process=resumed,
+        harness="codex",
+        lookup=table_lookup({resumed.pid: resumed}),
+    )
+
+    assert publication.work == "unchanged"
+    assert WorkStore(a).active()[0] == [pending]
+    assert WorkStore(b).active()[0] == [other]
+
+
 def test_an_abandoned_relocation_remains_visible_and_actionable(
     tmp_path: Path,
 ) -> None:
@@ -1184,6 +1268,93 @@ def test_concurrent_codex_clients_cannot_complete_a_relocation(
 
     assert WorkStore(a).active()[0] == []
     assert WorkStore(b).active()[0][0].run_id == before.run_id
+
+
+def test_a_live_client_publishing_to_the_global_store_blocks_completion(
+    tmp_path: Path,
+) -> None:
+    # The old client's checkout predates its configuration, so its records
+    # go to the global store rather than A's (ADR 0069).
+    a, b = two_worktrees(tmp_path)
+    resumed = ProcessIdentity(5252, 1, "codex", "Sat Sep 05 05:20:00 2026")
+    both_live = table_lookup({CODEX.pid: CODEX, resumed.pid: resumed})
+    hook_record(a, CODEX_SESSION, "codex", CODEX, store=state_directory())
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+
+    publication = publish_hook_event(
+        {
+            "session_id": CODEX_SESSION,
+            "cwd": str(b),
+            "hook_event_name": "SessionStart",
+        },
+        process=resumed,
+        harness="codex",
+        lookup=both_live,
+    )
+
+    assert publication.work == "unchanged"
+    assert WorkStore(a).active()[0] == [before]
+    assert WorkStore(b).active()[0] == []
+
+
+@pytest.mark.parametrize("session", ["unrelated", "the run's own"])
+def test_an_ordinary_hook_creates_no_state_at_another_worktree(
+    tmp_path: Path, session: str
+) -> None:
+    # Neither session has an intent naming A, so no store needs locking.
+    a, b = two_worktrees(tmp_path)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    if session == "the run's own":
+        relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    (before,) = WorkStore(a).active()[0]
+    session_id = CODEX_SESSION if session == "the run's own" else OTHER_CODEX_SESSION
+
+    publication = publish_hook_event(
+        {
+            "session_id": session_id,
+            "cwd": str(a),
+            "hook_event_name": "UserPromptSubmit",
+        },
+        process=CODEX,
+        harness="codex",
+        lookup=codex_lookup,
+    )
+
+    assert publication.work == "unchanged"
+    assert WorkStore(a).active()[0] == [before]
+    assert not project_state_directory(b).exists()
+
+
+@pytest.mark.parametrize("session", ["unrelated", "the run's own"])
+def test_an_ordinary_hook_locks_no_existing_store_at_another_worktree(
+    tmp_path: Path, session: str
+) -> None:
+    # B's hook store exists, so only the check for an intent naming A,
+    # read before any lock, keeps completion from locking it.
+    a, b = two_worktrees(tmp_path)
+    hook_record(b, CLAUDE_SESSION, "claude-code", CLAUDE)
+    hook_record(a, CODEX_SESSION, "codex", CODEX)
+    start_issue_work(a, "build-observer", lookup=codex_lookup, environ=CODEX_ENVIRON)
+    if session == "the run's own":
+        relocate_issue_work(a, b, lookup=codex_lookup, environ=CODEX_ENVIRON)
+    session_id = CODEX_SESSION if session == "the run's own" else OTHER_CODEX_SESSION
+
+    publish_hook_event(
+        {
+            "session_id": session_id,
+            "cwd": str(a),
+            "hook_event_name": "UserPromptSubmit",
+        },
+        process=CODEX,
+        harness="codex",
+        lookup=codex_lookup,
+    )
+
+    assert session_directory(b).is_dir()
+    assert not session_directory(b).joinpath(f".{session_id}.lock").exists()
 
 
 def test_a_killed_old_client_can_resume_after_its_process_is_proved_gone(

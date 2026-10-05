@@ -1068,10 +1068,14 @@ hook evidence at the current Worktree, and an exact linked Worktree target. It
 adds a Relocation Intent without changing the Issue Binding, run identity, or
 `startedAt`. The old client's `SessionEnd` then retains the pending record. A
 hook at the intended target completes the second phase only when no hook record
-places a live or unobservable client with that identity elsewhere; completion
+places a live or unobservable client with that identity elsewhere, in any of
+the Repository's hook stores or the global one; completion
 moves the same Work Store record, adopts the resumed process, working directory,
-and Branch, and clears the intent. When the session's freshest live record
-places it at neither its origin nor the intended target, the pending run
+and Branch, and clears the intent. A crash between the move's two writes
+leaves the run at both Worktrees, and the next target hook, from any process,
+finishes the move. For a hook from a session with no intent naming its
+Worktree, completion locks no hook store. When the session's freshest live
+record places it at neither its origin nor the intended target, the pending run
 emits `work-relocation-mismatched`; otherwise concurrent locations emit
 `work-relocation-concurrent`. Either case, a missing hook, or unreadable state
 leaves the intent unchanged and cannot make `work start` reassign it. A

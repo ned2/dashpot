@@ -33,18 +33,28 @@ when all of these facts agree:
 
 - the hook publishes the same Agent Session Identity from the intended target;
 - no hook record describes a live or unobservable client for that identity at
-  another Worktree; and
+  another Worktree, in any store the Repository's sessions publish to,
+  including the global store that holds the records of a Worktree whose
+  checkout is not configured
+  ([ADR 0069](0069-remove-an-ended-sessions-records-from-every-store-of-its-repository.md));
+  and
 - exactly one pending source record exists, with no competing Work Store
-  record for that session. An identical record already written at the target
-  is accepted only to repair the write-before-delete crash window.
+  record for that session. A record at the target with the same Agent Run
+  identity and no intent is accepted only as the half-finished move a crash
+  between the two writes left there.
 
 Completion writes the record durably at the target before removing it from the
 origin, clears the intent, adopts the resumed process, working directory, and
-Branch, and preserves the session key, Issue Binding, and `startedAt`. The hook
-locks every reachable same-session record while checking the location and
-moving the run; the Work Stores lock the record in deterministic path order.
-A retry recognizes an already-written identical destination, closing the
-narrow write-before-delete crash window without overwriting different work.
+Branch, and preserves the session key, Issue Binding, and `startedAt`. A hook
+first reads the Work Stores without a lock and goes on only when a run of its
+session holds an intent naming the hook's Worktree, so completion locks
+nothing for the ordinary hook. It then locks the session's records in every
+reachable hook store that exists, creating none, and checks the location and
+moves the run under those locks; the Work Stores lock the record in
+deterministic path order. A retry recognizes the half-finished move at the target and completes
+it, adopting the copy there with the retrying hook's process, working
+directory and Branch, so a retry after a reboot, from a new process, repairs
+the write-before-delete crash window without overwriting different work.
 
 A live or unobservable old client prevents completion. A hook at a mismatched
 target leaves the intent unchanged, emits `work-relocation-mismatched`, and

@@ -59,7 +59,9 @@ All Pydantic models derive from one shared base (or an equivalent shared
     and the Workspace inventory.
   - *Retain* (`extra="allow"`) where Dashpot re-persists records a newer
     Dashpot may have written: the hook record and the Work Store record
-    (which already ignores unknown fields on read). Two boundaries on the
+    (which already ignores unknown fields on read). Retention holds through
+    a rewrite, as the Consequences below set out for the Work Store record.
+    Two boundaries on the
     hook-record model. First, `prune`'s compare-and-delete stays defined on
     the record's **on-disk dict**, never on the model: `model_dump` cannot
     distinguish an absent declared field from an explicit `null`, so a
@@ -297,3 +299,21 @@ query values use `ObservationModel` with their existing closed key contracts.
   inventory as an audit document; the domain language is unchanged — no new
   shared term is introduced, and existing terms (Issue Profile, hook record,
   Work Store, Agent Run) keep their meanings.
+
+Retaining a field on read is not enough when Dashpot rewrites the record: the
+hooks run the main checkout's publisher while a Worktree's `uv run dashpot` is
+that branch's version, so an older Dashpot rewrites records a newer one wrote
+([#544](https://github.com/ned2/dashpot/issues/544)). A Work Store record
+therefore carries the fields a newer Dashpot wrote through every rewrite, at
+each object level (the record, its `sessionProcess`, its `relocation`, and
+each of its `workers`), for as long as the rewrite carries that object. Its
+trusted `ActiveWork` value holds them as `retained`, the compare-and-swap
+compares them, and `PersistedRecord.carrying` writes them back. The
+`sessionProcess` model is also a deferred `SessionEnd`'s host, which retains
+them the same way. An object Dashpot builds afresh starts without them: a new
+Agent Run, the session's current Host Process, a new Relocation Intent, a new
+or reassigned Worker Assignment. So a newer Dashpot may add a field without a version bump only
+when the field stays true while an older Dashpot rewrites the fields it
+knows; a field that does not, or a change to a field an older Dashpot reads,
+bumps `WORK_STORE_VERSION`, which an older Dashpot reports as unsupported
+rather than rewriting.
