@@ -505,11 +505,27 @@ Dashpot requires Python 3.13 or newer and uses
 
 ```bash
 uv sync --locked --group dev
-uv run pre-commit install
+git config core.hooksPath .githooks
 uv run pytest -q
 # Run serially for debugging or reproduction:
 uv run pytest -q -n 0
 ```
+
+The `git config` step is needed once per clone, from any checkout: it is
+shared by the main checkout and every linked Worktree. It points Git at the
+tracked hook scripts in [`.githooks/`](.githooks/pre-commit), which run
+pre-commit through `uv run --locked` in whichever checkout Git commits or
+pushes in, so each checkout uses its own `.venv`. Git resolves the relative
+path in each checkout, so each runs the scripts its own branch carries, and a
+branch older than `.githooks/` runs none. Do not use
+`uv run pre-commit install`: its scripts, written to the `.git/hooks` every
+checkout shares, record the Python of the checkout that ran it. Once that
+checkout's `.venv` is removed with its Worktree, every checkout's hooks fall
+back to whatever `pre-commit` is on `PATH`, or fail. With `core.hooksPath`
+set, pre-commit refuses to install them, and Git ignores any an earlier
+install left behind. This is development setup, not a product decision, so
+no ADR records it. The commit hooks warn, without failing, while
+`core.hooksPath` is unset or names anything else.
 
 After pulling a change to the hooks, skills or agents Dashpot bundles,
 refresh every harness you have integrated from the main checkout, never
@@ -535,7 +551,9 @@ never reach a test repository, so a test that commits needs no per-call
 ### Quality gates
 
 [`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the shared quality
-gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
+gate. The [development setup](#development-setup)'s
+`git config core.hooksPath .githooks` enables two sets of hooks for every
+checkout:
 
 - **On commit**: repository hygiene checks (whitespace, line endings, YAML,
   TOML and JSON syntax, merge-conflict markers, stray debug statements, private
@@ -557,7 +575,8 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   every module and asset the package ships; it always reads the whole
   document set, because a link resolves against files the commit need not
   touch, and neither an ADR's number nor the index's or the map's
-  completeness is a property of one document.
+  completeness is a property of one document. Last, a hook that never fails
+  warns while `core.hooksPath` does not name `.githooks`, outside CI.
 - **On push**: the pushed-revision gate in
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
   lockfile, Ruff lint and formatting, ty, the documents, and the distribution

@@ -4,6 +4,10 @@ Direct runs check the current working tree. Under the pre-push hook, the
 `PRE_COMMIT_TO_REF` environment variable names the exact revision being pushed,
 and that revision is checked in a temporary detached worktree instead. The
 pre-push hook skips tests because CI runs them across the supported matrix.
+
+Each run also warns, without failing, when Git does not run this Repository's
+tracked hooks from `.githooks`; `--hooks-path-only` gives that warning alone,
+for the commit hook that reaches a checkout whose hooks were never set up.
 """
 
 from __future__ import annotations
@@ -13,11 +17,60 @@ import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PRE_COMMIT_TO_REF = "PRE_COMMIT_TO_REF"
+HOOKS_PATH = ".githooks"
+
+
+def hooks_path_warning(configured: str | None) -> str | None:
+    """The warning for a ``core.hooksPath`` other than the tracked hooks, if any.
+
+    Spellings Git resolves to the same directory, such as ``./.githooks/``,
+    are the tracked hooks too.
+    """
+    if configured is not None and PurePosixPath(configured) == PurePosixPath(
+        HOOKS_PATH
+    ):
+        return None
+    found = "is unset" if configured is None else f"is {configured!r}"
+    return (
+        f"warning: core.hooksPath {found}, so Git does not run the tracked hooks "
+        f"in {HOOKS_PATH}/. Run `git config core.hooksPath {HOOKS_PATH}` once "
+        "from any checkout (README.md#development-setup)."
+    )
+
+
+def configured_hooks_path(checkout: Path = PROJECT_ROOT) -> str | None:
+    """The ``core.hooksPath`` Git applies in this checkout, or None when unset."""
+    result = subprocess.run(
+        ["git", "config", "--get", "core.hooksPath"],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.rstrip("\n") if result.returncode == 0 else None
+
+
+def warn_about_hooks_path(checkout: Path = PROJECT_ROOT) -> None:
+    """Warn when Git does not run the tracked hooks.
+
+    The warning never fails a gate. CI commits nothing, so it runs no hooks
+    and gets no warning; without Git there are no hooks to run either.
+    """
+    if os.environ.get("CI"):
+        return
+    try:
+        configured = configured_hooks_path(checkout)
+    except OSError:
+        return
+    warning = hooks_path_warning(configured)
+    if warning is not None:
+        print(warning, file=sys.stderr, flush=True)
 
 
 def run_gate(
@@ -112,26 +165,49 @@ def run_quality_gates(*, include_tests: bool = True) -> None:
         )
 
 
-def parse_include_tests(arguments: Sequence[str] | None = None) -> bool:
-    """Return whether the requested quality gate includes tests."""
+@dataclass(frozen=True, slots=True)
+class Options:
+    """What one run of the quality gate was asked to do."""
+
+    include_tests: bool
+    hooks_path_only: bool
+
+
+def parse_options(arguments: Sequence[str] | None = None) -> Options:
+    """Parse the quality gate's options."""
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
         "--skip-tests",
         action="store_true",
         help="skip pytest because CI runs the supported test matrix",
     )
+    selection.add_argument(
+        "--hooks-path-only",
+        action="store_true",
+        help="only warn when Git does not run the tracked hooks; never fails",
+    )
     options = parser.parse_args(arguments)
-    return not bool(options.skip_tests)
+    return Options(
+        include_tests=not bool(options.skip_tests),
+        hooks_path_only=bool(options.hooks_path_only),
+    )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
     """Run the current tree directly, or the exact revision from pre-push."""
-    include_tests = parse_include_tests(arguments)
+    options = parse_options(arguments)
+    if options.hooks_path_only:
+        warn_about_hooks_path()
+        return 0
+    include_tests = options.include_tests
     pushed_revision = os.environ.get(PRE_COMMIT_TO_REF)
     try:
         if pushed_revision:
+            # The pushed revision's own gate is a direct run, which warns.
             run_pushed_revision(pushed_revision, include_tests=include_tests)
         else:
+            warn_about_hooks_path()
             run_quality_gates(include_tests=include_tests)
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
         print(f"\nQuality gate failed: {error}", file=sys.stderr)

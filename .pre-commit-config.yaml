@@ -1,7 +1,8 @@
-# Shared quality gate. `uv run pre-commit install` enables both the fast commit
-# hooks and the pre-push gate; `uv run pre-commit run --all-files` runs the commit
-# hooks over every tracked file; `uv run pre-commit autoupdate --freeze` refreshes
-# the pinned pre-commit-hooks revision, while Ruff and ty come from uv.lock
+# Shared quality gate. `git config core.hooksPath .githooks` enables both the
+# fast commit hooks and the pre-push gate, through the tracked scripts in
+# .githooks/; `uv run pre-commit run --all-files` runs the commit hooks over
+# every tracked file; `uv run pre-commit autoupdate --freeze` refreshes the
+# pinned pre-commit-hooks revision, while Ruff and ty come from uv.lock
 # (see README.md).
 #
 # Hook order matters: Ruff's lint fixes run before `ruff-format` so formatting
@@ -73,6 +74,17 @@ repos:
         # commit may not touch, so the gate always reads the whole set.
         always_run: true
         pass_filenames: false
+
+      # Only warns: a checkout that never set core.hooksPath runs no commit
+      # hooks, but it runs this one whenever it runs the all-files gate.
+      # `verbose` shows the warning, which a passing hook would otherwise hide.
+      - id: hooks-path
+        name: git runs the tracked hooks in .githooks (warns, never fails)
+        entry: uv run --locked python scripts/check_quality.py --hooks-path-only
+        language: system
+        always_run: true
+        pass_filenames: false
+        verbose: true
 
       - id: full-quality-gate
         name: pushed revision quality gate (tests run in CI)

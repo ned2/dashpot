@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
+
+from factories import git
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # The maintenance script is intentionally not part of the installed package.
@@ -152,3 +157,234 @@ def test_a_failed_checkout_removes_no_worktree(
         check_quality.run_pushed_revision("abc123")
 
     assert [gate.name for gate in calls] == ["Checkout pushed revision"]
+
+
+def test_only_the_tracked_hooks_directory_is_a_configured_hooks_path() -> None:
+    for spelling in (".githooks", ".githooks/", "./.githooks"):
+        assert check_quality.hooks_path_warning(spelling) is None
+
+    unset = check_quality.hooks_path_warning(None)
+    elsewhere = check_quality.hooks_path_warning("/elsewhere/hooks")
+
+    assert unset is not None
+    assert "core.hooksPath is unset" in unset
+    assert "git config core.hooksPath .githooks" in unset
+    assert elsewhere is not None
+    assert "core.hooksPath is '/elsewhere/hooks'" in elsewhere
+    assert "git config core.hooksPath .githooks" in elsewhere
+
+
+def test_the_hooks_path_is_read_from_the_checkouts_git_configuration(
+    git_repository: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    empty_global = tmp_path / "empty-gitconfig"
+    empty_global.touch()
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(empty_global))
+
+    assert check_quality.configured_hooks_path(git_repository) is None
+
+    git(git_repository, "config", "core.hooksPath", ".githooks")
+
+    assert check_quality.configured_hooks_path(git_repository) == ".githooks"
+
+
+def test_a_misconfigured_hooks_path_warns_without_failing_the_gate(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv(check_quality.PRE_COMMIT_TO_REF, raising=False)
+    monkeypatch.setattr(check_quality, "configured_hooks_path", lambda _checkout: None)
+    calls = record_gates(monkeypatch)
+
+    assert check_quality.main(["--skip-tests"]) == 0
+
+    assert "core.hooksPath is unset" in capsys.readouterr().err
+    assert "Lockfile" in [gate.name for gate in calls]
+
+
+def test_hooks_path_only_warns_and_runs_no_gate(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setenv(check_quality.PRE_COMMIT_TO_REF, "abc123")
+    monkeypatch.setattr(
+        check_quality, "configured_hooks_path", lambda _checkout: "/elsewhere"
+    )
+    calls = record_gates(monkeypatch)
+
+    assert check_quality.main(["--hooks-path-only"]) == 0
+
+    assert "core.hooksPath is '/elsewhere'" in capsys.readouterr().err
+    assert calls == []
+
+
+def test_the_tracked_hooks_path_gives_no_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(
+        check_quality, "configured_hooks_path", lambda _checkout: ".githooks"
+    )
+
+    assert check_quality.main(["--hooks-path-only"]) == 0
+
+    assert capsys.readouterr().err == ""
+
+
+def test_ci_gets_no_hooks_path_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(check_quality, "configured_hooks_path", lambda _checkout: None)
+
+    assert check_quality.main(["--hooks-path-only"]) == 0
+
+    assert capsys.readouterr().err == ""
+
+
+def test_a_missing_git_gives_no_hooks_path_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert check_quality.main(["--hooks-path-only"]) == 0
+
+    assert capsys.readouterr().err == ""
+
+
+def test_the_pushed_revision_leaves_the_warning_to_its_own_gate(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setenv(check_quality.PRE_COMMIT_TO_REF, "abc123")
+    monkeypatch.setattr(check_quality, "configured_hooks_path", lambda _checkout: None)
+    record_gates(monkeypatch)
+
+    assert check_quality.main(["--skip-tests"]) == 0
+
+    assert "core.hooksPath" not in capsys.readouterr().err
+
+
+# --- The tracked hook scripts ------------------------------------------------
+
+FAKE_UV = """#!/bin/sh
+record="$DASHPOT_FAKE_UV_RECORD"
+printf 'cwd=%s\\n' "$(pwd -P)" >> "$record"
+for argument in "$@"; do printf 'arg=%s\\n' "$argument" >> "$record"; done
+printf 'stdin=%s\\n' "$(cat)" >> "$record"
+printf 'end\\n' >> "$record"
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class HookCall:
+    """One run of ``uv`` a tracked hook script made."""
+
+    cwd: Path
+    arguments: list[str]
+    stdin: str
+
+
+def recorded_hook_calls(record: Path) -> list[HookCall]:
+    """Every ``uv`` run the fake recorded, oldest first."""
+    calls: list[HookCall] = []
+    cwd, arguments, stdin = Path(), [], ""
+    for line in record.read_text().splitlines():
+        key, _, value = line.partition("=")
+        if key == "cwd":
+            cwd, arguments, stdin = Path(value), [], ""
+        elif key == "arg":
+            arguments.append(value)
+        elif key == "stdin":
+            stdin = value
+        elif line == "end":
+            calls.append(HookCall(cwd, arguments, stdin))
+        else:
+            stdin += "\n" + line
+    return calls
+
+
+def hook_call(checkout: Path, hook_type: str, *remaining: str) -> list[str]:
+    """The ``uv`` arguments a tracked hook script passes from ``checkout``."""
+    return [
+        "run",
+        "--locked",
+        "pre-commit",
+        "hook-impl",
+        "--config=.pre-commit-config.yaml",
+        f"--hook-type={hook_type}",
+        "--hook-dir",
+        str((checkout / ".githooks").resolve()),
+        "--",
+        *remaining,
+    ]
+
+
+class HookedRepository(NamedTuple):
+    """A repository running the tracked hooks, and where the fake ``uv`` records."""
+
+    checkout: Path
+    record: Path
+
+
+@pytest.fixture
+def hooked_repository(
+    git_repository: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> HookedRepository:
+    """A repository running the tracked hooks, and the fake ``uv``'s record."""
+    bin_directory = tmp_path / "bin"
+    bin_directory.mkdir()
+    fake_uv = bin_directory / "uv"
+    fake_uv.write_text(FAKE_UV)
+    fake_uv.chmod(0o755)
+    record = tmp_path / "uv-record"
+    record.touch()
+    monkeypatch.setenv("PATH", f"{bin_directory}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("DASHPOT_FAKE_UV_RECORD", str(record))
+
+    shutil.copytree(PROJECT_ROOT / ".githooks", git_repository / ".githooks")
+    git(git_repository, "config", "core.hooksPath", ".githooks")
+    git(git_repository, "add", ".githooks")
+    git(git_repository, "commit", "-q", "-m", "Track the hooks")
+    return HookedRepository(git_repository, record)
+
+
+def test_each_checkout_runs_pre_commit_from_its_own_root(
+    hooked_repository: HookedRepository, tmp_path: Path
+) -> None:
+    main_checkout, record = hooked_repository
+    linked = tmp_path / "linked"
+    git(main_checkout, "worktree", "add", "-q", "-b", "feature", str(linked))
+
+    git(linked, "commit", "-q", "--allow-empty", "-m", "From the linked Worktree")
+    git(main_checkout, "worktree", "remove", str(linked))
+    git(main_checkout, "commit", "-q", "--allow-empty", "-m", "After its removal")
+
+    first, from_linked, after_removal = recorded_hook_calls(record)
+    for call, checkout in (
+        (first, main_checkout),
+        (from_linked, linked),
+        (after_removal, main_checkout),
+    ):
+        assert call.cwd == checkout.resolve()
+        assert call.arguments == hook_call(checkout, "pre-commit")
+
+
+def test_pre_push_passes_the_pushed_refs_on(
+    hooked_repository: HookedRepository, tmp_path: Path
+) -> None:
+    checkout, record = hooked_repository
+    remote = tmp_path / "remote.git"
+    git(tmp_path, "init", "-q", "--bare", str(remote))
+    git(checkout, "remote", "add", "origin", str(remote))
+    head = git(checkout, "rev-parse", "HEAD")
+
+    git(checkout, "push", "-q", "origin", "main")
+
+    push = recorded_hook_calls(record)[-1]
+    assert push.cwd == checkout.resolve()
+    assert push.arguments == hook_call(checkout, "pre-push", "origin", str(remote))
+    assert push.stdin == f"refs/heads/main {head} refs/heads/main {'0' * 40}"

@@ -318,11 +318,12 @@ In this Repository:
   operator's own Worktrees take numbers too. ADR numbers may have gaps, so
   while another Arc is open, start your block ten above the highest number
   it holds, which leaves its later reservations clear of yours.
-- Every checkout shares one `.git/hooks`, installed from the main checkout
-  ([quality gates](README.md#quality-gates)). Never run `pre-commit install`
-  from a linked Worktree, whose `.venv` is removed with it, and after
-  removing a Worktree check the hooks still name the main checkout's
-  Python.
+- Every checkout runs the tracked hooks in `.githooks/`, through its own
+  `.venv`, once `core.hooksPath` names `.githooks`
+  ([development setup](README.md#development-setup)). Never run
+  `pre-commit install`, which pre-commit refuses while `core.hooksPath` is
+  set, and never change `core.hooksPath` from a Worker: the setting is
+  shared by every checkout.
 - `scripts/maintain_docs.py` reads tracked files only: `git add -N` a new
   document before `--write-adr-index`, and regenerate the index after
   every rebase, since sibling Workers add ADRs too. A rebase whose only
