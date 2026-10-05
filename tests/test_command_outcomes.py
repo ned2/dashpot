@@ -17,7 +17,11 @@ from dashpot.core.command_outcomes import (
     record_command_outcome,
 )
 from dashpot.core.event_log import EventLogDestination
-from dashpot.core.event_log_files import EventLogFileRemoval, EventLogRemoval
+from dashpot.core.event_log_files import (
+    EventLogError,
+    EventLogFileRemoval,
+    EventLogRemoval,
+)
 from dashpot.core.git import GitError
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.github.github import GitHubRequestError
@@ -498,7 +502,7 @@ def test_an_event_log_removal_names_the_directory_it_acted_on(
     )
 
     with (
-        mock.patch.object(cli, "route_event_log", return_value=target),
+        mock.patch.object(cli, "owned_event_log", return_value=target),
         mock.patch.object(cli, "remove_event_logs", return_value=removal),
     ):
         assert run(events, "events", "remove", "--before", "2026-09-01", *flags) == 0
@@ -534,7 +538,7 @@ def test_an_event_log_removal_that_left_a_file_is_recorded_as_failed(
     )
 
     with (
-        mock.patch.object(cli, "route_event_log", return_value=target),
+        mock.patch.object(cli, "owned_event_log", return_value=target),
         mock.patch.object(cli, "remove_event_logs", return_value=removal),
     ):
         assert run(events, "events", "remove", "--before", "2026-09-01") == 2
@@ -548,7 +552,8 @@ def test_an_event_log_removal_that_left_a_file_is_recorded_as_failed(
 def test_an_event_log_removal_with_nowhere_to_remove_from_is_refused(
     events: Path,
 ) -> None:
-    with mock.patch.object(cli, "route_event_log", return_value=None):
+    nowhere = EventLogError("no Event Log to remove from")
+    with mock.patch.object(cli, "owned_event_log", side_effect=nowhere):
         assert run(events, "events", "remove", "--before", "2026-09-01") == 2
 
     assert body(outcome(events)) == {

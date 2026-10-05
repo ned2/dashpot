@@ -87,7 +87,9 @@ import, no Textual `log`, no debug flag.
   tool moved or deleted.
 - **`process.end`** records the exit status and duration. A missing
   `process.end` means a crash or a kill; an orderly exit, Ctrl-C included,
-  records its status.
+  records its status. A dashboard whose own handler raised is the one crash
+  that still ends in order: Textual prints the traceback and stops the app,
+  and the process exits 1 and records that status, never 0.
 - **Clocks.** Wall-clock UTC timestamps order events; a monotonic clock
   times durations.
 
@@ -268,8 +270,9 @@ same in a file and in the command's output.
   one-shot command writes to the checkout it runs in; a dashboard to the
   checkout it was started in, including events about other Projects in its
   Workspace.
-- **Fallback:** `$XDG_STATE_HOME/dashpot/events/`, else
-  `~/.local/state/dashpot/events/`, or
+- **Fallback:** `$XDG_STATE_HOME/dashpot/events/` when that variable is an
+  absolute path (a relative one is ignored, as the XDG specification
+  requires), else `~/.local/state/dashpot/events/`, or
   `~/Library/Application Support/dashpot/events/` on macOS — beside the
   hook records' `runs/`. With no home directory either, there is nowhere to
   write: a hook or command outside every configured checkout records

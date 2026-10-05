@@ -12,7 +12,7 @@ from unittest import mock
 import pytest
 from pydantic import Field
 
-from dashpot import cli
+from dashpot import cli, event_logs
 from dashpot.core import runtime_events
 from dashpot.core.event_log import (
     DASHBOARD_KIND,
@@ -893,11 +893,59 @@ def test_events_remove_refuses_without_anywhere_to_remove_from(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    with mock.patch.object(cli, "route_event_log", return_value=None):
+    with mock.patch.object(
+        event_logs,
+        "machine_state_directory",
+        side_effect=RuntimeError("Could not determine home directory."),
+    ):
         code = cli.main(["events", "remove", "--before", "2026-09-01"])
 
     assert code == 2
     assert capsys.readouterr().err.startswith("dashpot: no Event Log to remove from")
+
+
+def test_events_remove_in_a_removed_directory_leaves_the_fallback_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A shell left in a removed Worktree is not outside every checkout: the
+    # fallback is not the log it meant, so nothing is removed.
+    today = datetime.now(UTC).date()
+    (old,) = seed_days(fallback_directory(), today - timedelta(days=10))
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+
+    assert cli.main(["events", "remove", "--before", today.isoformat()]) == 2
+
+    assert capsys.readouterr().err.startswith(
+        "dashpot: the working directory no longer exists"
+    )
+    assert old.exists()
+
+
+def test_events_remove_refuses_when_its_checkout_cannot_be_told(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    today = datetime.now(UTC).date()
+    (old,) = seed_days(fallback_directory(), today - timedelta(days=10))
+    monkeypatch.chdir(tmp_path)
+
+    with mock.patch.object(
+        event_logs, "configured_checkout", side_effect=PermissionError("denied")
+    ):
+        code = cli.main(["events", "remove", "--before", today.isoformat()])
+
+    assert code == 2
+    assert capsys.readouterr().err == (
+        f"dashpot: cannot tell which checkout's Event Log {tmp_path.resolve()} "
+        "belongs to: denied\n"
+    )
+    assert old.exists()
 
 
 def test_events_remove_requires_a_day(capsys: pytest.CaptureFixture[str]) -> None:

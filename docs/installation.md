@@ -293,7 +293,9 @@ dashpot events remove --before 2026-09-01
 ```
 
 `events remove` acts on the Event Log of the checkout it runs in, or on the
-machine-local fallback when it runs outside every configured checkout. It
+machine-local fallback when it runs outside every configured checkout. A
+working directory that no longer exists, such as a removed Worktree a shell
+is still in, is refused rather than read as outside every checkout. It
 removes only files named as the Event Log names them whose UTC day is before
 `--before`, never a file dated today or later, so a writer's current file is
 always safe. It asks nothing, prints each file with its size, prints the

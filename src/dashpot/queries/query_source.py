@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..core.errors import DashpotError
 from ..core.model import Diagnostic
 from ..core.observation_errors import QUERY_OBSERVATION_FAILURES
 from ..core.timestamps import utc_now
@@ -285,6 +286,53 @@ class CachedQuerySource(ABC):
 
     @abstractmethod
     def enumerate_source(self, kind: ResourceKind) -> SourceEnumeration: ...
+
+
+class ProjectUnresolvedError(DashpotError):
+    """A query asked of a dashboard whose Workspace resolved no Project."""
+
+
+class UnresolvedQuerySource:
+    """The Query Source of a dashboard whose Workspace resolved no Project.
+
+    There is nothing to query, so every query fails with one line and the
+    Workspace's anchor Diagnostics say why. It reports nothing about itself,
+    leaving those Diagnostics the only ones, and it never falls back to the
+    working directory's configuration, which may be another Project's or
+    absent.
+    """
+
+    search_prompt = "No Project resolved"
+    message = "no Project resolved; the Diagnostics say why"
+
+    @property
+    def context(self) -> SourceContext | None:
+        """No context: there is no Project to query."""
+        return None
+
+    def supports_sort(self, request: QueryRequest, column: str) -> bool:
+        """Sort by nothing: there are no rows."""
+        return False
+
+    def source_diagnostics(self) -> tuple[Diagnostic, ...]:
+        """Report nothing beside the anchor Diagnostics."""
+        return ()
+
+    def query_page(self, request: QueryRequest) -> PageObservation:
+        """Refuse the page: there is no Project to query."""
+        raise ProjectUnresolvedError(self.message)
+
+    def resolve_identities(
+        self, identities: Sequence[str]
+    ) -> tuple[ResolvedIssue, ...]:
+        """Resolve nothing; refuse when anything was asked."""
+        if not identities:
+            return ()
+        raise ProjectUnresolvedError(self.message)
+
+    def enumerate_source(self, kind: ResourceKind) -> SourceEnumeration:
+        """Refuse the enumeration: there is no Project to enumerate."""
+        raise ProjectUnresolvedError(self.message)
 
 
 def configured_query_source(

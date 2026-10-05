@@ -9,6 +9,7 @@ from pathlib import Path
 from .core.git import GitError
 from .core.model import Diagnostic
 from .core.state_paths import is_configured_checkout
+from .core.working_directory import current_directory
 from .core.worktree_paths import worktree_root
 from .github.github import LatestRateLimit
 from .observation.collect import ObservationCoordinator
@@ -23,7 +24,7 @@ from .project.workspace import (
     merge_workspaces,
     resolve_workspace_projects,
 )
-from .queries.query_source import configured_query_source
+from .queries.query_source import UnresolvedQuerySource, configured_query_source
 from .queries.source_queries import QUERY_SOURCE_KEYS, QuerySource
 from .repository.cleanup import (
     NO_ACKNOWLEDGEMENT,
@@ -69,7 +70,10 @@ class RefreshPeriods:
 
 def reads_github(sources: Mapping[str, QuerySource]) -> bool:
     """Whether any of the dashboard's Query Sources asks GitHub."""
-    return any(source.context.source == "github" for source in sources.values())
+    return any(
+        source.context is not None and source.context.source == "github"
+        for source in sources.values()
+    )
 
 
 def refresh_periods(
@@ -161,7 +165,7 @@ def cleanup_protection() -> list[Path]:
     anchor of the Workspace config, taken at its Worktree root. An inventory
     that cannot be read refuses the Cleanup rather than proceeding unaware.
     """
-    current = Path.cwd().resolve()
+    current = current_directory()
     protected = [current]
     try:
         root = worktree_root(current)
@@ -204,7 +208,7 @@ def create_collector(
         workspaces = list(inventory.workspaces)
         inventory_diagnostics = inventory.diagnostics
     else:
-        current = Path.cwd().resolve()
+        current = current_directory()
         try:
             project_root = worktree_root(current)
             in_repository = True
@@ -251,11 +255,13 @@ def create_query_sources(
     """Build the configured Query Source behind each of the dashboard's queries.
 
     ``latest_rate_limit`` is the reading they share, given when the dashboard
-    shows it too.
+    shows it too. With no Project resolved there is nothing to query: each
+    query is an ``UnresolvedQuerySource``, and the dashboard opens with the
+    anchor Diagnostics that say why.
     """
-    root = (
-        Path(collector.projects[0].primary_anchor) if collector.projects else Path.cwd()
-    )
+    if not collector.projects:
+        return {key: UnresolvedQuerySource() for key in QUERY_SOURCE_KEYS}
+    root = Path(collector.projects[0].primary_anchor)
     # The rate limit is the account's: every source records into one
     # reading, so each reports the most recent any of them received.
     latest_rate_limit = latest_rate_limit or LatestRateLimit()

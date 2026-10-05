@@ -23,6 +23,7 @@ from dashpot.project.project_config import (
     GitHubIssueSourceConfig,
     LocalMarkdownIssueSourceConfig,
     ProjectConfigError,
+    declared_project_id,
     load_project_config,
     parse_project_config,
 )
@@ -191,6 +192,18 @@ def test_an_unreadable_project_configuration_names_its_path(tmp_path: Path) -> N
 
     with pytest.raises(ProjectConfigError, match="cannot read Project configuration"):
         load_project_config(tmp_path)
+
+
+def test_a_project_configuration_that_is_not_utf8_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / PROJECT_CONFIG_NAME).parent.mkdir()
+    (tmp_path / PROJECT_CONFIG_NAME).write_bytes(b'{"projectId": "caf\xe9"}')
+
+    with pytest.raises(ProjectConfigError, match="cannot read Project configuration"):
+        load_project_config(tmp_path)
+    # Naming a Project in a record never fails over it.
+    assert declared_project_id(tmp_path) is None
 
 
 @pytest.mark.parametrize(

@@ -28,3 +28,13 @@ class DashpotError(Exception):
     still catch the built-in type; new subclasses, and a module-private class
     caught beside its raise, derive from this base alone (ADR 0046).
     """
+
+
+def failure_text(exc: BaseException) -> str:
+    """The text a person reads for a failure: its message, else its class name.
+
+    Many exceptions carry no message — ``TimeoutError()``, a bare
+    ``RuntimeError()`` — and an empty one would leave a failure line that
+    names nothing.
+    """
+    return str(exc) or type(exc).__name__

@@ -245,6 +245,23 @@ async def test_failure_or_partial_fetch_stays_visible_with_fresh_inspection(answ
 
 
 @pytest.mark.asyncio
+async def test_a_fetch_failure_without_text_is_named_by_its_type():
+    cleaner = FakeCleaner(BRANCH_PREVIEW, BRANCH_PREVIEW)
+    app = dashboard_app(
+        SequenceCollector(BEFORE, BEFORE),
+        refresh_seconds=0,
+        cleaner=cleaner,
+        fetcher=RecordingFetcher(TimeoutError()),
+    )
+    async with app.run_test(size=(100, 40)) as pilot:
+        screen = await open_preview(app, pilot, "branch")
+        await pilot.press("f")
+        await wait_until(lambda: len(cleaner.requests) == 2 and not screen.busy)
+        assert "Fetch failed: TimeoutError" in screen.fetch_status
+        assert app.fetches.errors[PROJECT] == "Fetch failed: TimeoutError"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("error", "reason"),
     [

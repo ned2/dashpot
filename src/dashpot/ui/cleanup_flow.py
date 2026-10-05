@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from textual.worker import get_current_worker
 
-from ..core.errors import DashpotError
+from ..core.errors import DashpotError, failure_text
 from ..observation.keys import ObservationKey
 from ..observation.paged_store import PagedObservationStore
 from ..repository.cleanup import (
@@ -330,7 +330,7 @@ class CleanupFlow:
                 report = await self.host.off_loop(partial(fetcher, anchor))
             except Exception as exc:  # UI boundary: a fetcher failure is the
                 # preview's status and a Diagnostics line, never an exit.
-                error = str(exc)
+                error = failure_text(exc)
             if worker.is_cancelled or self.host.closing:
                 return
             status = (
@@ -372,7 +372,7 @@ class CleanupFlow:
                 )
             except Exception as exc:  # UI boundary: a failed observation or
                 # inspection leaves the preview invalid with its reason, never exits.
-                reason = str(exc) or type(exc).__name__
+                reason = failure_text(exc)
                 status += f"\nCould not refresh the preview: {reason}"
             if self.holds(project_id, screen) and screen in self.host.screen_stack:
                 await screen.replace_preview(preview, status)

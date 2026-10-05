@@ -332,8 +332,18 @@ def test_a_failure_of_a_project_no_longer_observed_is_named_by_its_identity() ->
 
 
 @pytest.mark.asyncio
-async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit() -> None:
-    fetcher = RecordingFetcher(OSError("git vanished"))
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (OSError("git vanished"), "git vanished"),
+        # An error that says nothing is still named, by its type.
+        (TimeoutError(), "TimeoutError"),
+    ],
+)
+async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit(
+    error: Exception, reason: str
+) -> None:
+    fetcher = RecordingFetcher(error)
     app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0, fetcher=fetcher)
 
     async with app.run_test(size=(120, 40)) as pilot:
@@ -341,7 +351,7 @@ async def test_a_fetcher_crash_is_a_visible_failure_not_an_exit() -> None:
         await pilot.press("f")
         await wait_until(lambda: bool(app.fetches.errors))
 
-        assert app.fetches.errors == {"project:test-repo": "Fetch failed: git vanished"}
+        assert app.fetches.errors == {"project:test-repo": f"Fetch failed: {reason}"}
         assert not app.fetches.fetching
 
 
