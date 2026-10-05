@@ -17,6 +17,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Root-session Workers experiment](root-session-workers-spike.md) | research | 2026-10-05 |
 | [Background commands and Cleanup experiment](background-commands-and-cleanup-spike.md) | research | 2026-10-05 |
 | [Second Host Process resume experiment](second-host-process-resume-spike.md) | research | 2026-10-05 |
 | [Linked Worktree environment experiment](linked-worktree-environment-spike.md) | research | 2026-10-05 |
