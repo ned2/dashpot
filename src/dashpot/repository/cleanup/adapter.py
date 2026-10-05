@@ -14,7 +14,7 @@ from .perform import (
     perform_cleanup,
 )
 from .preview import inspect_cleanup
-from .targets import CleanupPreview, CleanupRequest
+from .targets import CleanupPreview, CleanupRequest, repository_directory
 
 
 class CleanupAdapter(Protocol):
@@ -46,7 +46,7 @@ class GitCleanupAdapter:
             request,
             protected=protected,
             timeout=self.timeout,
-            git=cleanup_git(self.timeout, preview=True),
+            git=cleanup_git(repository_directory(request), self.timeout, preview=True),
         )
 
     def perform(
@@ -56,5 +56,5 @@ class GitCleanupAdapter:
             confirmation,
             protected=protected,
             timeout=self.timeout,
-            git=cleanup_git(self.timeout),
+            git=cleanup_git(repository_directory(confirmation.request), self.timeout),
         )

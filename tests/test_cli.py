@@ -752,6 +752,33 @@ def test_an_absolute_workspace_needs_no_working_directory(
         cli_observe.parse_workspace_argument("relative")
 
 
+def test_a_dashboard_on_an_absolute_workspace_opens_from_a_removed_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    checkout = init_repository(tmp_path / "checkout")
+    write_project_config(checkout)
+    git(checkout, "commit", "-q", "--allow-empty", "-m", "start")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    remove_working_directory(tmp_path, monkeypatch)
+
+    with mock.patch.object(launch, "DashpotApp") as app:
+        app.return_value.return_code = None
+        assert cli.main(["--workspace", str(checkout)]) == 0
+
+    assert capsys.readouterr().err == ""
+    app.return_value.run.assert_called_once_with()
+    # The named mutations it was given act at the anchor, not the directory.
+    root = checkout.resolve()
+    fetched = app.call_args.kwargs["fetcher"](root)
+    assert fetched.refusal == "no remote is configured"
+    preview = app.call_args.kwargs["cleaner"].inspect(
+        BranchCleanupRequest(root, "absent"), protected=()
+    )
+    assert preview.refusals == (f"no Branch named absent at {root}",)
+
+
 def test_an_unreadable_working_directory_is_refused_with_its_reason() -> None:
     with (
         mock.patch.object(Path, "cwd", side_effect=PermissionError("denied")),

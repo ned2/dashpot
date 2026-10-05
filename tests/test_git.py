@@ -12,9 +12,16 @@ from dashpot.core.commands import CommandError, CommandResult
 from dashpot.core.distribution import source_dirty
 from dashpot.core.git import MUTATION_TIMEOUT, Git, GitError
 from dashpot.repository import fetch
+from dashpot.repository.cleanup import (
+    BranchCleanupRequest,
+    CleanupConfirmation,
+    inspect_cleanup,
+    perform_cleanup,
+)
 from dashpot.repository.cleanup.perform import cleanup_git
 from dashpot.repository.fetch import remote_fetcher
-from factories import SequenceRunner, completed
+from dashpot.repository.observe import observe_branches, observe_observation_targets
+from factories import SequenceRunner, completed, git
 
 
 def adapter(
@@ -170,11 +177,11 @@ def _run_with_default_adapter(root: Path) -> None:
 
 
 def _run_with_cleanup_preview(root: Path) -> None:
-    cleanup_git(10, preview=True).at(root).run("status", "--porcelain=v1")
+    cleanup_git(root, 10, preview=True).run("status", "--porcelain=v1")
 
 
 def _run_with_confirmed_cleanup(root: Path) -> None:
-    cleanup_git(10).at(root).run("status", "--porcelain=v1")
+    cleanup_git(root, 10).run("status", "--porcelain=v1")
 
 
 def _run_a_remote_fetch(root: Path) -> None:
@@ -233,10 +240,11 @@ def test_production_git_adapters_turn_optional_locks_off(
 
 
 def test_a_confirmed_cleanup_is_bounded_as_a_mutation_and_its_preview_is_not() -> None:
-    assert cleanup_git(10).timeout == MUTATION_TIMEOUT
-    assert cleanup_git(10, preview=True).timeout == 10
+    root = Path("/repo")
+    assert cleanup_git(root, 10).timeout == MUTATION_TIMEOUT
+    assert cleanup_git(root, 10, preview=True).timeout == 10
     # A Git timeout longer than the floor still holds.
-    assert cleanup_git(900).timeout == 900
+    assert cleanup_git(root, 900).timeout == 900
 
 
 def test_a_remote_fetch_is_bounded_as_a_mutation(
@@ -253,6 +261,68 @@ def test_a_remote_fetch_is_bounded_as_a_mutation(
 
     (git,) = adapters
     assert git.timeout == MUTATION_TIMEOUT
+    # Rooted at the anchor it fetches, not at the working directory.
+    assert git.root == Path("/repo")
+
+
+def _fetch_remotes(root: Path) -> object:
+    return remote_fetcher(10)(root).refusal
+
+
+def _observe_targets(root: Path) -> object:
+    return [
+        target.availability for target in observe_observation_targets([root]).targets
+    ]
+
+
+def _observe_branches(root: Path) -> object:
+    return [branch.refname for branch in observe_branches([root]).branches]
+
+
+def _preview_cleanup(root: Path) -> object:
+    return inspect_cleanup(BranchCleanupRequest(root, "absent")).refusals
+
+
+def _perform_cleanup(root: Path) -> object:
+    request = BranchCleanupRequest(root, "absent")
+    preview = inspect_cleanup(request)
+    confirmation = CleanupConfirmation(request, preview.fingerprint, ())
+    return perform_cleanup(confirmation).refusals
+
+
+@pytest.mark.parametrize(
+    ("invoke", "answer"),
+    [
+        (_fetch_remotes, "no remote is configured"),
+        (_observe_targets, ["available"]),
+        (_observe_branches, ["refs/heads/main"]),
+        (_preview_cleanup, ("no Branch named absent at {root}",)),
+        (
+            _perform_cleanup,
+            ("no Branch named absent at {root}", "no target is selected"),
+        ),
+    ],
+)
+def test_git_adapters_built_by_default_need_no_working_directory(
+    git_repository: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invoke: Callable[[Path], object],
+    answer: object,
+) -> None:
+    git(git_repository, "commit", "-q", "--allow-empty", "-m", "start")
+    root = git_repository.resolve()
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+
+    expected = (
+        tuple(each.format(root=root) for each in answer)
+        if isinstance(answer, tuple)
+        else answer
+    )
+    assert invoke(root) == expected
 
 
 def test_a_ref_name_that_is_not_utf8_is_read_not_raised(tmp_path: Path) -> None:

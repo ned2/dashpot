@@ -6,6 +6,7 @@ import contextlib
 import os
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from collections.abc import Sequence
@@ -234,6 +235,25 @@ def test_the_probe_asks_how_many_clients_attend_the_panes_session(
     # A grouped session is asked for its whole group's clients.
     grouped = "#{?session_grouped,#{session_group_attached},#{session_attached}}"
     assert runner.calls == [("tmux", "display-message", "-p", "-t", "%3", grouped)]
+
+
+def test_the_probe_answers_from_a_removed_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A stand-in for tmux, run as a real process, starts only where the probe
+    # says to: a probe running at the working directory could not start it.
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+
+    def stand_in(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        return run_command([sys.executable, "-c", "print(1)"], cwd, timeout)
+
+    probe = tmux_attachment(TMUX, 5.0, run=stand_in)
+
+    assert probe is not None
+    assert probe() is True
 
 
 class TmuxServer:
