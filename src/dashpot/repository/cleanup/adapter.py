@@ -46,7 +46,7 @@ class GitCleanupAdapter:
             request,
             protected=protected,
             timeout=self.timeout,
-            git=cleanup_git(self.timeout, preview=True),
+            git=cleanup_git(request, self.timeout, preview=True),
         )
 
     def perform(
@@ -56,5 +56,5 @@ class GitCleanupAdapter:
             confirmation,
             protected=protected,
             timeout=self.timeout,
-            git=cleanup_git(self.timeout),
+            git=cleanup_git(confirmation.request, self.timeout),
         )

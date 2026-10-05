@@ -124,11 +124,10 @@ def remote_fetcher(timeout: float) -> RemoteFetcher:
     A Remote Fetch is a named mutation, so a dashboard exit lets it finish
     rather than interrupting it as it would an observation, and each command
     is given :func:`~dashpot.core.git.mutation_timeout` rather than the
-    Git timeout ``timeout``.
+    Git timeout ``timeout``. Each fetch's adapter is rooted at the anchor it
+    fetches, so the fetcher never reads the working directory, which may be
+    gone.
     """
-    git = Git(
-        Path.cwd(),
-        mutation_timeout(timeout),
-        git_runner(FETCH_ENVIRONMENT, non_interactive=True, interruptible=False),
-    )
-    return lambda anchor: fetch_remotes(anchor, git=git)
+    bound = mutation_timeout(timeout)
+    runner = git_runner(FETCH_ENVIRONMENT, non_interactive=True, interruptible=False)
+    return lambda anchor: fetch_remotes(anchor, git=Git(anchor, bound, runner))

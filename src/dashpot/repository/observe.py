@@ -96,10 +96,13 @@ def observe_observation_targets(
     clock: Callable[[], float] = time.monotonic,
     process_lookup: LockHolderProbe | None = None,
 ) -> RepositoryStateInventory:
-    """Discover and inspect executable Observation Targets for Repository Anchors."""
-    # The default root is a placeholder: every command retargets to its anchor.
-    adapter = git if git is not None else Git(Path.cwd(), timeout)
-    discovery = _discover_target_records(anchors, adapter)
+    """Discover and inspect executable Observation Targets for Repository Anchors.
+
+    An injected ``git`` is retargeted at each anchor and Observation Target;
+    without one, each command gets an adapter rooted where it runs.
+    """
+    rooted = _rooted(git, timeout)
+    discovery = _discover_target_records(anchors, rooted)
     targets: list[ObservationTarget] = []
     diagnostics = list(discovery.diagnostics)
     for record in discovery.records:
@@ -115,7 +118,9 @@ def observe_observation_targets(
                 )
             )
             continue
-        targets.append(_observe_target(record, role, adapter, clock, process_lookup))
+        targets.append(
+            _observe_target(record, role, rooted(Path(path)), clock, process_lookup)
+        )
     return RepositoryStateInventory(targets=targets, diagnostics=diagnostics)
 
 
@@ -128,7 +133,16 @@ class _TargetDiscovery:
     diagnostics: tuple[Diagnostic, ...]
 
 
-def _discover_target_records(anchors: Sequence[Path], git: Git) -> _TargetDiscovery:
+def _rooted(git: Git | None, timeout: float) -> Callable[[Path], Git]:
+    """Root an adapter at a path: ``git`` retargeted, or an observation adapter."""
+    if git is not None:
+        return git.at
+    return lambda root: Git(root, timeout)
+
+
+def _discover_target_records(
+    anchors: Sequence[Path], rooted: Callable[[Path], Git]
+) -> _TargetDiscovery:
     """Discover every worktree record the Repository Anchors reach."""
     records: list[dict[str, str]] = []
     diagnostics: list[Diagnostic] = []
@@ -138,7 +152,7 @@ def _discover_target_records(anchors: Sequence[Path], git: Git) -> _TargetDiscov
     main_paths: set[str] = set()
     for anchor in anchors:
         try:
-            anchor_records = git.at(anchor).worktree_records()
+            anchor_records = rooted(anchor).worktree_records()
         except GitError as exc:
             diagnostics.append(
                 Diagnostic(
@@ -176,7 +190,10 @@ def _observe_target(
     clock: Callable[[], float],
     process_lookup: LockHolderProbe | None,
 ) -> ObservationTarget:
-    """Inspect one discovered worktree record as an Observation Target."""
+    """Inspect one discovered worktree record as an Observation Target.
+
+    ``git`` is already rooted at the record's path.
+    """
     path = record["worktree"]
     branch = record.get("branch")
     if branch and branch.startswith("refs/heads/"):
@@ -244,9 +261,7 @@ def _observe_target(
         )
     started = clock()
     try:
-        result = git.at(Path(path)).run(
-            "status", "--porcelain=v1", "--untracked-files=normal"
-        )
+        result = git.run("status", "--porcelain=v1", "--untracked-files=normal")
     except GitError as exc:
         return _unavailable(
             record,
@@ -387,11 +402,10 @@ def observe_branches(
     that failed before the authoritative one answered is still surfaced as
     a warning Diagnostic (issue #77 owner decision).
     """
-    # The default root is a placeholder: every command retargets to its anchor.
-    adapter = git if git is not None else Git(Path.cwd(), timeout)
+    rooted = _rooted(git, timeout)
     diagnostics: list[Diagnostic] = []
     for anchor in anchors:
-        scoped = adapter.at(anchor)
+        scoped = rooted(anchor)
         try:
             listed = scoped.records(
                 "refs/heads", "refs/remotes", fields=BRANCH_REF_FIELDS

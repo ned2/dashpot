@@ -66,7 +66,7 @@ def inspect_cleanup(
     process working directories, the host itself when omitted. ``lookup``
     observes the processes that Agent Sessions and Worktree locks record.
     """
-    adapter = git if git is not None else Git(Path.cwd(), timeout)
+    adapter = git if git is not None else Git(request.starting_directory, timeout)
     if isinstance(request, BranchCleanupRequest):
         return _inspect_branch(request, adapter)
     return _inspect_worktree(request, adapter, lookup, protected, timeout, scan)

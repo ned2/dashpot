@@ -166,8 +166,11 @@ def tmux_attachment(
     args = ("tmux", "display-message", "-p", "-t", pane, ATTACHED_CLIENTS)
 
     def probe() -> bool | None:
+        # tmux answers the same from any directory, so the probe runs at the
+        # filesystem root, which always exists, rather than at the working
+        # directory, which a removed Worktree takes away.
         try:
-            result = run(args, Path.cwd(), timeout)
+            result = run(args, Path("/"), timeout)
         except (CommandError, OSError):
             return None
         count = result.stdout.strip()

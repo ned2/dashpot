@@ -202,6 +202,11 @@ class BranchCleanupRequest:
     anchor: Path
     name: str
 
+    @property
+    def starting_directory(self) -> Path:
+        """Where the Cleanup's Git adapter is rooted: the Repository Anchor."""
+        return self.anchor
+
 
 @dataclass(frozen=True, slots=True)
 class WorktreeCleanupRequest:
@@ -209,6 +214,11 @@ class WorktreeCleanupRequest:
 
     current: Path
     path: Path
+
+    @property
+    def starting_directory(self) -> Path:
+        """Where the Cleanup's Git adapter is rooted: ``current``."""
+        return self.current
 
 
 CleanupRequest = BranchCleanupRequest | WorktreeCleanupRequest
