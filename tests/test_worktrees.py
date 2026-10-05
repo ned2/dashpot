@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from dashpot.core.commands import CommandResult, run_command
-from dashpot.core.git import Git
+from dashpot.core.commands import CommandError, CommandResult, run_command
+from dashpot.core.git import MUTATION_TIMEOUT, Git
 from dashpot.core.model import Diagnostic
 from dashpot.project.settings import Settings, SettingsError
 from dashpot.repository.cleanup import SUB_AGENT_SCOPE, CleanupError
@@ -690,6 +690,92 @@ def test_a_branch_left_pointing_elsewhere_is_never_deleted(tmp_path: Path) -> No
         create(root, git_adapter=Git(root, runner=failing_add))
 
     assert "worktree-protocol" in local_branches(root)
+
+
+def test_a_timed_out_add_is_rolled_back(tmp_path: Path) -> None:
+    """A ``git worktree add`` stopped at its timeout after creating its Branch."""
+    root = sim(tmp_path)
+    base = git(root, "rev-parse", "HEAD")
+    adds: list[float] = []
+
+    def timing_out_add(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if list(args[:3]) == ["git", "worktree", "add"]:
+            adds.append(timeout)
+            git(root, "branch", "worktree-protocol", base)
+            raise CommandError(
+                f"command timed out after {timeout:g}s: git", code="command-timed-out"
+            )
+        return run_command(args, cwd, timeout)
+
+    with pytest.raises(WorktreeCreateError) as failure:
+        create(root, git_adapter=Git(root, runner=timing_out_add))
+
+    message = str(failure.value)
+    assert message.startswith(
+        "git worktree add did not complete: command timed out after 300s: git; "
+    )
+    assert "removed the Branch worktree-protocol this command created" in message
+    # The add is a named mutation, bounded apart from the observation timeout.
+    assert adds == [MUTATION_TIMEOUT]
+    assert local_branches(root) == {"main"}
+    assert worktree_paths(root) == [str(root)]
+    assert not (tmp_path / "p" / "sim.worktrees").exists()
+
+
+def test_a_branch_made_after_the_plan_is_never_rolled_back(tmp_path: Path) -> None:
+    """Another creator's Branch, made between the collision check and the add."""
+    root = sim(tmp_path)
+    base = git(root, "rev-parse", "HEAD")
+    asked: list[Sequence[str]] = []
+
+    def racing(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if "refs/heads/worktree-protocol^{commit}" in args:
+            asked.append(args)
+            if len(asked) == 2:
+                # The second look is the one just before the add.
+                git(root, "branch", "worktree-protocol", base)
+        return run_command(args, cwd, timeout)
+
+    with pytest.raises(WorktreeCreateError) as failure:
+        create(root, git_adapter=Git(root, runner=racing))
+
+    message = str(failure.value)
+    assert message.startswith("git worktree add failed: ")
+    assert "a branch named 'worktree-protocol' already exists" in message
+    assert (
+        "Branch worktree-protocol existed before this command and was left alone"
+        in message
+    )
+    assert "worktree-protocol" in local_branches(root)
+    assert not (tmp_path / "p" / "sim.worktrees").exists()
+
+
+def test_a_rollback_git_cannot_inspect_removes_nothing(tmp_path: Path) -> None:
+    root = sim(tmp_path)
+    base = git(root, "rev-parse", "HEAD")
+    added: list[bool] = []
+
+    def failing_after_add(
+        args: Sequence[str], cwd: Path, timeout: float
+    ) -> CommandResult:
+        if list(args[:3]) == ["git", "worktree", "add"]:
+            added.append(True)
+            git(root, "branch", "worktree-protocol", base)
+            return CommandResult(list(args), 128, "", "fatal: simulated failure")
+        if added and list(args[:3]) == ["git", "worktree", "list"]:
+            raise CommandError("command timed out after 10s: git")
+        return run_command(args, cwd, timeout)
+
+    with pytest.raises(WorktreeCreateError) as failure:
+        create(root, git_adapter=Git(root, runner=failing_after_add))
+
+    assert str(failure.value) == (
+        "git worktree add failed: fatal: simulated failure; what it left could "
+        "not be inspected (command timed out after 10s: git); check with "
+        "'git worktree list' and 'git branch --list worktree-protocol'"
+    )
+    assert "worktree-protocol" in local_branches(root)
+    assert (tmp_path / "p" / "sim.worktrees").is_dir()
 
 
 def test_partially_created_worktree_is_reported_with_recovery_and_left_alone(

@@ -4,18 +4,20 @@ Every command is timed as a ``command`` span of the Event Log in reach,
 named by its program and subcommand and never its arguments. The span fails
 only when the command could not be run; a non-zero exit is an answer the
 caller reads, unless the caller says otherwise with
-:func:`nonzero_exit_fails`.
+:func:`nonzero_exit_fails`. Output is read as UTF-8, and a byte that is not
+UTF-8 is replaced rather than failing the command.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager, nullcontext, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import partial
@@ -28,12 +30,22 @@ from .runtime_events import CommandAttributes, span_attributes
 
 # Why a command could not run, as its span records it.
 CommandFailure = Literal[
-    "command-not-found", "command-timed-out", "command-interrupted"
+    "command-not-found",
+    "command-directory-missing",
+    "command-timed-out",
+    "command-interrupted",
 ]
+
+# How long a command told to stop has to stop on its own — Git removing its
+# lock files and temporary packs — before whatever is left of it is killed.
+STOP_GRACE = 2.0
 
 
 class CommandError(DashpotError):
-    """A command that could not run at all: missing binary, timeout, or interruption.
+    """A command that could not run at all.
+
+    Its binary or its working directory is missing, it timed out, or it was
+    interrupted.
 
     ``code`` names which, when the runner knows it, so a Runtime Event can
     record the failure without its message.
@@ -75,8 +87,8 @@ class RunningCommands:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._running: set[subprocess.Popen[str]] = set()
-        self._interrupted: set[subprocess.Popen[str]] = set()
+        self._running: set[subprocess.Popen[bytes]] = set()
+        self._interrupted: set[subprocess.Popen[bytes]] = set()
         self._closed = False
 
     def __len__(self) -> int:
@@ -102,7 +114,7 @@ class RunningCommands:
         )
 
     @contextmanager
-    def holding(self, process: subprocess.Popen[str]) -> Iterator[None]:
+    def holding(self, process: subprocess.Popen[bytes]) -> Iterator[None]:
         """Hold ``process`` as running for the block, whatever ends it.
 
         A process that registers after the registry closed — started
@@ -123,7 +135,7 @@ class RunningCommands:
                 self._running.discard(process)
                 self._interrupted.discard(process)
 
-    def interrupted(self, process: subprocess.Popen[str]) -> bool:
+    def interrupted(self, process: subprocess.Popen[bytes]) -> bool:
         """Whether ``process`` was told to stop by :meth:`interrupt`."""
         with self._lock:
             return process in self._interrupted
@@ -329,7 +341,9 @@ def run_command(
     ``interruptible`` command — every observation and query — is held by
     the registry the calling thread adopted, when it adopted one, so the
     dashboard's exit can stop it; a mutation opts out and runs to
-    completion.
+    completion. A command that outlives ``timeout`` is stopped — asked
+    first, then killed — and with it, for a command in its own session,
+    every helper it started.
     """
     with recording_command(args) as record:
         result = _run_command(
@@ -361,7 +375,6 @@ def _run_command(
         process = subprocess.Popen(
             list(args),
             cwd=cwd,
-            text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env={**os.environ, **environment} if environment else None,
@@ -369,6 +382,13 @@ def _run_command(
             start_new_session=non_interactive,
         )
     except FileNotFoundError as exc:
+        # The child names what it could not find: the working directory when
+        # its ``chdir`` failed, the program when its ``exec`` did.
+        if exc.filename in (cwd, os.fspath(cwd)):
+            raise CommandError(
+                f"working directory does not exist: {cwd}",
+                code="command-directory-missing",
+            ) from exc
         raise CommandError(
             f"command not found: {args[0]}", code="command-not-found"
         ) from exc
@@ -377,8 +397,7 @@ def _run_command(
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as exc:
-            process.kill()
-            process.wait()
+            _stop(process, group=non_interactive)
             raise CommandError(
                 f"command timed out after {timeout:g}s: {args[0]}",
                 code="command-timed-out",
@@ -386,12 +405,13 @@ def _run_command(
         except BaseException:
             # As ``subprocess.run`` does: a child in its own session never
             # saw the terminal's interrupt, so it is not left to finish.
-            process.kill()
-            process.wait()
+            _stop(process, group=non_interactive)
             raise
         if registry is not None and registry.interrupted(process):
             raise CommandError(interrupted, code="command-interrupted")
-    return CommandResult(list(args), process.returncode, stdout, stderr)
+    return CommandResult(
+        list(args), process.returncode, _decoded(stdout), _decoded(stderr)
+    )
 
 
 def non_interactive_runner(
@@ -406,3 +426,47 @@ def non_interactive_runner(
         non_interactive=True,
         interruptible=interruptible,
     )
+
+
+def _decoded(output: bytes) -> str:
+    """Read a command's output as UTF-8, replacing what is not.
+
+    Git writes ref names and paths as the bytes it stores, which need not be
+    UTF-8; a strict decode would fail the whole command over one name. The
+    replacement character keeps every other value intact and can never name
+    a real ref or path, so a later command given it fails rather than acting
+    on something else.
+    """
+    return output.decode("utf-8", errors="replace")
+
+
+def _stop(process: subprocess.Popen[bytes], *, group: bool) -> None:
+    """Stop a command that is not to finish: ask it to, then kill what is left.
+
+    The termination request comes first so Git removes its lock files on the
+    way out; a command still running after :data:`STOP_GRACE` is killed. A
+    command in its own session (``group``) leads its own process group, and
+    the whole group is signalled, so a helper it started — an SSH transport,
+    ``index-pack``, a hook — stops with it rather than running on orphaned.
+    """
+    _signal(process, signal.SIGTERM, group=group)
+    try:
+        process.wait(timeout=STOP_GRACE)
+    except subprocess.TimeoutExpired:
+        _signal(process, signal.SIGKILL, group=group)
+        process.wait()
+
+
+def _signal(
+    process: subprocess.Popen[bytes], signum: signal.Signals, *, group: bool
+) -> None:
+    """Send ``signum`` to the command, or to its process group with ``group``."""
+    # Once reaped, the command's pid, and with it its group's id, may already
+    # name another process; an unreaped one holds both.
+    if process.returncode is not None:
+        return
+    if not group:
+        process.send_signal(signum)
+        return
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signum)

@@ -28,11 +28,23 @@ boundary, invoked by a person, and it mutates only what its name says:
   pane is showing and never every Repository Anchor of a Workspace that
   holds independent clones of one Project.
 - The invocation is `git fetch --prune -- <remote>` once per configured
-  remote, in `git remote` order, under Dashpot's Git timeout
+  remote, in `git remote` order
   ([`fetch.py`](../../src/dashpot/repository/fetch.py)). One call per remote attributes
   a failure to the remote that failed and lets the rest complete, so a
   partial failure is reported remote by remote and never as an unqualified
   success. No remote configured is a refusal, not a fetch.
+- Each call runs under a named mutation's bound: Dashpot's Git timeout,
+  raised to at least five minutes (`MUTATION_TIMEOUT` in
+  [`git.py`](../../src/dashpot/core/git.py)). The Git timeout is sized for
+  reads, and a large update over a slow link outlasts it; stopped there,
+  every retry would restart the download and be stopped again. Cleanup's
+  confirmed removal and `dashpot worktree create`'s `git worktree add`
+  share the bound. A command that outlasts even that bound is first asked
+  to stop and killed only after a two-second grace, and the signals go to
+  its whole process group, so Git removes its lock files and temporary
+  packs, and no SSH transport or `index-pack` it started runs on orphaned.
+  The price is a dashboard exit that waits for a stuck fetch up to the
+  bound ([ADR 0049](0049-interrupt-observation-commands-at-dashboard-exit.md)).
 - The fetch is non-interactive: `GIT_TERMINAL_PROMPT=0` disables Git's own
   credential prompt, and the command runs without stdin in its own session,
   so neither Git nor an SSH helper can open the controlling terminal and

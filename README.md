@@ -151,7 +151,10 @@ mouse event, set by `--unattended-seconds` or `unattended_seconds`, where zero
 disables the idle pause. Any key resumes them at once
 ([ADR 0068](docs/adr/0068-pause-github-queries-while-the-dashboard-is-unattended.md)).
 `--timeout` bounds every external `git` and `gh` command (default 10
-seconds), `--state-dir` overrides where session records land outside a
+seconds); a named mutation's Git commands — a Remote Fetch, a confirmed
+Cleanup, `worktree create`'s `git worktree add` — get at least five minutes
+([ADR 0014](docs/adr/0014-fetch-remotes-on-explicit-key-press.md)).
+`--state-dir` overrides where session records land outside a
 configured Project (the flag form of `DASHPOT_STATE_DIR`), and `--version`
 prints the installed version. `dashpot --help` describes every command and
 option, and each command has its own `--help`; an option belongs to the

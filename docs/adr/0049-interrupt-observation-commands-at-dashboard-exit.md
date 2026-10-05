@@ -91,8 +91,9 @@ through the adapter.
 Quitting with queries in flight now takes the same 0.3 seconds as an idle
 quit, measured with the same pseudo-terminal harness. A quit during a
 Remote Fetch or a confirmed Cleanup still waits for that command, bounded
-by the command timeout, which is the price of never abandoning a mutation
-someone asked for; interrupting a Remote Fetch too would be safe for Git
+by a named mutation's bound of at least five minutes
+([ADR 0014](0014-fetch-remotes-on-explicit-key-press.md)), which is the
+price of never abandoning a mutation someone asked for; interrupting a Remote Fetch too would be safe for Git
 and is the first thing to revisit if that wait is noticed. The termination
 request reaches the child alone: a helper the child started that kept the
 output pipe open would hold the thread until the command timeout, which no

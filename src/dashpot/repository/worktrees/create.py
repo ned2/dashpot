@@ -11,7 +11,7 @@ from typing import Literal
 
 from ...core.commands import nonzero_exit_fails
 from ...core.errors import DashpotError
-from ...core.git import Git, GitError
+from ...core.git import Git, GitError, mutation_timeout
 from ...core.issue_profile import IssueProfile
 from ...core.pydantic import LaxSequence, PublishedModel
 from ...core.worktree_paths import (
@@ -369,20 +369,38 @@ def _check_existing_issue_worktrees(
 
 
 def _add_worktree(git: Git, plan: WorktreePlan) -> None:
-    """Run the one mutation, verify it, and roll back only what it created."""
+    """Run the one mutation, verify it, and roll back only what it created.
+
+    The add is a named mutation, so it is given
+    :func:`~dashpot.core.git.mutation_timeout` rather than the observation
+    timeout. An add that fails, times out, or cannot be run is rolled back
+    alike.
+    """
     path = Path(plan.path)
     if plan.base_commit is None:
         # A plan with refusals never reaches here; a plan without a resolved
         # base is a programming error, and one -O must not silence.
         raise RuntimeError("worktree plan has no base commit to create from")
+    # Read again just before the add: another creator may have made the
+    # Branch since the plan's collision check, and it is never this
+    # invocation's to delete.
+    branch_existed = commit_of(git, f"refs/heads/{plan.branch}") is not None
     created_directories = _make_directories(path.parent)
-    with nonzero_exit_fails(WorktreeCreateError):
-        result = git.run(
-            "worktree", "add", "-b", plan.branch, str(path), plan.base_commit
-        )
+    adding = git.at(git.root, timeout=mutation_timeout(git.timeout))
+    try:
+        with nonzero_exit_fails(WorktreeCreateError):
+            result = adding.run(
+                "worktree", "add", "-b", plan.branch, str(path), plan.base_commit
+            )
+    except GitError as exc:
+        leftovers = _roll_back(git, plan, created_directories, branch_existed)
+        raise WorktreeCreateError(
+            f"git worktree add did not complete: {exc.detail}"
+            + "".join(f"; {item}" for item in leftovers)
+        ) from exc
     if result.returncode != 0:
         detail = result.stderr.strip() or f"exit {result.returncode}"
-        leftovers = _roll_back(git, plan, created_directories)
+        leftovers = _roll_back(git, plan, created_directories, branch_existed)
         raise WorktreeCreateError(
             f"git worktree add failed: {detail}"
             + "".join(f"; {item}" for item in leftovers)
@@ -418,9 +436,31 @@ def _make_directories(directory: Path) -> list[Path]:
 
 
 def _roll_back(
-    git: Git, plan: WorktreePlan, created_directories: list[Path]
+    git: Git,
+    plan: WorktreePlan,
+    created_directories: list[Path],
+    branch_existed: bool,
 ) -> list[str]:
-    """Remove only this invocation's Branch and empty directories; report the rest."""
+    """Remove only this invocation's Branch and empty directories; report the rest.
+
+    A Branch that existed before the add is never this invocation's, wherever
+    it points. When Git cannot say what the add left, nothing is removed.
+    """
+    try:
+        return _remove_what_this_created(git, plan, created_directories, branch_existed)
+    except GitError as exc:
+        return [
+            f"what it left could not be inspected ({exc.detail}); check with "
+            f"'git worktree list' and 'git branch --list {plan.branch}'"
+        ]
+
+
+def _remove_what_this_created(
+    git: Git,
+    plan: WorktreePlan,
+    created_directories: list[Path],
+    branch_existed: bool,
+) -> list[str]:
     path = Path(plan.path)
     messages: list[str] = []
     records = git.worktree_records()
@@ -446,7 +486,11 @@ def _roll_back(
             )
         return messages
     branch_commit = commit_of(git, f"refs/heads/{plan.branch}")
-    if branch_commit is not None:
+    if branch_commit is not None and branch_existed:
+        messages.append(
+            f"Branch {plan.branch} existed before this command and was left alone"
+        )
+    elif branch_commit is not None:
         checked_out = any(
             record.get("branch") == f"refs/heads/{plan.branch}" for record in records
         )

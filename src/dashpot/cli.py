@@ -163,7 +163,10 @@ _Timeout = Annotated[
     float,
     Parameter(
         validator=validators.Number(gt=0),
-        help="seconds allowed for each external command, such as git and gh",
+        help=(
+            "seconds allowed for each external command, such as git and gh; "
+            "a named mutation's git commands get at least 300"
+        ),
     ),
 ]
 

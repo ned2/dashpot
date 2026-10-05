@@ -11,7 +11,13 @@ from typing import Literal
 from pydantic import computed_field
 
 from ...core.event_log import current_event_log
-from ...core.git import Git, GitError, git_runner, last_stderr_line
+from ...core.git import (
+    Git,
+    GitError,
+    git_runner,
+    last_stderr_line,
+    mutation_timeout,
+)
 from ...core.pydantic import LaxSequence, PublishedModel
 from ...core.runtime_events import (
     CleanupOutcome,
@@ -141,18 +147,20 @@ class CleanupReport(PublishedModel):
 
 
 def cleanup_git(timeout: float, *, preview: bool = False) -> Git:
-    """The production adapter for a Cleanup: non-interactive, with Dashpot's timeout.
+    """The production adapter for a Cleanup: non-interactive, under its own bound.
 
     A confirmed removal runs to completion: a dashboard exit interrupts
-    observations, never a mutation half-way through a Worktree. A preview
-    only reads, so an adapter built for the preview alone is interruptible
-    like any other observation. Either way its Git takes no optional lock, so
-    the preview's ``git status`` in a Worktree an agent commits in never
-    holds that Worktree's ``index.lock``.
+    observations, never a mutation half-way through a Worktree, and each
+    command is given :func:`~dashpot.core.git.mutation_timeout` rather than
+    the observation timeout ``timeout``. A preview only reads, so an adapter
+    built for the preview alone is interruptible like any other observation
+    and keeps ``timeout``. Either way its Git takes no optional lock, so the
+    preview's ``git status`` in a Worktree an agent commits in never holds
+    that Worktree's ``index.lock``.
     """
     return Git(
         Path.cwd(),
-        timeout,
+        timeout if preview else mutation_timeout(timeout),
         git_runner(CLEANUP_ENVIRONMENT, non_interactive=True, interruptible=preview),
     )
 
