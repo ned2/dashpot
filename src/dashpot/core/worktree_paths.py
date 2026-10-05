@@ -75,5 +75,5 @@ def same_path(candidate: Path, expected: Path) -> bool:
     """Tell whether two paths name one place; a persisted path may not resolve."""
     try:
         return candidate.resolve() == expected.resolve()
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, ValueError):
         return False

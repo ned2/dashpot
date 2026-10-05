@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -312,11 +311,17 @@ def test_a_ref_missing_from_packed_refs_or_unreadable_is_unknown(
     assert source_revision(checkout) == "unknown"
 
 
-def test_a_symlink_loop_under_the_source_is_unknown(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        distribution, "_git_directory", mock.Mock(side_effect=RuntimeError("loop"))
-    )
+def test_a_symlink_loop_under_the_source_is_unknown(tmp_path: Path) -> None:
+    # ``resolve`` leaves a loop unresolved, so reading through it is what fails.
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    (linked / "loop").symlink_to(linked / "loop")
+    (linked / ".git").write_text("gitdir: loop\n")
+    shared = tmp_path / "shared"
+    (shared / ".git").mkdir(parents=True)
+    (shared / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (shared / ".git" / "loop").symlink_to(shared / ".git" / "loop")
+    (shared / ".git" / "commondir").write_text("loop\n")
 
-    assert source_revision(tmp_path) == "unknown"
+    assert source_revision(linked) == "unknown"
+    assert source_revision(shared) == "unknown"

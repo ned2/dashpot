@@ -579,7 +579,7 @@ def relocation_diagnostic(
         for scanned in current:
             try:
                 location = scanned.record.worktree.resolve()
-            except (OSError, RuntimeError, ValueError):
+            except (OSError, ValueError):
                 continue
             locations.add(location)
             if freshest is None:
@@ -587,7 +587,7 @@ def relocation_diagnostic(
     try:
         intended = Path(work.relocation.target_worktree).resolve()
         source = Path(target.path).resolve()
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, ValueError):
         intended = source = None
     if (
         freshest is not None
@@ -872,7 +872,7 @@ def locate_observation_target(
         root_path = (
             Path(record.repository_root).resolve() if record.repository_root else None
         )
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, ValueError):
         # A recorded path that cannot be resolved places the session nowhere.
         return None, None
     cwd_matches = [

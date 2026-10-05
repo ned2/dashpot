@@ -75,7 +75,7 @@ def route_event_log(working_directory: Path | None) -> EventLogDestination | Non
             if working_directory is None
             else configured_checkout(working_directory.resolve())
         )
-    except (OSError, RuntimeError):
+    except OSError:
         checkout = None
     if checkout is not None:
         return _checkout_event_log(checkout)
@@ -96,8 +96,7 @@ def owned_event_log(working_directory: Path) -> EventLogDestination:
     """
     try:
         checkout = configured_checkout(working_directory.resolve())
-    except (OSError, RuntimeError) as exc:
-        # ``RuntimeError``: a symlink loop under ``resolve`` on Python 3.12.
+    except OSError as exc:
         raise EventLogError(
             f"cannot tell which checkout's Event Log {working_directory} "
             f"belongs to: {failure_text(exc)}"

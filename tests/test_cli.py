@@ -880,16 +880,16 @@ def test_not_a_repository_is_read_from_git_alone(
 
     with (
         mock.patch.object(
-            composition, "worktree_root", side_effect=RuntimeError("symlink loop")
+            composition, "worktree_root", side_effect=RuntimeError("runtime fault")
         ),
-        pytest.raises(RuntimeError, match="symlink loop"),
+        pytest.raises(RuntimeError, match="runtime fault"),
     ):
         composition.create_collector(options)
     with (
         mock.patch.object(
-            protection, "worktree_root", side_effect=RuntimeError("symlink loop")
+            protection, "worktree_root", side_effect=RuntimeError("runtime fault")
         ),
-        pytest.raises(RuntimeError, match="symlink loop"),
+        pytest.raises(RuntimeError, match="runtime fault"),
     ):
         composition.cleanup_protection()
 

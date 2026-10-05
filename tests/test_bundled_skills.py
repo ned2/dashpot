@@ -1209,3 +1209,33 @@ def test_opencode_reports_another_harness_copy_it_cannot_inspect(
         "which differs from this Dashpot's, and may use either; run 'dashpot "
         "integrate claude-code' or move it",
     ]
+
+
+def test_an_update_over_a_link_loop_inside_a_copy_is_refused_without_writing(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install("codex", tmp_path, skills)
+    copy = copy_of("codex", second)
+    references = copy / "references"
+    shutil.rmtree(references / "deep")
+    (references / "deep").symlink_to(references / "loop", target_is_directory=True)
+    (references / "loop").symlink_to(references / "deep", target_is_directory=True)
+    hooks = integration_file("codex")
+    before = hooks.read_bytes()
+
+    # A loop is left unresolved rather than read as leaving the copy, so it
+    # is the write's own inspection of the directory that refuses it.
+    with pytest.raises(IntegrationError) as refused:
+        install("codex", tmp_path, skills)
+
+    message = str(refused.value)
+    assert message.startswith(
+        f"cannot install the Dashpot Second skill at {copy}: "
+        f"could not inspect {references / 'deep'}: "
+    )
+    assert "Too many levels of symbolic links" in message
+    assert "resolves outside the copy" not in message
+    assert hooks.read_bytes() == before
+    assert (references / "deep").is_symlink()
+    assert (references / "loop").is_symlink()

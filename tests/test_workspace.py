@@ -368,3 +368,33 @@ def test_a_relative_xdg_config_home_is_ignored_for_the_workspace_inventory(
     assert default_workspace_config() == (
         tmp_path / "home" / ".config" / "dashpot" / "workspaces.json"
     )
+
+
+def test_a_symlink_loop_is_only_its_own_anchors_diagnostic(tmp_path: Path) -> None:
+    root = tmp_path / "dashpot"
+    write_project(root)
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+
+    named = resolve_workspace_projects(
+        [workspace("personal", loop, root)], root_observer=root_observer
+    )
+    # ``resolve`` leaves a loop the root observer reports unresolved, so
+    # reading the Project configuration through it is what fails.
+    observed = resolve_workspace_projects(
+        [workspace("personal", root)], root_observer=lambda path: loop
+    )
+
+    assert [project.anchors for project in named.projects] == [(str(root.resolve()),)]
+    assert [(item.source, item.code) for item in named.diagnostics] == [
+        (f"anchor:{loop}", "repository-anchor")
+    ]
+    assert observed.projects == []
+    (diagnostic,) = observed.diagnostics
+    assert (diagnostic.source, diagnostic.code) == (
+        f"anchor:{root.resolve()}",
+        "repository-anchor",
+    )
+    assert diagnostic.message.startswith(
+        f"cannot read Project configuration {loop / '.dashpot' / 'config.json'}: "
+    )

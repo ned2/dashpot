@@ -284,6 +284,16 @@ def test_paths_that_cannot_resolve_never_name_the_same_place(tmp_path: Path) -> 
     assert not same_path(Path("bad\0path"), Path("bad\0path"))
 
 
+def test_a_symlink_loop_is_compared_by_its_unresolved_path(
+    tmp_path: Path,
+) -> None:
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+
+    assert same_path(loop, tmp_path / "x" / ".." / "loop")
+    assert not same_path(loop, tmp_path)
+
+
 def test_observing_a_worktree_leaves_its_index_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

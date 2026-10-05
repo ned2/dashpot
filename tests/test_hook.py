@@ -56,6 +56,22 @@ def test_a_publish_failure_is_a_non_blocking_hook_exit(
     assert captured.out == ""
 
 
+def test_hook_input_nested_too_deeply_to_parse_is_a_non_blocking_hook_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # ``json`` raises ``RecursionError``, a ``RuntimeError``, for this input:
+    # why the hook's failures still include ``RuntimeError``.
+    monkeypatch.setattr("sys.stdin", io.StringIO("[" * 200_000))
+
+    assert hook.main() == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("dashpot Codex hook: ")
+    assert "while decoding a JSON array" in captured.err
+    assert captured.out == ""
+
+
 def test_a_non_object_hook_input_is_a_non_blocking_hook_exit(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -195,7 +211,12 @@ def hook_lines(directory: Path) -> list[dict[str, object]]:
 
 @pytest.mark.parametrize(
     "failure",
-    [OSError(28, "full"), ValueError("bad"), RuntimeError("loop"), DashpotError("no")],
+    [
+        OSError(28, "full"),
+        ValueError("bad"),
+        RuntimeError("Could not determine home directory."),
+        DashpotError("no"),
+    ],
     ids=lambda failure: type(failure).__name__,
 )
 @pytest.mark.usefixtures("recorded")

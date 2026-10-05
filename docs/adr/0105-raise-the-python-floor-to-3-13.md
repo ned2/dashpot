@@ -54,11 +54,6 @@ comparing and dumping a config stay silent. `ReadOnly` stays unadopted, since
 there is no `TypedDict` in `src/` to carry it. This ADR supersedes ADR 0048 and
 amends ADR 0034's Python target.
 
-**3.14 is not the floor yet.** A 3.14 floor would let PEP 649 and PEP 749
-deferred annotations replace `from __future__ import annotations` in every
-module that imports it. That is a separate change with its own churn, and
-the maintainer deferred it to [#500](https://github.com/ned2/dashpot/issues/500).
-
 ## Consequences
 
 The CI matrix runs four test legs and four install legs, both Python
@@ -72,6 +67,8 @@ on Ubuntu 24.04 LTS and supported upstream until October 2028, needs another
 interpreter. `uv tool install --python 3.14 dashpot`, the recommended install,
 already selects one, as does `pipx install --python`.
 
-A symlink loop under `Path.resolve` raises `RuntimeError` only on Python 3.12;
-the handlers that catch it for that release are now unreachable, and
-[#501](https://github.com/ned2/dashpot/issues/501) removes them.
+A symlink loop under `Path.resolve` raises `RuntimeError` only on Python 3.12.
+From 3.13 a strict `resolve` raises `OSError` for one and a non-strict
+`resolve` leaves it unresolved, so
+[#501](https://github.com/ned2/dashpot/issues/501) removed the handlers that
+caught `RuntimeError` for that release, keeping their `OSError` handling.

@@ -222,9 +222,7 @@ def resolve_workspace_projects(
                         git,
                     )
                 )
-            # ``RuntimeError`` is ``Path.resolve`` on a symlink loop, which an
-            # anchor path may be; it is this anchor's Diagnostic, not a crash.
-            except (OSError, RuntimeError, DashpotError) as exc:
+            except (OSError, DashpotError) as exc:
                 diagnostics.append(
                     Diagnostic(
                         source=f"anchor:{anchor.path}",

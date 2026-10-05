@@ -634,3 +634,71 @@ def test_work_store_start_cannot_overwrite_occupied_state(tmp_path):
         with pytest.raises(WorkStoreError, match="occupied"):
             store.start(replacement)
         assert store.active()[0] == [before]
+
+
+def resumed_at_a_loop(roots, tmp_path):
+    """A resumed Codex client whose hook record, kept at B, names a symlink loop."""
+    _a, b = roots
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    resumed = replace(CODEX, pid=5252)
+    document = hook_record_document(loop, A, "codex", resumed, at=LATER)
+    record = HookRecord.model_validate(document)
+    HookRecordStore(session_directory(b)).write(record)
+    both_live = table_lookup({CODEX.pid: CODEX, resumed.pid: resumed})
+    return loop, record, resumed, both_live
+
+
+def test_a_symlink_loop_in_a_relocation_is_reported_by_its_unresolved_path(
+    roots, tmp_path
+):
+    # ``resolve`` leaves a loop unresolved, so the relocation stays pending
+    # or mismatched by that path.
+    from dashpot.sessions.agent_runs import relocation_diagnostic
+    from dashpot.sessions.liveness import LivenessProbe
+    from dashpot.sessions.work_store import RelocationIntent
+
+    a, b = roots
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    probe = LivenessProbe(present(CODEX))
+    to_loop = replace(recorded(a), relocation=RelocationIntent(str(loop), EARLIER))
+
+    pending = relocation_diagnostic(
+        to_loop, target(a), [target(a), target(b)], None, probe
+    )
+
+    assert pending.code == "work-relocation-pending"
+    assert f"from {a} to {loop};" in pending.message
+
+
+def test_a_resumed_record_at_a_symlink_loop_mismatches_the_relocation(roots, tmp_path):
+    from dashpot.sessions.agent_runs import relocation_diagnostic
+    from dashpot.sessions.liveness import LivenessProbe
+    from dashpot.sessions.work_store import RelocationIntent
+
+    a, b = roots
+    loop, _record, _resumed, both_live = resumed_at_a_loop(roots, tmp_path)
+    to_b = replace(recorded(a), relocation=RelocationIntent(str(b), EARLIER))
+
+    mismatched = relocation_diagnostic(
+        to_b, target(a), [target(a), target(b)], None, LivenessProbe(both_live)
+    )
+
+    assert mismatched.code == "work-relocation-mismatched"
+    assert f"resumed at {loop}, not its intended relocation target {b};" in (
+        mismatched.message
+    )
+
+
+def test_a_resumed_record_at_a_symlink_loop_completes_no_relocation(roots, tmp_path):
+    import dashpot.sessions.work_reconciliation as hooks
+    from dashpot.sessions.work_store import RelocationIntent
+
+    a, b = roots
+    _loop, record, resumed, both_live = resumed_at_a_loop(roots, tmp_path)
+    to_b = replace(recorded(a), relocation=RelocationIntent(str(b), EARLIER))
+    WorkStore(a).start(to_b)
+
+    assert hooks.complete_session_work_relocation(record, resumed, both_live) is None
+    assert WorkStore(a).active()[0] == [to_b]
