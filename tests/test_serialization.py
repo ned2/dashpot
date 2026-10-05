@@ -1,8 +1,21 @@
 """Pin the headless JSON contract per command, independently of model defaults.
 
-Every key set here is the documented first-release contract (#78): a key
-added to or dropped from a model shows up as a failure in this module, and
-an unknown value is asserted to be an explicit ``null``, never an omission.
+Every key set here is the documented first-release contract (#78), which
+ADR 0034 keeps compatible within ``0.1.x``: a key added to or dropped from a
+model shows up as a failure in this module, and an unknown value is asserted
+to be an explicit ``null``, never an omission. The documents pinned here as
+contract, with the command whose ``--json`` prints each:
+
+- the Workspace Snapshot, ``dashpot --json``;
+- the Issue Profile, ``issue show``;
+- the Query Page and its Project Totals, ``issue list`` and ``pr list``;
+- the Worktree plan, ``worktree create``;
+- the removability report, ``worktree check``;
+- each Runtime Event line, ``events``;
+- the Event Log removal, ``events remove``.
+
+The Cleanup preview and report that ``worktree remove`` and ``branch delete``
+print are pinned beside the Cleanup they describe, in ``test_cleanup.py``.
 """
 
 from __future__ import annotations
@@ -42,7 +55,9 @@ from dashpot.serialization import (
 )
 from factories import agent_run, project, pull_request, target, workspace
 from helpers import make_issue
-from test_query_pages import markdown
+from test_github_issues import REPOSITORY_ID
+from test_github_pull_requests import pull_request_node
+from test_query_pages import context, github, markdown, search
 
 SNAPSHOT_KEYS = {
     "collectedAt",
@@ -517,6 +532,38 @@ def test_the_list_page_document_keeps_its_keys_and_nulls(tmp_path: Path) -> None
     assert totals_document["status"] == "unavailable"
     assert totals_document["openCount"] is None
     assert totals_document["lastGoodAt"] is None
+
+
+def test_the_pull_request_list_document_keeps_its_record_keys_and_nulls(
+    tmp_path: Path,
+) -> None:
+    # A ghost author and an unknown mergeability are observed, not omitted.
+    pull = {
+        **pull_request_node(1, author=None, mergeable="UNKNOWN"),
+        "__typename": "PullRequest",
+        "repository": {"id": REPOSITORY_ID},
+    }
+    source, _ = github(tmp_path, context(), search(pull, count=2, cursor="next"))
+
+    document = list_page_document(
+        source.query_page(QueryRequest(kind="pull-requests", page_size=1))
+    )
+
+    assert set(document) == LIST_PAGE_KEYS
+    page_document = document["page"]
+    assert set(page_document) == QUERY_PAGE_KEYS
+    assert page_document["request"]["kind"] == "pull-requests"
+    assert page_document["issues"] == []
+    assert page_document["auxiliary"] == {}
+    (record,) = page_document["pullRequests"]
+    assert set(record) == PULL_REQUEST_KEYS
+    assert record["author"] is None
+    assert record["mergeability"] is None
+    assert page_document["continuation"] == "more"
+    totals_document = document["totals"]
+    assert set(totals_document) == PROJECT_TOTALS_KEYS
+    assert totals_document["kind"] == "pull-requests"
+    assert totals_document["openCount"] == 3
 
 
 def test_each_events_line_keeps_its_event_log_field_names_and_nulls() -> None:
