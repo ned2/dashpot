@@ -108,9 +108,10 @@ reaches the whole group while the command runs, so the helpers it started
 are asked to stop with it. A command sharing Dashpot's group is signalled
 alone, since that group is Dashpot's own: a helper it started that kept the
 output pipe open would hold the thread until the command timeout, which no
-observation command of Dashpot's does. Neither is a command whose own
-process has already exited signalled, since its runner is about to reap it
-and see its answer. Textual's 0.2
+observation command of Dashpot's does. A command whose own process has
+already exited has answered and is not reported interrupted; in its own
+session its group is still asked to stop, since a helper that holds its
+output open holds the thread too. Textual's 0.2
 seconds of input-thread teardown remain: its key thread polls at a hundred
 milliseconds and `disable_input` joins it before one final poll. The
 exit path is covered by `tests/test_app_exit.py`, which runs the shipped

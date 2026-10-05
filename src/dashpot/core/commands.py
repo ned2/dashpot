@@ -157,26 +157,33 @@ class RunningCommands:
         its whole process group, so the helpers it started — an SSH
         transport, ``index-pack``, a hook — are asked to stop too, while a
         command sharing Dashpot's group is signalled alone. The count is of
-        the commands signalled; one that finished on its own in the meantime
-        is not counted.
+        the commands interrupted. One that exited on its own in the meantime
+        has answered, and is neither counted nor reported interrupted; but
+        in its own session a helper it started may still hold its output
+        open, and with it the runner's thread, so its group is still asked
+        to stop.
         """
         with self._lock:
             self._closed = True
             processes = list(self._running.items())
-        signalled = 0
+        interrupted = 0
         for process, group in processes:
-            # Not reaped here: the runner reaps its own command, and until
-            # then the command's pid, and with it its group's id, names it.
-            if _exited(process):
+            # Read without reaping, which is left to the command's runner. A
+            # reap landing between this read and the signal is a window as
+            # narrow as ``Popen.send_signal``'s own.
+            state = _exit_state(process)
+            if state == "reaped" or (state == "exited" and not group):
                 continue
             with self._lock:
                 # Let go by its runner since the snapshot: ended, not stopped.
                 if process not in self._running:
                     continue
-                self._interrupted.add(process)
+                if state == "running":
+                    self._interrupted.add(process)
             _signal(process, signal.SIGTERM, group=group)
-            signalled += 1
-        return signalled
+            if state == "running":
+                interrupted += 1
+        return interrupted
 
 
 # The registry a thread's interruptible commands belong to, set by the pool
@@ -475,21 +482,28 @@ def _await_exit_unreaped(process: subprocess.Popen[bytes], grace: float) -> None
     """Wait up to ``grace`` for ``process`` to exit, without reaping it."""
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline:
-        if _exited(process):
+        if _exit_state(process) != "running":
             return
         time.sleep(0.01)
 
 
-def _exited(process: subprocess.Popen[bytes]) -> bool:
-    """Whether ``process`` has exited, answered without reaping it."""
+def _exit_state(
+    process: subprocess.Popen[bytes],
+) -> Literal["running", "exited", "reaped"]:
+    """How far ``process`` has ended: running, exited unreaped, or reaped.
+
+    It is read without reaping. A reaped command's pid, and with it its group's id, may already name
+    another process, so it is never signalled; an exited one that is not
+    yet reaped still holds both.
+    """
     if process.returncode is not None:
-        return True
+        return "reaped"
     try:
         exited = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
     except ChildProcessError:
-        # Reaped elsewhere since the check above, so it has exited.
-        return True
-    return exited is not None
+        # Reaped behind its ``Popen``, which has not recorded the exit.
+        return "reaped"
+    return "running" if exited is None else "exited"
 
 
 def _signal(

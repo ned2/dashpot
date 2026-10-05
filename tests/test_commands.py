@@ -72,6 +72,23 @@ def adopting(running: RunningCommands, call: Callable[[], Any]) -> Any:
     return copy_context().run(run)
 
 
+def popen_recording(started: list[subprocess.Popen[Any]]) -> Callable[..., Any]:
+    """A ``Popen`` that starts each command for real and keeps it in ``started``."""
+    real_popen = subprocess.Popen
+
+    def record(*args: Any, **kwargs: Any) -> Any:
+        started.append(process := real_popen(*args, **kwargs))
+        return process
+
+    return record
+
+
+def exited_unreaped(process: subprocess.Popen[Any]) -> bool:
+    """Whether ``process`` has exited and is left for its ``Popen`` to reap."""
+    flags = os.WEXITED | os.WNOHANG | os.WNOWAIT
+    return os.waitid(os.P_PID, process.pid, flags) is not None
+
+
 def wait_for(predicate: Callable[[], bool], timeout: float = PROMPT) -> None:
     """Block until ``predicate`` holds, failing rather than hanging."""
     deadline = time.monotonic() + timeout
@@ -134,23 +151,40 @@ def test_an_interrupted_registry_refuses_every_later_command() -> None:
         adopting(running, lambda: run_command(BRIEF, Path.cwd(), 30))
 
 
-def test_a_command_registering_during_the_interruption_is_stopped() -> None:
+@pytest.mark.parametrize("non_interactive", [False, True])
+def test_a_command_registering_during_the_interruption_is_stopped(
+    non_interactive: bool,
+) -> None:
     # The window between the closed check and the registration: a process
-    # already started is signalled as it registers rather than slipping past.
+    # already started is signalled as it registers rather than slipping past,
+    # as its whole process group when it runs in a session of its own.
     running = RunningCommands()
-    real_popen = subprocess.Popen
+    started: list[subprocess.Popen[Any]] = []
+    signalled: list[tuple[int, int]] = []
+    record = popen_recording(started)
+    real_killpg = os.killpg
 
     def popen_then_interrupt(*args: Any, **kwargs: Any) -> Any:
-        process = real_popen(*args, **kwargs)
+        process = record(*args, **kwargs)
         assert running.interrupt() == 0
         return process
 
+    def recording_killpg(pgid: int, signum: int) -> None:
+        signalled.append((pgid, signum))
+        real_killpg(pgid, signum)
+
     with (
         mock.patch.object(subprocess, "Popen", side_effect=popen_then_interrupt),
+        mock.patch.object(os, "killpg", recording_killpg),
         pytest.raises(CommandError, match="interrupted at shutdown"),
     ):
-        adopting(running, lambda: run_command(SLEEP, Path.cwd(), 30))
+        adopting(
+            running,
+            lambda: run_command(SLEEP, Path.cwd(), 30, non_interactive=non_interactive),
+        )
 
+    (process,) = started
+    assert signalled == ([(process.pid, signal.SIGTERM)] if non_interactive else [])
     assert len(running) == 0
     assert running.closed
 
@@ -570,6 +604,16 @@ def test_a_group_left_only_its_stopped_leader_is_not_an_error(
 
 # --- Interrupting a command in its own session --------------------------------
 
+# A command that starts the helper, waits until it is running, and exits,
+# leaving the helper holding its output open.
+LEAVES_HELPER = """
+import pathlib, subprocess, sys, time
+helper, asked, ready = sys.argv[1:4]
+subprocess.Popen([sys.executable, "-c", helper, asked, ready, "honour"])
+while not pathlib.Path(ready).exists():
+    time.sleep(0.01)
+"""
+
 
 def test_an_interrupted_command_is_asked_to_stop_with_every_helper_it_started(
     tmp_path: Path,
@@ -579,15 +623,10 @@ def test_an_interrupted_command_is_asked_to_stop_with_every_helper_it_started(
     asked, ready = tmp_path / "asked", tmp_path / "ready"
     args = [sys.executable, "-c", COMMAND, HELPER, str(asked), str(ready), "honour"]
     started: list[subprocess.Popen[Any]] = []
-    real_popen = subprocess.Popen
-
-    def recording_popen(*popen_args: Any, **kwargs: Any) -> Any:
-        started.append(process := real_popen(*popen_args, **kwargs))
-        return process
-
     running = RunningCommands()
-    with mock.patch.object(subprocess, "Popen", side_effect=recording_popen):
+    with mock.patch.object(subprocess, "Popen", side_effect=popen_recording(started)):
         thread, outcomes = start_command(args, running, non_interactive=True)
+        wait_for(lambda: len(running) == 1)
         wait_for(ready.exists, timeout=30)
 
         assert running.interrupt() == 1
@@ -607,60 +646,60 @@ def test_an_interrupted_command_is_asked_to_stop_with_every_helper_it_started(
     wait_for(lambda: gone(helper))
 
 
-def test_a_command_in_its_own_session_registering_late_is_stopped_as_a_group() -> None:
-    # The window between the closed check and the registration, for a
-    # command that leads its own process group: the group is signalled.
-    running = RunningCommands()
+def test_a_helper_holding_an_exited_command_s_output_is_asked_to_stop(
+    tmp_path: Path,
+) -> None:
+    # The command has answered, but its runner's thread waits on the output
+    # the helper holds; the group is asked to stop, and the command's own
+    # answer stands rather than being reported interrupted.
+    asked, ready = tmp_path / "asked", tmp_path / "ready"
+    args = [sys.executable, "-c", LEAVES_HELPER, HELPER, str(asked), str(ready)]
     started: list[subprocess.Popen[Any]] = []
-    signalled: list[tuple[int, int]] = []
-    real_popen = subprocess.Popen
-    real_killpg = os.killpg
+    running = RunningCommands()
+    with mock.patch.object(subprocess, "Popen", side_effect=popen_recording(started)):
+        thread, outcomes = start_command(args, running, non_interactive=True)
+        wait_for(lambda: len(running) == 1)
+        (process,) = started
+        wait_for(lambda: exited_unreaped(process), timeout=30)
 
-    def popen_then_interrupt(*args: Any, **kwargs: Any) -> Any:
-        started.append(process := real_popen(*args, **kwargs))
         assert running.interrupt() == 0
-        return process
 
-    def recording_killpg(pgid: int, signum: int) -> None:
-        signalled.append((pgid, signum))
-        real_killpg(pgid, signum)
-
-    with (
-        mock.patch.object(subprocess, "Popen", side_effect=popen_then_interrupt),
-        mock.patch.object(os, "killpg", recording_killpg),
-        pytest.raises(CommandError, match="interrupted at shutdown"),
-    ):
-        adopting(
-            running,
-            lambda: run_command(SLEEP, Path.cwd(), 30, non_interactive=True),
-        )
-
-    (process,) = started
-    assert signalled == [(process.pid, signal.SIGTERM)]
-    assert len(running) == 0
+        thread.join(PROMPT)
+    assert not thread.is_alive()
+    (outcome,) = outcomes
+    assert isinstance(outcome, CommandResult)
+    assert outcome.returncode == 0
+    assert asked.read_text() == "terminated"
+    helper = int(ready.read_text())
+    wait_for(lambda: gone(helper))
 
 
-def test_a_command_in_its_own_session_that_exited_unreaped_is_not_signalled() -> None:
-    # Its runner has yet to reap it, so its pid still names it; but it has
-    # ended on its own, and is neither signalled nor reported interrupted.
+@pytest.mark.parametrize("group", [False, True])
+def test_a_command_that_exited_unreaped_is_not_reported_interrupted(
+    group: bool,
+) -> None:
+    # Its runner has yet to reap it, so its pid still names it. Only in its
+    # own session is anything signalled, the group a helper may linger in.
     running = RunningCommands()
     with (
         subprocess.Popen(
-            [sys.executable, "-c", "pass"], start_new_session=True
+            [sys.executable, "-c", "pass"], start_new_session=group
         ) as process,
-        running.holding(process, group=True),
+        running.holding(process, group=group),
     ):
-        wait_for(
-            lambda: (
-                os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
-                is not None
-            )
-        )
+        wait_for(lambda: exited_unreaped(process))
 
-        with mock.patch.object(os, "killpg") as killpg:
+        with (
+            mock.patch.object(os, "killpg") as killpg,
+            mock.patch.object(process, "send_signal") as send_signal,
+        ):
             assert running.interrupt() == 0
 
-        killpg.assert_not_called()
+        send_signal.assert_not_called()
+        if group:
+            killpg.assert_called_once_with(process.pid, signal.SIGTERM)
+        else:
+            killpg.assert_not_called()
         assert not running.interrupted(process)
         # The interruption left the reaping to the runner.
         assert process.returncode is None
@@ -669,7 +708,7 @@ def test_a_command_in_its_own_session_that_exited_unreaped_is_not_signalled() ->
 
 def test_a_command_reaped_behind_its_runner_is_not_signalled() -> None:
     # Reaped by something other than its ``Popen``, a command's pid may
-    # already name another process, so it is taken as ended.
+    # already name another process, so nothing is signalled.
     running = RunningCommands()
     with (
         subprocess.Popen(

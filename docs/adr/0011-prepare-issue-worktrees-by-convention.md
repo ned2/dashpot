@@ -6,6 +6,11 @@ amended-by: 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0039
 
 # Prepare Issue Worktrees by convention, and only report their removability
 
+Amended in place for [#599](https://github.com/ned2/dashpot/issues/599):
+the `git worktree add` keeps Dashpot's session and terminal, so a hook or
+helper can prompt, and a timeout stops `git` alone
+([ADR 0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md#the-add-of-worktree-create-stays-interactive--2026-10-06)).
+
 [ADR 0008](0008-let-management-commands-mutate-on-explicit-invocation.md)
 lets `dashpot worktree create` create one linked Worktree for an Issue. It
 does not say where the Worktree goes, what its Branch is called, which commit

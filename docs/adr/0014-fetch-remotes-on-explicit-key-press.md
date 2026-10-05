@@ -14,6 +14,11 @@ a named mutation's Git commands get a bound of their own, the Git timeout
 raised to at least five minutes, and a command that outlasts its bound is
 asked to stop with its whole process group before it is killed.
 
+Amended in place for [#599](https://github.com/ned2/dashpot/issues/599):
+`dashpot worktree create`'s `git worktree add` shares the bound but keeps
+Dashpot's session and terminal, so a timeout stops `git` alone
+([ADR 0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md#the-add-of-worktree-create-stays-interactive--2026-10-06)).
+
 The Branches pane lists local Branches and Remote-Tracking Branches as of
 the Repository's last fetch, and its border reports that fetch age
 ([ADR 0005](0005-observe-branches-without-fetching.md)). Bringing those
@@ -44,8 +49,9 @@ boundary, invoked by a person, and it mutates only what its name says:
   every retry would restart the download and be stopped again. Cleanup's
   confirmed removal and `dashpot worktree create`'s `git worktree add`
   share the bound. A command that outlasts even that bound is first asked
-  to stop and killed only after a two-second grace, and the signals go to
-  its whole process group, so Git removes its lock files and temporary
+  to stop and killed only after a two-second grace, and for a fetch or a
+  Cleanup, each in a session of its own, the signals go to its whole
+  process group, so Git removes its lock files and temporary
   packs, and no SSH transport or `index-pack` it started runs on orphaned.
   The price is a dashboard exit that waits for a stuck fetch up to the
   bound ([ADR 0049](0049-interrupt-observation-commands-at-dashboard-exit.md)).
