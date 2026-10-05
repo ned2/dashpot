@@ -61,6 +61,8 @@ class FakeHost:
 
     calls: list[OffLoopCall] = field(default_factory=list)
     toasts: list[tuple[str, str, str]] = field(default_factory=list)
+    # Whether each toast's message was parsed as Textual markup.
+    markups: list[bool] = field(default_factory=list)
     alerts: int = 0
     diagnostics: int = 0
     closing: bool = False
@@ -82,9 +84,15 @@ class FakeHost:
         return FakeTimer()
 
     def notify(
-        self, message: str, *, title: str = "", severity: str = "information"
+        self,
+        message: str,
+        *,
+        title: str = "",
+        severity: str = "information",
+        markup: bool = True,
     ) -> None:
         self.toasts.append((severity, title, message))
+        self.markups.append(markup)
 
     def update_alert(self) -> None:
         self.alerts += 1

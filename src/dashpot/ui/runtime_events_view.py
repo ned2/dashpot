@@ -311,7 +311,14 @@ class EventTable(DataTable[str | Text]):
             if accept(event):
                 key = str(number)
                 self.events[key] = event
-                self.add_row(*event_row(event, project_label), key=key)
+                # A label or a field's value is text, never markup.
+                self.add_row(
+                    *(
+                        Text(cell) if isinstance(cell, str) else cell
+                        for cell in event_row(event, project_label)
+                    ),
+                    key=key,
+                )
         self.next_number = first + len(buffered)
         if self.following:
             self.move_to_newest()

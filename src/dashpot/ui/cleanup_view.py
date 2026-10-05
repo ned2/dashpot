@@ -11,6 +11,7 @@ from typing import ClassVar, override
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.content import Content
 from textual.events import DescendantFocus
 from textual.message import Message
 from textual.reactive import reactive
@@ -84,12 +85,9 @@ def blocker_summary(blocker: CleanupBlocker, target: CleanupTarget) -> str:
 
 
 def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
-    if blocker.kind == "checked-out":
-        return (
-            "Worktree removal is blocked."
-            if target.requires
-            else "Checked out in a Worktree; remove that Worktree first."
-        )
+    # A checked-out blocker is shown whole, as its detail: the Branch may be
+    # checked out, rebased, or bisected, here or in another Worktree, and
+    # the detail names which and where.
     if blocker.kind == "unintegrated" and target.integration:
         fact = target.integration
         return (
@@ -403,15 +401,21 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         *,
         changed: bool = False,
         fetched_at: str | None = None,
+        previous: CleanupScreen | None = None,
     ) -> None:
+        """``previous`` is the preview this one revises, whose subject it keeps fixed."""
         super().__init__()
         self.request = request
         self.preview = preview
         self.changed = changed
         self.fetched_at = fetched_at
         self.verified_remotes: frozenset[str] | None = None
-        primary = primary_target(preview)
-        self.primary_identity = primary.identity if primary is not None else None
+        if previous is not None:
+            # The subject stays the one the person opened (ADR 0036).
+            self.primary_identity = previous.primary_identity
+        else:
+            primary = primary_target(preview)
+            self.primary_identity = primary.identity if primary is not None else None
         # The optional targets the next compose checks: the defaults on a
         # first preview only. A preview reopened because the state changed
         # since confirmation, like one refreshed in place, never re-arms one.
@@ -473,7 +477,8 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                 subject_view = Static(subject, markup=False, id="cleanup-subject")
                 # The name is enough to recognize the subject; the full path
                 # stays one hover away rather than a line of its own.
-                subject_view.tooltip = (
+                # Plain content: a path is never parsed as markup.
+                subject_view.tooltip = Content(
                     preview.subject if preview.kind == "worktree" else preview.anchor
                 )
                 yield subject_view
@@ -508,7 +513,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                         age[:1].upper() + age[1:], markup=False, id="cleanup-freshness"
                     )
                     if fetched_at:
-                        freshness.tooltip = (
+                        freshness.tooltip = Content(
                             f"Repository fetch timestamp: {fetched_at} "
                             "(not per-remote verification)"
                         )
@@ -569,7 +574,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                     yield Static("Confirming will:", id="cleanup-callout-title")
                     yield Static("", markup=False, id="cleanup-callout-lines")
             with Vertical(id="cleanup-footer"):
-                yield Static("", id="cleanup-problem")
+                yield Static("", markup=False, id="cleanup-problem")
                 with Horizontal(id="cleanup-actions"):
                     yield Button(
                         "Cancel" if self.can_confirm else "Close", id="cleanup-cancel"
@@ -702,6 +707,27 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         self.busy = True
         self.fetch_status = "Fetching and pruning remotes…"
 
+    def refreshing(self, fetched: str) -> None:
+        """Say how the fetch went while the evidence it changed is rebuilt."""
+        self.fetch_status = f"{fetched}\nRefreshing Git facts and Cleanup evidence…"
+
+    async def finish_fetch(
+        self,
+        preview: CleanupPreview | None,
+        status: str,
+        *,
+        verified_remotes: frozenset[str],
+        fetched_at: str | None,
+    ) -> None:
+        """Take a fetch's outcome: the remotes it verified, then the rebuilt preview.
+
+        ``preview`` is None when the evidence could not be rebuilt, which
+        leaves this preview invalid with ``status`` saying why.
+        """
+        self.verified_remotes = verified_remotes
+        self.fetched_at = fetched_at
+        await self.replace_preview(preview, status)
+
     async def replace_preview(
         self, preview: CleanupPreview | None, status: str
     ) -> None:
@@ -745,7 +771,10 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
     def action_confirm(self) -> None:
         problem = self.selection_problem()
         if problem is not None:
-            self.notify(problem, title="Nothing deleted", severity="warning")
+            # A target's label names a remote, which is text, never markup.
+            self.notify(
+                problem, title="Nothing deleted", severity="warning", markup=False
+            )
             self.focus_choice()
             return
         # The dialog discloses the ignored content instead of asking for a
@@ -788,8 +817,12 @@ class CleanupReportScreen(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="cleanup-report-dialog"):
             yield Static("CLEANUP", id="cleanup-report-title")
+            # Paths and Git's own words, such as ``! [remote rejected]``,
+            # are shown as they are, never parsed as markup.
             yield Static(
-                "\n".join(describe_cleanup_report(self.report)), id="cleanup-report"
+                "\n".join(describe_cleanup_report(self.report)),
+                markup=False,
+                id="cleanup-report",
             )
             with Horizontal(id="cleanup-report-actions"):
                 yield Button("Close", id="cleanup-report-close", variant="primary")

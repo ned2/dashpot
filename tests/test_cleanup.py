@@ -46,7 +46,7 @@ from dashpot.repository.cleanup.obstacles import (
     assess_worktree_occupancy,
     counted,
 )
-from dashpot.repository.repository import LockHolderProbe, short_ref
+from dashpot.repository.repository import short_ref
 from dashpot.repository.worktrees.removability import (
     check_worktree,
     describe_removability,
@@ -388,13 +388,11 @@ def preview_worktree(
     path: Path,
     *,
     lookup: ProcessLookup = host_process_lookup,
-    lock_probe: LockHolderProbe | None = None,
     protected: Sequence[Path] = (),
 ) -> CleanupPreview:
     return inspect_cleanup(
         WorktreeCleanupRequest(root, path),
         lookup=lookup,
-        lock_probe=lock_probe,
         protected=protected,
     )
 
@@ -461,7 +459,6 @@ def test_dirty_locked_and_occupied_worktree_is_blocked(tmp_path: Path) -> None:
         root,
         worktree,
         lookup=table_lookup({live.pid: live}),
-        lock_probe=lambda _pid: "gone",
     )
 
     tree, local = preview.targets

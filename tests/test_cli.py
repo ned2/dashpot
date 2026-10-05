@@ -49,6 +49,7 @@ from dashpot.repository.cleanup import (
     WorktreeCleanupRequest,
     inspect_cleanup,
     perform_cleanup,
+    protection,
 )
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import (
@@ -840,7 +841,7 @@ def test_not_a_repository_is_read_from_git_alone(
         composition.create_collector(options)
     with (
         mock.patch.object(
-            composition, "worktree_root", side_effect=RuntimeError("symlink loop")
+            protection, "worktree_root", side_effect=RuntimeError("symlink loop")
         ),
         pytest.raises(RuntimeError, match="symlink loop"),
     ):
@@ -1252,9 +1253,16 @@ def test_worktree_check_dispatches_and_prints_the_report(
         remove_commands=("git worktree remove /w/x",),
     )
 
-    with mock.patch.object(cli, "check_worktree", return_value=report) as check:
+    protected = [Path("/w/anchor")]
+    with (
+        mock.patch.object(cli, "cleanup_protection", return_value=protected),
+        mock.patch.object(cli, "check_worktree", return_value=report) as check,
+    ):
         assert cli.main(["worktree", "check", "/w/x"]) == 0
-    check.assert_called_once_with(Path.cwd().resolve(), Path("/w/x"), timeout=10.0)
+    # The check protects what a Cleanup protects, by the same rule.
+    check.assert_called_once_with(
+        Path.cwd().resolve(), Path("/w/x"), protected=protected, timeout=10.0
+    )
     out = capsys.readouterr().out
     assert "Removable  no" in out
     assert "  - dirty: 1 changed path\n      run: git -C /w/x status" in out
@@ -1292,7 +1300,9 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
             cli, "linked_worktrees", return_value=list(reports)
         ) as listed,
         mock.patch.object(
-            cli, "check_worktree", side_effect=lambda _c, p, timeout: reports[p]
+            cli,
+            "check_worktree",
+            side_effect=lambda _c, p, protected, timeout: reports[p],
         ),
     ):
         assert cli.main(["worktree", "check"]) == 0
@@ -1309,7 +1319,9 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
     with (
         mock.patch.object(cli, "linked_worktrees", return_value=list(reports)),
         mock.patch.object(
-            cli, "check_worktree", side_effect=lambda _c, p, timeout: reports[p]
+            cli,
+            "check_worktree",
+            side_effect=lambda _c, p, protected, timeout: reports[p],
         ),
     ):
         assert cli.main(["worktree", "check", "--json"]) == 0

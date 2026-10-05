@@ -24,13 +24,10 @@ from ...core.runtime_events import (
     SubagentsAcknowledged,
     fitting_identities,
 )
+from ...core.shell import shell_command
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.working_directories import ProcessScan
-from ..repository import (
-    LOCAL_REF_PREFIX,
-    REMOTE_REF_PREFIX,
-    LockHolderProbe,
-)
+from ..repository import LOCAL_REF_PREFIX, REMOTE_REF_PREFIX
 from ..worktrees.records import registered_at
 from .obstacles import (
     LocatedWorktree,
@@ -169,7 +166,6 @@ def perform_cleanup(
     confirmation: CleanupConfirmation,
     *,
     lookup: ProcessLookup = host_process_lookup,
-    lock_probe: LockHolderProbe | None = None,
     protected: Sequence[Path] = (),
     timeout: float = 10,
     git: Git | None = None,
@@ -195,7 +191,6 @@ def perform_cleanup(
     preview = inspect_cleanup(
         confirmation.request,
         lookup=lookup,
-        lock_probe=lock_probe,
         protected=protected,
         timeout=timeout,
         git=adapter,
@@ -398,7 +393,7 @@ def _delete_local_branch(git: Git, target: CleanupTarget) -> TargetResult:
     """Delete the ref only if it is still at the previewed commit."""
     refname = target.ref or ""
     name = refname.removeprefix(LOCAL_REF_PREFIX)
-    recovery = f"git branch {name} {target.expected}"
+    recovery = shell_command("git", "branch", name, target.expected)
     try:
         result = git.run("update-ref", "-d", refname, target.expected)
     except GitError as exc:
@@ -406,7 +401,7 @@ def _delete_local_branch(git: Git, target: CleanupTarget) -> TargetResult:
             target,
             "unknown",
             f"git update-ref did not complete: {exc.detail}; check with: "
-            f"git rev-parse --verify {refname}",
+            f"{shell_command('git', 'rev-parse', '--verify', refname)}",
             recovery,
         )
     if result.returncode != 0:
@@ -441,7 +436,7 @@ def _delete_remote_branch(git: Git, target: CleanupTarget) -> TargetResult:
     tracking = target.ref or ""
     name = tracking.removeprefix(f"{REMOTE_REF_PREFIX}{remote}/")
     refname = f"{LOCAL_REF_PREFIX}{name}"
-    recovery = f"git push {remote} {target.expected}:{refname}"
+    recovery = shell_command("git", "push", remote, f"{target.expected}:{refname}")
     try:
         result = git.run(
             "push",
@@ -454,7 +449,8 @@ def _delete_remote_branch(git: Git, target: CleanupTarget) -> TargetResult:
             target,
             "unknown",
             f"git push did not complete: {exc.detail}; check with: "
-            f"git ls-remote --heads {remote} {refname}; a surviving "
+            f"{shell_command('git', 'ls-remote', '--heads', remote, refname)}; "
+            f"a surviving "
             f"{_prune_hint(remote, tracking)}",
             recovery,
         )
@@ -482,8 +478,9 @@ def _delete_remote_branch(git: Git, target: CleanupTarget) -> TargetResult:
             target,
             "refused",
             f"{remote} no longer has {name} at the leased {target.expected[:7]}: "
-            f"it moved since the last fetch; press f (or git fetch --prune "
-            f"{remote}), then confirm against the revised preview",
+            f"it moved since the last fetch; press f (or "
+            f"{shell_command('git', 'fetch', '--prune', remote)}), then confirm "
+            f"against the revised preview",
         )
     return _result(target, "refused", reason)
 
@@ -492,7 +489,7 @@ def _prune_hint(remote: str, tracking: str) -> str:
     """How a stale Remote-Tracking Branch goes: the next Remote Fetch, never Cleanup."""
     return (
         f"{tracking} is pruned by the next Remote Fetch: press f, or "
-        f"git fetch --prune {remote}"
+        f"{shell_command('git', 'fetch', '--prune', remote)}"
     )
 
 
@@ -523,9 +520,11 @@ def _remove_worktree(git: Git, target: CleanupTarget) -> TargetResult:
     """Remove the Worktree without force, so Git refuses what changed underneath."""
     path = target.path or ""
     recovery = (
-        f"git worktree add {path} {target.ref.removeprefix(LOCAL_REF_PREFIX)}"
+        shell_command(
+            "git", "worktree", "add", path, target.ref.removeprefix(LOCAL_REF_PREFIX)
+        )
         if target.ref
-        else f"git worktree add --detach {path} {target.expected}"
+        else shell_command("git", "worktree", "add", "--detach", path, target.expected)
     )
     try:
         result = git.run("worktree", "remove", "--", path)

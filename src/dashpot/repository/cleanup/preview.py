@@ -2,37 +2,30 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git
 from ...core.model import IntegrationState
-from ...core.worktree_paths import same_path, worktree_root
+from ...core.shell import shell_command
+from ...core.worktree_paths import worktree_root
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.working_directories import ProcessScan
 from ..repository import (
     LOCAL_REF_PREFIX,
     REMOTE_REF_PREFIX,
-    LockHolderProbe,
     RefIndex,
     branch_name,
     last_fetched_at,
     short_ref,
 )
-from ..worktrees.records import checked_out_at
+from ..worktrees.records import BranchInUse, branch_in_use
 from .obstacles import (
     NO_INTEGRATION_BRANCH,
     LocatedWorktree,
-    assess_detached_head_preservation,
-    assess_nested_worktrees,
-    assess_processes_inside,
-    assess_worktree_occupancy,
-    assess_worktree_safety,
+    assess_worktree,
     counted,
-    ignored_content,
     integration_fact,
     locate_worktree,
 )
@@ -45,6 +38,7 @@ from .targets import (
     CleanupTarget,
     IntegrationFact,
     WorktreeCleanupRequest,
+    fingerprint,
 )
 
 CANONICAL_FETCH_REFSPEC = "+refs/heads/*:refs/remotes/{remote}/*"
@@ -58,7 +52,6 @@ def inspect_cleanup(
     request: CleanupRequest,
     *,
     lookup: ProcessLookup = host_process_lookup,
-    lock_probe: LockHolderProbe | None = None,
     protected: Sequence[Path] = (),
     timeout: float = 10,
     git: Git | None = None,
@@ -69,14 +62,13 @@ def inspect_cleanup(
     ``protected`` names Worktrees that are never removable — the checkout
     Dashpot runs from and the configured Repository Anchors — since removing
     one takes the observer's own ground away. ``scan`` reads the host's
-    process working directories, the host itself when omitted.
+    process working directories, the host itself when omitted. ``lookup``
+    observes the processes that Agent Sessions and Worktree locks record.
     """
     adapter = git if git is not None else Git(Path.cwd(), timeout)
     if isinstance(request, BranchCleanupRequest):
         return _inspect_branch(request, adapter)
-    return _inspect_worktree(
-        request, adapter, lookup, lock_probe, protected, timeout, scan
-    )
+    return _inspect_worktree(request, adapter, lookup, protected, timeout, scan)
 
 
 def _inspect_branch(request: BranchCleanupRequest, git: Git) -> CleanupPreview:
@@ -94,7 +86,7 @@ def _inspect_branch(request: BranchCleanupRequest, git: Git) -> CleanupPreview:
                 name,
                 refs,
                 integration_ref,
-                checked_out_at=checked_out_at(scoped.worktree_records(), local_ref),
+                in_use=branch_in_use(scoped, scoped.worktree_records(), local_ref),
             )
         )
     fetched = last_fetched_at(anchor, scoped)
@@ -116,7 +108,8 @@ def _local_branch_target(
     refs: RefIndex,
     integration_ref: str | None,
     *,
-    checked_out_at: Path | None,
+    in_use: BranchInUse | None,
+    blocked_worktree: Path | None = None,
     requires: str | None = None,
 ) -> CleanupTarget:
     refname = f"{LOCAL_REF_PREFIX}{name}"
@@ -125,19 +118,22 @@ def _local_branch_target(
         git, integration_ref, refname, refs.committed_at.get(refname)
     )
     blockers = _integration_branch_blockers(refname, name, integration_ref, None)
-    if checked_out_at is not None:
+    if in_use is not None:
+        # ``update-ref -d`` deletes a Branch in use, so the refusal Git's own
+        # ``branch -d`` makes is Dashpot's to make (ADR 0019).
+        blockers.append(_in_use_blocker(in_use))
+    if blocked_worktree is not None:
         # From the Worktrees pane the Branch is a target only because the
         # Worktree goes first; a Worktree that cannot go keeps it checked out.
-        detail = (
-            f"checked out at {checked_out_at}, whose removal is blocked"
-            if requires is not None
-            else f"checked out at {checked_out_at}; remove that Worktree first"
+        blockers.append(
+            CleanupBlocker(
+                kind="checked-out",
+                detail=f"checked out at {blocked_worktree}, whose removal is blocked",
+            )
         )
-        blockers.append(CleanupBlocker(kind="checked-out", detail=detail))
     blockers.extend(_integration_blockers(fact, refname))
-    consequences = [
-        f"deletes {refname} at {commit[:7]}; recreate with: git branch {name} {commit}"
-    ]
+    recreate = shell_command("git", "branch", name, commit)
+    consequences = [f"deletes {refname} at {commit[:7]}; recreate with: {recreate}"]
     if requires is not None:
         consequences[0] = "after the Worktree is removed, " + consequences[0]
     consequences.extend(_content_consequence(fact))
@@ -151,6 +147,27 @@ def _local_branch_target(
         requires=requires,
         blockers=tuple(blockers),
         consequences=tuple(consequences),
+    )
+
+
+def _in_use_blocker(in_use: BranchInUse) -> CleanupBlocker:
+    """The ``checked-out`` blocker of a Branch a Worktree uses, and how to free it."""
+    worktree = in_use.worktree
+    if in_use.use == "being rebased":
+        return CleanupBlocker(
+            kind="checked-out",
+            detail=f"being rebased at {worktree}; finish or abort that rebase first",
+            command=shell_command("git", "-C", worktree, "status"),
+        )
+    if in_use.use == "being bisected":
+        return CleanupBlocker(
+            kind="checked-out",
+            detail=f"being bisected at {worktree}; end that bisect first",
+            command=shell_command("git", "-C", worktree, "bisect", "reset"),
+        )
+    return CleanupBlocker(
+        kind="checked-out",
+        detail=f"checked out at {worktree}; remove that Worktree first",
     )
 
 
@@ -187,9 +204,12 @@ def _remote_branch_target(
         )
     blockers.extend(_remote_blockers(git, remote))
     blockers.extend(_integration_blockers(fact, tracking))
+    recreate = shell_command(
+        "git", "push", remote, f"{commit}:{LOCAL_REF_PREFIX}{name}"
+    )
     consequences = [
         f"deletes {name} at {remote}, leased on {tracking} at {commit[:7]}"
-        f"; recreate with: git push {remote} {commit}:refs/heads/{name}",
+        f"; recreate with: {recreate}",
         f"Git drops {tracking} itself once the deletion is accepted",
     ]
     consequences.extend(_content_consequence(fact))
@@ -281,7 +301,7 @@ def _integration_blockers(fact: IntegrationFact, refname: str) -> list[CleanupBl
             CleanupBlocker(
                 kind="unknown-integration",
                 detail=detail,
-                command=f"git log --oneline {refname}",
+                command=shell_command("git", "log", "--oneline", refname),
             )
         ]
     if state == "unintegrated":
@@ -290,7 +310,9 @@ def _integration_blockers(fact: IntegrationFact, refname: str) -> list[CleanupBl
                 kind="unintegrated",
                 detail=f"{counted(fact.unintegrated_commits or 0, 'commit')} not "
                 f"reachable from {short_ref(fact.integration_ref or '')}",
-                command=f"git log --oneline {fact.integration_ref}..{refname}",
+                command=shell_command(
+                    "git", "log", "--oneline", f"{fact.integration_ref}..{refname}"
+                ),
             )
         ]
     return []
@@ -335,27 +357,19 @@ def _inspect_worktree(
     request: WorktreeCleanupRequest,
     git: Git,
     lookup: ProcessLookup,
-    lock_probe: LockHolderProbe | None,
     protected: Sequence[Path],
     timeout: float,
     scan: ProcessScan | None,
 ) -> CleanupPreview:
     located = locate_worktree(request.current, request.path, timeout=timeout, git=git)
     path = located.path
-    blockers, unchecked = _worktree_blockers(
-        located, lookup, lock_probe, protected, scan
-    )
-    listed, inventory_blockers = ignored_content(located.git, path)
-    ignored = tuple(listed)
-    blockers.extend(inventory_blockers)
+    assessment = assess_worktree(located, lookup=lookup, protected=protected, scan=scan)
+    ignored = assessment.ignored
     identity = f"worktree:{path}"
     branch = located.branch
     consequences = [f"removes {path} with git worktree remove"]
     if ignored:
-        consequences.append(
-            f"also deletes {counted(len(ignored), 'ignored path')} inside it, "
-            f"including any Dashpot state, hook records, and Work Store there"
-        )
+        consequences.append(ignored_consequence(len(ignored)))
     if branch is not None:
         consequences.append(
             f"the local Branch {branch} is retained unless selected as well"
@@ -368,13 +382,15 @@ def _inspect_worktree(
             expected=located.head,
             ref=f"{LOCAL_REF_PREFIX}{branch}" if branch is not None else None,
             path=str(path),
-            blockers=tuple(blockers),
+            blockers=assessment.blockers,
             consequences=tuple(consequences),
         )
     ]
     if branch is not None:
         targets.extend(
-            _attached_branch_targets(located, branch, identity, blocked=bool(blockers))
+            _attached_branch_targets(
+                located, branch, identity, blocked=bool(assessment.blockers)
+            )
         )
     return _preview(
         "worktree",
@@ -383,7 +399,15 @@ def _inspect_worktree(
         targets,
         ignored,
         (),
-        unchecked_processes=unchecked,
+        unchecked_processes=assessment.unchecked_processes,
+    )
+
+
+def ignored_consequence(count: int) -> str:
+    """What removing a Worktree does to the ignored paths inside it."""
+    return (
+        f"also deletes {counted(count, 'ignored path')} inside it, "
+        f"including any Dashpot state, hook records, and Work Store there"
     )
 
 
@@ -395,20 +419,26 @@ def _attached_branch_targets(
     Only the Branch of the same name at the remote a plain ``git push``
     reaches is offered: finishing a piece of work removes what was pushed
     for it, while a Branch at any other remote — or an upstream of another
-    name, which may be shared — stays the Branches pane's to delete.
+    name, which may be shared — stays the Branches pane's to delete. The
+    local Branch is checked against every other Worktree too, as Git's
+    ``branch -d`` would be.
     """
     git = located.git
     refs = RefIndex.read(git)
     integration_ref = refs.integration_ref()
     targets: list[CleanupTarget] = []
-    if f"{LOCAL_REF_PREFIX}{branch}" in refs.commits:
+    local_ref = f"{LOCAL_REF_PREFIX}{branch}"
+    if local_ref in refs.commits:
         targets.append(
             _local_branch_target(
                 git,
                 branch,
                 refs,
                 integration_ref,
-                checked_out_at=located.path if blocked else None,
+                in_use=branch_in_use(
+                    git, located.records, local_ref, besides=located.path
+                ),
+                blocked_worktree=located.path if blocked else None,
                 requires=worktree,
             )
         )
@@ -429,50 +459,6 @@ def _attached_branch_targets(
     return targets
 
 
-def _worktree_blockers(
-    located: LocatedWorktree,
-    lookup: ProcessLookup,
-    lock_probe: LockHolderProbe | None,
-    protected: Sequence[Path],
-    scan: ProcessScan | None,
-) -> tuple[list[CleanupBlocker], str | None]:
-    """The Worktree's blockers, and why its processes went unchecked, if they did."""
-    path = located.path
-    blockers: list[CleanupBlocker] = assess_worktree_safety(located, lock_probe)
-    blockers.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
-    found, unchecked = assess_processes_inside(located, scan)
-    blockers.extend(found)
-    blockers.extend(assess_nested_worktrees(located))
-    if located.detached:
-        blockers.extend(assess_detached_head_preservation(located.git, located.head))
-    if any(same_path(path, candidate.expanduser()) for candidate in protected):
-        blockers.append(
-            CleanupBlocker(
-                kind="protected",
-                detail="this is the checkout Dashpot runs from or a configured "
-                "Repository Anchor, which observation cannot lose",
-            )
-        )
-    prunable = located.record.get("prunable")
-    if prunable is not None:
-        blockers.append(
-            CleanupBlocker(
-                kind="unavailable",
-                detail=f"prunable: {prunable or 'no reason reported'}",
-                command="git worktree prune",
-            )
-        )
-    elif not path.is_dir():
-        blockers.append(
-            CleanupBlocker(
-                kind="unavailable",
-                detail=f"{path} does not exist",
-                command="git worktree prune",
-            )
-        )
-    return blockers, unchecked
-
-
 def _preview(
     kind: Literal["branch", "worktree"],
     subject: str,
@@ -483,23 +469,7 @@ def _preview(
     *,
     unchecked_processes: str | None = None,
 ) -> CleanupPreview:
-    facts = [
-        [
-            target.identity,
-            target.expected,
-            target.requires,
-            [blocker.kind for blocker in target.blockers],
-        ]
-        for target in targets
-    ]
-    # Whether the processes inside were all checked is a fact too: a scan
-    # that falls short only at confirmation must not remove unannounced.
-    digest = hashlib.sha256(
-        json.dumps(
-            [kind, subject, str(anchor), facts, list(ignored), unchecked_processes]
-        ).encode()
-    ).hexdigest()
-    return CleanupPreview(
+    preview = CleanupPreview(
         kind=kind,
         subject=subject,
         anchor=str(anchor),
@@ -507,8 +477,8 @@ def _preview(
         ignored=tuple(ignored),
         refusals=tuple(refusals),
         unchecked_processes=unchecked_processes,
-        fingerprint=digest[:16],
     )
+    return preview.model_copy(update={"fingerprint": fingerprint(preview)})
 
 
 INTEGRATION_WORDS: Mapping[IntegrationState, str] = {

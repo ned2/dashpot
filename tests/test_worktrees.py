@@ -866,7 +866,8 @@ def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:
     path = Path(plan.path)
     (path / "scratch.txt").write_text("")
     git(path, "commit", "-q", "--allow-empty", "-m", "local work")
-    git(root, "worktree", "lock", "--reason", "claude pid 4242", plan.path)
+    # The lock names a PID the process table does not hold.
+    git(root, "worktree", "lock", "--reason", "claude pid 4343", plan.path)
     gone = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
     WorkStore(path).start(
         ActiveWork(
@@ -904,7 +905,6 @@ def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:
         root,
         path,
         lookup=table_lookup({gone.pid: gone, live.pid: live}),
-        lock_probe=lambda _pid: "gone",
     )
 
     assert report.removable is False
@@ -919,7 +919,7 @@ def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:
     }
     assert by_kind["dirty"].detail == "1 changed or untracked path"
     assert by_kind["dirty"].command == f"git -C {path} status"
-    assert by_kind["locked"].detail == "locked: claude pid 4242 (holding process gone)"
+    assert by_kind["locked"].detail == "locked: claude pid 4343 (holding process gone)"
     assert by_kind["locked"].command == f"git worktree unlock {path}"
     assert "Claude Code session 01c7192b" in by_kind["agent-session"].detail
     assert by_kind["agent-run"].command == "dashpot work stop (inside that session)"

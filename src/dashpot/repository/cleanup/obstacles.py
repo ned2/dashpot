@@ -9,7 +9,8 @@ from typing import Literal
 
 from ...core.git import Git, GitError
 from ...core.model import HARNESS_DISPLAY
-from ...core.worktree_paths import is_within, worktree_paths, worktree_root
+from ...core.shell import in_directory, shell_command
+from ...core.worktree_paths import is_within, same_path, worktree_paths, worktree_root
 from ...sessions.hook_scan import (
     HookRecordClassification,
     reachable_hook_stores,
@@ -17,9 +18,10 @@ from ...sessions.hook_scan import (
     sessions_with_live_subagents,
     stored_session_records,
 )
-from ...sessions.liveness import session_liveness
+from ...sessions.liveness import LivenessProbe
 from ...sessions.opencode_publishers import NO_LIVE_INSTANCE
-from ...sessions.processes import ProcessLookup, host_process_lookup
+from ...sessions.orphaned_runs import orphaned_process
+from ...sessions.processes import ProcessLookup, host_process_lookup, process_liveness
 from ...sessions.session_exits import (
     ended_session_subagent_stop,
     forget_subagents_command,
@@ -57,6 +59,8 @@ class LocatedWorktree:
     role: Literal["main", "linked"]
     # Every Worktree of the Repository, resolved; bare entries are not Worktrees.
     worktrees: tuple[Path, ...]
+    # Every record ``git worktree list`` gave, the main Worktree's first.
+    records: tuple[Mapping[str, str], ...] = ()
 
     @property
     def branch(self) -> str | None:
@@ -93,12 +97,28 @@ def locate_worktree(
         "main" if records and records[0] is registered else "linked"
     )
     return LocatedWorktree(
-        scoped, anchor, path, registered, role, tuple(worktree_paths(records))
+        scoped,
+        anchor,
+        path,
+        registered,
+        role,
+        tuple(worktree_paths(records)),
+        tuple(records),
     )
 
 
+def lock_holder_probe(lookup: ProcessLookup) -> LockHolderProbe:
+    """Whether a lock's holding process runs, asked of the same process lookup.
+
+    Observation answers the Worktrees pane's lock question with the host's
+    process lookup; a Cleanup preview and ``worktree check`` ask the lookup
+    they were given, so the three agree about one lock.
+    """
+    return lambda pid: process_liveness(lookup(pid))[0]
+
+
 def assess_worktree_safety(
-    located: LocatedWorktree, lock_probe: LockHolderProbe | None = None
+    located: LocatedWorktree, lookup: ProcessLookup = host_process_lookup
 ) -> list[CleanupBlocker]:
     """The obstacles Git itself raises: the main Worktree, a lock, a dirty tree."""
     path, registered = located.path, located.record
@@ -113,11 +133,11 @@ def assess_worktree_safety(
     lock = registered.get("locked")
     if lock is not None:
         reason = lock or "no reason reported"
-        holder = lock_holder(reason, lock_probe)
+        holder = lock_holder(reason, lock_holder_probe(lookup))
         if INITIALIZING_LOCK in reason:
-            command = f"git worktree remove -f -f {path}"
+            command = shell_command("git", "worktree", "remove", "-f", "-f", path)
         else:
-            command = f"git worktree unlock {path}"
+            command = shell_command("git", "worktree", "unlock", path)
         obstacles.append(
             CleanupBlocker(
                 kind="locked",
@@ -135,7 +155,7 @@ def assess_worktree_safety(
                     kind="dirty",
                     detail=f"cannot inspect: "
                     f"{status.stderr.strip() or 'git status failed'}",
-                    command=f"git -C {path} status",
+                    command=shell_command("git", "-C", path, "status"),
                 )
             )
         elif status.stdout:
@@ -144,7 +164,7 @@ def assess_worktree_safety(
                 CleanupBlocker(
                     kind="dirty",
                     detail=counted(count, "changed or untracked path"),
-                    command=f"git -C {path} status",
+                    command=shell_command("git", "-C", path, "status"),
                 )
             )
     return obstacles
@@ -204,7 +224,9 @@ def session_blocker(record: HookRecordClassification) -> CleanupBlocker:
         detail=f"{session} may be live here: its liveness is unknown "
         f"({activity}). {verify} If it is live, free this Worktree: {steps}.",
         # The start time is recorded as ps renders it in the C locale and UTC.
-        command=f"env LC_ALL=C TZ=UTC ps -p {process.pid} -o lstart=,args=",
+        command=shell_command(
+            "env", "LC_ALL=C", "TZ=UTC", "ps", "-p", process.pid, "-o", "lstart=,args="
+        ),
     )
 
 
@@ -248,7 +270,7 @@ def assess_worktree_occupancy(
                     f"{record.worktree} ended with "
                     f"{named_subagents(record.live_subagents)}. {unplaced} "
                     f"{ended_session_subagent_stop(record.harness, record.session_id)}.",
-                    command=f"cd {path} && "
+                    command=f"{shell_command('cd', path)} && "
                     f"{forget_subagents_command(record.harness, record.session_id)}",
                     session_id=record.session_id,
                     harness=record.harness,
@@ -276,21 +298,43 @@ def assess_worktree_occupancy(
         CleanupBlocker(kind="work-store", detail=diagnostic.message)
         for diagnostic in work_diagnostics
     )
+    probe = LivenessProbe(lookup)
     for work in active:
+        stop = in_directory(
+            path, "dashpot", "work", "stop", "--session", work.session_key
+        )
         liveness = (
-            session_liveness(
+            probe.observe(
                 work.session_process.key,
-                lookup,
                 namespace=work.session_process.pid_namespace,
             ).liveness
             if work.session_process is not None
             else "unknown"
         )
-        if liveness == "gone":
+        if work.relocation is not None:
+            # Between the old client's exit and the resume its process is
+            # gone, and the run is moving rather than orphaned: stopping it
+            # would discard the Issue work being carried to the target.
+            target = work.relocation.target_worktree
+            detail = (
+                f"{work.session_label} is relocating its Agent Run on "
+                f"{work.issue_reference} to {target}: once its client exits, "
+                f"resume that session there, which carries the run with it. If "
+                f"the relocation was abandoned, end the run with: {stop}"
+            )
+            command = (
+                shell_command("codex", "resume", work.session_id, "-C", target)
+                if work.harness == "codex" and work.session_id is not None
+                else None
+            )
+        elif orphaned_process(
+            work,
+            lambda process: probe.observe(process.key, namespace=process.pid_namespace),
+        ):
             detail = (
                 f"Orphaned Agent Run on {work.issue_reference} for {work.session_label}"
             )
-            command = f"cd {path} && dashpot work stop --session {work.session_key}"
+            command = stop
         elif liveness == "live" and _unrecorded_opencode_session(work, stores):
             # A session's record is gone while its run stays only when its end
             # was not reconciled with it, and no command runs inside a session
@@ -300,7 +344,7 @@ def assess_worktree_occupancy(
                 "but no hook record of that session is left while the OpenCode "
                 "server that served it still runs: end the run"
             )
-            command = f"cd {path} && dashpot work stop --session {work.session_key}"
+            command = stop
         else:
             detail = (
                 f"{work.session_label} is working on {work.issue_reference} "
@@ -377,7 +421,7 @@ def assess_processes_inside(
         detail=f"{opening}: {'; '.join(named)}. Removing the Worktree would "
         f"delete the directory it works in: end {pronoun} or move {pronoun} "
         f"out of the Worktree.",
-        command=f"ps -ww -o pid=,args= -p {pids}",
+        command=shell_command("ps", "-ww", "-o", "pid=,args=", "-p", pids),
     )
     return [blocker], unchecked
 
@@ -457,7 +501,7 @@ def assess_branch_preservation(
             CleanupBlocker(
                 kind="unmerged",
                 detail=f"cannot tell whether Branch {branch} is integrated: {reason}",
-                command=f"git log --oneline {branch}",
+                command=shell_command("git", "log", "--oneline", branch),
             )
         )
     if upstream:
@@ -467,7 +511,7 @@ def assess_branch_preservation(
                 CleanupBlocker(
                     kind="unpushed",
                     detail=f"{counted(ahead, 'commit')} not on {upstream}",
-                    command=f"git -C {path} push",
+                    command=shell_command("git", "-C", path, "push"),
                 )
             )
     elif unmerged:
@@ -476,7 +520,9 @@ def assess_branch_preservation(
                 kind="unpushed",
                 detail=f"Branch {branch} has no upstream and "
                 f"{counted(unmerged, 'commit')} of its own",
-                command=f"git -C {path} push -u origin {branch}",
+                command=shell_command(
+                    "git", "-C", path, "push", "-u", "origin", branch
+                ),
             )
         )
     if unmerged:
@@ -485,7 +531,9 @@ def assess_branch_preservation(
                 kind="unmerged",
                 detail=f"{counted(unmerged, 'commit')} not reachable from "
                 f"{short_ref(integration_ref or '')}",
-                command=f"git log --oneline {integration_ref}..{branch}",
+                command=shell_command(
+                    "git", "log", "--oneline", f"{integration_ref}..{branch}"
+                ),
             )
         )
     return obstacles, content_integrated
@@ -522,7 +570,7 @@ def assess_detached_head_preservation(git: Git, head: str) -> list[CleanupBlocke
         CleanupBlocker(
             kind="detached",
             detail=detail,
-            command=f"git branch rescue/{head[:7]} {head}",
+            command=shell_command("git", "branch", f"rescue/{head[:7]}", head),
         )
     ]
 
@@ -534,35 +582,61 @@ def assess_nested_worktrees(located: LocatedWorktree) -> list[CleanupBlocker]:
     status, where a Worktree inside it shows at most as an untracked or
     ignored directory, and then deletes the directory recursively: the
     Worktree inside goes too, its uncommitted work included, without any of
-    its own checks running (ADR 0125). A record whose directory is gone
-    loses nothing with this one, but removal does not decide that for the
-    person: it blocks until ``git worktree prune`` clears it. The main
-    Worktree is never removable, and its tree may hold linked Worktrees by
-    design, so it is not assessed.
+    its own checks running (ADR 0125). A stale record — its directory gone,
+    or Git calling it prunable — loses nothing with this one, but removal
+    does not decide that for the person: it blocks until ``git worktree
+    prune`` clears it, after ``git worktree unlock`` when the record is
+    locked, since prune leaves a locked record alone. The main Worktree is
+    never removable, and its tree may hold linked Worktrees by design, so it
+    is not assessed.
     """
     if located.role == "main":
         return []
-    blockers: list[CleanupBlocker] = []
-    for nested in sorted(located.worktrees):
-        if nested == located.path or not is_within(nested, located.path):
+    nested: list[tuple[Path, Mapping[str, str]]] = []
+    for record in located.records:
+        raw = record.get("worktree")
+        if not raw or "bare" in record:
             continue
-        if nested.is_dir():
+        path = Path(raw).resolve()
+        if not same_path(path, located.path) and is_within(path, located.path):
+            nested.append((path, record))
+    blockers: list[CleanupBlocker] = []
+    for path, record in sorted(nested, key=lambda one: one[0]):
+        if "prunable" not in record and path.is_dir():
             blockers.append(
                 CleanupBlocker(
                     kind="nested-worktree",
-                    detail=f"the Worktree {nested} is inside this one, and "
+                    detail=f"the Worktree {path} is inside this one, and "
                     f"removing this Worktree would delete it without checking "
                     f"it: remove it first, or move it out with git worktree move",
-                    command=f"dashpot worktree remove {nested}",
+                    command=shell_command("dashpot", "worktree", "remove", path),
+                )
+            )
+            continue
+        why = (
+            "whose directory is gone"
+            if not path.is_dir()
+            else f"which Git reports prunable ({record['prunable'] or 'no reason reported'})"
+        )
+        prune = shell_command("git", "worktree", "prune")
+        if "locked" in record:
+            blockers.append(
+                CleanupBlocker(
+                    kind="nested-worktree",
+                    detail=f"a stale, locked record of the Worktree {path}, {why}, "
+                    f"is inside this one: unlock it, then prune it, since prune "
+                    f"leaves a locked record alone",
+                    command=f"{shell_command('git', 'worktree', 'unlock', path)} "
+                    f"&& {prune}",
                 )
             )
         else:
             blockers.append(
                 CleanupBlocker(
                     kind="nested-worktree",
-                    detail=f"a stale record of the Worktree {nested}, whose "
-                    f"directory is gone, is inside this one: prune it first",
-                    command="git worktree prune",
+                    detail=f"a stale record of the Worktree {path}, {why}, is "
+                    f"inside this one: prune it first",
+                    command=prune,
                 )
             )
     return blockers
@@ -594,7 +668,9 @@ def ignored_content(git: Git, path: Path) -> tuple[list[str], list[CleanupBlocke
                 kind="ignored-content",
                 detail=f"cannot list the ignored content removing this Worktree "
                 f"would delete: {listing.stderr.strip() or 'git status failed'}",
-                command=f"git -C {path} status --ignored --untracked-files=normal",
+                command=shell_command(
+                    "git", "-C", path, "status", "--ignored", "--untracked-files=normal"
+                ),
             )
         ]
     ignored: list[str] = []
@@ -613,3 +689,64 @@ def ignored_content(git: Git, path: Path) -> tuple[list[str], list[CleanupBlocke
         if code == "!!":
             ignored.append(name)
     return ignored, []
+
+
+PROTECTED = (
+    "this is the checkout Dashpot runs from or a configured Repository Anchor, "
+    "which observation cannot lose"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class WorktreeAssessment:
+    """Whether a Worktree can be removed: one verdict for Cleanup and ``worktree check``.
+
+    ``blockers`` are every reason it cannot, ``ignored`` the ignored paths
+    an unforced removal deletes with it, and ``unchecked_processes`` why the
+    processes inside it could not all be checked, when they could not.
+    """
+
+    blockers: tuple[CleanupBlocker, ...]
+    ignored: tuple[str, ...]
+    unchecked_processes: str | None
+
+
+def assess_worktree(
+    located: LocatedWorktree,
+    *,
+    lookup: ProcessLookup = host_process_lookup,
+    protected: Sequence[Path] = (),
+    scan: ProcessScan | None = None,
+) -> WorktreeAssessment:
+    """Assess removing one Worktree, the one sequence the preview and the check share.
+
+    Git's own obstacles, its occupants, the processes inside it, the
+    Worktrees inside it, an unreachable detached HEAD, the checkouts a
+    Cleanup never removes, a record Git reports prunable or whose directory
+    is gone, and its ignored content, whose inventory blocks only when Git
+    refuses it. ``protected`` names the checkouts never removable.
+    """
+    path = located.path
+    blockers = assess_worktree_safety(located, lookup)
+    blockers.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
+    found, unchecked = assess_processes_inside(located, scan)
+    blockers.extend(found)
+    blockers.extend(assess_nested_worktrees(located))
+    if located.detached:
+        blockers.extend(assess_detached_head_preservation(located.git, located.head))
+    if any(same_path(path, candidate.expanduser()) for candidate in protected):
+        blockers.append(CleanupBlocker(kind="protected", detail=PROTECTED))
+    prunable = located.record.get("prunable")
+    if prunable is not None or not path.is_dir():
+        blockers.append(
+            CleanupBlocker(
+                kind="unavailable",
+                detail=f"prunable: {prunable or 'no reason reported'}"
+                if prunable is not None
+                else f"{path} does not exist",
+                command=shell_command("git", "worktree", "prune"),
+            )
+        )
+    ignored, inventory_blockers = ignored_content(located.git, path)
+    blockers.extend(inventory_blockers)
+    return WorktreeAssessment(tuple(blockers), tuple(ignored), unchecked)
