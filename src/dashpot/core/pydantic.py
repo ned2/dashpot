@@ -6,7 +6,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import Annotated, NoReturn
+from typing import Annotated, NoReturn, Self
 
 from pydantic import (
     AfterValidator,
@@ -37,9 +37,29 @@ class PublishedModel(DashpotModel):
 
 
 class PersistedRecord(PublishedModel):
-    """Read a record Dashpot persists, retaining fields a newer Dashpot wrote."""
+    """Read a record Dashpot persists, retaining fields a newer Dashpot wrote.
+
+    A rewrite that rebuilds the record carries them back with ``carrying``
+    (ADR 0013).
+    """
 
     model_config = ConfigDict(extra="allow")
+
+    @property
+    def retained(self) -> FrozenDict[str, object]:
+        """The fields a newer Dashpot wrote that this one does not declare."""
+        return FrozenDict(self.model_extra or {})
+
+    def carrying(self, retained: Mapping[str, object]) -> Self:
+        """This record with the ``retained`` fields a newer Dashpot wrote added.
+
+        A rewrite that rebuilds a record from the values this Dashpot knows
+        passes back what it read as ``retained``, so those fields outlive the
+        rewrite. A declared field wins over a retained one of the same name.
+        """
+        if not retained:
+            return self
+        return self.model_validate({**retained, **self.model_dump(by_alias=True)})
 
 
 class ConfigModel(PublishedModel):

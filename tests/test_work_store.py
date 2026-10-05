@@ -11,9 +11,19 @@ from pydantic import ValidationError
 from dashpot.core.record_store import RecordKeyError
 from dashpot.sessions.work_store import (
     ActiveWork,
+    RelocationIntent,
     SessionProcess,
     WorkerAssignment,
     WorkStore,
+)
+
+LATER = "2026-08-28T02:00:00Z"
+ASSIGNED = WorkerAssignment(
+    worker_id="agent-1",
+    issue_id="I_first",
+    issue_reference="first",
+    worktree="/repo-first",
+    assigned_at="2026-10-04T00:00:00Z",
 )
 
 
@@ -304,16 +314,136 @@ def _rewrite(store: WorkStore, **changes: object) -> None:
     path.write_text(json.dumps(document))
 
 
-def test_unknown_record_fields_are_retained_on_read(tmp_path: Path) -> None:
+def test_fields_a_newer_dashpot_wrote_are_read_and_compared(tmp_path: Path) -> None:
     # A newer Dashpot may persist more; this one reads what it knows.
     store = WorkStore(tmp_path)
     store.start(work())
     _rewrite(store, futureField={"nested": True})
 
-    active, diagnostics = store.active()
+    (read,), diagnostics = store.active()
 
     assert diagnostics == []
-    assert active == [work()]
+    assert read.retained == {"futureField": {"nested": True}}
+    assert replace(read, retained={}) == work()
+    # The compare-and-swap sees them, so a run read before they were written
+    # is no longer current.
+    assert not store.replace_current(work(), replace(work(), branch="other"))
+
+
+def _with_newer_fields(store: WorkStore) -> ActiveWork:
+    """Start a run whose every object carries a field a newer Dashpot wrote."""
+    intent = RelocationIntent(target_worktree="/target", requested_at=LATER)
+    store.start(replace(work(), relocation=intent, workers=(ASSIGNED,)))
+    path = store.record_path(work().session_key)
+    document = json.loads(path.read_text())
+    document["futureField"] = {"nested": True}
+    document["sessionProcess"]["futureProcessField"] = 1
+    document["relocation"]["futureIntentField"] = 2
+    document["workers"][0]["futureWorkerField"] = 3
+    path.write_text(json.dumps(document))
+    (read,) = store.active()[0]
+    return read
+
+
+@pytest.mark.parametrize("rewrite", ["replace_current", "complete_relocation"])
+def test_a_rewrite_carries_the_fields_a_newer_dashpot_wrote(
+    tmp_path: Path, rewrite: str
+) -> None:
+    source = WorkStore(tmp_path / "a")
+    read = _with_newer_fields(source)
+    changed = replace(read, branch="other")
+    destination = source if rewrite == "replace_current" else WorkStore(tmp_path / "b")
+
+    if rewrite == "replace_current":
+        assert source.replace_current(read, changed)
+    else:
+        assert source.complete_relocation(read, destination, changed)
+
+    document = json.loads(destination.record_path(read.session_key).read_text())
+    assert document["branch"] == "other"
+    assert document["futureField"] == {"nested": True}
+    assert document["sessionProcess"]["futureProcessField"] == 1
+    assert document["relocation"]["futureIntentField"] == 2
+    assert document["workers"][0]["futureWorkerField"] == 3
+    assert destination.active()[0] == [changed]
+
+
+def test_a_new_run_or_rebuilt_object_starts_without_newer_fields(
+    tmp_path: Path,
+) -> None:
+    store = WorkStore(tmp_path)
+    read = _with_newer_fields(store)
+    rebuilt = replace(
+        read,
+        session_process=SessionProcess(pid=43, started_at="Tue Aug 25 02:00:00 2026"),
+        relocation=None,
+        workers=(ASSIGNED,),
+    )
+
+    assert store.replace_current(read, rebuilt)
+    document = json.loads(store.record_path(read.session_key).read_text())
+    assert document["futureField"] == {"nested": True}
+    assert "futureProcessField" not in document["sessionProcess"]
+    assert document["relocation"] is None
+    assert "futureWorkerField" not in document["workers"][0]
+
+    (current,) = store.active()[0]
+    assert store.replace_current(current, work(started_at=LATER))
+    document = json.loads(store.record_path(read.session_key).read_text())
+    assert "futureField" not in document
+
+
+def _interrupted_move(
+    tmp_path: Path,
+) -> tuple[WorkStore, WorkStore, ActiveWork, ActiveWork]:
+    """Start a pending run at A and leave at B the copy a crash would leave."""
+    source, destination = WorkStore(tmp_path / "a"), WorkStore(tmp_path / "b")
+    intent = RelocationIntent(target_worktree=str(tmp_path / "b"), requested_at=LATER)
+    pending = replace(work(), relocation=intent)
+    source.start(pending)
+    copy = replace(pending, working_directory=str(tmp_path / "b"), relocation=None)
+    destination.start(copy)
+    return source, destination, pending, copy
+
+
+def test_a_retry_replaces_the_copy_an_interrupted_relocation_left(
+    tmp_path: Path,
+) -> None:
+    source, destination, pending, copy = _interrupted_move(tmp_path)
+    relocated = replace(
+        copy,
+        session_process=SessionProcess(pid=43, started_at="Tue Aug 25 02:00:00 2026"),
+    )
+
+    assert source.complete_relocation(pending, destination, relocated, repairing=copy)
+    assert source.active()[0] == []
+    assert destination.active()[0] == [relocated]
+
+
+def test_a_retry_refuses_once_the_interrupted_copy_is_gone(
+    tmp_path: Path,
+) -> None:
+    source, destination, pending, copy = _interrupted_move(tmp_path)
+    assert destination.stop_current(copy)
+    relocated = replace(copy, branch="other")
+
+    assert not source.complete_relocation(
+        pending, destination, relocated, repairing=copy
+    )
+    assert source.active()[0] == [pending]
+    assert destination.active()[0] == []
+
+
+def test_a_repaired_copy_must_be_the_relocating_run(tmp_path: Path) -> None:
+    source, destination, pending, copy = _interrupted_move(tmp_path)
+
+    with pytest.raises(ValueError, match="relocating Agent Run"):
+        source.complete_relocation(
+            pending,
+            destination,
+            copy,
+            repairing=replace(copy, started_at=LATER),
+        )
 
 
 @pytest.mark.parametrize(

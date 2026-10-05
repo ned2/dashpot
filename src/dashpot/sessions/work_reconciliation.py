@@ -173,13 +173,19 @@ def complete_session_work_relocation(
     process: ProcessIdentity | None,
     lookup: ProcessLookup = host_process_lookup,
     *,
-    directory: Path | None = None,
+    global_store: Path | None = None,
     worktrees: Sequence[Path] | None = None,
 ) -> ActiveWork | None:
     """Complete a declared Codex relocation proved by this target hook record.
 
-    ``worktrees`` are the Repository's, when the caller has them. Returns the
-    relocated Agent Run, or ``None`` when nothing moved.
+    ``worktrees`` are the Repository's, when the caller has them. Every
+    reachable hook store is checked for a client still running elsewhere,
+    the global one too (``global_store``, else the machine's), since it holds
+    the records of Worktrees whose checkout is not configured (ADR 0069). A
+    run already at the target with the same ``run_id`` and no intent is the
+    move a crash interrupted between its two writes: completion adopts it,
+    refreshed from this hook, and removes the origin's copy (ADR 0029).
+    Returns the relocated Agent Run, or ``None`` when nothing moved.
     """
     if record.get("harness") != "codex":
         return None
@@ -195,12 +201,19 @@ def complete_session_work_relocation(
             worktrees = repository_worktrees(target, timeout=2)
         except (GitError, OSError):
             return None
-    # Without a Work Store there can be no Relocation Intent; locking hook
-    # stores would otherwise create Project-local state in an unconfigured repo.
-    if not any(WorkStore(worktree).directory.exists() for worktree in worktrees):
-        return None
     session_id = require_string(record.get("sessionId"), "sessionId")
-    stores = reachable_hook_stores(worktrees, directory)
+    # Almost every hook comes from a session with no intent naming this
+    # Worktree; it stops at this read rather than locking every hook store
+    # of the Repository. Everything is read again under the locks.
+    if not _declares_relocation_to(worktrees, session_id, target):
+        return None
+    # Locking a store creates it, so a store that does not exist, which holds
+    # no record to check, is left uncreated.
+    stores = [
+        store
+        for store in reachable_hook_stores(worktrees, global_store)
+        if store.is_dir()
+    ]
     with locked_session_stores(stores, worktrees, session_id):
         if not _sequential_target_is_confirmed(stores, session_id, target, lookup):
             return None
@@ -222,10 +235,7 @@ def complete_session_work_relocation(
                 if relation == "same":
                     matching.append((worktree, store, candidate))
         pending_matches = [
-            item
-            for item in matching
-            if item[2].relocation is not None
-            and same_path(Path(item[2].relocation.target_worktree), target)
+            item for item in matching if _intends_relocation_to(item[2], target)
         ]
         if len(pending_matches) != 1:
             return None
@@ -249,8 +259,19 @@ def complete_session_work_relocation(
             if process is not None
             else None
         )
+        # The crash window of an earlier completion left this run at both.
+        repairing = next(
+            (
+                candidate
+                for candidate_worktree, _store, candidate in matching
+                if same_path(candidate_worktree, target)
+                and candidate.run_id == work.run_id
+                and candidate.relocation is None
+            ),
+            None,
+        )
         relocated = replace(
-            work,
+            work if repairing is None else repairing,
             session_label=work_session_label(
                 "codex", session_id, pid=process.pid if process is not None else None
             ),
@@ -260,10 +281,41 @@ def complete_session_work_relocation(
             relocation=None,
         )
         try:
-            moved = source.complete_relocation(work, WorkStore(target), relocated)
+            moved = source.complete_relocation(
+                work, WorkStore(target), relocated, repairing=repairing
+            )
         except (OSError, RecordKeyError, ValueError):
             return None
         return relocated if moved else None
+
+
+def _declares_relocation_to(
+    worktrees: Sequence[Path], session_id: str, target: Path
+) -> bool:
+    """Whether a run of the Codex session holds a Relocation Intent naming ``target``.
+
+    Read without a lock: a record replaced meanwhile is read again under the
+    locks before anything moves.
+    """
+    identity = SessionEvidence("codex", session_id)
+    for worktree in worktrees:
+        try:
+            active, _diagnostics = WorkStore(worktree).active()
+        except OSError:
+            continue
+        if any(
+            identity.match(work.evidence) == "same"
+            and _intends_relocation_to(work, target)
+            for work in active
+        ):
+            return True
+    return False
+
+
+def _intends_relocation_to(work: ActiveWork, target: Path) -> bool:
+    """Whether the run holds a Relocation Intent naming ``target``."""
+    intent = work.relocation
+    return intent is not None and same_path(Path(intent.target_worktree), target)
 
 
 def _sequential_target_is_confirmed(

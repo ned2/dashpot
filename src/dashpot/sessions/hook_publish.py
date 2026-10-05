@@ -236,7 +236,7 @@ def publish_hook_event(
             )
         return HookPublication(destination, state=state)
     relocated = complete_session_work_relocation(
-        record, identity, lookup, directory=destination.parent, worktrees=worktrees
+        record, identity, lookup, global_store=directory, worktrees=worktrees
     )
     carried = (
         None

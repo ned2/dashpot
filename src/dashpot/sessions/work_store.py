@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -15,9 +15,9 @@ from pydantic import Field, ValidationError, model_validator
 from ..core.errors import DashpotError
 from ..core.model import Diagnostic, Harness
 from ..core.pydantic import (
+    FrozenDict,
     NonEmptyString,
     PersistedRecord,
-    PublishedModel,
     describe_validation_error,
 )
 from ..core.record_store import LockedRecordStore
@@ -35,7 +35,7 @@ SESSION_KEY = re.compile(r"^[A-Za-z0-9._-]+$")
 BindingProvenance = Literal["explicit-reference", "explicit-identity"]
 
 
-class SessionProcess(PublishedModel):
+class SessionProcess(PersistedRecord):
     """The host process a Work Store record attributes its Agent Session to."""
 
     pid: int
@@ -46,14 +46,14 @@ class SessionProcess(PublishedModel):
         return self.pid, self.started_at
 
 
-class RelocationIntentRecord(PublishedModel):
+class RelocationIntentRecord(PersistedRecord):
     """The linked Worktree where an Agent Run is explicitly intended to resume."""
 
     target_worktree: NonEmptyString
     requested_at: NonEmptyString
 
 
-class WorkerAssignmentRecord(PublishedModel):
+class WorkerAssignmentRecord(PersistedRecord):
     """One Worker Assignment as its Lead's Work Store record persists it."""
 
     worker_id: HookSessionIdentity
@@ -64,7 +64,11 @@ class WorkerAssignmentRecord(PublishedModel):
 
 
 class WorkStoreRecord(PersistedRecord):
-    """One Work Store record as persisted; the session key is its filename."""
+    """One Work Store record as persisted; the session key is its filename.
+
+    Every object in it retains the fields a newer Dashpot wrote, and a rewrite
+    carries them for as long as it carries that object (ADR 0013).
+    """
 
     version: Literal[1, 2]
     harness: HarnessName
@@ -109,7 +113,7 @@ class WorkStoreRecord(PersistedRecord):
                 RelocationIntentRecord(
                     target_worktree=work.relocation.target_worktree,
                     requested_at=work.relocation.requested_at,
-                )
+                ).carrying(work.relocation.retained)
                 if work.relocation is not None
                 else None
             ),
@@ -120,10 +124,10 @@ class WorkStoreRecord(PersistedRecord):
                     issue_reference=worker.issue_reference,
                     worktree=worker.worktree,
                     assigned_at=worker.assigned_at,
-                )
+                ).carrying(worker.retained)
                 for worker in work.workers
             ],
-        )
+        ).carrying(work.retained)
 
     def active_work(self, session_key: str) -> ActiveWork:
         return ActiveWork(
@@ -142,6 +146,7 @@ class WorkStoreRecord(PersistedRecord):
                 RelocationIntent(
                     target_worktree=self.relocation.target_worktree,
                     requested_at=self.relocation.requested_at,
+                    retained=self.relocation.retained,
                 )
                 if self.relocation is not None
                 else None
@@ -153,9 +158,11 @@ class WorkStoreRecord(PersistedRecord):
                     issue_reference=worker.issue_reference,
                     worktree=worker.worktree,
                     assigned_at=worker.assigned_at,
+                    retained=worker.retained,
                 )
                 for worker in self.workers
             ),
+            retained=self.retained,
         )
 
 
@@ -165,6 +172,8 @@ class RelocationIntent:
 
     target_worktree: str
     requested_at: str
+    # Fields a newer Dashpot wrote on this intent, carried while it is pending.
+    retained: Mapping[str, object] = field(default_factory=FrozenDict, hash=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +192,9 @@ class WorkerAssignment:
     issue_reference: str
     worktree: str
     assigned_at: str
+    # Fields a newer Dashpot wrote on this assignment; a reassignment is a
+    # new assignment and starts without them.
+    retained: Mapping[str, object] = field(default_factory=FrozenDict, hash=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +214,9 @@ class ActiveWork:
     session_id: str | None = None
     relocation: RelocationIntent | None = None
     workers: tuple[WorkerAssignment, ...] = ()
+    # The fields a newer Dashpot wrote on this run's record, carried through
+    # every rewrite of the run; a new run starts without them.
+    retained: Mapping[str, object] = field(default_factory=FrozenDict, hash=False)
 
     @property
     def evidence(self) -> SessionEvidence:
@@ -314,13 +329,21 @@ class WorkStore(LockedRecordStore):
         expected: ActiveWork,
         destination: WorkStore,
         relocated: ActiveWork,
+        *,
+        repairing: ActiveWork | None = None,
     ) -> bool:
         """Move one unchanged pending run to its verified destination.
 
         Both record locks are acquired in path order. The destination is
-        written durably before the source is removed, and a retry repairs the
-        narrow crash window where both contain the same relocated run.
+        written durably before the source is removed, so a crash between the
+        two leaves the run at both. The destination must hold ``relocated``
+        itself or, when given, exactly ``repairing``: the copy such a crash
+        left there, which a retry from any process replaces with
+        ``relocated`` before removing the source's copy. Without
+        ``repairing`` it may also hold nothing.
         """
+        if repairing is not None and repairing.run_id != expected.run_id:
+            raise ValueError("a repaired copy must be the relocating Agent Run")
         if same_path(self.directory, destination.directory):
             return False
         stores = sorted(
@@ -334,9 +357,9 @@ class WorkStore(LockedRecordStore):
             if current != expected:
                 return False
             existing = destination._active_record(expected.session_key)
-            if existing is not None and existing != relocated:
+            if existing != repairing and existing != relocated:
                 return False
-            if existing is None:
+            if existing != relocated:
                 destination.replace(
                     relocated.session_key,
                     WorkStoreRecord.of(relocated).model_dump(by_alias=True),
