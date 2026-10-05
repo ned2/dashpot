@@ -74,16 +74,15 @@ def test_switching_replaces_the_sessions_active_run(tmp_path: Path) -> None:
 
 def test_stop_removes_only_that_sessions_work(tmp_path: Path) -> None:
     store = WorkStore(tmp_path)
-    store.start(work(session_key="codex-1-aa"))
+    first = work(session_key="codex-1-aa")
+    store.start(first)
     store.start(work(session_key="codex-2-bb", issue_id="I_two"))
 
-    assert store.stop("codex-1-aa") is True
-    assert store.stop("codex-1-aa") is False
+    assert store.stop_current(first) is True
+    assert store.stop_current(first) is False
 
     active, _ = store.active()
     assert [item.session_key for item in active] == ["codex-2-bb"]
-    assert not (store.directory / ".codex-1-aa.lock").exists()
-    assert (store.directory / ".codex-2-bb.lock").exists()
 
 
 def test_two_sessions_on_one_issue_are_independent_records(

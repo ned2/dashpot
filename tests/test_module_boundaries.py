@@ -31,6 +31,8 @@ PACKAGES = frozenset(
 # it needs a terminal.
 HEADLESS_MODULES = (
     "dashpot.sessions.work",
+    "dashpot.sessions.session_identity",
+    "dashpot.sessions.worker_assignments",
     "dashpot.repository.worktrees.create",
     "dashpot.repository.worktrees.removability",
     "dashpot.observation.collect",

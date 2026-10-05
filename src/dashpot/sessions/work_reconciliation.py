@@ -260,12 +260,7 @@ def complete_session_work_relocation(
             if candidate != work
         ):
             return None
-        intent = work.relocation
-        if intent is None:
-            return None
-        if not same_path(Path(intent.target_worktree), target) or same_path(
-            source_worktree, target
-        ):
+        if same_path(source_worktree, target):
             return None
         session_process = SessionProcess.of(process) if process is not None else None
         # The crash window of an earlier completion left this run at both.

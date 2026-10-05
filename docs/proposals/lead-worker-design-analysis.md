@@ -185,7 +185,8 @@ when Workers are root sessions instead.
   from its session id
   ([`harnesses.py`](../../src/dashpot/sessions/harnesses.py), `_codex_claim`),
   which `work` refuses
-  ([`work.py`](../../src/dashpot/sessions/work.py), `_refuse_delegate`), and
+  ([`session_identity.py`](../../src/dashpot/sessions/session_identity.py),
+  `_refuse_delegate`), and
   an OpenCode child's claim is refused
   ([`hook_claims.py`](../../src/dashpot/sessions/hook_claims.py),
   `_refuse_opencode_claim`).

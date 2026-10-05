@@ -1,16 +1,18 @@
 """Declare, relocate, end, and show Issue work for the enclosing Agent Session.
 
-A Lead's ``work assign`` and ``work unassign`` live here too, since a Worker
-Assignment belongs to the Lead's Agent Run (ADR 0096), as does ``work
-forget-subagents``: it forgets the sub-agents an ended Agent Session still
-lists, which hold Worktree Cleanup as its Issue work did.
+``work forget-subagents`` lives here too: it forgets the sub-agents an ended
+Agent Session still lists, which hold Worktree Cleanup as its Issue work did.
+Every command finds its session with
+:func:`~dashpot.sessions.session_identity.enclosing_session` and that
+session's runs with :func:`session_runs`, then applies its own policy to
+what they find. A Lead's ``work assign`` and ``work unassign`` are in
+:mod:`dashpot.sessions.worker_assignments`.
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -28,7 +30,6 @@ from ..core.model import (
     Diagnostic,
     Harness,
     WorkerState,
-    harness_alternatives,
 )
 from ..core.timestamps import utc_now
 from ..core.worktree_paths import repository_worktrees, same_path, worktree_root
@@ -37,20 +38,6 @@ from .agents import (
     NO_WORKER_EVIDENCE,
     WorkerEvidence,
     assigned_workers,
-)
-from .harnesses import (
-    SESSION_ID,
-    SESSION_OVERRIDE_VARIABLE,
-    SessionIdentityClaim,
-    adapter,
-    native_claims,
-    opencode_shell_refusal,
-    override_claim,
-)
-from .hook_claims import (
-    SessionClaimError,
-    ValidatedSessionIdentity,
-    validate_session_claim,
 )
 from .hook_records import HookRecordStore
 from .hook_scan import (
@@ -62,210 +49,20 @@ from .hook_scan import (
     stored_session_records,
 )
 from .liveness import session_liveness
-from .processes import (
-    AgentAncestry,
-    ProcessIdentity,
-    ProcessKey,
-    ProcessLookup,
-    host_process_lookup,
-    observe_agent_ancestry,
-)
+from .processes import ProcessLookup, host_process_lookup
 from .session_exits import (
     ended_session_subagent_stop,
     named_subagents,
     unreported_subagent_stop,
 )
-from .session_labels import work_session_label
+from .session_identity import AgentSessionIdentity, IssueWorkError, enclosing_session
 from .session_matching import SessionEvidence
 from .work_store import (
     SESSION_KEY,
     ActiveWork,
     RelocationIntent,
-    SessionProcess,
-    WorkerAssignment,
     WorkStore,
 )
-
-
-class IssueWorkError(DashpotError):
-    """A refusal of a work management command, for the enclosing or a named Agent Session."""
-
-
-@dataclass(frozen=True, slots=True)
-class AgentSessionIdentity:
-    """Represent a confirmed Agent Session and its corroborating process evidence.
-
-    ``delegate`` names the Sub-agent the command runs in, when its harness
-    tells a Sub-agent's shell apart from its session's own: the identity is
-    still the session's, so reading resolves to it, but every command that
-    changes the session's Issue work refuses (ADR 0067). Only Codex sets it:
-    an OpenCode child session's claim is refused at validation instead
-    (ADR 0090), and a Claude Code Sub-agent's shell carries its session's
-    own identity.
-    """
-
-    harness: Harness
-    session_key: str
-    session_label: str
-    process: ProcessIdentity | None
-    session_id: str | None = None
-    delegate: str | None = None
-
-    @property
-    def session_process(self) -> SessionProcess | None:
-        if self.process is None:
-            return None
-        return SessionProcess.of(self.process)
-
-    @property
-    def process_key(self) -> ProcessKey | None:
-        if self.process is None:
-            return None
-        return self.process.pid, self.process.started_at
-
-
-def identify_agent_session(
-    lookup: ProcessLookup = host_process_lookup,
-    *,
-    environ: Mapping[str, str] | None = None,
-    worktree: Path | None = None,
-    stores: Sequence[Path] | None = None,
-) -> AgentSessionIdentity:
-    """Identify the enclosing session by a hook-confirmed native identity.
-
-    A Sub-agent's command identifies its session, with ``delegate`` set, so
-    a caller that changes Issue work refuses it with ``_refuse_delegate``.
-    """
-    environment = environ if environ is not None else os.environ
-    ancestry = observe_agent_ancestry(lookup)
-    claims = _session_claims(environment)
-    if not claims:
-        raise IssueWorkError(_no_session_message(ancestry, environment))
-    if worktree is None:
-        raise IssueWorkError(
-            "an Agent Session Identity claimed by the environment can only be "
-            "validated at a Worktree with a Project-local hook record store"
-        )
-    validated: list[ValidatedSessionIdentity] = []
-    failures: list[str] = []
-    for claim in claims:
-        try:
-            validated.append(
-                validate_session_claim(claim, worktree, lookup, stores=stores)
-            )
-        except SessionClaimError as exc:
-            failures.append(str(exc))
-    if len(validated) == 1:
-        confirmed = validated[0]
-        if ancestry.located is not None:
-            harness, process = ancestry.located
-            if harness != confirmed.harness or (
-                confirmed.process is not None and confirmed.process.key != process.key
-            ):
-                raise IssueWorkError(
-                    "the claimed Agent Session Identity does not corroborate the "
-                    "enclosing harness process; nothing was written"
-                )
-            return _process_identity(
-                harness, process, confirmed.session_id, confirmed.delegate
-            )
-        return _session_identity(confirmed)
-    if validated:
-        names = " and ".join(
-            f"{HARNESS_DISPLAY[item.harness]} session {item.session_id}"
-            for item in validated
-        )
-        raise IssueWorkError(
-            f"the environment claims more than one live Agent Session ({names}); "
-            f"set {SESSION_OVERRIDE_VARIABLE}=<harness>:<session id> to say which "
-            f"session this command belongs to"
-        )
-    raise IssueWorkError(
-        _no_session_message(ancestry, environment) + "; " + "; ".join(failures)
-    )
-
-
-def _session_claims(environment: Mapping[str, str]) -> list[SessionIdentityClaim]:
-    """The identities to validate: an explicit override alone, else every native claim."""
-    explicit = override_claim(environment)
-    if explicit is not None:
-        return [explicit]
-    return native_claims(environment)
-
-
-def _no_session_message(ancestry: AgentAncestry, environment: Mapping[str, str]) -> str:
-    unobservable_reason = ancestry.unobservable_reason
-    message = (
-        "no supported agent session encloses this command; Issue work opt-in "
-        f"must run from inside a running {harness_alternatives()} session"
-    )
-    in_opencode = ancestry.located is not None and ancestry.located[0] == "opencode"
-    refusal = opencode_shell_refusal(environment, in_opencode)
-    if refusal is not None:
-        message += f" ({refusal})"
-    if unobservable_reason == "isolated-namespace":
-        message += (
-            " (this command runs in a sandbox's isolated process namespace, so "
-            "the harness must be identified by the Agent Session Identity its "
-            "lifecycle hooks publish; check 'dashpot integrate <harness> --status')"
-        )
-    elif unobservable_reason is not None:
-        message += (
-            f" (the enclosing process could not be observed: {unobservable_reason})"
-        )
-    return message
-
-
-def _process_identity(
-    harness: Harness,
-    process: ProcessIdentity,
-    session_id: str,
-    delegate: str | None,
-) -> AgentSessionIdentity:
-    return AgentSessionIdentity(
-        harness=harness,
-        session_key=SessionEvidence(harness, session_id).storage_key(),
-        session_label=work_session_label(harness, session_id, pid=process.pid),
-        process=process,
-        session_id=session_id,
-        delegate=delegate,
-    )
-
-
-def _session_identity(confirmed: ValidatedSessionIdentity) -> AgentSessionIdentity:
-    """Identify a session by its confirmed native identity on either route."""
-    return AgentSessionIdentity(
-        harness=confirmed.harness,
-        session_key=SessionEvidence(
-            confirmed.harness, confirmed.session_id
-        ).storage_key(),
-        session_label=work_session_label(
-            confirmed.harness,
-            confirmed.session_id,
-            pid=confirmed.process.pid if confirmed.process is not None else None,
-        ),
-        process=confirmed.process,
-        session_id=confirmed.session_id,
-        delegate=confirmed.delegate,
-    )
-
-
-def _refuse_delegate(session: AgentSessionIdentity, command: str) -> None:
-    """Refuse a command that changes Issue work when a Sub-agent runs it.
-
-    A Sub-agent's work belongs to its session's Agent Run, so only the
-    session itself starts, moves, ends or assigns that run (ADR 0067), as an
-    OpenCode child session is refused (ADR 0090).
-    """
-    if session.delegate is None:
-        return
-    raise IssueWorkError(
-        f"{HARNESS_DISPLAY[session.harness]} sub-agent {session.delegate} is "
-        f"refused (delegated-session): it is a sub-agent of session "
-        f"{session.session_id}, whose Agent Run its work belongs to; run "
-        f"'dashpot work {command}' from session {session.session_id}, so "
-        f"nothing was written"
-    )
 
 
 def start_issue_work(
@@ -285,12 +82,9 @@ def start_issue_work(
     note = outcome if outcome is not None else OutcomeNote()
     root = worktree_root(current)
     worktrees = repository_worktrees(root)
-    stores = reachable_hook_stores(worktrees)
-    session = identify_agent_session(
-        lookup, environ=environ, worktree=root, stores=stores
+    session, stores = enclosing_session(
+        root, worktrees, "start", lookup=lookup, environ=environ, note=note
     )
-    note.identify(harness=session.harness, session_id=session.session_id)
-    _refuse_delegate(session, "start")
     issue = resolve_issue(root, reference, timeout)
     note.identify(issue_id=issue.id)
     location = _session_location(session, stores, lookup)
@@ -306,16 +100,13 @@ def start_issue_work(
             f"(a tool call that changes directory, or a sub-agent, does not "
             f"move the session), so nothing was written"
         )
-    unreadable_elsewhere: list[Diagnostic] = []
+    found_elsewhere, unreadable_elsewhere = session_runs(
+        session,
+        [candidate for candidate in worktrees if not same_path(candidate, root)],
+    )
     selected_elsewhere: list[tuple[Path, ActiveWork]] = []
-    for candidate in worktrees:
-        if same_path(candidate, root):
-            continue
-        pending, candidate_diagnostics = _session_work(WorkStore(candidate), session)
-        unreadable_elsewhere.extend(candidate_diagnostics)
-        if pending is None:
-            continue
-        _check_runtime(session, pending, lookup)
+    for candidate, _store, pending in found_elsewhere:
+        check_runtime(session, pending, lookup)
         selected_elsewhere.append((candidate, pending))
         if pending.relocation is None:
             continue
@@ -330,7 +121,7 @@ def start_issue_work(
             f"{root}; its target hook has not completed the move, so nothing "
             "was written"
         )
-    if session.session_id is not None and unreadable_elsewhere:
+    if unreadable_elsewhere:
         raise IssueWorkError(
             "; ".join(item.message for item in unreadable_elsewhere)
             + "; cannot safely exclude a pending relocation for this Agent "
@@ -339,20 +130,12 @@ def start_issue_work(
     store = WorkStore(root)
     previous, store_diagnostics = _session_work(store, session)
     if previous is not None:
-        _check_runtime(session, previous, lookup)
-    if session.session_id is not None and store_diagnostics:
+        check_runtime(session, previous, lookup)
+    if store_diagnostics:
         raise IssueWorkError(
             "; ".join(item.message for item in store_diagnostics)
             + "; cannot safely exclude a pending relocation for this Agent "
             "Session, so nothing was written"
-        )
-    unreadable = _own_record_diagnostic(store, session.session_key, store_diagnostics)
-    if unreadable is not None:
-        # Writing beside an unreadable record for this session's own key would
-        # leave two records for one session, so this is a refusal instead.
-        raise IssueWorkError(
-            f"{unreadable.message}; fix or remove the record before declaring "
-            f"Issue work, so this session keeps one record"
         )
     branch = Git(root, timeout=2).maybe("symbolic-ref", "--quiet", "--short", "HEAD")
     replacement = ActiveWork(
@@ -419,9 +202,6 @@ def start_issue_work(
         )
         if work.workers
     )
-    # Other sessions' unreadable records do not block this start, but they
-    # are surfaced rather than dropped, as `work show` already surfaces them.
-    messages.extend(diagnostic.message for diagnostic in store_diagnostics)
     return messages
 
 
@@ -447,21 +227,13 @@ def relocate_issue_work(
         raise IssueWorkError(
             f"{target_root} is not a linked Worktree of the current Git Repository"
         )
-    stores = reachable_hook_stores(worktrees)
-    session = identify_agent_session(
-        lookup, environ=environ, worktree=root, stores=stores
+    session, stores = enclosing_session(
+        root, worktrees, "relocate", lookup=lookup, environ=environ, note=note
     )
-    note.identify(harness=session.harness, session_id=session.session_id)
-    _refuse_delegate(session, "relocate")
     if session.harness != "codex":
         raise IssueWorkError(
             "work relocate is for a sequential Codex resume; Claude Code moves "
             "its live session with EnterWorktree"
-        )
-    if session.session_id is None:
-        raise IssueWorkError(
-            "the Codex Agent Session Identity is not confirmed by its lifecycle "
-            "hook record; run 'dashpot integrate codex --status'"
         )
     location = _session_location(session, stores, lookup)
     if location is None or not same_path(location.worktree, root):
@@ -470,14 +242,7 @@ def relocate_issue_work(
             f"{session.session_label} is at {observed} according to its freshest "
             f"Codex hook record, not at {root}; nothing was written"
         )
-    matches: list[tuple[Path, WorkStore, ActiveWork]] = []
-    diagnostics: list[Diagnostic] = []
-    for worktree in worktrees:
-        store = WorkStore(worktree)
-        work, found_diagnostics = _session_work(store, session)
-        diagnostics.extend(found_diagnostics)
-        if work is not None:
-            matches.append((worktree, store, work))
+    matches, diagnostics = session_runs(session, worktrees)
     if diagnostics:
         raise IssueWorkError(
             "; ".join(item.message for item in diagnostics)
@@ -495,7 +260,7 @@ def relocate_issue_work(
         )
     worktree, store, work = matches[0]
     note.identify(issue_id=work.issue_id)
-    _check_runtime(session, work, lookup)
+    check_runtime(session, work, lookup)
     if not same_path(worktree, root):
         raise IssueWorkError(
             f"this Agent Session's active Agent Run is at {worktree}, not {root}; "
@@ -586,15 +351,10 @@ def stop_issue_work(
     store = WorkStore(root)
     if session_key is None:
         worktrees = repository_worktrees(root)
-        session = identify_agent_session(
-            lookup,
-            environ=environ,
-            worktree=root,
-            stores=reachable_hook_stores(worktrees),
+        session, _stores = enclosing_session(
+            root, worktrees, "stop", lookup=lookup, environ=environ, note=note
         )
-        note.identify(harness=session.harness, session_id=session.session_id)
-        _refuse_delegate(session, "stop")
-        stopped, diagnostics = _stop_elsewhere(session, worktrees, None, lookup)
+        stopped, diagnostics = _stop_session_runs(session, worktrees, lookup)
         # Unreadable records are surfaced beside the outcome: this session's
         # run may be among the records that could not be read.
         warnings = [diagnostic.message for diagnostic in diagnostics]
@@ -757,200 +517,6 @@ def forget_session_subagents(
     return messages + warnings
 
 
-def assign_worker(
-    current: Path,
-    reference: str,
-    worker_id: str,
-    worktree: Path,
-    *,
-    timeout: float = 10,
-    lookup: ProcessLookup = host_process_lookup,
-    environ: Mapping[str, str] | None = None,
-    outcome: OutcomeNote | None = None,
-) -> list[str]:
-    """Assign one of this Lead's working Sub-agents, as a Worker, to an Issue.
-
-    The assignment joins the session's own active Agent Run, unchanged in
-    its Issue Binding, identity and location, and ends with it (ADR 0096).
-    The Worker must be a Sub-agent this session's hooks list as working, so
-    a mistyped or foreign identity is refused rather than recorded.
-    ``worktree`` is where the Lead intends the Worker's commands to run: it
-    must be a Worktree of this Repository, and is never taken as evidence
-    that the Worker is there. ``outcome`` hears the session, the Issue and
-    the Worktree once each is confirmed, and what the command did.
-    """
-    note = outcome if outcome is not None else OutcomeNote()
-    if not SESSION_ID.fullmatch(worker_id):
-        raise IssueWorkError(
-            f"{worker_id!r} is not a Sub-agent identity a harness publishes; "
-            "nothing was written"
-        )
-    root = worktree_root(current)
-    worktrees = repository_worktrees(root)
-    intended = next(
-        (
-            candidate
-            for candidate in worktrees
-            if same_path(candidate, worktree.expanduser().resolve())
-        ),
-        None,
-    )
-    if intended is None:
-        raise IssueWorkError(
-            f"{worktree} is not a Worktree of the current Git Repository; "
-            "nothing was written"
-        )
-    note.target_path = intended
-    stores = reachable_hook_stores(worktrees)
-    session = identify_agent_session(
-        lookup, environ=environ, worktree=root, stores=stores
-    )
-    note.identify(harness=session.harness, session_id=session.session_id)
-    _refuse_delegate(session, "assign")
-    store, work = _assigning_run(session, worktrees, lookup)
-    if work.evidence.process_key not in (None, session.process_key):
-        # The run is orphaned under a Host Process that is gone (the runtime
-        # check refused a live one), and observation reports none of an
-        # Orphaned Agent Run's Workers until this session continues it.
-        # Only a harness whose session owns its Host Process, or a declared
-        # relocation, has a hook event take the run over; any other run is
-        # recovered with ``work start``, which ends its assignments.
-        recovery = (
-            "assign once this session's next hook event has continued the run"
-            if work.relocation is not None
-            or adapter(work.harness).exclusive_session_process
-            else f"recover it with 'dashpot work start {work.issue_reference}' "
-            "from this session, which ends its Worker Assignments, then assign "
-            "each Worker again"
-        )
-        raise IssueWorkError(
-            "this session's Agent Run is still recorded under its earlier Host "
-            f"Process, which is gone; {recovery}, so nothing was written"
-        )
-    issue = resolve_issue(root, reference, timeout)
-    note.identify(issue_id=issue.id)
-    if (
-        WorkerEvidence.recorded(stores, lookup).state(
-            work.harness, work.session_id, work.evidence.process_key, worker_id
-        )
-        is None
-    ):
-        raise IssueWorkError(
-            f"{session.session_label} lists no Sub-agent {worker_id} as working; "
-            "assign a Worker once its harness has reported it started, by the "
-            "identity its launch returned, so nothing was written"
-        )
-    assigned = WorkerAssignment(
-        worker_id=worker_id,
-        issue_id=issue.id,
-        issue_reference=issue.reference,
-        worktree=str(intended),
-        assigned_at=utc_now(),
-    )
-    previous = next(
-        (item for item in work.workers if item.worker_id == worker_id), None
-    )
-    if previous is not None and (previous.issue_id, previous.worktree) == (
-        assigned.issue_id,
-        assigned.worktree,
-    ):
-        return [
-            f"Worker {worker_id} is already assigned to {issue.reference} "
-            f"({issue.id}) at {intended}"
-        ]
-    workers = (
-        *(item for item in work.workers if item.worker_id != worker_id),
-        assigned,
-    )
-    _replace_assigning_run(store, work, replace(work, workers=workers))
-    if previous is None:
-        note.action = "assigned"
-        return [
-            f"assigned Worker {worker_id} to {issue.reference} ({issue.id}) at {intended}"
-        ]
-    note.action = "reassigned"
-    return [
-        f"reassigned Worker {worker_id} from {previous.issue_reference} at "
-        f"{previous.worktree} to {issue.reference} ({issue.id}) at {intended}"
-    ]
-
-
-def unassign_worker(
-    current: Path,
-    worker_id: str,
-    *,
-    lookup: ProcessLookup = host_process_lookup,
-    environ: Mapping[str, str] | None = None,
-    outcome: OutcomeNote | None = None,
-) -> list[str]:
-    """End one Worker Assignment of this session's active Agent Run.
-
-    Nothing about the Worker is checked: one that finished, failed or was
-    stopped is unassigned the same way, and the run is otherwise unchanged.
-    """
-    note = outcome if outcome is not None else OutcomeNote()
-    root = worktree_root(current)
-    worktrees = repository_worktrees(root)
-    session = identify_agent_session(
-        lookup,
-        environ=environ,
-        worktree=root,
-        stores=reachable_hook_stores(worktrees),
-    )
-    note.identify(harness=session.harness, session_id=session.session_id)
-    _refuse_delegate(session, "unassign")
-    store, work = _assigning_run(session, worktrees, lookup)
-    previous = next(
-        (item for item in work.workers if item.worker_id == worker_id), None
-    )
-    if previous is None:
-        note.action = "no-assignment"
-        return [f"this session's Agent Run assigns no Worker {worker_id}"]
-    note.identify(issue_id=previous.issue_id)
-    _replace_assigning_run(
-        store,
-        work,
-        replace(
-            work,
-            workers=tuple(item for item in work.workers if item.worker_id != worker_id),
-        ),
-    )
-    note.action = "unassigned"
-    return [f"unassigned Worker {worker_id} from {previous.issue_reference}"]
-
-
-def _assigning_run(
-    session: AgentSessionIdentity, worktrees: Sequence[Path], lookup: ProcessLookup
-) -> tuple[WorkStore, ActiveWork]:
-    """The session's one active Agent Run, wherever in the Repository it is."""
-    found: list[tuple[WorkStore, ActiveWork]] = []
-    diagnostics: list[Diagnostic] = []
-    for worktree in worktrees:
-        store = WorkStore(worktree)
-        work, store_diagnostics = _session_work(store, session)
-        diagnostics.extend(store_diagnostics)
-        if work is not None:
-            found.append((store, work))
-    if diagnostics:
-        raise IssueWorkError(
-            "; ".join(item.message for item in diagnostics)
-            + "; repair the Work Store before assigning Workers"
-        )
-    if not found:
-        raise IssueWorkError(
-            "this Agent Session has no active Issue work to assign Workers "
-            "under; a Lead binds its Arc with 'dashpot work start' first"
-        )
-    if len(found) > 1:
-        raise IssueWorkError(
-            "this Agent Session has Issue work recorded at more than one "
-            "Worktree; resolve the work-session-conflict before assigning Workers"
-        )
-    store, work = found[0]
-    _check_runtime(session, work, lookup)
-    return store, work
-
-
 def _orphaned(work: ActiveWork, lookup: ProcessLookup) -> bool:
     """Whether observation reports the run as an Orphaned Agent Run."""
     return (
@@ -963,17 +529,6 @@ def _orphaned(work: ActiveWork, lookup: ProcessLookup) -> bool:
         ).liveness
         == "gone"
     )
-
-
-def _replace_assigning_run(
-    store: WorkStore, expected: ActiveWork, replacement: ActiveWork
-) -> None:
-    """Replace the run's assignments unless something changed the run first."""
-    if not store.replace_current(expected, replacement):
-        raise IssueWorkError(
-            "this Agent Run changed while its Workers were being assigned; "
-            "nothing was overwritten, so inspect it with 'dashpot work show'"
-        )
 
 
 # What ``work show`` says of an assigned Worker, by what the dashboard would
@@ -1073,17 +628,12 @@ def show_session_events(
     root = worktree_root(current)
     worktrees = repository_worktrees(root)
     try:
-        session = identify_agent_session(
-            lookup,
-            environ=environ,
-            worktree=root,
-            stores=reachable_hook_stores(worktrees),
+        session, _stores = enclosing_session(
+            root, worktrees, None, lookup=lookup, environ=environ
         )
     except DashpotError:
         # Whatever keeps the session from being identified, the Issue work
         # ``work show`` lists stands on its own.
-        return []
-    if session.session_id is None:
         return []
     moment = now if now is not None else datetime.now(UTC)
     selection = EventSelection(
@@ -1111,15 +661,12 @@ def _session_location(
     A record that is ended or whose process is gone describes a session that
     is over, never where this live one is.
     """
-    if session.session_id is None and session.process_key is None:
-        return None
     try:
         location = locate_agent_session(
             stores,
             lookup,
             harness=session.harness,
             session_id=session.session_id,
-            process_key=session.process_key,
         )
     except ValueError as exc:
         raise IssueWorkError(
@@ -1131,28 +678,19 @@ def _session_location(
     return location
 
 
-def _stop_elsewhere(
+def _stop_session_runs(
     session: AgentSessionIdentity,
     worktrees: Sequence[Path],
-    here: Path | None,
     lookup: ProcessLookup,
 ) -> tuple[list[tuple[Path, ActiveWork]], list[Diagnostic]]:
-    """End the session's active runs at every Worktree other than ``here``.
+    """End the session's active runs at every Worktree of the Repository.
 
     Each Worktree's unreadable Work Store records come back beside the runs:
     a corrupt record could hide the very run this session is looking for.
     """
-    selected: list[tuple[Path, WorkStore, ActiveWork]] = []
-    diagnostics: list[Diagnostic] = []
-    for worktree in worktrees:
-        if here is not None and same_path(worktree, here):
-            continue
-        store = WorkStore(worktree)
-        work, store_diagnostics = _session_work(store, session)
-        diagnostics.extend(store_diagnostics)
-        if work is not None:
-            _check_runtime(session, work, lookup)
-            selected.append((worktree, store, work))
+    selected, diagnostics = session_runs(session, worktrees)
+    for _worktree, _store, work in selected:
+        check_runtime(session, work, lookup)
     if selected and diagnostics:
         raise IssueWorkError(
             "unreadable Work Store records prevent safe ownership selection; nothing was removed"
@@ -1167,7 +705,7 @@ def _stop_elsewhere(
     return stopped, diagnostics
 
 
-def _check_runtime(
+def check_runtime(
     session: AgentSessionIdentity, work: ActiveWork, lookup: ProcessLookup
 ) -> None:
     """Refuse reassignment while another runtime may still own the run."""
@@ -1183,6 +721,25 @@ def _check_runtime(
             "this Agent Session has an Agent Run owned by another live or "
             "unobservable runtime; nothing was changed"
         )
+
+
+def session_runs(
+    session: AgentSessionIdentity, worktrees: Sequence[Path]
+) -> tuple[list[tuple[Path, WorkStore, ActiveWork]], list[Diagnostic]]:
+    """The session's active Agent Runs at ``worktrees``, with their unreadable records.
+
+    An unreadable Work Store record could be one of the session's runs, so
+    each caller decides what one means for its command.
+    """
+    found: list[tuple[Path, WorkStore, ActiveWork]] = []
+    diagnostics: list[Diagnostic] = []
+    for worktree in worktrees:
+        store = WorkStore(worktree)
+        work, store_diagnostics = _session_work(store, session)
+        diagnostics.extend(store_diagnostics)
+        if work is not None:
+            found.append((worktree, store, work))
+    return found, diagnostics
 
 
 def _session_work_by_key(

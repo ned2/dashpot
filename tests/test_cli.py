@@ -66,7 +66,7 @@ from dashpot.sessions.integrate import (
     IntegrationError,
 )
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
-from dashpot.sessions.work import IssueWorkError
+from dashpot.sessions.session_identity import IssueWorkError
 from factories import git, init_repository, write_config_marker, write_project_config
 from helpers import issue_payload, table_lookup
 from test_cleanup import (

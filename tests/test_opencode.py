@@ -52,12 +52,8 @@ from dashpot.sessions.processes import (
     ProcessObservation,
     ProcessPresent,
 )
-from dashpot.sessions.work import (
-    IssueWorkError,
-    show_issue_work,
-    start_issue_work,
-    stop_issue_work,
-)
+from dashpot.sessions.session_identity import IssueWorkError
+from dashpot.sessions.work import show_issue_work, start_issue_work, stop_issue_work
 from dashpot.sessions.work_store import WorkStore
 from factories import CLAUDE, CODEX, hook_record, hook_record_document
 from helpers import table_lookup, unobservable

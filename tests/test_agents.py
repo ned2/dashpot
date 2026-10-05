@@ -520,7 +520,9 @@ class WorkObserverTests(unittest.TestCase):
         self.write_hook("session-a", "running", str(self.worktree))
         observe_agent_runs(self.targets(), self.state_dir, lookup=absent())
 
-        WorkStore(self.worktree).stop("codex-42-abcd1234")
+        store = WorkStore(self.worktree)
+        (recorded,) = store.active()[0]
+        self.assertTrue(store.stop_current(recorded))
         runs, _ = observe_agent_runs(self.targets(), self.state_dir, lookup=absent())
 
         self.assertEqual([], runs)

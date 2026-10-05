@@ -502,51 +502,27 @@ def locate_agent_session(
     stores: Sequence[Path],
     lookup: ProcessLookup = host_process_lookup,
     *,
-    session_id: str | None = None,
-    harness: Harness | None = None,
-    process_key: ProcessKey | None = None,
+    session_id: str,
+    harness: Harness,
 ) -> SessionLocation | None:
     """Place a scoped native identity by its freshest validated hook record."""
-    if session_id is None and process_key is None:
-        raise ValueError("a session is located by its identity or its process")
 
     def named(path: Path) -> bool:
-        return session_id is not None and session_record_named(
-            path, session_id, harness
-        )
-
-    def worth_reading(path: Path) -> bool:
-        return named(path) if session_id is not None else process_key is not None
+        return session_record_named(path, session_id, harness)
 
     def refuse_named(path: Path, exc: Exception) -> None:
         if named(path):
             raise ValueError(str(exc)) from exc
 
+    identity = SessionEvidence(harness, session_id)
     probe = LivenessProbe(lookup)
     freshest: SessionLocation | None = None
     for scanned in scan_hook_stores(
-        stores, probe, select=worth_reading, on_unreadable=refuse_named
+        stores, probe, select=named, on_unreadable=refuse_named
     ):
         record = scanned.record
-        if harness is not None and record.harness != harness:
+        if identity.match(record.evidence) != "same":
             continue
-        if session_id is not None:
-            if (
-                SessionEvidence(harness or record.harness, session_id).match(
-                    record.evidence
-                )
-                != "same"
-            ):
-                continue
-        elif record.process_key != process_key:
-            continue
-        if freshest is not None and (
-            freshest.record.harness,
-            freshest.record.session_id,
-        ) != (record.harness, record.session_id):
-            raise ValueError(
-                "a process or unscoped identity names multiple Agent Sessions"
-            )
         if freshest is None or observed_instant(
             scanned.record.last_activity_at
         ) > observed_instant(freshest.record.last_activity_at):

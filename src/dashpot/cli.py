@@ -101,15 +101,14 @@ from .sessions.integrate import (
     remove_integration,
 )
 from .sessions.work import (
-    assign_worker,
     forget_session_subagents,
     relocate_issue_work,
     show_issue_work,
     show_session_events,
     start_issue_work,
     stop_issue_work,
-    unassign_worker,
 )
+from .sessions.worker_assignments import assign_worker, unassign_worker
 from .ui.app import DashpotApp
 from .ui.attendance import Attendance, tmux_attachment
 
