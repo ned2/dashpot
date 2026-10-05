@@ -46,8 +46,15 @@ from dashpot.repository.cleanup.obstacles import (
     counted,
 )
 from dashpot.repository.repository import LockHolderProbe, short_ref
-from dashpot.repository.worktrees.removability import check_worktree
-from dashpot.serialization import cleanup_preview_document, cleanup_report_document
+from dashpot.repository.worktrees.removability import (
+    check_worktree,
+    describe_removability,
+)
+from dashpot.serialization import (
+    cleanup_preview_document,
+    cleanup_report_document,
+    removability_document,
+)
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecordStore,
@@ -1618,6 +1625,176 @@ def test_state_ignoring_itself_without_a_rule_unblocks_the_worktree(
     assert refused.refusals == (CHANGED_SINCE_PREVIEW,)
     assert removed.succeeded is True
     assert not worktree.exists()
+
+
+def ignore_claude(root: Path) -> None:
+    """Ignore ``.claude/`` in every Worktree of the Repository, as Projects do."""
+    common = Path(git(root, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    with (common / "info" / "exclude").open("a") as rules:
+        rules.write(".claude/\n")
+
+
+def nest_worktree(root: Path, parent: Path, name: str) -> Path:
+    """A dirty Worktree registered under ``parent``'s ``.claude/worktrees/``.
+
+    Claude Code's ``EnterWorktree`` creates its Worktrees there, inside the
+    session's checkout.
+    """
+    nested = parent / ".claude" / "worktrees" / name
+    git(root, "worktree", "add", "-q", "-b", name, str(nested))
+    (nested / "uncommitted.txt").write_text("work no commit holds\n")
+    return nested.resolve()
+
+
+def test_a_worktree_holding_another_is_blocked_until_that_one_goes(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    ignore_claude(root)
+    nested = nest_worktree(root, worktree, "inner")
+    request = WorktreeCleanupRequest(root, worktree)
+
+    preview = inspect_cleanup(request)
+    tree, local = preview.targets
+    report = perform_cleanup(
+        confirm(request, preview, tree.identity, local.identity, delete_ignored=True)
+    )
+    checked = check_worktree(root, worktree)
+
+    # The Worktree's own status sees the nested one only as an ignored path.
+    assert preview.ignored == (".claude/", ".venv/")
+    assert tree.blockers == (
+        CleanupBlocker(
+            kind="nested-worktree",
+            detail=f"the Worktree {nested} is inside this one, and removing this "
+            f"Worktree would delete it without checking it: remove it first, or "
+            f"move it out with git worktree move",
+            command=f"dashpot worktree remove {nested}",
+        ),
+    )
+    assert kinds(local) == {"checked-out"}
+    assert report.performed is False
+    assert report.refusals[0].startswith("Worktree is unavailable: the Worktree ")
+    assert (nested / "uncommitted.txt").exists()
+    assert checked.removable is False
+    assert checked.obstacles == tree.blockers
+    # The published shape carries the kind, the Worktree inside, and its command.
+    (published,) = cleanup_preview_document(preview)["targets"][0]["blockers"]
+    assert published == {
+        "kind": "nested-worktree",
+        "detail": tree.blockers[0].detail,
+        "command": f"dashpot worktree remove {nested}",
+        "sessionId": None,
+        "harness": None,
+        "agents": [],
+    }
+    assert removability_document(checked)["obstacles"] == [published]
+    lines = describe_cleanup_preview(preview)
+    assert f"      blocked: nested-worktree: {tree.blockers[0].detail}" in lines
+    assert f"          run: dashpot worktree remove {nested}" in lines
+    assert f"  - nested-worktree: {tree.blockers[0].detail}" in describe_removability(
+        checked
+    )
+
+
+def test_a_worktree_nested_after_the_preview_refuses_the_removal(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    ignore_claude(root)
+    # An ignored directory the preview already lists, so the ignored inventory
+    # is the same before and after the nested Worktree appears in it.
+    (worktree / ".claude").mkdir()
+    (worktree / ".claude" / "settings.local.json").write_text("{}\n")
+    request = WorktreeCleanupRequest(root, worktree)
+    preview = inspect_cleanup(request)
+    (tree, _local) = preview.targets
+
+    nested = nest_worktree(root, worktree, "inner")
+    report = perform_cleanup(
+        confirm(request, preview, tree.identity, delete_ignored=True)
+    )
+
+    assert tree.available is True
+    assert preview.ignored == (".claude/", ".venv/")
+    assert report.changed is True
+    assert report.refusals == (CHANGED_SINCE_PREVIEW,)
+    assert report.preview.ignored == preview.ignored
+    assert kinds(report.preview.targets[0]) == {"nested-worktree"}
+    assert (nested / "uncommitted.txt").exists()
+
+
+def test_the_main_worktree_lists_no_worktree_inside_it(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    ignore_claude(root)
+    nest_worktree(root, root, "inner")
+
+    main = preview_worktree(root, root)
+
+    assert kinds(main.targets[0]) == {"main-worktree"}
+
+
+@pytest.mark.parametrize("setting", ["no", "all"])
+def test_the_ignored_inventory_ignores_the_untracked_files_setting(
+    tmp_path: Path, setting: str
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    (worktree / ".venv" / "lib").mkdir()
+    (worktree / ".venv" / "lib" / "site.py").write_text("")
+    git(root, "config", "status.showUntrackedFiles", setting)
+    request = WorktreeCleanupRequest(root, worktree)
+
+    preview = inspect_cleanup(request)
+    (tree, _local) = preview.targets
+    unacknowledged = perform_cleanup(confirm(request, preview, tree.identity))
+
+    # ``no`` would list nothing and drop the acknowledgement; ``all`` would
+    # list every file inside, so a file written there would change the preview.
+    assert preview.ignored == (".venv/",)
+    assert tree.available is True
+    assert unacknowledged.performed is False
+    assert unacknowledged.refusals == (
+        "removing the Worktree deletes 1 ignored path inside it, which must be "
+        "acknowledged",
+    )
+    assert worktree.exists()
+
+
+def test_an_ignored_inventory_git_refuses_blocks_the_removal(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    branch(root, "feat")
+    integrate(root, "feat")
+    worktree = linked(tmp_path, root, "feat")
+    request = WorktreeCleanupRequest(root, worktree)
+
+    def refusing(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if "--ignored=traditional" in args:
+            return CommandResult(list(args), 128, "", "fatal: index file corrupt\n")
+        return run_command(args, cwd, timeout)
+
+    preview = inspect_cleanup(request, git=Git(root, 5, refusing))
+    tree, local = preview.targets
+
+    # Failing to list is not finding nothing.
+    assert preview.ignored == ()
+    assert tree.blockers == (
+        CleanupBlocker(
+            kind="ignored-content",
+            detail="cannot list the ignored content removing this Worktree would "
+            "delete: fatal: index file corrupt",
+            command=f"git -C {worktree.resolve()} status --ignored",
+        ),
+    )
+    assert kinds(local) == {"checked-out"}
 
 
 def test_a_selection_the_preview_does_not_allow_is_refused(tmp_path: Path) -> None:

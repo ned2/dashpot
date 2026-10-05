@@ -32,6 +32,8 @@ BlockerKind = Literal[
     "protected",
     "unavailable",
     "dirty",
+    "ignored-content",
+    "nested-worktree",
     "locked",
     "agent-session",
     "sub-agent",

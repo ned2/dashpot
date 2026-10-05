@@ -9,7 +9,7 @@ from typing import Literal
 
 from ...core.git import Git, GitError
 from ...core.model import HARNESS_DISPLAY
-from ...core.worktree_paths import worktree_paths, worktree_root
+from ...core.worktree_paths import is_within, worktree_paths, worktree_root
 from ...sessions.hook_scan import (
     HookRecordClassification,
     reachable_hook_stores,
@@ -523,22 +523,63 @@ def assess_detached_head_preservation(git: Git, head: str) -> list[CleanupBlocke
     ]
 
 
-def ignored_content(git: Git, path: Path) -> list[str]:
-    """The ignored paths in a Worktree, which unforced removal deletes too.
+def assess_nested_worktrees(located: LocatedWorktree) -> list[CleanupBlocker]:
+    """The ``nested-worktree`` blocker of each Worktree registered inside this one.
+
+    An unforced ``git worktree remove`` checks only this Worktree's own
+    status, where a Worktree inside it shows at most as an untracked or
+    ignored directory, and then deletes the directory recursively: the
+    Worktree inside goes too, its uncommitted work included, without any of
+    its own checks running (ADR 0125). The main Worktree is never removable,
+    and its tree may hold linked Worktrees by design, so it is not assessed.
+    """
+    if located.role == "main":
+        return []
+    return [
+        CleanupBlocker(
+            kind="nested-worktree",
+            detail=f"the Worktree {nested} is inside this one, and removing "
+            f"this Worktree would delete it without checking it: remove it "
+            f"first, or move it out with git worktree move",
+            command=f"dashpot worktree remove {nested}",
+        )
+        for nested in sorted(located.worktrees)
+        if nested != located.path and is_within(nested, located.path)
+    ]
+
+
+def ignored_content(git: Git, path: Path) -> tuple[list[str], list[CleanupBlocker]]:
+    """The ignored paths in a Worktree, which unforced removal deletes too, or why not.
 
     Directories whose every entry is ignored are reported as one path with a
-    trailing slash, as ``git status --ignored`` collapses them.
+    trailing slash, as ``git status --ignored`` collapses them. Git lists
+    ignored paths only while it collects untracked ones, so the collection is
+    set explicitly rather than taken from ``status.showUntrackedFiles``:
+    ``no`` would list nothing, and ``all`` every file inside an ignored
+    directory. An inventory Git refuses is an ``ignored-content`` blocker,
+    never an empty list (ADR 0125).
     """
     if not path.is_dir():
-        return []
-    listing = git.at(path).maybe(
-        "status", "--porcelain=v1", "--ignored=traditional", "-z"
+        return [], []
+    listing = git.at(path).run(
+        "status",
+        "--porcelain=v1",
+        "--ignored=traditional",
+        "--untracked-files=normal",
+        "-z",
     )
-    if listing is None:
-        return []
+    if listing.returncode != 0:
+        return [], [
+            CleanupBlocker(
+                kind="ignored-content",
+                detail=f"cannot list the ignored content removing this Worktree "
+                f"would delete: {listing.stderr.strip() or 'git status failed'}",
+                command=f"git -C {path} status --ignored",
+            )
+        ]
     ignored: list[str] = []
     skip = False
-    for entry in listing.split("\0"):
+    for entry in listing.stdout.split("\0"):
         if skip:
             # A rename or copy entry is followed by its source path as a
             # field of its own.
@@ -551,4 +592,4 @@ def ignored_content(git: Git, path: Path) -> list[str]:
             skip = True
         if code == "!!":
             ignored.append(name)
-    return ignored
+    return ignored, []

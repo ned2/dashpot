@@ -926,6 +926,9 @@ that has already ended, its `dashpot work forget-subagents` command:
 a `process` whose working directory is inside the Worktree, named by pid,
 command and directory
 ([processes inside a Worktree](docs/agent-sessions.md#processes-inside-a-worktree)),
+another linked Worktree registered inside it, named with the
+`dashpot worktree remove` that removes it first
+([ADR 0125](docs/adr/0125-block-removing-a-worktree-that-holds-another-worktree.md)),
 and commits not on the upstream or the Integration Branch. A removable
 Worktree's text report adds that sub-agents of Agent Sessions outside the
 Repository are not checked. When the host's processes could not all be
@@ -978,7 +981,9 @@ Neither command deletes the Integration Branch, a checked-out Branch, a
 Branch with commits the Integration Branch does not reach, or a Worktree that
 is the main one, dirty, locked, occupied by an Agent Session or Agent Run,
 possibly occupied by a live Claude Code sub-agent of a session in the
-Repository, one a process is running inside, the checkout the command runs from, or a configured Repository
+Repository, one a process is running inside, one that holds another
+registered Worktree, one whose ignored content Git could not list, the
+checkout the command runs from, or a configured Repository
 Anchor (the checkout's own root when it carries a Project configuration, and
 every anchor of the Workspace config). Every target reports its own outcome —
 `deleted`, `already-absent`, `refused`, or `unknown` when Git did not answer —

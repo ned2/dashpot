@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md, 0066-block-worktree-removal-while-a-sub-agent-is-working.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md, 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md
+amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md, 0066-block-worktree-removal-while-a-sub-agent-is-working.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md, 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md, 0125-block-removing-a-worktree-that-holds-another-worktree.md
 ---
 
 # Remove Branches and Worktrees on explicit confirmation
@@ -34,6 +34,13 @@ preview lists, which lifts their `sub-agent` blockers and nothing else. The
 re-inspection on confirmation refuses a different set, and each step up to
 the Worktree's removal is preceded by another inspection of its occupants
 and processes.
+
+Amended by [ADR 0125](0125-block-removing-a-worktree-that-holds-another-worktree.md):
+a Worktree that holds another registered Worktree is refused until that one
+is removed or moved out, since an unforced removal deletes it unassessed.
+The ignored-content inventory sets `--untracked-files=normal` rather than
+following `status.showUntrackedFiles`, and an inventory Git refuses blocks
+the removal.
 
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),
