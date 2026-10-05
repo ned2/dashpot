@@ -12,6 +12,7 @@ from dashpot.project.workspace import (
     WorkspaceConfigError,
     WorkspaceInventory,
     WorkspaceScopeError,
+    default_workspace_config,
     load_workspaces,
     resolve_workspace_projects,
 )
@@ -342,3 +343,28 @@ def test_anchors_resolving_to_two_projects_are_refused_before_observation(
         "Dashpot",
         "Other",
     ]
+
+
+def test_the_workspace_inventory_follows_xdg_config_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+    assert (
+        default_workspace_config() == tmp_path / "xdg" / "dashpot" / "workspaces.json"
+    )
+
+
+@pytest.mark.parametrize("value", ["config", "./config", ""])
+def test_a_relative_xdg_config_home_is_ignored_for_the_workspace_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    # The XDG specification makes a relative value invalid: honouring it
+    # would give each process the inventory under its own working directory.
+    monkeypatch.setenv("XDG_CONFIG_HOME", value)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir(tmp_path)
+
+    assert default_workspace_config() == (
+        tmp_path / "home" / ".config" / "dashpot" / "workspaces.json"
+    )

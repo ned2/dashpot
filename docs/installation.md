@@ -109,7 +109,10 @@ and ownership rules.
 ## Machine-local settings
 
 Edit `$XDG_CONFIG_HOME/dashpot/config.toml`, or
-`~/.config/dashpot/config.toml` when `XDG_CONFIG_HOME` is unset:
+`~/.config/dashpot/config.toml` when `XDG_CONFIG_HOME` is unset or relative
+(a leading `~` is expanded first). A relative value is ignored, as the XDG
+specification requires, so every process reads the same file whatever its
+working directory:
 
 ```toml
 # Where newly prepared Issue Worktrees go.
@@ -176,9 +179,10 @@ Remove the old file manually when convenient. Dashpot never rewrites or deletes
 personal settings.
 
 This file contains machine-local preferences only. Workspace inventory remains
-`workspaces.json`, selected by `--config`; tracked Project configuration remains
-`.dashpot/config.json`. Work Store records, public JSON output, and external
-harness configuration retain their formats.
+`workspaces.json` in the same directory, or the file `--config` selects;
+tracked Project configuration remains `.dashpot/config.json`. Work Store
+records, public JSON output, and external harness configuration retain their
+formats.
 
 ## Event Log
 

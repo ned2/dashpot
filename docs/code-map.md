@@ -57,7 +57,7 @@ rules are in [AGENTS.md](../AGENTS.md#code-conventions).
 | Project | [`project/init.py`](../src/dashpot/project/init.py) | Writes a new Project configuration into the current Repository. |
 | | [`project/project_config.py`](../src/dashpot/project/project_config.py) | Reads the Project configuration tracked at a Worktree's root. |
 | Workspace, Repository Anchor | [`project/workspace.py`](../src/dashpot/project/workspace.py) | Loads the Workspace inventory and resolves its Repository Anchors to one Project. |
-| | [`project/settings.py`](../src/dashpot/project/settings.py) | Machine-local settings — the Worktree Root, Refresh Periods, idle period and Event Level — beside the Workspace inventory. |
+| | [`project/settings.py`](../src/dashpot/project/settings.py) | Machine-local settings — the Worktree Root, Refresh Periods, idle period and Event Level — and the configuration directory they share with the Workspace inventory. |
 | Issue Profile | [`core/issue_profile.py`](../src/dashpot/core/issue_profile.py) | Validates the source-neutral facts every Issue Source conforms its Issues to. |
 | Issue Source | [`issues/issue_sources.py`](../src/dashpot/issues/issue_sources.py) | The Issue Source seam, and the parser of the Issue Hints that name Issues. |
 | | [`issues/source_factories.py`](../src/dashpot/issues/source_factories.py) | Builds the Issue Source a Project's configuration declares. |

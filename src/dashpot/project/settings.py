@@ -1,4 +1,8 @@
-"""Machine-local Dashpot settings, kept beside the Workspace inventory."""
+"""Machine-local Dashpot settings, and the configuration directory they share.
+
+The settings live in Dashpot's machine-local configuration directory beside
+the Workspace inventory, and this module names that directory for both.
+"""
 
 from __future__ import annotations
 
@@ -97,11 +101,23 @@ class Settings:
     event_level: EventLevel | None = None
 
 
+def machine_config_directory() -> Path:
+    """Dashpot's machine-local configuration: the settings and Workspace inventory.
+
+    ``$XDG_CONFIG_HOME/dashpot``, else ``~/.config/dashpot``. A relative or
+    empty ``XDG_CONFIG_HOME`` is ignored, as the XDG Base Directory
+    specification requires: it would put each process's configuration under
+    its own working directory, so a dashboard and a command started in
+    different directories would read different settings.
+    """
+    xdg = Path(os.environ.get("XDG_CONFIG_HOME", "")).expanduser()
+    base = xdg if xdg.is_absolute() else Path.home() / ".config"
+    return base / "dashpot"
+
+
 def default_settings_path() -> Path:
-    """Locate this machine's settings at ``~/.config/dashpot/config.toml``."""
-    config_home = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(config_home).expanduser() if config_home else Path.home() / ".config"
-    return base / "dashpot" / SETTINGS_FILE_NAME
+    """Locate this machine's settings: ``config.toml`` in Dashpot's configuration directory."""
+    return machine_config_directory() / SETTINGS_FILE_NAME
 
 
 def load_settings(path: Path | None = None) -> Settings:
