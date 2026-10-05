@@ -8,6 +8,7 @@ predates ``.dashpot/config.json``; nothing talks to the network.
 from __future__ import annotations
 
 import json
+import shlex
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -766,10 +767,30 @@ def test_a_branch_made_after_the_plan_is_never_rolled_back(
     assert not (tmp_path / "p" / "sim.worktrees").exists()
 
 
+# A Worktree Root a pasted recovery command would split at its space.
+SPACED_ROOT = "worktree pool"
+
+
+def recovery_after(message: str, lead: str) -> list[list[str]]:
+    """The argv of each command a message gives after ``lead``, as a shell reads it."""
+    commands: list[list[str]] = [[]]
+    for word in shlex.split(message.split(lead, 1)[1]):
+        if word == "&&":
+            commands.append([])
+        else:
+            commands[-1].append(word)
+    return commands
+
+
 def test_a_rollback_git_cannot_inspect_removes_nothing(tmp_path: Path) -> None:
-    """Not knowing what a failed add left is not knowing it left nothing."""
+    """Not knowing what a failed add left is not knowing it left nothing.
+
+    The Branch carries a shell metacharacter Git allows, which the check
+    command quotes.
+    """
     root = sim(tmp_path)
     base = git(root, "rev-parse", "HEAD")
+    branch = "fix-$HOME"
     added: list[bool] = []
 
     def failing_after_add(
@@ -777,21 +798,26 @@ def test_a_rollback_git_cannot_inspect_removes_nothing(tmp_path: Path) -> None:
     ) -> CommandResult:
         if list(args[:3]) == ["git", "worktree", "add"]:
             added.append(True)
-            git(root, "branch", "worktree-protocol", base)
+            git(root, "branch", branch, base)
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         if added and list(args[:3]) == ["git", "worktree", "list"]:
             raise CommandError("command timed out after 10s: git")
         return run_command(args, cwd, timeout)
 
     with pytest.raises(WorktreeCreateError) as failure:
-        create(root, git_adapter=Git(root, runner=failing_after_add))
+        create(root, branch=branch, git_adapter=Git(root, runner=failing_after_add))
 
-    assert str(failure.value) == (
+    message = str(failure.value)
+    assert message == (
         "git worktree add failed: fatal: simulated failure; what it left could "
-        "not be inspected (command timed out after 10s: git); check with "
-        "'git worktree list' and 'git branch --list worktree-protocol'"
+        "not be inspected (command timed out after 10s: git); check with: "
+        "git worktree list && git branch --list 'fix-$HOME'"
     )
-    assert "worktree-protocol" in local_branches(root)
+    assert recovery_after(message, "check with: ") == [
+        ["git", "worktree", "list"],
+        ["git", "branch", "--list", branch],
+    ]
+    assert branch in local_branches(root)
     assert (tmp_path / "p" / "sim.worktrees").is_dir()
 
 
@@ -810,9 +836,132 @@ def test_partially_created_worktree_is_reported_with_recovery_and_left_alone(
     assert plan.created is False
     partial = [item for item in plan.refusals if "partially created" in item]
     assert len(partial) == 1
-    assert f"git worktree remove -f -f {first.path}" in partial[0]
-    assert "git branch -D worktree-protocol" in partial[0]
+    assert partial[0].endswith(
+        f"recover with: git worktree remove -f -f {first.path} "
+        "&& git branch -D worktree-protocol"
+    )
     assert git(root, "worktree", "list", "--porcelain") == before
+
+
+def test_a_partial_worktree_refusal_quotes_a_root_with_a_space(
+    tmp_path: Path,
+) -> None:
+    """The plan's refusal, in the text and the ``--json`` rendering alike."""
+    root = sim(tmp_path)
+    pool = tmp_path / SPACED_ROOT
+    first = create(root, worktree_root_option=pool)
+    git(root, "worktree", "lock", "--reason", "initializing", first.path)
+
+    plan = create(root, worktree_root_option=pool)
+
+    partial = [item for item in plan.refusals if "partially created" in item]
+    assert len(partial) == 1
+    assert partial[0].endswith(
+        f"recover with: git worktree remove -f -f '{first.path}' "
+        "&& git branch -D worktree-protocol"
+    )
+    assert recovery_after(partial[0], "recover with: ") == [
+        ["git", "worktree", "remove", "-f", "-f", first.path],
+        ["git", "branch", "-D", "worktree-protocol"],
+    ]
+    assert partial[0] in worktree_plan_document(plan)["refusals"]
+
+
+def test_a_rolled_back_add_left_locked_quotes_its_recovery(tmp_path: Path) -> None:
+    """A killed add's lock, left by another creator under a root with a space."""
+    root = sim(tmp_path)
+    pool = tmp_path / SPACED_ROOT
+    path = pool / "worktree-protocol"
+
+    def killed_add(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if list(args[:3]) == ["git", "worktree", "add"]:
+            git(root, "worktree", "add", "-b", "worktree-protocol", str(path))
+            git(root, "worktree", "lock", "--reason", "initializing", str(path))
+            return CommandResult(list(args), 128, "", "fatal: simulated failure")
+        return run_command(args, cwd, timeout)
+
+    with pytest.raises(WorktreeCreateError) as failure:
+        create(
+            root, worktree_root_option=pool, git_adapter=Git(root, runner=killed_add)
+        )
+
+    message = str(failure.value)
+    assert message.endswith(
+        f"if it stays locked, recover with: git worktree remove -f -f '{path}' "
+        "&& git branch -D worktree-protocol"
+    )
+    assert recovery_after(message, "recover with: ") == [
+        ["git", "worktree", "remove", "-f", "-f", str(path)],
+        ["git", "branch", "-D", "worktree-protocol"],
+    ]
+    porcelain = git(root, "worktree", "list", "--porcelain").splitlines()
+    assert f"worktree {path}" in porcelain
+
+
+def test_a_branch_the_rollback_cannot_delete_names_a_quoted_command(
+    tmp_path: Path,
+) -> None:
+    """A Branch name may carry a shell metacharacter Git allows, such as ``$``."""
+    root = sim(tmp_path)
+    base = git(root, "rev-parse", "HEAD")
+    branch = "fix-$HOME"
+
+    def stuck_branch(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        if list(args[:3]) == ["git", "worktree", "add"]:
+            git(root, "branch", branch, base)
+            return CommandResult(list(args), 128, "", "fatal: simulated failure")
+        if list(args[:3]) == ["git", "branch", "-D"]:
+            return CommandResult(list(args), 1, "", "error: simulated refusal\n")
+        return run_command(args, cwd, timeout)
+
+    with pytest.raises(WorktreeCreateError) as failure:
+        create(
+            root,
+            branch=branch,
+            git_adapter=Git(root, runner=stuck_branch),
+        )
+
+    message = str(failure.value)
+    assert message.endswith(
+        "Branch fix-$HOME was created but could not be removed: error: simulated "
+        "refusal; run: git branch -D 'fix-$HOME'"
+    )
+    assert recovery_after(message, "run: ") == [["git", "branch", "-D", branch]]
+    assert branch in local_branches(root)
+
+
+def test_an_unplanned_worktree_names_quoted_inspection_and_removal(
+    tmp_path: Path,
+) -> None:
+    """An add that succeeded but left a Worktree other than the one planned."""
+    root = sim(tmp_path)
+    pool = tmp_path / SPACED_ROOT
+    path = pool / "worktree-protocol"
+
+    def littering_add(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        result = run_command(args, cwd, timeout)
+        if list(args[:3]) == ["git", "worktree", "add"]:
+            (path / "stray.txt").write_text("not planned\n")
+        return result
+
+    with pytest.raises(WorktreeCreateError) as failure:
+        create(
+            root,
+            worktree_root_option=pool,
+            git_adapter=Git(root, runner=littering_add),
+        )
+
+    message = str(failure.value)
+    assert message == (
+        f"created {path} but it is not the Worktree that was planned: it is not "
+        "clean; inspect it with: git worktree list; if it is not wanted, remove "
+        f"it with: git worktree remove -f -f '{path}' "
+        "&& git branch -D worktree-protocol"
+    )
+    assert recovery_after(message, "remove it with: ") == [
+        ["git", "worktree", "remove", "-f", "-f", str(path)],
+        ["git", "branch", "-D", "worktree-protocol"],
+    ]
 
 
 def test_unwritable_root_is_an_actionable_error(tmp_path: Path) -> None:

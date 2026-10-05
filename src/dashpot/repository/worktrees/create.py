@@ -14,6 +14,7 @@ from ...core.errors import DashpotError
 from ...core.git import Git, GitError, mutation_timeout
 from ...core.issue_profile import IssueProfile
 from ...core.pydantic import LaxSequence, PublishedModel
+from ...core.shell import shell_command, then
 from ...core.worktree_paths import (
     is_within,
     main_worktree,
@@ -300,8 +301,8 @@ def _check_collisions(
         if lock is not None and INITIALIZING_LOCK in lock:
             refusals.append(
                 f"{path} is a partially created Worktree (locked: {lock}); "
-                f"recover with 'git worktree remove -f -f {path}' and "
-                f"'git branch -D {short_branch(registered) or branch}'"
+                "recover with: "
+                f"{_removal_commands(path, short_branch(registered) or branch)}"
             )
         else:
             refusals.append(
@@ -413,10 +414,22 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
         raise WorktreeCreateError(
             f"created {path} but it is not the Worktree that was planned: "
             + "; ".join(problems)
-            + f"; inspect it with 'git worktree list' and remove it with "
-            f"'git worktree remove -f -f {path}' and 'git branch -D {plan.branch}' "
-            f"if it is not wanted"
+            + f"; inspect it with: {shell_command('git', 'worktree', 'list')}; "
+            f"if it is not wanted, remove it with: {_removal_commands(path, plan.branch)}"
         )
+
+
+def _removal_commands(path: Path, branch: str) -> str:
+    """The commands that remove a Worktree an add created or left, then its Branch.
+
+    The doubled ``-f`` removes a Worktree a killed ``git worktree add`` left
+    locked as well as one left unclean; the Branch goes once nothing has it
+    checked out.
+    """
+    return then(
+        shell_command("git", "worktree", "remove", "-f", "-f", path),
+        shell_command("git", "branch", "-D", branch),
+    )
 
 
 def _make_directories(directory: Path) -> list[Path]:
@@ -453,8 +466,11 @@ def _roll_back(
         return _remove_what_this_created(git, plan, created_directories, branch_existed)
     except GitError as exc:
         return [
-            f"what it left could not be inspected ({exc.detail}); check with "
-            f"'git worktree list' and 'git branch --list {plan.branch}'"
+            f"what it left could not be inspected ({exc.detail}); check with: "
+            + then(
+                shell_command("git", "worktree", "list"),
+                shell_command("git", "branch", "--list", plan.branch),
+            )
         ]
 
 
@@ -475,8 +491,7 @@ def _remove_what_this_created(
             messages.append(
                 f"a Worktree is registered at {path} locked '{lock}': another "
                 f"creator may still be adding it, or a killed add left it behind; "
-                f"if it stays locked, recover with 'git worktree remove -f -f "
-                f"{path}' and 'git branch -D {plan.branch}'"
+                f"if it stays locked, recover with: {_removal_commands(path, plan.branch)}"
             )
         else:
             messages.append(
@@ -507,7 +522,8 @@ def _remove_what_this_created(
             else:
                 messages.append(
                     f"Branch {plan.branch} was created but could not be removed: "
-                    f"{deleted.stderr.strip()}; run 'git branch -D {plan.branch}'"
+                    f"{deleted.stderr.strip()}; run: "
+                    f"{shell_command('git', 'branch', '-D', plan.branch)}"
                 )
         else:
             messages.append(
