@@ -109,4 +109,8 @@ node scripts/experiments/codex-460/verify.mjs docs/spikes/measurements/issue-460
 The runner prints its fixture root, and its `trace.jsonl` is the trace. The
 trace records any uncommitted change under `src/` a `worktree` publisher was
 built with, and `verify.mjs` fails on one. `--strict` also fails once a
-source a publisher was built from has changed since.
+source a publisher was built from has changed since. The run's `fix`
+publisher was built at `50078a3`, on base `ff2c1c4`. Once the branch was
+rebased onto `c8069ac`, `--strict` reports drift in
+`repository/cleanup/obstacles.py` alone: `main` changed it under #511, and
+this branch does not touch it. Every other hashed source matches.
