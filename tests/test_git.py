@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -9,7 +10,8 @@ import pytest
 
 from dashpot.core.commands import CommandError, CommandResult
 from dashpot.core.distribution import source_dirty
-from dashpot.core.git import Git, GitError
+from dashpot.core.git import MUTATION_TIMEOUT, Git, GitError
+from dashpot.repository import fetch
 from dashpot.repository.cleanup.perform import cleanup_git
 from dashpot.repository.fetch import remote_fetcher
 from factories import SequenceRunner, completed
@@ -225,3 +227,53 @@ def test_production_git_adapters_turn_optional_locks_off(
     calls = [line.split() for line in recorded.read_text().splitlines()]
     assert [subcommand for subcommand, _ in calls] == subcommands
     assert {locks for _, locks in calls} == {"0"}
+
+
+# --- Named mutations and undecodable output ----------------------------------
+
+
+def test_a_confirmed_cleanup_is_bounded_as_a_mutation_and_its_preview_is_not() -> None:
+    assert cleanup_git(10).timeout == MUTATION_TIMEOUT
+    assert cleanup_git(10, preview=True).timeout == 10
+    # A Git timeout longer than the floor still holds.
+    assert cleanup_git(900).timeout == 900
+
+
+def test_a_remote_fetch_is_bounded_as_a_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapters: list[Git] = []
+
+    def capturing(anchor: Path, *, git: Git) -> None:
+        adapters.append(git)
+
+    monkeypatch.setattr(fetch, "fetch_remotes", capturing)
+
+    remote_fetcher(10)(Path("/repo"))
+
+    (git,) = adapters
+    assert git.timeout == MUTATION_TIMEOUT
+
+
+def test_a_ref_name_that_is_not_utf8_is_read_not_raised(tmp_path: Path) -> None:
+    # Git stores a ref name as bytes; one in a legacy encoding must not fail
+    # the listing it is in. It is packed so no file system has to name it.
+    root = tmp_path / "repo"
+    root.mkdir()
+    identity = ["-c", "user.name=Sim", "-c", "user.email=sim@example.invalid"]
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    subprocess.run(
+        ["git", *identity, "commit", "-q", "--allow-empty", "-m", "start"],
+        cwd=root,
+        check=True,
+    )
+    head = Git(root).text("rev-parse", "HEAD")
+    (root / ".git" / "packed-refs").write_bytes(
+        b"# pack-refs with: peeled fully-peeled sorted \n"
+        + f"{head} ".encode()
+        + b"refs/heads/caf\xe9\n"
+    )
+
+    listed = Git(root).records("refs/heads", fields=("%(refname)",))
+
+    assert sorted(listed) == [("refs/heads/caf�",), ("refs/heads/main",)]

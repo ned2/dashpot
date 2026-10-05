@@ -87,6 +87,21 @@ def git_runner(
 # The runner of an adapter built without one: interruptible, optional locks off.
 _OBSERVATION_RUNNER = git_runner()
 
+# The least time a named mutation's adapter gives each Git command (ADR 0014,
+# ADR 0019). Dashpot's Git timeout is sized for reads, and a fetch over a slow
+# link, a delete push through a pre-push hook, or a Worktree removal deleting
+# a large ignored tree can outlast it; a mutation stopped half-way leaves
+# partial work behind, which is worse than a long wait.
+MUTATION_TIMEOUT = 300.0
+
+
+def mutation_timeout(timeout: float) -> float:
+    """The bound of a named mutation: Dashpot's Git timeout, raised to the floor.
+
+    The floor is :data:`MUTATION_TIMEOUT`; a longer Git timeout still holds.
+    """
+    return max(timeout, MUTATION_TIMEOUT)
+
 
 def last_stderr_line(stderr: str) -> str:
     """Take Git's last non-empty stderr line: the reason, after any progress noise."""

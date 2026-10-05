@@ -12,7 +12,7 @@ the others finish, so a partial failure is never reported as success.
 ``--prune`` drops the Remote-Tracking Branches that remote has deleted. No
 refspec is passed, so each remote's configured refspec decides what arrives;
 Dashpot never fetches a remote it did not configure. Every call runs under
-Dashpot's Git timeout, non-interactively: ``GIT_TERMINAL_PROMPT=0`` stops
+a named mutation's bound, non-interactively: ``GIT_TERMINAL_PROMPT=0`` stops
 Git's own credential prompt, and the runner denies the command a controlling
 terminal so an SSH prompt fails instead of taking over the screen.
 """
@@ -23,7 +23,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.git import Git, GitError, git_runner, last_stderr_line
+from ..core.git import (
+    Git,
+    GitError,
+    git_runner,
+    last_stderr_line,
+    mutation_timeout,
+)
 
 FETCH_ENVIRONMENT: dict[str, str] = {"GIT_TERMINAL_PROMPT": "0"}
 
@@ -113,14 +119,16 @@ def fetch_remotes(anchor: Path, *, git: Git) -> FetchReport:
 
 
 def remote_fetcher(timeout: float) -> RemoteFetcher:
-    """The production fetcher: a non-interactive Git adapter with Dashpot's timeout.
+    """The production fetcher: a non-interactive Git adapter under a mutation's bound.
 
     A Remote Fetch is a named mutation, so a dashboard exit lets it finish
-    rather than interrupting it as it would an observation.
+    rather than interrupting it as it would an observation, and each command
+    is given :func:`~dashpot.core.git.mutation_timeout` rather than the
+    Git timeout ``timeout``.
     """
     git = Git(
         Path.cwd(),
-        timeout,
+        mutation_timeout(timeout),
         git_runner(FETCH_ENVIRONMENT, non_interactive=True, interruptible=False),
     )
     return lambda anchor: fetch_remotes(anchor, git=git)

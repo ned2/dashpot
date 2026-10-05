@@ -42,6 +42,11 @@ The ignored-content inventory sets `--untracked-files=normal` rather than
 following `status.showUntrackedFiles`, and an inventory Git refuses blocks
 the removal.
 
+Amended in place for [#539](https://github.com/ned2/dashpot/issues/539):
+a named mutation's Git commands get a bound of their own, the Git timeout
+raised to at least five minutes, and a command that outlasts its bound is
+asked to stop with its whole process group before it is killed.
+
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),
 [ADR 0017](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md),
@@ -95,8 +100,9 @@ and it mutates only the targets the person selected:
   drops that Remote-Tracking Branch on a successful delete push. Dashpot
   issues no separate tracking-ref deletion and never fetches; a tracking ref
   that survives an unknown outcome is left for `f`. The remote's Integration
-  Branch is never a target. The push runs non-interactively under the Git
-  timeout, with the person's pre-push hook honoured rather than bypassed.
+  Branch is never a target. The push runs non-interactively under a named
+  mutation's bound, with the person's pre-push hook honoured rather than
+  bypassed.
 - **Worktree removal is unforced.** `git worktree remove PATH` is run without
   `--force`, so Git refuses modified or untracked files, a lock, or
   submodules, and Dashpot refuses first: a Worktree with an Agent Session,
@@ -123,7 +129,16 @@ and it mutates only the targets the person selected:
   a successful mutation is never rolled back.
 - **Every target reports its own outcome.** `deleted`, `already-absent`,
   `refused`, or `unknown` — the last for a timeout or an interrupted remote
-  operation that may have succeeded, which Dashpot never retries. A deleted
+  operation that may have succeeded, which Dashpot never retries. Every Git
+  command of a confirmed Cleanup, the re-inspection before its steps
+  included, runs under a named mutation's bound rather than the Git timeout
+  sized for reads: that timeout, raised to at least five minutes
+  ([ADR 0014](0014-fetch-remotes-on-explicit-key-press.md)), so a delete
+  push through a slow pre-push hook or a removal deleting a large ignored
+  `.venv` finishes rather than stopping half-way. A command that outlasts
+  the bound is asked to stop, with every helper in its process group, and
+  killed only after a short grace, so Git can remove its lock files before
+  the outcome is reported `unknown`. A deleted
   target reports its tip OID and the command that recreates it, so the `≡`
   case, whose original commits lose their last named ref, stays recoverable
   until Git prunes them.

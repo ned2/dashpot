@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -9,11 +11,12 @@ from collections.abc import Callable
 from contextvars import copy_context
 from pathlib import Path
 from threading import Thread
-from typing import Any
+from typing import Any, Literal
 from unittest import mock
 
 import pytest
 
+from dashpot.core import commands
 from dashpot.core.commands import (
     CommandError,
     CommandResult,
@@ -216,7 +219,7 @@ def test_a_command_that_ended_while_still_held_is_not_signalled() -> None:
     # reported as interrupted.
     running = RunningCommands()
     with (
-        subprocess.Popen([sys.executable, "-c", "pass"], text=True) as process,
+        subprocess.Popen([sys.executable, "-c", "pass"]) as process,
         running.holding(process),
     ):
         process.wait(PROMPT)
@@ -232,7 +235,7 @@ def test_a_command_let_go_during_the_interruption_is_not_signalled() -> None:
     # runner that let go of its command in between has seen it end, so the
     # command is not marked interrupted after the fact.
     running = RunningCommands()
-    with subprocess.Popen(SLEEP, text=True) as process:
+    with subprocess.Popen(SLEEP) as process:
         hold = running.holding(process)
         hold.__enter__()
         real_poll = process.poll
@@ -254,7 +257,7 @@ def test_an_interrupt_of_the_runner_itself_does_not_leave_the_child() -> None:
         pass
 
     running = RunningCommands()
-    children: list[subprocess.Popen[str]] = []
+    children: list[subprocess.Popen[Any]] = []
     real_popen = subprocess.Popen
 
     def recording_popen(*args: Any, **kwargs: Any) -> Any:
@@ -286,3 +289,250 @@ def test_a_timed_out_command_is_killed_and_reported() -> None:
 def test_a_missing_binary_is_reported() -> None:
     with pytest.raises(CommandError, match="command not found: dashpot-no-such"):
         run_command(["dashpot-no-such-binary"], Path.cwd(), 1)
+
+
+def test_a_missing_working_directory_is_not_a_missing_binary(tmp_path: Path) -> None:
+    gone = tmp_path / "removed-worktree"
+
+    with pytest.raises(CommandError) as caught:
+        run_command([sys.executable, "-c", "pass"], gone, 1)
+
+    assert str(caught.value) == f"working directory does not exist: {gone}"
+    assert caught.value.code == "command-directory-missing"
+
+
+def test_a_missing_binary_has_its_own_code() -> None:
+    with pytest.raises(CommandError) as caught:
+        run_command(["dashpot-no-such-binary"], Path.cwd(), 1)
+
+    assert caught.value.code == "command-not-found"
+
+
+def test_output_that_is_not_utf8_is_replaced_not_raised() -> None:
+    # A ref or path Git stores in a legacy encoding is one value among many:
+    # it reads as the replacement character, and every other byte as written,
+    # carriage returns included.
+    script = (
+        "import sys; "
+        "sys.stdout.buffer.write(b'refs/heads/caf\\xe9\\0a\\rb\\n'); "
+        "sys.stderr.buffer.write(b'\\xff')"
+    )
+
+    result = run_command([sys.executable, "-c", script], Path.cwd(), 10)
+
+    assert result.returncode == 0
+    assert result.stdout == "refs/heads/caf�\0a\rb\n"
+    assert result.stderr == "�"
+
+
+# --- Stopping a timed-out command --------------------------------------------
+
+# A helper the command starts, as Git starts an SSH transport or a hook. It
+# records its pid once it is ready, and on a termination request records that
+# it was asked, then exits — unless it, or both, are told to ignore it.
+HELPER = """
+import os, pathlib, signal, sys, time
+asked, ready, ignore = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+def stop(*_):
+    asked.write_text("terminated")
+    sys.exit(0)
+signal.signal(signal.SIGTERM, signal.SIG_IGN if ignore != "honour" else stop)
+staged = ready.with_suffix(".tmp")
+staged.write_text(str(os.getpid()))
+staged.rename(ready)
+time.sleep(30)
+"""
+
+# The command itself: starts the helper, then outlasts any test timeout,
+# ignoring a termination request only when both are told to.
+COMMAND = """
+import signal, subprocess, sys, time
+helper, asked, ready, ignore = sys.argv[1:5]
+if ignore == "ignore":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+subprocess.Popen([sys.executable, "-c", helper, asked, ready, ignore])
+time.sleep(30)
+"""
+
+
+def gone(pid: int) -> bool:
+    """Whether ``pid`` has ended: no such process, or one only left to be reaped."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    stat = Path(f"/proc/{pid}/stat")
+    try:
+        return stat.read_text().rsplit(")", 1)[1].split()[0] == "Z"
+    except OSError:
+        return False
+
+
+def timing_out_once_ready(ready: Path) -> Callable[..., Any]:
+    """A ``communicate`` that times out only once the helper is running.
+
+    The timeout is then certain to find the whole process group in place,
+    however slowly the interpreters start.
+    """
+
+    def communicate(
+        process: subprocess.Popen[bytes],
+        input: Any = None,
+        timeout: float | None = None,
+    ) -> Any:
+        wait_for(ready.exists, timeout=30)
+        raise subprocess.TimeoutExpired(process.args, timeout or 0)
+
+    return communicate
+
+
+def run_timing_out(
+    tmp_path: Path,
+    *,
+    non_interactive: bool,
+    ignore: Literal["honour", "ignore", "helper-ignores"] = "honour",
+) -> tuple[subprocess.Popen[Any], int, Path]:
+    """Run the command until it times out; its process, its helper's pid, the marker."""
+    asked, ready = tmp_path / "asked", tmp_path / "ready"
+    args = [
+        sys.executable,
+        "-c",
+        COMMAND,
+        HELPER,
+        str(asked),
+        str(ready),
+        ignore,
+    ]
+    started: list[subprocess.Popen[Any]] = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(*popen_args: Any, **kwargs: Any) -> Any:
+        started.append(process := real_popen(*popen_args, **kwargs))
+        return process
+
+    with (
+        mock.patch.object(subprocess, "Popen", side_effect=recording_popen),
+        mock.patch.object(real_popen, "communicate", timing_out_once_ready(ready)),
+        pytest.raises(CommandError, match=r"command timed out after 0\.5s") as caught,
+    ):
+        run_command(args, tmp_path, 0.5, non_interactive=non_interactive)
+
+    assert caught.value.code == "command-timed-out"
+    (process,) = started
+    return process, int(ready.read_text()), asked
+
+
+def test_a_timed_out_command_is_asked_to_stop_with_every_helper_it_started(
+    tmp_path: Path,
+) -> None:
+    process, helper, asked = run_timing_out(tmp_path, non_interactive=True)
+
+    # The command and its helper share the command's own process group, and
+    # both were sent the termination request, so Git can remove its lock
+    # files rather than being killed outright.
+    assert process.returncode == -signal.SIGTERM
+    wait_for(lambda: gone(helper))
+    assert asked.read_text() == "terminated"
+
+
+def test_a_command_that_will_not_stop_is_killed_after_the_grace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands, "STOP_GRACE", 0.2)
+
+    process, helper, asked = run_timing_out(
+        tmp_path, non_interactive=True, ignore="ignore"
+    )
+
+    assert process.returncode == -signal.SIGKILL
+    wait_for(lambda: gone(helper))
+    assert not asked.exists()
+
+
+def test_a_helper_that_outlives_its_command_is_killed_after_the_grace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A hook that traps the termination request while Git itself stops.
+    monkeypatch.setattr(commands, "STOP_GRACE", 0.2)
+
+    process, helper, asked = run_timing_out(
+        tmp_path, non_interactive=True, ignore="helper-ignores"
+    )
+
+    assert process.returncode == -signal.SIGTERM
+    wait_for(lambda: gone(helper))
+    assert not asked.exists()
+
+
+def test_a_timed_out_command_sharing_dashpot_s_group_is_stopped_alone(
+    tmp_path: Path,
+) -> None:
+    # Without its own session the command is in Dashpot's process group,
+    # which must never be signalled; its helper is left to end on its own.
+    process, helper, _asked = run_timing_out(tmp_path, non_interactive=False)
+
+    assert process.returncode == -signal.SIGTERM
+    assert not gone(helper)
+    os.kill(helper, signal.SIGKILL)
+
+
+def test_a_command_already_reaped_is_never_signalled() -> None:
+    # Once reaped, a command's pid may name another process, so stopping a
+    # command that has already ended sends nothing at all.
+    class Unplugged(BaseException):
+        pass
+
+    def reaped_then_unplugged(
+        process: subprocess.Popen[bytes],
+        input: Any = None,
+        timeout: float | None = None,
+    ) -> Any:
+        process.wait(PROMPT)
+        raise Unplugged
+
+    with (
+        mock.patch.object(subprocess.Popen, "communicate", reaped_then_unplugged),
+        mock.patch.object(os, "killpg") as killpg,
+        pytest.raises(Unplugged),
+    ):
+        run_command(
+            [sys.executable, "-c", "pass"], Path.cwd(), 10, non_interactive=True
+        )
+
+    killpg.assert_not_called()
+
+
+def test_a_command_sharing_dashpot_s_group_that_will_not_stop_is_killed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands, "STOP_GRACE", 0.2)
+
+    process, helper, _asked = run_timing_out(
+        tmp_path, non_interactive=False, ignore="ignore"
+    )
+
+    # The kill, like the request before it, reaches the command alone.
+    assert process.returncode == -signal.SIGKILL
+    assert not gone(helper)
+    os.kill(helper, signal.SIGKILL)
+
+
+def test_a_group_left_only_its_stopped_leader_is_not_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # macOS refuses a signal to a group of zombies as not permitted, where
+    # Linux accepts it; either way the stop completes.
+    real_killpg = os.killpg
+
+    def refusing_the_kill(pgid: int, signum: int) -> None:
+        if signum == signal.SIGKILL:
+            raise PermissionError(1, "Operation not permitted")
+        real_killpg(pgid, signum)
+
+    monkeypatch.setattr(os, "killpg", refusing_the_kill)
+
+    process, helper, asked = run_timing_out(tmp_path, non_interactive=True)
+
+    assert process.returncode == -signal.SIGTERM
+    wait_for(lambda: gone(helper))
+    assert asked.read_text() == "terminated"
