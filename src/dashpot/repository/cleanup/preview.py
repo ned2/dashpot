@@ -27,6 +27,7 @@ from .obstacles import (
     NO_INTEGRATION_BRANCH,
     LocatedWorktree,
     assess_detached_head_preservation,
+    assess_nested_worktrees,
     assess_processes_inside,
     assess_worktree_occupancy,
     assess_worktree_safety,
@@ -344,7 +345,9 @@ def _inspect_worktree(
     blockers, unchecked = _worktree_blockers(
         located, lookup, lock_probe, protected, scan
     )
-    ignored = tuple(ignored_content(located.git, path))
+    listed, inventory_blockers = ignored_content(located.git, path)
+    ignored = tuple(listed)
+    blockers.extend(inventory_blockers)
     identity = f"worktree:{path}"
     branch = located.branch
     consequences = [f"removes {path} with git worktree remove"]
@@ -439,6 +442,7 @@ def _worktree_blockers(
     blockers.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
     found, unchecked = assess_processes_inside(located, scan)
     blockers.extend(found)
+    blockers.extend(assess_nested_worktrees(located))
     if located.detached:
         blockers.extend(assess_detached_head_preservation(located.git, located.head))
     if any(same_path(path, candidate.expanduser()) for candidate in protected):

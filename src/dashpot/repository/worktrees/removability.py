@@ -13,6 +13,7 @@ from ...sessions.working_directories import ProcessScan
 from ..cleanup.obstacles import (
     assess_branch_preservation,
     assess_detached_head_preservation,
+    assess_nested_worktrees,
     assess_processes_inside,
     assess_worktree_occupancy,
     assess_worktree_safety,
@@ -64,8 +65,8 @@ def check_worktree(
 
     Everything here is observed: Git's dirty state and locks, the Agent
     Sessions whose hooks place them at the Worktree, the Agent Runs recorded
-    there, the processes running inside it, and commits its Branch has that
-    no upstream or Integration Branch has.
+    there, the processes running inside it, the Worktrees registered inside
+    it, and commits its Branch has that no upstream or Integration Branch has.
     Dashpot removes nothing; each obstacle names the command that acts on it.
     """
     located = locate_worktree(current, target, timeout=timeout)
@@ -75,6 +76,7 @@ def check_worktree(
     obstacles.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
     found, unchecked = assess_processes_inside(located, scan)
     obstacles.extend(found)
+    obstacles.extend(assess_nested_worktrees(located))
     content_integrated = False
     if branch is not None:
         branch_obstacles, content_integrated = assess_branch_preservation(

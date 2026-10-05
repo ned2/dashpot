@@ -19,6 +19,14 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   could not all be read, as inside a sandbox, a removable Worktree's
   preview and `worktree check` report say so, and their JSON carries it as
   `uncheckedProcesses`.
+- Refuse to remove a Worktree that holds another registered Worktree, such
+  as one Claude Code's `EnterWorktree` created under `.claude/worktrees/`,
+  which an unforced `git worktree remove` would delete unchecked. The
+  `nested-worktree` blocker names each one and the command that removes it
+  first. The ignored-content inventory no longer follows
+  `status.showUntrackedFiles`, so `no` cannot hide it and drop the
+  `--delete-ignored` gate, and an inventory Git refuses is an
+  `ignored-content` blocker rather than no ignored content.
 - Remove a Worktree despite the sub-agents its preview lists as working,
   as a person's Sub-agent Override for exactly that set:
   `dashpot worktree remove PATH --despite-subagents SESSION_ID:AGENT_ID,…`,

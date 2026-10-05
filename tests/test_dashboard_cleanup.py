@@ -1436,6 +1436,15 @@ def test_a_branch_held_by_a_blocked_worktree_says_only_that():
     ) == ("Checked out in a Worktree; remove that Worktree first.")
 
 
+@pytest.mark.parametrize("kind", ["nested-worktree", "ignored-content"])
+def test_a_worktree_blocker_without_a_summary_is_shown_by_its_detail(kind):
+    # The detail names the Worktree inside, or Git's reason, which no fixed
+    # summary could.
+    blocker = CleanupBlocker(kind=kind, detail="the Worktree /w/inner is inside")
+    blocked = TREE.model_copy(update={"blockers": (blocker,)})
+    assert blocker_summary(blocker, blocked) == "the Worktree /w/inner is inside"
+
+
 def test_details_identify_each_target_and_blocker_without_recovery():
     now = datetime(2026, 9, 26, 12, tzinfo=UTC)
     tip = TIP[:7]
