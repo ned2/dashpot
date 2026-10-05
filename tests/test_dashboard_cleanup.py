@@ -65,6 +65,7 @@ from dashpot.ui.cleanup_view import (
     CleanupScreen,
     CleanupTargetView,
     blocker_summary,
+    freshness_line,
     target_facts,
     target_summary,
 )
@@ -1582,6 +1583,41 @@ def test_a_single_commit_reads_in_the_singular():
     assert target_summary(preview("branch", "feat", one(True)), one(True)).startswith(
         "Content integrated into main; 1 original commit is not retained there."
     )
+
+
+def test_the_freshness_line_shows_only_where_the_preview_rests_on_remote_facts():
+    now = datetime(2026, 9, 26, 12, tzinfo=UTC)
+    local_fact = IntegrationFact(
+        integration_ref="refs/heads/main",
+        unintegrated_commits=0,
+        content_integrated=None,
+    )
+    local_only = LOCAL.model_copy(update={"integration": local_fact})
+    assert freshness_line(preview("branch", "feat", local_only), None, now) is None
+
+    # A remote Branch rests on the last fetch, dated by the preview's own
+    # timestamp, else by the first target observed with one.
+    fetched_at = (now - timedelta(hours=3)).isoformat()
+    observed = REMOTE.model_copy(
+        update={"observed_at": (now - timedelta(hours=5)).isoformat()}
+    )
+    shown = preview("branch", "feat", local_only, observed)
+    line = freshness_line(shown, fetched_at, now)
+    assert line is not None
+    assert str(line.render()) == "Remote last fetched 3h ago"
+    assert str(line.tooltip) == (
+        f"Repository fetch timestamp: {fetched_at} (not per-remote verification)"
+    )
+    fallback = freshness_line(shown, None, now)
+    assert fallback is not None
+    assert str(fallback.render()) == "Remote last fetched 5h ago"
+
+    # A local Branch judged against a Remote-Tracking Branch rests on it too;
+    # never fetched, it says so without a timestamp to hover.
+    tracked = freshness_line(preview("branch", "feat", LOCAL), None, now)
+    assert tracked is not None
+    assert str(tracked.render()) == "Remote never fetched"
+    assert tracked.tooltip is None
 
 
 @pytest.mark.parametrize(

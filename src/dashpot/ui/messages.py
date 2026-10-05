@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, Protocol
 
 from textual.geometry import Size
@@ -136,6 +137,14 @@ class AttachmentProbed(Message):
     """
 
     attached: bool | None = None
+    error: str | None = None
+
+
+@dataclass(eq=False)
+class WorktreeLaunched(Message):
+    """A Worktree launch request completed for ``path``, or failed."""
+
+    path: Path | None = None
     error: str | None = None
 
 

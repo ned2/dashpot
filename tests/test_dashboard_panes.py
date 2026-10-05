@@ -9,6 +9,7 @@ import pytest
 from rich.text import Text
 from textual.coordinate import Coordinate
 from textual.pilot import Pilot
+from textual.widgets import Static
 
 import factories
 from app_harness import (
@@ -41,6 +42,7 @@ from dashpot.observation.issue_list import row_key
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.glyphs import SESSION_STATE_GLYPHS
 from dashpot.ui.issue_view import IssueScreen
+from dashpot.ui.list_pane import ListColumn, PaneRows
 from dashpot.ui.messages import ObservationTrigger
 from helpers import snapshot_of, wait_until
 
@@ -222,6 +224,50 @@ async def test_pane_selection_survives_refresh_by_identity_or_moves_to_a_neighbo
         pane.show_rows(())
         await pilot.pause()
         assert pane.highlighted() == (None, 0)
+
+
+@pytest.mark.asyncio
+async def test_a_pane_shows_every_extra_one_refresh_hands_it() -> None:
+    # One PaneRows carries everything a refresh varies, so a field the pane
+    # dropped would leave its frame or controls showing the last refresh's.
+    app = dashboard_app(
+        SequenceCollector(workspace_snapshot(issue("test/repo#1", "First")))
+    )
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        screen = app.query_screen
+        pane = screen.pull_requests_pane()
+        columns = (ListColumn("name", "NAME"), ListColumn("detail", "DETAIL"))
+        pane.show(
+            PaneRows(
+                list_rows(2),
+                columns=columns,
+                note="as of now",
+                title_summary="7 open",
+                filter_count="2 matched",
+            )
+        )
+        await pilot.pause()
+        assert pane_title(screen, "#pull-requests-pane") == "PULL REQUESTS · 7 open"
+        assert pane_subtitle(screen, "#pull-requests-pane") == "as of now"
+        assert pane.columns == columns
+        assert [str(column.label) for column in pane.table.columns.values()] == [
+            "NAME",
+            "DETAIL",
+        ]
+        assert pane.controls is not None
+        assert str(pane.controls.count.render()) == "2 matched"
+        assert set(pane.rows_by_key) == {"row-0", "row-1"}
+
+        pane.show(PaneRows((), empty_message="Nothing matched"))
+        await pilot.pause()
+        assert pane_title(screen, "#pull-requests-pane") == "PULL REQUESTS · 0"
+        assert pane.border_subtitle is None
+        empty = pane.query_one(".list-pane-empty", Static)
+        assert str(empty.render()) == "Nothing matched"
+        # Without a count of its own, the controls keep the last one shown.
+        assert str(pane.controls.count.render()) == "2 matched"
 
 
 def session_run(

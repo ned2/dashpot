@@ -52,7 +52,7 @@ from ..queries.page_navigation import totals_text
 from ..queries.pages import QuerySource, ResourceKind
 from ..repository.cleanup import CleanupAdapter
 from ..repository.fetch import RemoteFetcher
-from ..repository.worktree_launcher import LauncherConfiguration, WorktreeLaunchError
+from ..repository.worktree_launcher import LauncherConfiguration, WorktreeOpener
 from .alerts import Alert, list_diagnostics, summarize_alerts
 from .attendance import Attendance, AttendanceChange
 from .change_events import (
@@ -85,6 +85,7 @@ from .messages import (
     ObservationFinished,
     ObservationTrigger,
     PageFinished,
+    WorktreeLaunched,
 )
 from .navigation_summary import navigation_summary
 from .observation_runner import (
@@ -235,16 +236,7 @@ class DashboardScreen(Screen[None]):
         with PeerBody(id="body"):
             with Container(id="list-row"):
                 for spec in DASHBOARD_PANE_SPECS:
-                    yield ListPane(
-                        spec.label,
-                        columns=spec.columns,
-                        empty_message=spec.empty_message,
-                        id=spec.pane_id,
-                        table_id=spec.table_id,
-                        table_type=spec.table_type,
-                        controls_height=spec.controls_height,
-                        visible_row_limit=spec.visible_row_limit,
-                    )
+                    yield ListPane.from_spec(spec)
             # The alert floats on the body's own readout layer, so appearing
             # and disappearing never changes the height the panes are fitted
             # into; see the pane stack's note in the stylesheet.
@@ -355,16 +347,7 @@ class DashboardScreen(Screen[None]):
             now=datetime.now(UTC),
         )
         for spec in DASHBOARD_PANE_SPECS:
-            view = spec.rows(context)
-            self.list_pane(spec.pane_id).show_rows(
-                view.rows,
-                columns=view.columns,
-                note=view.note,
-                empty_message=view.empty_message,
-                title_summary=view.title_summary,
-                filter_count=view.filter_count,
-                records=view.records,
-            )
+            self.list_pane(spec.pane_id).show(spec.rows(context))
         self.update_related_rows()
 
     def records(self) -> tuple[FocusedSource, ...]:
@@ -434,6 +417,17 @@ class DashboardScreen(Screen[None]):
             return
         self.app.copy_to_clipboard(command)
         self.app.notify(f"Resume command sent to clipboard: {command}")
+
+    def redraw(self, *, lists: bool) -> None:
+        """Reconcile every Dashboard surface with the shared facts.
+
+        ``lists`` re-lists the panes' records too, which only a landed
+        change or page needs; the status bar and readouts always repaint.
+        """
+        if lists:
+            self.reconcile_list_panes()
+        self.update_status()
+        self.update_diagnostics()
 
     def update_status(self) -> None:
         """Render current location and the shared Project Totals summary."""
@@ -525,17 +519,7 @@ class IssuesPullRequestsScreen(Screen[None]):
         with PeerBody(id="query-body"):
             with Container(id="query-list-row"):
                 for spec in QUERY_PANE_SPECS:
-                    yield ListPane(
-                        spec.label,
-                        columns=spec.columns,
-                        empty_message=spec.empty_message,
-                        id=spec.pane_id,
-                        table_id=spec.table_id,
-                        table_type=spec.table_type,
-                        controls=self.pane_controls(spec),
-                        controls_height=spec.controls_height,
-                        visible_row_limit=spec.visible_row_limit,
-                    )
+                    yield ListPane.from_spec(spec, controls=self.pane_controls(spec))
                 with Vertical(id="issues-pane"):
                     yield self.issue_filter_bar
                     yield IssueTable(
@@ -634,16 +618,12 @@ class IssuesPullRequestsScreen(Screen[None]):
         self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
         for kind, bar in self.filter_bars.items():
             bar.search.placeholder = self.dashpot.queries.sources[kind].search_prompt
-        self.update_status()
-        self.call_after_refresh(self.update_status)
         if self.dashpot.store.pages:
-            self.issue_table().loading = False
-            self.issue_table_controller.reconcile_rows()
-            self.update_issue_inventory()
-            self.reconcile_list_panes()
-            self.update_diagnostics()
+            self.redraw(lists=True)
         else:
             self.issue_table().loading = True
+            self.update_status()
+        self.call_after_refresh(self.update_status)
 
     def on_theme_changed(self, _theme: Theme) -> None:
         """Re-render semantic table colors for the new theme brightness."""
@@ -776,16 +756,7 @@ class IssuesPullRequestsScreen(Screen[None]):
             now=datetime.now(UTC),
         )
         for spec in QUERY_PANE_SPECS:
-            view = spec.rows(context)
-            self.list_pane(spec.pane_id).show_rows(
-                view.rows,
-                columns=view.columns,
-                note=view.note,
-                empty_message=view.empty_message,
-                title_summary=view.title_summary,
-                filter_count=view.filter_count,
-                records=view.records,
-            )
+            self.list_pane(spec.pane_id).show(spec.rows(context))
 
     @on(DataTable.RowSelected, "#issues")
     def open_selected_issue(self, event: DataTable.RowSelected) -> None:
@@ -817,6 +788,21 @@ class IssuesPullRequestsScreen(Screen[None]):
         # cursor is for scrolling, copying and refresh scope alone.
         if self.is_mounted:
             self.issue_table_controller.show_row(str(event.row_key.value))
+
+    def redraw(self, *, lists: bool) -> None:
+        """Reconcile every Issues & Pull Requests surface with the shared facts.
+
+        ``lists`` re-lists the Issue table and the list panes too, which only
+        a landed change or page needs; the status bar and readouts always
+        repaint.
+        """
+        if lists:
+            self.issue_table().loading = False
+            self.issue_table_controller.reconcile_rows()
+            self.update_issue_inventory()
+            self.reconcile_list_panes()
+        self.update_status()
+        self.update_diagnostics()
 
     def update_status(self) -> None:
         """Render current location and the shared Project Totals summary."""
@@ -985,6 +971,29 @@ class DashpotApp(App[None]):
     def peer_screens(self) -> tuple[DashboardScreen, IssuesPullRequestsScreen]:
         """Both long-lived peers in direct-navigation order."""
         return self.dashboard, self.query_screen
+
+    def mounted_peers(self) -> tuple[DashboardScreen | IssuesPullRequestsScreen, ...]:
+        """The peers an update can still reach on every surface, in navigation order.
+
+        A late message can be dispatched during shutdown while a peer's
+        widgets are being unmounted one by one, so every redraw asks here.
+        """
+        return tuple(
+            peer
+            for peer in self.peer_screens()
+            if peer.is_mounted and peer.surfaces_mounted()
+        )
+
+    def redraw_peers(self, *, lists: bool) -> None:
+        """Redraw every mounted peer from the shared facts, recording Diagnostic changes.
+
+        ``lists`` re-lists each peer's records as well as its status bar and
+        readouts: a landing that changed records, or a page, needs it; an
+        unchanged landing does not.
+        """
+        self.diagnostic_changes.observe(self.shown_diagnostics())
+        for peer in self.mounted_peers():
+            peer.redraw(lists=lists)
 
     def is_peer_screen(self, screen: Screen[Any] | None = None) -> bool:
         """Whether ``screen``, the active screen by default, is a Peer Screen."""
@@ -1162,8 +1171,8 @@ class DashpotApp(App[None]):
         self, operation: Callable[[], T], *, executor: ThreadPoolExecutor | None = None
     ) -> T:
         """Run one blocking operation on an executor thread and return its value."""
-        # Fetches, Cleanups and Worktree launches share the observation pool;
-        # each is one blocking call per Project, never enough to need its own.
+        # Off-loop work without an executor of its own shares the
+        # observation pool, which ``refresh_pool_size`` sizes for all of it.
         # The operation keeps the current span but runs in its thread's own
         # context, where the command registry the thread adopted lives; its
         # commands are recorded to this run's Event Log even outside a span.
@@ -1184,9 +1193,8 @@ class DashpotApp(App[None]):
         # the app not running before it removes screens or closes messages.
         if not self.is_running or self.closing:
             return
-        for peer in self.peer_screens():
-            if peer.is_mounted and peer.surfaces_mounted():
-                peer.update_alert()
+        for peer in self.mounted_peers():
+            peer.update_alert()
 
     def set_event_level(self, level: EventLevel) -> None:
         """Change what this run records for the rest of it, never its settings."""
@@ -1311,9 +1319,8 @@ class DashpotApp(App[None]):
     def update_diagnostics(self) -> None:
         """Redraw the diagnostics readout after a flow recorded a failure."""
         self.diagnostic_changes.observe(self.shown_diagnostics())
-        for peer in self.peer_screens():
-            if peer.is_mounted and peer.surfaces_mounted():
-                peer.update_diagnostics()
+        for peer in self.mounted_peers():
+            peer.update_diagnostics()
 
     def run_off_loop[T](
         self,
@@ -1379,26 +1386,24 @@ class DashpotApp(App[None]):
             return
         table.opening = True
         self.notify(f"Opening Worktree: {path}")
-        self.run_worker(
-            self.open_worktree(path),
-            name="open Worktree",
-            group="worktree-launch",
-            exit_on_error=False,
+        self.run_off_loop(
+            "open Worktree",
+            "worktree-launch",
+            partial(launch_worktree, opener, path),
+            WorktreeLaunched,
         )
 
-    async def open_worktree(self, path: Path) -> None:
-        """Run the captured launch without blocking dashboard interaction."""
-        opener = self.launcher_configuration.opener
-        assert opener is not None
-        try:
-            await self.off_loop(partial(opener, path))
-        except (OSError, ValueError, WorktreeLaunchError) as exc:
-            self.notify(str(exc), title="Open Worktree", severity="error")
+    def on_worktree_launched(self, message: WorktreeLaunched) -> None:
+        self.finish_worktree_launch(message)
+
+    def finish_worktree_launch(self, message: WorktreeLaunched) -> None:
+        """Release the Worktree row, then say whether its launch request completed."""
+        if self.dashboard.is_mounted:
+            self.dashboard.query_one(WorktreeTable).opening = False
+        if message.error is not None:
+            self.notify(message.error, title="Open Worktree", severity="error")
         else:
             self.notify("Worktree launch request completed")
-        finally:
-            if self.dashboard.is_mounted:
-                self.dashboard.query_one(WorktreeTable).opening = False
 
     def action_refresh(self) -> None:
         """Refresh every observation in the Workspace.
@@ -1579,19 +1584,7 @@ class DashpotApp(App[None]):
         self.queries.publish()
         if not self.is_running:
             return
-        dashboard = self.dashboard
-        if dashboard.is_mounted and dashboard.surfaces_mounted():
-            dashboard.reconcile_list_panes()
-        query_screen = self.query_screen
-        if query_screen.is_mounted and query_screen.surfaces_mounted():
-            query_screen.issue_table().loading = False
-            query_screen.issue_table_controller.reconcile_rows()
-            query_screen.update_issue_inventory()
-            query_screen.reconcile_list_panes()
-        self.update_diagnostics()
-        for peer in self.peer_screens():
-            if peer.is_mounted and peer.surfaces_mounted():
-                peer.update_status()
+        self.redraw_peers(lists=True)
         if isinstance(self.screen, IssueScreen):
             context = self.store.detail_for(self.screen.context)
             if context:
@@ -1653,19 +1646,13 @@ class DashpotApp(App[None]):
             self.notify(
                 "Refresh succeeded", severity="information", title="Dashpot refresh"
             )
-        if landed.changes:
-            if self.dashboard.is_mounted and self.dashboard.surfaces_mounted():
-                self.dashboard.reconcile_list_panes()
-            query_screen = self.query_screen
-            if query_screen.is_mounted and query_screen.surfaces_mounted():
-                query_screen.issue_table().loading = False
-                query_screen.issue_table_controller.reconcile_rows()
-                query_screen.update_issue_inventory()
-                query_screen.reconcile_list_panes()
-        for peer in self.peer_screens():
-            if peer.is_mounted and peer.surfaces_mounted():
-                peer.update_status()
-        self.update_diagnostics()
+        self.redraw_peers(lists=bool(landed.changes))
+
+
+def launch_worktree(opener: WorktreeOpener, path: Path) -> Path:
+    """Run one captured Worktree launch and name the Worktree it was for."""
+    opener(path)
+    return path
 
 
 def legend_keys() -> tuple[KeyGroup, ...]:
