@@ -154,8 +154,8 @@ xfail_strict = true
 # scripts/ carries evidence about its own lines.
 source = ["dashpot"]
 source_dirs = ["scripts"]
-# The pinned harness acceptance runs drive real harness releases by hand in a
-# disposable fixture; no test runs them.
+# The experiments run by hand in a disposable fixture, outside the suite; no
+# test runs them.
 omit = ["scripts/experiments/*"]
 
 [tool.coverage.report]
