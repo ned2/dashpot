@@ -83,8 +83,8 @@ class AgentSessionIdentity:
 def enclosing_session(
     root: Path,
     worktrees: Sequence[Path],
-    command: str | None,
     *,
+    command: str | None,
     lookup: ProcessLookup,
     environ: Mapping[str, str] | None,
     note: OutcomeNote | None = None,

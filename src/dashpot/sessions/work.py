@@ -2,10 +2,10 @@
 
 ``work forget-subagents`` lives here too: it forgets the sub-agents an ended
 Agent Session still lists, which hold Worktree Cleanup as its Issue work did.
-Every command finds its session with
-:func:`~dashpot.sessions.session_identity.enclosing_session` and that
-session's runs with :func:`session_runs`, then applies its own policy to
-what they find. A Lead's ``work assign`` and ``work unassign`` are in
+Every command that acts for the enclosing session finds it with
+:func:`~dashpot.sessions.session_identity.enclosing_session`, and one that
+changes its runs across the Repository finds them with :func:`session_runs`,
+then applies its own policy to what they find. A Lead's ``work assign`` and ``work unassign`` are in
 :mod:`dashpot.sessions.worker_assignments`.
 """
 
@@ -83,7 +83,7 @@ def start_issue_work(
     root = worktree_root(current)
     worktrees = repository_worktrees(root)
     session, stores = enclosing_session(
-        root, worktrees, "start", lookup=lookup, environ=environ, note=note
+        root, worktrees, command="start", lookup=lookup, environ=environ, note=note
     )
     issue = resolve_issue(root, reference, timeout)
     note.identify(issue_id=issue.id)
@@ -106,7 +106,7 @@ def start_issue_work(
     )
     selected_elsewhere: list[tuple[Path, ActiveWork]] = []
     for candidate, _store, pending in found_elsewhere:
-        check_runtime(session, pending, lookup)
+        refuse_other_host_process(session, pending, lookup)
         selected_elsewhere.append((candidate, pending))
         if pending.relocation is None:
             continue
@@ -130,7 +130,7 @@ def start_issue_work(
     store = WorkStore(root)
     previous, store_diagnostics = _session_work(store, session)
     if previous is not None:
-        check_runtime(session, previous, lookup)
+        refuse_other_host_process(session, previous, lookup)
     if store_diagnostics:
         raise IssueWorkError(
             "; ".join(item.message for item in store_diagnostics)
@@ -228,7 +228,7 @@ def relocate_issue_work(
             f"{target_root} is not a linked Worktree of the current Git Repository"
         )
     session, stores = enclosing_session(
-        root, worktrees, "relocate", lookup=lookup, environ=environ, note=note
+        root, worktrees, command="relocate", lookup=lookup, environ=environ, note=note
     )
     if session.harness != "codex":
         raise IssueWorkError(
@@ -260,7 +260,7 @@ def relocate_issue_work(
         )
     worktree, store, work = matches[0]
     note.identify(issue_id=work.issue_id)
-    check_runtime(session, work, lookup)
+    refuse_other_host_process(session, work, lookup)
     if not same_path(worktree, root):
         raise IssueWorkError(
             f"this Agent Session's active Agent Run is at {worktree}, not {root}; "
@@ -352,7 +352,7 @@ def stop_issue_work(
     if session_key is None:
         worktrees = repository_worktrees(root)
         session, _stores = enclosing_session(
-            root, worktrees, "stop", lookup=lookup, environ=environ, note=note
+            root, worktrees, command="stop", lookup=lookup, environ=environ, note=note
         )
         stopped, diagnostics = _stop_session_runs(session, worktrees, lookup)
         # Unreadable records are surfaced beside the outcome: this session's
@@ -629,7 +629,7 @@ def show_session_events(
     worktrees = repository_worktrees(root)
     try:
         session, _stores = enclosing_session(
-            root, worktrees, None, lookup=lookup, environ=environ
+            root, worktrees, command=None, lookup=lookup, environ=environ
         )
     except DashpotError:
         # Whatever keeps the session from being identified, the Issue work
@@ -690,7 +690,7 @@ def _stop_session_runs(
     """
     selected, diagnostics = session_runs(session, worktrees)
     for _worktree, _store, work in selected:
-        check_runtime(session, work, lookup)
+        refuse_other_host_process(session, work, lookup)
     if selected and diagnostics:
         raise IssueWorkError(
             "unreadable Work Store records prevent safe ownership selection; nothing was removed"
@@ -705,10 +705,10 @@ def _stop_session_runs(
     return stopped, diagnostics
 
 
-def check_runtime(
+def refuse_other_host_process(
     session: AgentSessionIdentity, work: ActiveWork, lookup: ProcessLookup
 ) -> None:
-    """Refuse reassignment while another runtime may still own the run."""
+    """Refuse to change a run that another live or unobservable Host Process may own."""
     recorded = work.session_process
     if (recorded.key if recorded else None) != session.process_key and (
         recorded is None
@@ -726,10 +726,11 @@ def check_runtime(
 def session_runs(
     session: AgentSessionIdentity, worktrees: Sequence[Path]
 ) -> tuple[list[tuple[Path, WorkStore, ActiveWork]], list[Diagnostic]]:
-    """The session's active Agent Runs at ``worktrees``, with their unreadable records.
+    """The session's Agent Run at each of ``worktrees``, with unreadable records' Diagnostics.
 
-    An unreadable Work Store record could be one of the session's runs, so
-    each caller decides what one means for its command.
+    More than one run means the session's runs conflict. An unreadable Work
+    Store record could be one of the session's runs, so each caller decides
+    what its Diagnostic means for its command.
     """
     found: list[tuple[Path, WorkStore, ActiveWork]] = []
     diagnostics: list[Diagnostic] = []

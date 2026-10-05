@@ -19,7 +19,7 @@ from .agents import WorkerEvidence
 from .harnesses import SESSION_ID, adapter
 from .processes import ProcessLookup, host_process_lookup
 from .session_identity import AgentSessionIdentity, IssueWorkError, enclosing_session
-from .work import check_runtime, session_runs
+from .work import refuse_other_host_process, session_runs
 from .work_store import ActiveWork, WorkerAssignment, WorkStore
 
 
@@ -68,7 +68,7 @@ def assign_worker(
         )
     note.target_path = intended
     session, stores = enclosing_session(
-        root, worktrees, "assign", lookup=lookup, environ=environ, note=note
+        root, worktrees, command="assign", lookup=lookup, environ=environ, note=note
     )
     store, work = _assigning_run(session, worktrees, lookup)
     if work.evidence.process_key not in (None, session.process_key):
@@ -155,7 +155,7 @@ def unassign_worker(
     root = worktree_root(current)
     worktrees = repository_worktrees(root)
     session, _stores = enclosing_session(
-        root, worktrees, "unassign", lookup=lookup, environ=environ, note=note
+        root, worktrees, command="unassign", lookup=lookup, environ=environ, note=note
     )
     store, work = _assigning_run(session, worktrees, lookup)
     previous = next(
@@ -198,7 +198,7 @@ def _assigning_run(
             "Worktree; resolve the work-session-conflict before assigning Workers"
         )
     _worktree, store, work = found[0]
-    check_runtime(session, work, lookup)
+    refuse_other_host_process(session, work, lookup)
     return store, work
 
 
