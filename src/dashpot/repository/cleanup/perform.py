@@ -10,9 +10,8 @@ from typing import Literal
 
 from pydantic import computed_field
 
-from ...core.commands import non_interactive_runner
 from ...core.event_log import current_event_log
-from ...core.git import Git, GitError, last_stderr_line
+from ...core.git import Git, GitError, git_runner, last_stderr_line
 from ...core.pydantic import LaxSequence, PublishedModel
 from ...core.runtime_events import (
     CleanupOutcome,
@@ -147,12 +146,14 @@ def cleanup_git(timeout: float, *, preview: bool = False) -> Git:
     A confirmed removal runs to completion: a dashboard exit interrupts
     observations, never a mutation half-way through a Worktree. A preview
     only reads, so an adapter built for the preview alone is interruptible
-    like any other observation.
+    like any other observation. Either way its Git takes no optional lock, so
+    the preview's ``git status`` in a Worktree an agent commits in never
+    holds that Worktree's ``index.lock``.
     """
     return Git(
         Path.cwd(),
         timeout,
-        non_interactive_runner(CLEANUP_ENVIRONMENT, interruptible=preview),
+        git_runner(CLEANUP_ENVIRONMENT, non_interactive=True, interruptible=preview),
     )
 
 

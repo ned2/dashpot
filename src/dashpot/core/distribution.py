@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlparse
 
 from pydantic import ValidationError
 
-from .commands import CommandError, run_command
+from .git import Git, GitError, git_runner
 from .runtime_events import InstallKind, ProcessStart
 
 DISTRIBUTION = "dashpot"
@@ -185,11 +185,10 @@ def source_dirty(checkout: Path, *, timeout: float = 2.0) -> bool | None:
 
     Only a dashboard asks, once at its start; ``None`` when Git cannot say.
     """
+    git = Git(checkout, timeout, git_runner(interruptible=False))
     try:
-        result = run_command(
-            ["git", "status", "--porcelain"], checkout, timeout, interruptible=False
-        )
-    except (CommandError, OSError):
+        result = git.run("status", "--porcelain")
+    except GitError:
         return None
     if result.returncode != 0:
         return None
