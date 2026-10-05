@@ -229,7 +229,7 @@ def test_the_lead_binds_through_the_issue_work_skill_before_any_worktree() -> No
         "<dashpot> worktree create <n> --base"
     )
     close_out = section(text, "5. Close out")
-    assert close_out.index("Once no worker is live, remove the Worktrees") < (
+    assert close_out.index("Once no sub-agent of your session is live") < (
         close_out.index('"Finish the engagement"')
     )
     assert "--dry-run" in close_out
@@ -283,8 +283,9 @@ def test_the_lead_finds_every_other_open_arc_by_its_opening_line() -> None:
     assert "For an epic, add it at the top of the epic's body" in flowed_records
     assert "The record Issue's body opens with this line" in flowed_records
     assert (
-        "note the files its collision plan owns, the numbers it reserved, "
-        "and its share of the machine's cores"
+        "note the files its collision plan owns, the numbers it reserved, its "
+        "share of the machine's cores, and the person accountable for it "
+        '(step 2\'s "Size the waves") with the workers it has live'
     ) in mapping
     assert (
         "settle its ownership with the other arc's lead through the user, or sequence"
@@ -402,6 +403,150 @@ def test_close_out_waits_for_another_sessions_sub_agents() -> None:
     assert "each Worktree the user removed despite listed sub-agents" in record
 
 
+def test_close_out_omits_a_remote_deletion_the_remote_already_made() -> None:
+    close_out = section(shipped("SKILL.md"), "5. Close out")
+    assert (
+        "Pass `--delete-remote-branch` only when the Branch's Remote-Tracking "
+        "Branch is still there after the fetch "
+        "(`git rev-parse -q --verify refs/remotes/<remote>/<branch>`)"
+    ) in close_out
+    assert "before you launch any further sub-agent of your own" in close_out
+    # The hooks check holds whether the repository tracks its hooks or
+    # installs them into the shared Git directory.
+    assert "points `core.hooksPath` at hooks it tracks" in close_out
+    assert "still name the main checkout's environment" in close_out
+
+
+def test_measuring_stacked_and_waiting_workers_are_briefed() -> None:
+    brief = " ".join(shipped("references/brief-template.md").split())
+    assert "`{BASE}` is a full commit SHA, never a ref name or prose" in brief
+    assert "- Branch: {BRANCH}, based on {BASE_ON} at {BASE}." in brief
+    assert (
+        "A review fix or a conflict resolution that touches one of them "
+        "invalidates it: record it again before you hand back."
+    ) in brief
+    assert (
+        "for recorded evidence, that the repository's check of it passes at "
+        "the PR head, or which sources differ and why;"
+    ) in brief
+    assert (
+        "Then hand back once, with your key line and what you are waiting for, "
+        "and end your turn"
+    ) in brief
+    stack = section(
+        shipped("references/strategies.md"), "Stack locally on an open blocker PR"
+    )
+    assert "`<dashpot> worktree create <n> --base <blocker head SHA> --json`" in stack
+    rebase = "`git rebase --onto origin/<integration branch> <old base sha> <branch>`"
+    assert rebase in stack
+    # Rebasing HEAD rather than the Branch leaves the result detached.
+    assert " HEAD`" not in stack
+    handling = section(shipped("SKILL.md"), "4. Handle each hand-back")
+    assert "while the worker is still live or resumable" in handling
+    assert "Tell the user in one line what merged, what is live and what is next." in (
+        handling
+    )
+    dispatch = section(shipped("SKILL.md"), "3. Dispatch a wave")
+    assert "An owned module's user-facing edge" in dispatch
+    assert (
+        "A stacked Worktree instead checks that its `baseCommit` is the blocker "
+        "head SHA it named, with no fast-forward."
+    ) in dispatch
+
+
+def test_a_lost_brief_template_can_be_rebuilt_from_the_record() -> None:
+    records = shipped("references/run-records.md")
+    arc_map = section(records, "The arc map")
+    assert (
+        "the brief template's per-arc placeholder values: each value, or a link "
+        "to where it lives"
+    ) in arc_map
+    gotcha = section(records, "A gotcha")
+    assert "Posted when you add a gotcha to the brief template mid-arc" in gotcha
+    assert "a lost template be rebuilt from the record alone" in gotcha
+    handling = section(shipped("SKILL.md"), "4. Handle each hand-back")
+    assert (
+        "Add each new friction item to the template's gotchas, post it to the "
+        "record ([run-records.md](references/run-records.md#a-gotcha))"
+    ) in handling
+    assert "hold none in a scratch file" in handling
+    assert "(references/run-records.md#an-unverified-finding)" in handling
+    finding = section(records, "An unverified finding")
+    assert "Close-out verifies and files each one from here" in finding
+
+
+def test_close_out_files_only_what_a_hand_back_could_not() -> None:
+    text = shipped("SKILL.md")
+    close_out = section(text, "5. Close out")
+    assert "File follow-ups batched from the hand-backs" not in close_out
+    assert (
+        "so this step files only a finding that could not be verified then"
+    ) in close_out
+    # A reviewer or helper of the Lead's blocks removal as a worker does.
+    rules = section(text, "Rules for the whole arc")
+    assert "**Remove Worktrees only when no sub-agent of your session is live.**" in (
+        rules
+    )
+    assert "your workers, and any reviewer or helper you launch yourself" in rules
+    assert "workers and any reviewer or helper you launched alike" in close_out
+
+
+def test_waves_count_workers_per_accountable_person() -> None:
+    setup = section(shipped("SKILL.md"), "2. Set up")
+    assert "The arc has one **accountable person**" in setup
+    assert (
+        "By default, a person supervises three to five live workers at once, "
+        "counted across every open arc they are accountable for"
+    ) in setup
+    assert "Five is the default ceiling: plan for three to five" in setup
+    assert "Only the user's explicit direction changes the ceiling" in setup
+    assert (
+        "Your live workers are bounded by the smallest of three limits: your "
+        "cores, your harness's worker limit, and that ceiling."
+    ) in setup
+    dispatch = section(shipped("SKILL.md"), "3. Dispatch a wave")
+    assert "Recount the accountable person's live workers across their arcs" in (
+        dispatch
+    )
+    arc_map = section(shipped("references/run-records.md"), "The arc map")
+    assert "the person accountable for the arc, and the ceiling on their live" in (
+        arc_map
+    )
+
+
+def test_every_hand_back_is_keyed_and_read_against_its_key() -> None:
+    brief = shipped("references/brief-template.md")
+    key = (
+        "`Key: worker {WORKER}, Issue #{N}, PR <#number or none yet>, "
+        "head <your Branch's full head SHA>`"
+    )
+    assert key in brief
+    assert "Your last message, under 300 words, opening with the key line:" in brief
+    handling = section(shipped("SKILL.md"), "4. Handle each hand-back")
+    assert "**Read every hand-back against its key.**" in handling
+    for case in (
+        "**A repeated key** on a hand-back you already acted on changes nothing",
+        "A mid-flight report is read for what it says, even when its key repeats",
+        "**A missing or stale key** is not acted on: a report with no key line",
+        "**The head** of a PR-ready hand-back must be the PR's",
+        "**A lost notice** is recovered by checking, not by waiting.",
+    ):
+        assert case in handling, case
+    # The key names every field the lead checks it by.
+    fields = re.search(r"`Key: (.+?)`", brief)
+    assert fields is not None
+    assert [part.split()[0] for part in fields.group(1).split(", ")] == [
+        "worker",
+        "Issue",
+        "PR",
+        "head",
+    ]
+    assert "with a key: worker, Issue, PR and head commit" in handling
+    assert "other than a first message your harness's reporting line prescribes" in (
+        handling
+    )
+
+
 def test_each_known_dashpot_gap_is_named_for_removal() -> None:
     text = shipped("SKILL.md")
     gaps = section(text, "Known Dashpot gaps")
@@ -505,6 +650,8 @@ def test_run_records_go_to_github_comments() -> None:
         "The arc map",
         "A wave",
         "A merge",
+        "A gotcha",
+        "An unverified finding",
         "A decision",
         "The close-out",
     ]

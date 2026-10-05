@@ -64,12 +64,13 @@ step 2.
   Worktree while a worker runs; [harnesses.md](references/harnesses.md)
   says what can move a session in each harness. Workers work in their
   Worktrees by giving every command its own `cd <path> && …`.
-- **Remove Worktrees only when no worker is live.** Dashpot refuses to
-  remove any Worktree of the repository while a session's sub-agents are
-  running, and your workers are your session's sub-agents. Stop a worker
-  the way [harnesses.md](references/harnesses.md) says for your harness: a
-  stop Dashpot never hears of keeps that refusal up until your session
-  ends.
+- **Remove Worktrees only when no sub-agent of your session is live.**
+  Dashpot refuses to remove any Worktree of the repository while a
+  session's sub-agents are running. Every sub-agent of your session counts:
+  your workers, and any reviewer or helper you launch yourself. Stop a
+  worker the way [harnesses.md](references/harnesses.md) says for your
+  harness: a stop Dashpot never hears of keeps that refusal up until your
+  session ends.
 - **Leave the sub-agent override to the user.** A refused
   `dashpot worktree remove` offers `--despite-subagents` with your
   workers' IDs. It asserts that none of them works in that Worktree, which
@@ -81,7 +82,9 @@ step 2.
   [run-records.md](references/run-records.md) defines. Keep no private
   notes file. Your scratch directory holds only working files, such as the
   filled brief template, and everything needed to resume the arc after a
-  lost scratch directory is in those comments.
+  lost scratch directory is in those comments: the template's per-arc
+  values, each gotcha you add to it, and each finding you have not yet
+  filed.
 
 ## 1. Map the arc
 
@@ -117,14 +120,17 @@ step 2.
   the same line ([run-records.md](references/run-records.md)), so
   `gh issue list --state open --search '"Tracking Issue for a dashpot-execute-issues arc" in:body'`
   finds them all. From each one's arc map and wave comments, note the files
-  its collision plan owns, the numbers it reserved, and its share of the
-  machine's cores. For every file both arcs touch, settle its ownership with
+  its collision plan owns, the numbers it reserved, its share of the
+  machine's cores, and the person accountable for it (step 2's
+  "Size the waves") with the workers it has live. For every file both arcs
+  touch, settle its ownership with
   the other arc's lead through the user, or sequence your Issues that touch
   it after that arc's.
 
 Done when you know the arc's Issues, its goal, the graph, the critical
 path, each Issue's float, each edge's gated slice, the user's Worktrees,
-and every other open arc with the files, numbers and cores it holds.
+and every other open arc with the files, numbers, cores and person it
+holds.
 
 ## 2. Set up
 
@@ -169,6 +175,18 @@ and every other open arc with the files, numbers and cores it holds.
    [harnesses.md](references/harnesses.md), and split your share between
    your workers' test runs. A documentation-only Issue runs no suite and
    costs almost nothing alongside the others.
+
+   Count people as well as cores. The arc has one **accountable person**:
+   the user who asked for it, unless they name someone else. By default, a
+   person supervises three to five live workers at once, counted across
+   every open arc they are accountable for: yours, and any other arc whose
+   map names them. Five is the default ceiling: plan for three to five, and
+   hold a wave that would pass the ceiling until a worker hands back,
+   whatever the cores allow. Only the user's explicit direction changes the
+   ceiling, for this arc or across their arcs: use the one they set, and
+   record it in the arc map as their direction. Your live workers are
+   bounded by the smallest of three limits: your cores, your harness's
+   worker limit, and that ceiling.
 6. **Fill the brief template.** Copy
    [brief-template.md](references/brief-template.md) to your scratch
    directory and fill its per-arc placeholders, which that file lists.
@@ -196,13 +214,16 @@ flaky check.
 Before dispatching, run the open-arc search from step 1 again. When an arc
 has started or ended since your last wave, settle its files and numbers as
 in steps 1 and 2, re-split the cores between the live arcs, and record your
-new share in the wave comment. Then look for collisions between the wave's
-Issues:
+new share in the wave comment. Recount the accountable person's live
+workers across their arcs against the ceiling from step 2. Then look for
+collisions between the wave's Issues:
 
 - **Shared files and functions.** Give every file, function and document
-  section one owner. A change to a shared core goes through you first. A
-  file another open arc owns stays with it, as settled while mapping the
-  arc.
+  section one owner. An owned module's user-facing edge, such as the
+  command that exposes it and the document section that describes it, gets
+  an owner too: the module's owner, unless you name another. A change to a
+  shared core goes through you first. A file another open arc owns stays
+  with it, as settled while mapping the arc.
 - **Shared types.** A sibling that widens an enumeration others branch on
   must say so at once; the others use a generic fallback until it lands.
 - **Recorded evidence.** For each recorded measurement, list the sources it
@@ -217,27 +238,34 @@ For each Issue in the wave:
 
 1. Run `git fetch`, then at once
    `<dashpot> worktree create <n> --base origin/<integration-branch> --json`,
-   adding `--branch <name>` for the second half of a split Issue. Without
-   the fetch and the remote-tracking ref as its base, a Worktree created
-   just after a merge is cut from a tip one merge behind. Check that the
-   `baseCommit` it reports is `git rev-parse origin/<integration-branch>`.
+   adding `--branch <name>` for the second half of a split Issue. An Issue
+   stacked on an open blocker PR takes `--base <blocker head SHA>` instead
+   ([strategies.md](references/strategies.md#stack-locally-on-an-open-blocker-pr)).
+   Without the fetch and the remote-tracking ref as its base, a Worktree
+   created just after a merge is cut from a tip one merge behind. Check that
+   the `baseCommit` it reports is `git rev-parse origin/<integration-branch>`.
    If it is not, fast-forward the new Branch before its worker launches
    (`git -C <path> merge --ff-only origin/<integration-branch>`), and use
-   that tip as its base. Every Worktree follows this, including each one a
-   merge unblocks. Use the path and Branch it reports. Prepare the
+   that tip as its base. Every Worktree cut from the integration branch
+   follows this, including each one a merge unblocks. A stacked Worktree
+   instead checks that its `baseCommit` is the blocker head SHA it named,
+   with no fast-forward. Use the path and Branch it reports. Prepare the
    Worktree with the repository's own setup command. Do not install git
    hooks from a Worktree when every checkout shares the repository's hooks
    directory: that repoints every checkout at an environment removed with
    the Worktree.
 2. Render its brief from the template, with the wave block and an
-   Issue-specific block. The Issue-specific block says which gate variant
-   applies, what the worker owns and reserves, what has merged and the API
-   it exposes, what a sibling needs from it and when, any checkpoint, any
-   pinned tool release it measures, whether verifying and closing the Issue
-   is an allowed outcome, and how its commits reference the Issue.
+   Issue-specific block. Its `{BASE}` is the `baseCommit` step 1 confirmed,
+   or the tip you fast-forwarded to. The Issue-specific block says which
+   gate variant applies, what the worker owns and reserves, what has merged
+   and the API it exposes, what a sibling needs from it and when, any
+   checkpoint, any pinned tool release it measures, whether verifying and
+   closing the Issue is an allowed outcome, and how its commits reference
+   the Issue.
 3. Launch every worker of the wave at once, in the background, each with a
    short prompt that points at its brief. Record each worker's handle (its
-   ID or task name) beside its Issue.
+   ID or task name) beside its Issue and the `{WORKER}` name its brief
+   gives it.
 4. Assign each worker to its Issue, as
    [Assign each worker](#assign-each-worker) says.
 
@@ -290,7 +318,31 @@ notice that a worker stopped while it still has background work running is
 not a hand-back: wait for its report. A worker that ended without a report
 (stopped, killed, failed, cancelled or errored, or silent after an
 interruption) is a blocker: check its Worktree and PR, then resume it or
-launch a fresh worker on the same brief, assigned in the old one's place.
+launch a fresh worker on the same brief, rendered again with a new
+`{WORKER}` name, and assign it in the old one's place.
+
+**Read every hand-back against its key.** The brief has each worker open
+its hand-back, and every report before it, with a key: worker, Issue, PR
+and head commit. Check the key against what you recorded for that worker
+before you act:
+
+- **A repeated key** on a hand-back you already acted on changes nothing: a
+  notice can arrive twice. A mid-flight report is read for what it says,
+  even when its key repeats an earlier one.
+- **A missing or stale key** is not acted on: a report with no key line,
+  other than a first message your harness's reporting line prescribes
+  ([harnesses.md](references/harnesses.md)), one from a worker you
+  replaced, or one naming an Issue or PR that worker does not own. Check
+  the worker and its PR, and resume the worker for a fresh report where
+  you need one.
+- **The head** of a PR-ready hand-back must be the PR's
+  (`gh pr view <pr> --json headRefOid`); one that is not is stale. A
+  mid-flight report's head may be newer than the PR's, since the worker
+  may not have pushed yet: read it as information.
+- **A lost notice** is recovered by checking, not by waiting. A worker you
+  expected to hear from and have not is handled like one that ended
+  without a report, above: check its Worktree and PR, and resume it for a
+  fresh report.
 
 **PR ready.** Run the merge routine:
 
@@ -300,9 +352,12 @@ launch a fresh worker on the same brief, assigned in the old one's place.
    `statusCheckRollup`, never from the worker's report.
 2. Read what the next wave builds on: the new public API, every changed
    decision record (a changed decision needs a new record, not an edit),
-   any model that enforces a content or security rule, and for recorded
-   evidence, that what it records matches the PR head.
-   Tests and docs ride on the worker's independent review.
+   any model that enforces a content or security rule. Tests and docs ride
+   on the worker's independent review.
+   For recorded evidence, run the repository's check of it at the PR head
+   as soon as the hand-back arrives, while the worker is still live or
+   resumable: a mismatch goes back to that worker to record again. Its
+   report states the check's result; confirm it rather than trust it.
 3. **Check that CI tested what will land.** After a `git fetch`, it did
    when `git merge-base --is-ancestor origin/<integration-branch> <headRefOid>`
    succeeds: the head already contains the integration branch's tip. Where
@@ -341,7 +396,8 @@ launch a fresh worker on the same brief, assigned in the old one's place.
    changes that pass alone but break together.
 6. Record the merge with the SHA you broadcast, at once
    ([run-records.md](references/run-records.md)): the next broadcast starts
-   from it. Then dispatch whatever the merge unblocked (step 3).
+   from it. Tell the user in one line what merged, what is live and what is
+   next. Then dispatch whatever the merge unblocked (step 3).
 
 Merge in order of readiness, not of plan. When the PR planned to land
 second is ready first, land it and move the follow-on work to the worker
@@ -350,25 +406,35 @@ still running.
 **Checkpoint.** Resume the worker with one of: the merged blocker's SHA and
 API; a stack instruction ([strategies.md](references/strategies.md)); or
 permission to ship without the gated piece, re-homing that piece to the
-blocker's worker in the same round. A worker that must wait anyway runs its
-independent review on the diff it already has.
+blocker's worker in the same round. A worker at a checkpoint, or waiting on
+a blocker, finishes its independent review on the diff it has, hands back
+once with its key and what it waits for, and ends its turn. Resume it
+when what it waits for arrives; it sends no "still waiting" reports.
 
 **Blocker.** Decide sequencing and ownership questions yourself. Take to
 the user what needs the maintainer: a contradiction in an Issue, a
 dependency or lockfile change, or a change of scope. Before you explain an
 Issue's options to the user, check its terms against the repository's
-glossary: an Issue's own framing can be wrong.
+glossary: an Issue's own framing can be wrong. With each blocker you take
+to the user, add the one line a merge gets: what merged, what is live and
+what is next. Tell the user no more than that line per merge or blocker,
+not a running commentary: the record Issue carries the detail, and the
+user may be away for much of the arc.
 
 On every hand-back and mid-flight message:
 
 - Verify each defect it reports with one command or one search, then file
   it at once with the repository's triage labels, so the worker's PR can
-  link a durable Issue.
+  link a durable Issue. A finding you cannot verify yet goes in your next
+  record comment
+  ([run-records.md](references/run-records.md#an-unverified-finding)), for
+  close-out to verify and file; hold none in a scratch file.
 - Route a finding to the sibling that owns the file and the acceptance
   box, not to whoever found it.
 - Approve an edit outside a worker's area explicitly, with its conditions.
-- Add each new friction item to the template's gotchas, and broadcast the
-  workaround to live workers at once.
+- Add each new friction item to the template's gotchas, post it to the
+  record ([run-records.md](references/run-records.md#a-gotcha)), and
+  broadcast the workaround to live workers at once.
 - Close off optional extras a worker offers: the Issue's text sets its
   scope.
 - Forward anything a sibling needs, such as a measurement or a decision,
@@ -384,15 +450,27 @@ Close out each wave once all its workers have handed back, and the arc once
 every Issue has merged:
 
 1. Check every Issue's final state, and reopen any that closed early.
-2. Once no worker is live, remove the Worktrees you created: `git fetch
-   --prune`, then for each one
+2. Once no sub-agent of your session is live, workers and any reviewer or
+   helper you launched alike, remove the Worktrees you created, before you
+   launch any further sub-agent of your own: it would block the removals
+   too. `git fetch --prune`, then for each one
    `<dashpot> worktree remove <path> --delete-branch --delete-remote-branch --delete-ignored --dry-run`,
-   then the same without `--dry-run`. A detached check Worktree has no
-   Branch: check out the integration branch's tip in it first
-   (`git -C <path> checkout --detach <integration-branch>`), since Dashpot
-   refuses to drop a trial merge no ref reaches, then remove it with
-   `--delete-ignored` alone. Confirm afterwards that the shared git hooks
-   still point where they did.
+   then the same without `--dry-run`.
+   - Pass `--delete-remote-branch` only when the Branch's Remote-Tracking
+     Branch is still there after the fetch
+     (`git rev-parse -q --verify refs/remotes/<remote>/<branch>`). Where the
+     remote already deleted the Branch, as one that deletes a merged PR's
+     head does, Dashpot refuses the flag: omit it.
+   - A detached check Worktree has no Branch: check out the integration
+     branch's tip in it first
+     (`git -C <path> checkout --detach <integration-branch>`), since Dashpot
+     refuses to drop a trial merge no ref reaches, then remove it with
+     `--delete-ignored` alone.
+   - Confirm afterwards that the shared git hooks are as they were. Where
+     the repository points `core.hooksPath` at hooks it tracks, check that
+     the setting is unchanged. Where it installs hooks into the shared Git
+     directory, check that they still name the main checkout's environment,
+     not one removed with a Worktree.
 3. **A removal refused for another session's sub-agents** waits for that
    session. The `sub-agent` blocker holds every Worktree for any session's
    sub-agents, not only your workers: another arc's lead, or any session
@@ -422,9 +500,11 @@ every Issue has merged:
    instruction and each check's result in the close-out record.
 4. Post each Issue's closing comment (workers draft them), including on
    Issues their PRs closed automatically.
-5. File follow-ups batched from the hand-backs, each claim verified, with
-   the repository's triage labels. Comment on any Issue outside the arc that
-   inherits deferred scope.
+5. Gather the follow-ups the hand-backs raised for the close-out record.
+   You filed each one as its hand-back arrived, so this step files only a
+   finding that could not be verified then: verify it now, from the record
+   that holds it, and file it with the repository's triage labels. Comment
+   on any Issue outside the arc that inherits deferred scope.
 6. Record the arc on its goal: for an epic, close it with a comment mapping
    each Issue to its PR; for a list, comment on each Issue the arc unblocked
    with what landed and what it now needs.

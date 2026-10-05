@@ -1758,8 +1758,9 @@ def test_worktree_remove_deletes_at_the_push_remote_only_with_its_flag(
         (
             ("worktree", "local-branch"),
             "/w/x's Branch has no Remote-Tracking Branch for it at the remote a plain "
-            "git push reaches; fetch, or delete it with dashpot branch delete "
-            "--remote",
+            "git push reaches: if the Branch is there, fetch, or delete it with "
+            "dashpot branch delete --remote; if it was already deleted there, omit "
+            "--delete-remote-branch",
         ),
     ],
 )
