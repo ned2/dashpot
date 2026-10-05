@@ -32,6 +32,7 @@ from dashpot.core.model import (
     WorkspaceSnapshot,
 )
 from dashpot.sessions.hook_records import (
+    HookRecord,
     HookRecordStore,
     project_session_store,
     session_directory,
@@ -304,7 +305,9 @@ def hook_record(
     """
     target = project_session_store(root) if store is None else HookRecordStore(store)
     return target.write(
-        hook_record_document(root, session_id, harness, process, state=state, at=at)
+        HookRecord.model_validate(
+            hook_record_document(root, session_id, harness, process, state=state, at=at)
+        )
     ).path
 
 

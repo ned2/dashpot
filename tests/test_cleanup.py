@@ -58,6 +58,7 @@ from dashpot.serialization import (
 )
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
+    HookRecord,
     HookRecordStore,
     project_session_store,
     session_directory,
@@ -441,18 +442,20 @@ def test_dirty_locked_and_occupied_worktree_is_blocked(tmp_path: Path) -> None:
     git(root, "worktree", "lock", "--reason", "claude pid 4242", str(worktree))
     live = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
     project_session_store(worktree).write(
-        {
-            "version": 2,
-            "sessionId": "01c7192b-2990-4f83-ad33-290ac22eb4d1",
-            "harness": "claude-code",
-            "state": "running",
-            "cwd": str(worktree),
-            "repositoryRoot": str(worktree),
-            "branch": "feat",
-            "event": "UserPromptSubmit",
-            "lastActivityAt": "2026-08-30T03:40:00.000000Z",
-            "sessionProcess": live.as_record(),
-        }
+        HookRecord.model_validate(
+            {
+                "version": 2,
+                "sessionId": "01c7192b-2990-4f83-ad33-290ac22eb4d1",
+                "harness": "claude-code",
+                "state": "running",
+                "cwd": str(worktree),
+                "repositoryRoot": str(worktree),
+                "branch": "feat",
+                "event": "UserPromptSubmit",
+                "lastActivityAt": "2026-08-30T03:40:00.000000Z",
+                "sessionProcess": live.as_record(),
+            }
+        )
     )
 
     preview = preview_worktree(
@@ -533,7 +536,7 @@ def occupied_worktree(
         record["sessionProcess"] = process.as_record()
     if unobservable_reason is not None:
         record["sessionProcessUnobservable"] = unobservable_reason
-    project_session_store(worktree).write(record)
+    project_session_store(worktree).write(HookRecord.model_validate(record))
     return worktree.resolve(), (root.resolve(), worktree.resolve())
 
 
@@ -861,19 +864,21 @@ def publish_subagent(
     set from the event.
     """
     HookRecordStore(store).write(
-        {
-            "version": 2,
-            "sessionId": session,
-            "harness": "claude-code",
-            "state": "running" if event == "SubagentStart" else "waiting",
-            "cwd": str(at),
-            "repositoryRoot": str(at),
-            "branch": "main",
-            "event": event,
-            "agentId": agent,
-            "lastActivityAt": f"2026-08-30T03:{minute:02d}:00.000000Z",
-            "sessionProcess": process.as_record(),
-        }
+        HookRecord.model_validate(
+            {
+                "version": 2,
+                "sessionId": session,
+                "harness": "claude-code",
+                "state": "running" if event == "SubagentStart" else "waiting",
+                "cwd": str(at),
+                "repositoryRoot": str(at),
+                "branch": "main",
+                "event": event,
+                "agentId": agent,
+                "lastActivityAt": f"2026-08-30T03:{minute:02d}:00.000000Z",
+                "sessionProcess": process.as_record(),
+            }
+        )
     )
 
 
@@ -999,18 +1004,20 @@ def test_a_sub_agent_still_blocks_after_its_parent_moves_to_another_worktree(
     # The parent then enters the sibling, whose store has no previous record
     # of the session and so no sub-agents to carry.
     project_session_store(sibling).write(
-        {
-            "version": 2,
-            "sessionId": PARENT_SESSION,
-            "harness": "claude-code",
-            "state": "running",
-            "cwd": str(sibling),
-            "repositoryRoot": str(sibling),
-            "branch": "other",
-            "event": "UserPromptSubmit",
-            "lastActivityAt": "2026-08-30T03:45:00.000000Z",
-            "sessionProcess": PARENT.as_record(),
-        }
+        HookRecord.model_validate(
+            {
+                "version": 2,
+                "sessionId": PARENT_SESSION,
+                "harness": "claude-code",
+                "state": "running",
+                "cwd": str(sibling),
+                "repositoryRoot": str(sibling),
+                "branch": "other",
+                "event": "UserPromptSubmit",
+                "lastActivityAt": "2026-08-30T03:45:00.000000Z",
+                "sessionProcess": PARENT.as_record(),
+            }
+        )
     )
 
     preview = preview_worktree(root, target, lookup=table_lookup({PARENT.pid: PARENT}))

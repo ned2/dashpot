@@ -30,7 +30,7 @@ from dashpot.observation.session_list import (
     shows_target,
 )
 from dashpot.sessions.agents import observe_agent_runs
-from dashpot.sessions.hook_records import HookRecordStore
+from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from dashpot.ui.list_rows import ListRow, build_list_rows, truncate_end, truncate_start
@@ -238,18 +238,20 @@ def test_correlated_hook_and_work_records_are_one_session_row() -> None:
             )
         )
         HookRecordStore(hooks).write(
-            {
-                "version": 2,
-                "sessionId": "session-a",
-                "harness": "codex",
-                "state": "running",
-                "cwd": str(worktree / "src"),
-                "repositoryRoot": str(worktree),
-                "branch": "feature",
-                "event": "PreToolUse",
-                "lastActivityAt": "2026-08-27T03:00:00Z",
-                "sessionProcess": process.as_record(),
-            }
+            HookRecord.model_validate(
+                {
+                    "version": 2,
+                    "sessionId": "session-a",
+                    "harness": "codex",
+                    "state": "running",
+                    "cwd": str(worktree / "src"),
+                    "repositoryRoot": str(worktree),
+                    "branch": "feature",
+                    "event": "PreToolUse",
+                    "lastActivityAt": "2026-08-27T03:00:00Z",
+                    "sessionProcess": process.as_record(),
+                }
+            )
         )
         targets = {"project:alpha": [target(str(worktree), "feature")]}
         runs, diagnostics = observe_agent_runs(targets, hooks, lookup=present(process))
@@ -549,18 +551,20 @@ def test_sandboxed_bindings_of_both_harnesses_reach_the_sessions_and_issues_read
                 )
             )
             HookRecordStore(hooks).write(
-                {
-                    "version": 2,
-                    "sessionId": session_id,
-                    "harness": harness,
-                    "state": state,
-                    "cwd": str(worktree),
-                    "repositoryRoot": str(worktree),
-                    "branch": "feature",
-                    "event": "UserPromptSubmit" if state == "running" else "Stop",
-                    "lastActivityAt": "2026-08-27T03:00:00Z",
-                    "sessionProcess": process.as_record(),
-                }
+                HookRecord.model_validate(
+                    {
+                        "version": 2,
+                        "sessionId": session_id,
+                        "harness": harness,
+                        "state": state,
+                        "cwd": str(worktree),
+                        "repositoryRoot": str(worktree),
+                        "branch": "feature",
+                        "event": "UserPromptSubmit" if state == "running" else "Stop",
+                        "lastActivityAt": "2026-08-27T03:00:00Z",
+                        "sessionProcess": process.as_record(),
+                    }
+                )
             )
         targets = {"project:alpha": [target(str(worktree), "feature")]}
         runs, diagnostics = observe_agent_runs(

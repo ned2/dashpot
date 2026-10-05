@@ -82,9 +82,15 @@ application-state location; set `DASHPOT_STATE_DIR` to override that fallback.
 
 ### Agent Sessions and Worktree Cleanup
 
-Cleanup refuses to remove a Worktree where an Agent Session's freshest hook
-record places it, while that session is live or its liveness is unknown
+Cleanup refuses to remove a Worktree where an Agent Session's freshest
+current hook record places it
 ([ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
+A record is current while its session is live there or its liveness is
+unknown, and no fresher ended or gone record supersedes it, as one does
+unless the two name different Host Processes. The dashboard, Cleanup, the
+`work` commands and claim validation all place a session by that one record,
+and of two stamped alike by the first read
+([ADR 0134](adr/0134-place-a-session-by-its-freshest-current-hook-record.md)).
 This check is separate from the Agent Run, so it holds after `work stop`, and
 an idle (`waiting`) session blocks as a running one does. The `agent-session`
 blocker in `dashpot worktree check`, the Cleanup preview, and the refusal of
@@ -969,7 +975,9 @@ Work Store (`.dashpot/state/work/`). Running `start` again switches the session
 to a new Issue. A session holds one active run across the linked Worktrees of
 its Git Repository
 ([ADR 0009](adr/0009-hold-one-agent-run-per-session-across-worktrees.md)),
-and its own hooks say where it is: the freshest hook record for the session
+and its own hooks say where it is: the freshest current hook record for the
+session
+([ADR 0134](adr/0134-place-a-session-by-its-freshest-current-hook-record.md))
 across the stores of every Worktree `git worktree list` reports, plus the
 global store. When that record places the session at the Worktree where
 `start` runs, a run it still holds at another Worktree is a move the hooks
@@ -1060,7 +1068,7 @@ The Issues pane counts an assigned Worker toward its own Issue's `◈` cell,
 never toward its Lead's Issue, and only while the Lead's hook records report
 the Worker:
 
-- **`running`** while the Lead's freshest live or unknown hook record lists
+- **`running`** while the Lead's freshest current hook record lists
   it, and that record's Host Process is the run's own and is live.
 - **`unknown`** while that record's Host Process cannot be observed, or while
   an ended record that
@@ -1104,7 +1112,7 @@ moves the same Work Store record, adopts the resumed process, working directory,
 and Branch, and clears the intent. A crash between the move's two writes
 leaves the run at both Worktrees, and the next target hook, from any process,
 finishes the move. For a hook from a session with no intent naming its
-Worktree, completion locks no hook store. When the session's freshest live
+Worktree, completion locks no hook store. When the session's freshest current
 record places it at neither its origin nor the intended target, the pending run
 emits `work-relocation-mismatched`; otherwise concurrent locations emit
 `work-relocation-concurrent`. Either case, a missing hook, or unreadable state
@@ -1132,7 +1140,7 @@ session that enters a Worktree or returns from one takes its run along under
 the same conditions; its shell `cd`, which moves the `cwd` of its later
 hooks, carries nothing
 ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)). A run left
-at one Worktree while its session's freshest live record places it at
+at one Worktree while its session's freshest current record places it at
 another is reported as `work-session-elsewhere`, naming both; run
 `dashpot work start` there or `dashpot work stop`. A `SessionEnd` also
 removes the session's older records elsewhere in the Repository that its own
@@ -1146,10 +1154,10 @@ running.
 Agent Session through one harness-neutral seam with a
 [Harness Adapter](domain-language.md) per supported harness
 (`src/dashpot/sessions/harnesses.py`). Both visible and sandboxed commands require a
-native identity claim confirmed by its freshest hook record of the same
-harness across the Repository's reachable hook stores. The record must describe
-a live or unknown session. Visible host ancestry corroborates the harness and
-full PID/start-time pair; a sandbox helper never stands in for the host.
+native identity claim confirmed by its freshest current hook record of the
+same harness across the Repository's reachable hook stores; a session with
+none is over, and the claim is refused. Visible host ancestry corroborates
+the harness and full PID/start-time pair; a sandbox helper never stands in for the host.
 A Claude Code host is a process named `claude`, or a worker of Claude Code's
 background supervisor: that is named after its version, like the supervisor
 and PTY hosts beside it, so it is located only when its argument vector starts

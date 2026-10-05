@@ -17,7 +17,7 @@ from app_harness import (
 )
 from dashpot.observation.issue_list import row_key
 from dashpot.sessions.agents import observe_agent_runs
-from dashpot.sessions.hook_records import HookRecordStore
+from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from dashpot.ui.column_editor import IssueColumnEditor
@@ -631,14 +631,16 @@ async def test_paged_cursor_survives_observed_hook_session_starting_issue_work(
     process = ProcessIdentity(4242, 1, "codex", "Tue Aug 25 01:00:00 2026")
     hooks = tmp_path / "hooks"
     HookRecordStore(hooks).write(
-        hook_record_document(
-            str(tmp_path),
-            "conversation",
-            "codex",
-            process,
-            state="waiting",
-            at="2026-08-27T03:00:00Z",
-            event="Stop",
+        HookRecord.model_validate(
+            hook_record_document(
+                str(tmp_path),
+                "conversation",
+                "codex",
+                process,
+                state="waiting",
+                at="2026-08-27T03:00:00Z",
+                event="Stop",
+            )
         )
     )
     app = application(tmp_path, collector=WorktreeCollector(tmp_path))

@@ -29,6 +29,7 @@ from dashpot.sessions import processes
 from dashpot.sessions.agents import locate_observation_target, observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
+    HookRecord,
     HookRecordStore,
     project_session_store,
     session_directory,
@@ -253,8 +254,16 @@ def test_a_recorded_path_that_cannot_be_resolved_places_the_session_nowhere(
     )
 
     for damaged in (
-        replace(classified, cwd=f"{root}\0x"),
-        replace(classified, repository_root=f"{root}\0x"),
+        replace(
+            classified,
+            published=classified.published.model_copy(update={"cwd": f"{root}\0x"}),
+        ),
+        replace(
+            classified,
+            published=classified.published.model_copy(
+                update={"repository_root": f"{root}\0x"}
+            ),
+        ),
     ):
         assert locate_observation_target(damaged, {"project:test": [target(root)]}) == (
             None,
@@ -711,7 +720,9 @@ def test_a_left_behind_release_waits_for_the_identitys_other_lock(
 
     assert waits_for(
         scoped_key_held,
-        lambda: store.release_left_behind(CODEX_SESSION, [SUBAGENT], record),
+        lambda: store.release_left_behind(
+            CODEX_SESSION, [SUBAGENT], HookRecord.model_validate(record)
+        ),
     )
     kept = json.loads(store.record_path(CODEX_SESSION).read_text())
     assert kept["liveSubagents"] == []
@@ -739,12 +750,13 @@ def test_a_change_needs_a_key_of_the_records_own_identity(
     other = {**record, "sessionId": OTHER_SESSION}
 
     assert not store.prune(CODEX_SESSION, other)
-    assert not store.release_left_behind(CODEX_SESSION, [SUBAGENT], other)
     assert not store.release_left_behind(
-        CODEX_SESSION, [SUBAGENT], {**record, "harness": None}
+        CODEX_SESSION, [SUBAGENT], HookRecord.model_validate(other)
     )
     assert not store.release_left_behind(
-        CODEX_SESSION, [SUBAGENT], {**record, "sessionId": None}
+        CODEX_SESSION,
+        [SUBAGENT],
+        HookRecord.model_validate({**record, "harness": "claude-code"}),
     )
     assert store.record_path(CODEX_SESSION).exists()
 
@@ -758,9 +770,14 @@ def test_a_conditional_change_in_a_removed_worktree_creates_nothing(
     ended = {**record, "state": "ended", "liveSubagents": [SUBAGENT]}
 
     assert not store.prune(CODEX_SESSION, record)
-    assert not store.release_left_behind(CODEX_SESSION, [SUBAGENT], record)
+    assert not store.release_left_behind(
+        CODEX_SESSION, [SUBAGENT], HookRecord.model_validate(record)
+    )
     assert not store.release_subagents(
-        CODEX_SESSION, [SUBAGENT], ended, session_id=CODEX_SESSION
+        CODEX_SESSION,
+        [SUBAGENT],
+        HookRecord.model_validate(ended),
+        session_id=CODEX_SESSION,
     )
     with locked_session_stores(
         [store.directory], [removed], CODEX_SESSION, "codex", create=False

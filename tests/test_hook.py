@@ -28,8 +28,8 @@ def test_a_detached_head_still_records_the_repository_root(tmp_path: Path) -> No
 
     # The root routes the record to the Project's own store; only the
     # branch name is genuinely unavailable.
-    assert record["repositoryRoot"] == str(root.resolve())
-    assert record["branch"] is None
+    assert record.repository_root == str(root.resolve())
+    assert record.branch is None
 
 
 @pytest.mark.parametrize(

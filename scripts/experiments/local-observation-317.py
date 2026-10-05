@@ -35,7 +35,7 @@ def main() -> None:
     from dashpot.observation.collect import create_project_collector
     from dashpot.project.workspace import ResolvedProject
     from dashpot.sessions.agents import observe_agent_runs
-    from dashpot.sessions.hook_records import project_session_store
+    from dashpot.sessions.hook_records import HookRecord, project_session_store
     from dashpot.sessions.processes import ProcessPresent, host_process_lookup
 
     with tempfile.TemporaryDirectory(prefix="dashpot-317-") as temporary:
@@ -108,18 +108,20 @@ def main() -> None:
                 process = host_process_lookup(child.pid)
                 assert isinstance(process, ProcessPresent)
                 project_session_store(root).write(
-                    {
-                        "version": 2,
-                        "harness": "codex",
-                        "sessionId": f"measurement-{index}",
-                        "state": "waiting",
-                        "cwd": str(root),
-                        "repositoryRoot": str(root),
-                        "branch": "main",
-                        "event": "Stop",
-                        "lastActivityAt": "2026-10-04T00:00:00Z",
-                        "sessionProcess": process.identity.as_record(),
-                    },
+                    HookRecord.model_validate(
+                        {
+                            "version": 2,
+                            "harness": "codex",
+                            "sessionId": f"measurement-{index}",
+                            "state": "waiting",
+                            "cwd": str(root),
+                            "repositoryRoot": str(root),
+                            "branch": "main",
+                            "event": "Stop",
+                            "lastActivityAt": "2026-10-04T00:00:00Z",
+                            "sessionProcess": process.identity.as_record(),
+                        }
+                    ),
                 )
             rows = []
             for refresh in range(args.refreshes):

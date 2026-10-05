@@ -22,8 +22,8 @@ from ..core.timestamps import observed_instant
 from ..core.worktree_paths import is_within, same_path
 from .hook_records import HookRecordStore
 from .hook_scan import (
-    SESSION_OVER,
     HookRecordClassification,
+    group_histories,
     reachable_hook_stores,
     scan_hook_stores,
     session_histories,
@@ -51,7 +51,7 @@ class HookSessionObservation:
     process_key: ProcessKey | None
     liveness: LivenessObservation
     session_id: str
-    # The sub-agents the session's freshest record lists as working.
+    # The sub-agents the session's freshest current record lists as working.
     live_subagents: tuple[str, ...] = ()
 
 
@@ -240,7 +240,7 @@ class ObservedActivityIndex:
         return (session.run.harness, session.session_id) in self._consumed
 
     def location(self, harness: Harness, session_id: str) -> Path | None:
-        """The Observation Target where the session's freshest live or unknown record places it."""
+        """The Observation Target where the session's freshest current record places it."""
         session = self._by_session.get((harness, session_id))
         located = None if session is None else session.run.observation_target
         return None if located is None else Path(located)
@@ -248,7 +248,7 @@ class ObservedActivityIndex:
 
 @dataclass(frozen=True, slots=True)
 class ListedSubagents:
-    """What one Agent Session's freshest live or unknown record lists."""
+    """What one Agent Session's freshest current record lists."""
 
     process_key: ProcessKey | None
     live: bool
@@ -258,7 +258,7 @@ class ListedSubagents:
 class WorkerEvidence:
     """What each session's hook records report of its Sub-agents (ADR 0096).
 
-    An assigned Worker is working while its Lead's freshest live or unknown
+    An assigned Worker is working while its Lead's freshest current
     record lists it and that record's Host Process is live, and unknown
     while that record's process cannot be observed. A Worker is unknown too
     while only a record the Lead kept when it ended with the Worker listed
@@ -304,26 +304,16 @@ class WorkerEvidence:
         current: dict[SessionIdentityKey, ListedSubagents] = {}
         kept: dict[SessionIdentityKey, frozenset[str]] = {}
         for history in session_histories(stores, lookup):
-            records = [location.record for location in history]
-            identity = (records[0].harness, records[0].session_id)
-            freshest = next(
-                (record for record in records if record.outcome not in SESSION_OVER),
-                None,
-            )
+            freshest = history.freshest_current
             if freshest is not None:
-                current[identity] = ListedSubagents(
-                    freshest.process_key,
-                    freshest.outcome == "live",
-                    frozenset(freshest.live_subagents),
+                record = freshest.record
+                current[history.identity] = ListedSubagents(
+                    record.process_key,
+                    record.outcome == "live",
+                    frozenset(record.live_subagents),
                 )
-            retained = frozenset(
-                agent
-                for record in records
-                if record.retains_subagents
-                for agent in record.live_subagents
-            )
-            if retained:
-                kept[identity] = retained
+            if history.retained_subagents:
+                kept[history.identity] = history.retained_subagents
         return cls(current, kept)
 
     def state(
@@ -410,8 +400,8 @@ def observe_work_runs(
     runs: list[AgentRun] = []
     diagnostics: list[Diagnostic] = []
     sessions_seen: set[tuple[str, ...]] = set()
-    # Where each named session holds a run, and the runs its freshest record
-    # places it away from.
+    # Where each named session holds a run, and the runs its freshest current
+    # record places it away from.
     run_locations: dict[SessionIdentityKey, list[Path]] = {}
     runs_left_behind: list[
         tuple[SessionIdentityKey, ActiveWork, ObservationTarget, Path]
@@ -565,30 +555,35 @@ def relocation_diagnostic(
         [Path(item.path) for item in project_targets], directory
     )
     locations: set[Path] = set()
-    # Where the session's freshest live or unknown record places it: a Live
+    # Where the session's freshest current record places it: a Live
     # Relocation to another Worktree leaves the origin's record live, so the
     # freshest record, not the count, says where the session went.
-    freshest: tuple[datetime, Path] | None = None
+    freshest: Path | None = None
     if work.session_id is not None:
-        for scanned in scan_hook_stores(
-            stores,
-            probe,
-            select=lambda path: session_record_named(
-                path, work.session_id or "", work.harness
-            ),
-        ):
-            if (
-                scanned.record.harness == work.harness
-                and scanned.record.outcome not in {"ended", "gone"}
-            ):
-                try:
-                    location = scanned.record.worktree.resolve()
-                except (OSError, RuntimeError, ValueError):
-                    continue
-                locations.add(location)
-                stamp = observed_instant(scanned.record.last_activity_at)
-                if freshest is None or stamp > freshest[0]:
-                    freshest = (stamp, location)
+        identity = (work.harness, work.session_id)
+        histories = group_histories(
+            scan_hook_stores(
+                stores,
+                probe,
+                select=lambda path: session_record_named(
+                    path, work.session_id or "", work.harness
+                ),
+            )
+        )
+        current = [
+            scanned
+            for history in histories
+            if history.identity == identity
+            for scanned in history.current
+        ]
+        for scanned in current:
+            try:
+                location = scanned.record.worktree.resolve()
+            except (OSError, RuntimeError, ValueError):
+                continue
+            locations.add(location)
+            if freshest is None:
+                freshest = location
     try:
         intended = Path(work.relocation.target_worktree).resolve()
         source = Path(target.path).resolve()
@@ -597,13 +592,13 @@ def relocation_diagnostic(
     if (
         freshest is not None
         and intended is not None
-        and freshest[1] not in {source, intended}
+        and freshest not in {source, intended}
     ):
         return Diagnostic(
             source=work.run_id,
             severity="warning",
             message=(
-                f"{work.session_label} resumed at {freshest[1]}, not its "
+                f"{work.session_label} resumed at {freshest}, not its "
                 f"intended relocation target {intended}; the Issue work on "
                 f"{work.issue_reference} ({work.issue_id}) remains at "
                 f"{target.path} and cannot be reassigned there. Resume the "
@@ -702,7 +697,10 @@ def observe_hook_sessions(
     sub-agents come back by session for the Workers among them. Gone
     records are never reported as sessions either, but are returned for the
     Work Store pass, which keeps those an Orphaned Agent Run still needs and
-    prunes the rest. Pruning is the only write observation performs, and it
+    prunes the rest. A live or unknown record that a fresher ended or gone
+    record superseded, one naming no other Host Process, is pruned too (ADR
+    0134): it no longer places its session, and would be current again once
+    the ended record that superseded it is pruned. Pruning is the only write observation performs, and it
     is conditional so a concurrently updated record survives.
     """
     stores = reachable_hook_stores(
@@ -712,11 +710,7 @@ def observe_hook_sessions(
         ],
         directory,
     )
-    # A session's record may exist both globally and Project-locally around
-    # an integration upgrade; the freshest observation per session wins.
-    latest: dict[str, HookSessionObservation] = {}
     gone: list[GoneHookRecord] = []
-    kept: dict[SessionIdentityKey, frozenset[str]] = {}
     diagnostics: list[Diagnostic] = []
 
     def report_unreadable(path: Path, exc: Exception) -> None:
@@ -729,55 +723,63 @@ def observe_hook_sessions(
             )
         )
 
-    for candidate in stores:
-        root = candidate.resolve()
-        if not root.exists():
+    roots = [root for candidate in stores if (root := candidate.resolve()).exists()]
+    handles = {root: HookRecordStore(root) for root in roots}
+    scanned_records = list(
+        scan_hook_stores(roots, probe, on_unreadable=report_unreadable)
+    )
+    # Each live or unknown record placed at an Observation Target, by its scan.
+    placed: dict[Path, HookSessionObservation] = {}
+    for scanned in scanned_records:
+        record = scanned.record
+        store = handles[scanned.store]
+        if record.outcome == "gone":
+            gone.append(GoneHookRecord(store, scanned.path.stem, scanned.raw, record))
             continue
-        store = HookRecordStore(root)
-        for scanned in scan_hook_stores([root], probe, on_unreadable=report_unreadable):
-            record = scanned.record
-            if record.outcome == "gone":
-                gone.append(
-                    GoneHookRecord(store, scanned.path.stem, scanned.raw, record)
-                )
-                continue
-            if record.outcome == "ended":
-                # An ended session is never observed; its record is kept only
-                # while it holds sub-agents the session left working (ADR
-                # 0095), and Cleanup failures are not observations.
-                if not record.retains_subagents:
-                    with contextlib.suppress(OSError):
-                        store.prune(scanned.path.stem, scanned.raw)
-                    continue
-                identity = (record.harness, record.session_id)
-                kept[identity] = kept.get(identity, frozenset()) | frozenset(
-                    record.live_subagents
-                )
-                continue
-            diagnostics.extend(
-                Diagnostic(
-                    source=SESSION_DIAGNOSTIC_SOURCE,
-                    severity="warning",
-                    message=f"Reading the hook record for {record.display} session "
-                    f"{record.session_id} without its malformed field: {detail}",
-                    code="agent-session-record-degraded",
-                )
-                for detail in record.degraded
+        if record.outcome == "ended":
+            # An ended session is never observed; its record is kept only
+            # while it holds sub-agents the session left working (ADR
+            # 0095), and Cleanup failures are not observations.
+            if not record.retains_subagents:
+                with contextlib.suppress(OSError):
+                    store.prune(scanned.path.stem, scanned.raw)
+            continue
+        diagnostics.extend(
+            Diagnostic(
+                source=SESSION_DIAGNOSTIC_SOURCE,
+                severity="warning",
+                message=f"Reading the hook record for {record.display} session "
+                f"{record.session_id} without its malformed field: {detail}",
+                code="agent-session-record-degraded",
             )
-            session, record_diagnostics = record_to_session(record, targets_by_project)
-            diagnostics.extend(record_diagnostics)
-            if session is None:
-                continue
-            previous = latest.get(session.run.id)
-            if previous is None or observed_instant(
-                session.run.last_activity_at
-            ) >= observed_instant(previous.run.last_activity_at):
-                latest[session.run.id] = session
-        # Records pruned above, or ended gracefully, leave their lock files
-        # behind; reclaim those, and a crashed writer's temporaries.
+            for detail in record.degraded
+        )
+        session, record_diagnostics = record_to_session(record, targets_by_project)
+        diagnostics.extend(record_diagnostics)
+        if session is not None:
+            placed[scanned.path] = session
+    # A session's record may exist in several stores: at each Worktree it
+    # moved through, and both globally and Project-locally around an
+    # integration upgrade. Its history's freshest current record places it,
+    # and a session that record places at no Observation Target is not
+    # observed here, wherever an older record of it was left.
+    sessions: list[HookSessionObservation] = []
+    kept: dict[SessionIdentityKey, frozenset[str]] = {}
+    for history in group_histories(scanned_records):
+        current = history.freshest_current
+        if current is not None and current.path in placed:
+            sessions.append(placed[current.path])
+        if history.retained_subagents:
+            kept[history.identity] = history.retained_subagents
+        for superseded in history.superseded:
+            with contextlib.suppress(OSError):
+                handles[superseded.store].prune(superseded.path.stem, superseded.raw)
+    # Records pruned above, or ended gracefully, leave their lock files
+    # behind; reclaim those, and a crashed writer's temporaries.
+    for store in handles.values():
         store.sweep()
     unknown_by_reason: dict[str, int] = {}
-    for session in latest.values():
+    for session in sessions:
         if session.liveness.liveness == "unknown":
             reason = session.liveness.reason or "host process identity is unavailable"
             unknown_by_reason[reason] = unknown_by_reason.get(reason, 0) + 1
@@ -790,7 +792,7 @@ def observe_hook_sessions(
         )
         for reason, count in sorted(unknown_by_reason.items())
     )
-    return list(latest.values()), gone, kept, diagnostics
+    return sessions, gone, kept, diagnostics
 
 
 def record_to_session(

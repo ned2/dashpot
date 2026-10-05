@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-from ..core.json_records import optional_string
 from ..core.model import Harness
 from ..core.runtime_events import HookRecordState, WorkStoreChange
 from ..core.state_paths import is_configured_checkout
@@ -20,6 +19,7 @@ from .deferred_end import (
     spawn_settler,
 )
 from .hook_records import (
+    HookRecord,
     HookRecordStore,
     build_hook_record,
     hosts_subagent,
@@ -43,6 +43,7 @@ from .processes import (
     ProcessIdentity,
     ProcessKey,
     ProcessLookup,
+    SessionProcessRecord,
     host_process_lookup,
     observe_agent_ancestry,
 )
@@ -76,9 +77,9 @@ class HookPublication:
     issue_id: str | None = None
 
 
-def route_record_store(record: Mapping[str, Any]) -> HookRecordStore:
+def route_record_store(record: HookRecord) -> HookRecordStore:
     """Choose the Project-local store for a configured checkout, else global."""
-    root = optional_string(record.get("repositoryRoot"))
+    root = record.repository_root
     if root and is_configured_checkout(Path(root)):
         return project_session_store(Path(root))
     return HookRecordStore(state_directory())
@@ -142,7 +143,7 @@ def publish_hook_event(
         store = route_record_store(record)
     # The state the hook event maps to decides whether this is an end that
     # reconciles the Work Store; the publication reports the stored state.
-    ending = record["state"] == "ended" and not child
+    ending = record.ended and not child
     # The runs this end ended, or left to a settler when it is ``deferred``.
     reconciled: list[tuple[Path, ActiveWork]] = []
     deferred: DeferredEnd | None = None
@@ -167,7 +168,7 @@ def publish_hook_event(
     seed = (
         None
         if child or freshest is None or same_path(freshest.store, store.directory)
-        else freshest.raw
+        else freshest.record
     )
     if (
         seed is not None
@@ -175,13 +176,13 @@ def publish_hook_event(
         and moved_from is not None
         and same_path(freshest.store, moved_from)
     ):
-        seed = _own_listing(seed, record.get("sessionProcess"))
+        seed = _own_listing(seed, record.session_process)
     switched = _records_switched_from(record, identity, worktrees, directory)
     adopted = sorted(
         {
             agent
             for item in switched
-            for agent in subagents_hosted_by(item.raw, record.get("sessionProcess"))
+            for agent in subagents_hosted_by(item.record, record.session_process)
         }
     )
     written = store.write(
@@ -227,7 +228,7 @@ def publish_hook_event(
             issue_id=None if changed is None else changed.issue_id,
         )
     if child:
-        if record.get("event") == "SubagentStop":
+        if record.event == "SubagentStop":
             _stop_kept_elsewhere(
                 record,
                 identity,
@@ -290,7 +291,7 @@ def _gone_hosts(
     hosts = {
         key: host
         for item in records
-        for key, host in subagent_host_processes(item.raw).items()
+        for key, host in subagent_host_processes(item.record).items()
         if key != own
     }
     return frozenset(
@@ -302,7 +303,7 @@ def _gone_hosts(
 
 
 def _stop_kept_elsewhere(
-    record: dict[str, Any],
+    record: HookRecord,
     identity: ProcessIdentity | None,
     worktrees: list[Path],
     directory: Path | None,
@@ -330,15 +331,15 @@ def _stop_kept_elsewhere(
     was written to is skipped: a start of the same agent may already have
     listed it there again. Each store re-reads its record under its lock.
     """
-    agent = record.get("agentId")
-    if identity is None or not isinstance(agent, str):
+    agent = record.delegate
+    if identity is None or agent is None:
         return
     candidates = {
         item.path: item
         for item in _process_records(record, identity, worktrees, directory)
     }
     for item in session_records:
-        if hosts_subagent(item.raw, agent, record.get("sessionProcess")):
+        if hosts_subagent(item.record, agent, record.session_process):
             candidates.setdefault(item.path, item)
     for item in candidates.values():
         if agent not in item.record.live_subagents or same_path(item.path, written_to):
@@ -348,12 +349,12 @@ def _stop_kept_elsewhere(
             store.release_subagents(
                 item.path.stem, [agent], record, session_id=item.record.session_id
             )
-        elif item.record.session_id == record.get("sessionId"):
+        elif item.record.session_id == record.session_id:
             store.release_left_behind(item.path.stem, [agent], record)
 
 
 def _records_switched_from(
-    record: dict[str, Any],
+    record: HookRecord,
     identity: ProcessIdentity | None,
     worktrees: list[Path],
     directory: Path | None,
@@ -370,12 +371,12 @@ def _records_switched_from(
     return [
         item
         for item in _process_records(record, identity, worktrees, directory)
-        if item.record.live_subagents and switched_from(record, item.raw)
+        if item.record.live_subagents and switched_from(record, item.record)
     ]
 
 
 def _process_records(
-    record: dict[str, Any],
+    record: HookRecord,
     identity: ProcessIdentity,
     worktrees: list[Path],
     directory: Path | None,
@@ -383,13 +384,13 @@ def _process_records(
     """Every record of ``record``'s harness and Host Process the session could reach."""
     return stored_process_records(
         reachable_hook_stores(worktrees, directory),
-        cast("Harness", record["harness"]),
+        record.harness,
         identity.key,
     )
 
 
 def _session_records(
-    record: dict[str, Any],
+    record: HookRecord,
     worktrees: list[Path],
     directory: Path | None,
     moved_from: Path | None,
@@ -406,14 +407,12 @@ def _session_records(
     ):
         stores.append(moved_from)
     records, _unreadable = stored_session_records(
-        stores,
-        cast("Harness", record["harness"]),
-        str(record["sessionId"]),
+        stores, record.harness, record.session_id
     )
     return records
 
 
-def _own_listing(seed: Mapping[str, Any], process: object) -> dict[str, Any]:
+def _own_listing(seed: HookRecord, process: SessionProcessRecord | None) -> HookRecord:
     """``seed`` listing only the sub-agents the Host Process ``process`` names runs.
 
     A move to another Project takes along only the moving process's own
@@ -422,16 +421,16 @@ def _own_listing(seed: Mapping[str, Any], process: object) -> dict[str, Any]:
     in the new Project too would block there with no stop to clear it
     (ADR 0109).
     """
-    own = {
-        **seed,
-        "liveSubagents": subagents_hosted_by(seed, process),
-    }
-    own.pop("subagentProcesses", None)
-    return own
+    return seed.model_copy(
+        update={
+            "live_subagents": subagents_hosted_by(seed, process),
+            "subagent_processes": {},
+        }
+    )
 
 
 def _release_moved_from(
-    record: dict[str, Any],
+    record: HookRecord,
     moved_from: Path,
     session_records: Iterable[StoredSessionRecord],
     written_to: Path,
@@ -448,9 +447,7 @@ def _release_moved_from(
     each record under its lock and changes only its list.
     """
     written, _unreadable = stored_session_records(
-        [written_to.parent],
-        cast("Harness", record["harness"]),
-        str(record["sessionId"]),
+        [written_to.parent], record.harness, record.session_id
     )
     listed = {
         agent
@@ -477,6 +474,12 @@ def _freshest_elsewhere(
     moves the session to another store. An ended record seeds nothing, but
     one kept for the sub-agents its session left working routes their
     events to it (ADR 0095).
+
+    This differs on purpose from ``SessionHistory.freshest_current``: a hook
+    probes no Host Process, so it cannot tell a gone record from a live one,
+    and a record an end superseded may still seed. The tie-break is the same
+    (``freshest_first``), and a seed counts only when it names the event's
+    own process (ADR 0134).
     """
     return freshest_stored_record(
         item

@@ -25,9 +25,11 @@ from dashpot.sessions import hook_publish
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import (
+    HookRecord,
     HookRecordStore,
     session_directory,
     state_directory,
+    stored_document,
 )
 from dashpot.sessions.hook_scan import classify_hook_record
 from dashpot.sessions.liveness import LivenessProbe
@@ -79,6 +81,11 @@ def alive(*processes: ProcessIdentity) -> ProcessLookup:
 def record(at: Path, session: str) -> dict[str, Any]:
     """The session's hook record in ``at``'s store."""
     return stored_in(session_directory(at), session)
+
+
+def stored(document: dict[str, Any]) -> dict[str, Any]:
+    """``document`` as a store writes it, every field it leaves unset spelled out."""
+    return stored_document(HookRecord.model_validate(document))
 
 
 def stored_in(directory: Path, session: str = CLAUDE_SESSION) -> dict[str, Any]:
@@ -465,29 +472,43 @@ def test_releasing_an_untagged_record_changes_only_its_list(tmp_path: Path) -> N
     store.replace(CLAUDE_SESSION, before)
     stop = {**before, "event": "SubagentStop", "agentId": WORKER}
 
-    assert store.release_left_behind(CLAUDE_SESSION, [WORKER], stop) is True
-    assert stored_in(tmp_path) == {**before, "liveSubagents": [second]}
+    assert (
+        store.release_left_behind(
+            CLAUDE_SESSION, [WORKER], HookRecord.model_validate(stop)
+        )
+        is True
+    )
+    assert stored_in(tmp_path) == stored({**before, "liveSubagents": [second]})
 
     ended = {**before, "state": "ended", "event": "SessionEnd"}
     store.replace(CLAUDE_SESSION, ended)
     assert (
         store.release_subagents(
-            CLAUDE_SESSION, [WORKER], stop, session_id=CLAUDE_SESSION
+            CLAUDE_SESSION,
+            [WORKER],
+            HookRecord.model_validate(stop),
+            session_id=CLAUDE_SESSION,
         )
         is True
     )
-    assert stored_in(tmp_path) == {**ended, "liveSubagents": [second]}
+    assert stored_in(tmp_path) == stored({**ended, "liveSubagents": [second]})
     # Another process's stop changes nothing.
     other = {**stop, "sessionProcess": RESUMED.as_record()}
     assert (
         store.release_subagents(
-            CLAUDE_SESSION, [second], other, session_id=CLAUDE_SESSION
+            CLAUDE_SESSION,
+            [second],
+            HookRecord.model_validate(other),
+            session_id=CLAUDE_SESSION,
         )
         is False
     )
     assert (
         store.release_subagents(
-            CLAUDE_SESSION, [second], stop, session_id=CLAUDE_SESSION
+            CLAUDE_SESSION,
+            [second],
+            HookRecord.model_validate(stop),
+            session_id=CLAUDE_SESSION,
         )
         is True
     )

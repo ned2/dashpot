@@ -35,6 +35,7 @@ from dashpot.repository.worktrees.removability import (
 )
 from dashpot.serialization import removability_document, worktree_plan_document
 from dashpot.sessions.hook_records import (
+    HookRecord,
     project_session_store,
     session_directory,
 )
@@ -886,18 +887,20 @@ def test_check_reports_each_obstacle_with_its_command(tmp_path: Path) -> None:
     )
     live = ProcessIdentity(7777, 1, "claude", "Tue Aug 25 02:00:00 2026")
     project_session_store(path).write(
-        {
-            "version": 2,
-            "sessionId": "01c7192b-2990-4f83-ad33-290ac22eb4d1",
-            "harness": "claude-code",
-            "state": "running",
-            "cwd": str(path),
-            "repositoryRoot": str(path),
-            "branch": "worktree-protocol",
-            "event": "UserPromptSubmit",
-            "lastActivityAt": "2026-08-30T03:40:00.000000Z",
-            "sessionProcess": live.as_record(),
-        }
+        HookRecord.model_validate(
+            {
+                "version": 2,
+                "sessionId": "01c7192b-2990-4f83-ad33-290ac22eb4d1",
+                "harness": "claude-code",
+                "state": "running",
+                "cwd": str(path),
+                "repositoryRoot": str(path),
+                "branch": "worktree-protocol",
+                "event": "UserPromptSubmit",
+                "lastActivityAt": "2026-08-30T03:40:00.000000Z",
+                "sessionProcess": live.as_record(),
+            }
+        )
     )
     before = git(root, "worktree", "list", "--porcelain")
 

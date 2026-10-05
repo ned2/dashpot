@@ -364,8 +364,8 @@ for Claude Code, the `PostToolUse` of `EnterWorktree` or of `ExitWorktree`
 with `action: keep`; for OpenCode, a root session's `session.moved`,
 decided in [ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)) can carry an Agent Run to a new location, and a
 Sub-agent's event never places its parent nor makes its record older. The
-session's freshest hook record still says where it is; a run left at another
-Worktree is reported as `work-session-elsewhere`.
+session's freshest current hook record (see Session History) still says where
+it is; a run left at another Worktree is reported as `work-session-elsewhere`.
 _Avoid_: treating tool cwd as the session's location
 
 **Agent Session**:
@@ -637,6 +637,17 @@ up ([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessi
 and is never evidence that the session ended. A Host Process is probed only
 from the PID namespace it was recorded in; one recorded in another is
 unknown ([ADR 0131](adr/0131-judge-session-liveness-in-the-recorded-pid-namespace.md)).
+
+**Session History**:
+One Agent Session Identity's readable hook records across every reachable
+hook store, freshest first by `lastActivityAt`; of two stamped alike, the
+first read leads. A record is *current* while it is live or unknown and no
+fresher ended or gone record supersedes it, as one does unless the two name
+different Host Processes. The freshest current record places the session and gives its
+state; a session with no current record is over
+([ADR 0134](adr/0134-place-a-session-by-its-freshest-current-hook-record.md)).
+_Avoid_: placing a session by its freshest record whatever its outcome, or by
+any live record however old
 
 **Orphaned Agent Run**:
 An active Work Store record whose Agent Session's recorded Host Process is
