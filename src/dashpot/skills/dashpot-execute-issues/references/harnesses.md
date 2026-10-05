@@ -161,7 +161,20 @@ Resume a finished worker with `send_input`.
 no stop, which leaves the `sub-agent` blocker up until your session ends,
 and the worker's Issue reading `running` until you unassign it. Use it only
 on a worker that has gone quiet; otherwise `followup_task` it
-with an instruction to stop and hand back.
+with an instruction to stop and hand back. A worker is a sub-agent of your
+thread, not a `codex exec` process of its own, so no signal reaches it
+alone, and the SIGINT rule below for a `codex exec` does not apply to it.
+
+**A lead under `codex exec`.** If your own session is a `codex exec`, it
+stops cleanly only on SIGINT (Ctrl-C), which publishes `SessionEnd` and
+ends your run. SIGTERM and SIGKILL publish nothing: your run stays,
+orphaned, and Cleanup's `agent-run` blocker keeps the checkout you bound
+in. To recover, resume your thread in that checkout, run `<dashpot> work
+start` with your Issue again, and assign every live worker again
+([Assign each worker](../SKILL.md#assign-each-worker)). Only when the user
+asks to end that run instead, run `<dashpot> work stop --session
+<session-key>` in that checkout, where `<dashpot> work show` identifies the
+orphaned run.
 
 **Location.** No tool a worker holds moves your session, and Dashpot
 refuses a Codex worker's `work` commands that would change your Issue work,
