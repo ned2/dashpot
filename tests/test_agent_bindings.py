@@ -70,31 +70,6 @@ def test_unbound_run_is_left_alone_without_hint_resolution() -> None:
     assert result.diagnostics == ()
 
 
-def test_duplicate_persisted_identity_across_projects_is_a_conflict() -> None:
-    first = make_issue(id="I_duplicate", projectId="project-a", reference="a#1")
-    second = make_issue(id="I_duplicate", projectId="project-b", reference="b#2")
-
-    result = bind_issue_runs(
-        [project("project-a", first), project("project-b", second)],
-        [run(issue_id="I_duplicate")],
-    )
-
-    assert result.issue_runs == {"I_duplicate": ()}
-    assert result.diagnostics[0].code == "agent-issue-identity-conflict"
-    assert len(result.diagnostics) == 1
-
-
-def test_duplicate_identity_is_diagnosed_even_without_an_agent_binding() -> None:
-    first = make_issue(id="I_duplicate", projectId="project-a", reference="a#1")
-    second = make_issue(id="I_duplicate", projectId="project-b", reference="b#2")
-
-    result = bind_issue_runs(
-        [project("project-a", first), project("project-b", second)], []
-    )
-
-    assert result.diagnostics[0].code == "agent-issue-identity-conflict"
-
-
 def test_persisted_identity_wins_over_stale_reference_with_warning() -> None:
     current = make_issue(
         id="I_stable", projectId="project-a", reference="new/repository#70"

@@ -21,39 +21,29 @@ def bind_issue_runs(
     projects: Sequence[ProjectObservation],
     runs: Sequence[AgentRun],
 ) -> IssueBindingResult:
-    """Validate Work Store Issue Bindings against the observed Issue universe."""
-    issues_by_id: dict[str, list[IssueProfile]] = {}
+    """Validate Work Store Issue Bindings against the observed Issue universe.
+
+    Dashpot observes one Project at a time (ADR 0004), so the observed
+    Issues hold each Issue Identity at most once; duplicates are not checked.
+    """
+    issues_by_id: dict[str, IssueProfile] = {}
     status_by_project: dict[str, str] = {}
     for project in projects:
         status_by_project[project.project_id] = project.status
         if project.snapshot is None:
             continue
         for issue in project.snapshot.issues:
-            issues_by_id.setdefault(issue.id, []).append(issue)
+            issues_by_id[issue.id] = issue
 
     issue_runs: dict[str, list[str]] = {issue_id: [] for issue_id in issues_by_id}
-    conflicting_ids = {
-        issue_id for issue_id, matches in issues_by_id.items() if len(matches) > 1
-    }
-    diagnostics = [
-        Diagnostic(
-            source=f"issue:{issue_id}",
-            severity="error",
-            message=f"Issue Identity {issue_id} appears in more than one Project",
-            code="agent-issue-identity-conflict",
-        )
-        for issue_id in sorted(conflicting_ids)
-    ]
+    diagnostics: list[Diagnostic] = []
     for run in runs:
         if not run.issue_id:
             continue
-        matches = issues_by_id.get(run.issue_id, [])
-        if len(matches) == 1:
+        issue = issues_by_id.get(run.issue_id)
+        if issue is not None:
             issue_runs[run.issue_id].append(run.id)
-            if (
-                run.issue_reference_hint
-                and matches[0].reference != run.issue_reference_hint
-            ):
+            if run.issue_reference_hint and issue.reference != run.issue_reference_hint:
                 diagnostics.append(
                     Diagnostic(
                         source=run.id,
@@ -63,8 +53,6 @@ def bind_issue_runs(
                         code="agent-issue-hint-stale",
                     )
                 )
-        elif len(matches) > 1:
-            continue
         elif _resolution_deferred(run, status_by_project):
             diagnostics.append(
                 Diagnostic(

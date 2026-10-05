@@ -11,6 +11,14 @@ the rule that no Worker counts toward an Issue Identity more than one Project
 observes held only in the snapshot Issue list, which is retired; the Issue
 list is one Project's Query Page.
 
+Amended in place for [#593](https://github.com/ned2/dashpot/issues/593):
+this amendment retires, from headless `observe`, the check that left unbound
+an Agent Run whose Issue Identity more than one Project observes, and
+reported that Identity as an `agent-issue-identity-conflict`. Dashpot observes one Project at a time
+([ADR 0004](0004-observe-one-project-per-run.md)), so no such Identity
+occurs; observing several Projects together would need its own ADR, which
+decides the rule afresh.
+
 [ADR 0092](0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)
 ships the Lead/Worker workflow: a Lead holds the Arc's single Agent Run and
 Issue Binding at the checkout where it starts, and dispatches Workers that each
@@ -147,11 +155,10 @@ copied to its Workers' Issues. So when Worker B finishes, Issue B loses B's
 C keeps Issue C running and the Lead may still be running on the Arc. An
 assignment alone shows nothing. A Sub-agent no Lead assigned holds only its
 own session's run running (ADR 0016) and gives no Issue of its own any
-activity. No Agent Run binds to an Issue Identity that more than one Project
-observes. No Worker counted toward one either while the snapshot Issue list
-applied that rule; the Issue list is now one Project's Query Page, and
-[ADR 0137](0137-hold-only-what-was-published-last-in-the-observation-store.md)
-retired the snapshot list.
+activity. The one observed Project holds at most one Issue for any Issue
+Identity ([ADR 0004](0004-observe-one-project-per-run.md)), so bound runs
+and assigned Workers count toward an Issue alike; no rule refuses either for
+an Identity more than one Project observes.
 
 Each assigned Worker keeps its Lead's run identity, so a later Sessions-pane
 design ([#444](https://github.com/ned2/dashpot/issues/444)) can show assigned
