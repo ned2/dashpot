@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-05
+amended-by: 0130-write-integrates-configuration-where-each-harness-reads-it.md
 ---
 
 # Check every integrate destination before writing, and carry on past a failed write

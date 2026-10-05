@@ -58,6 +58,7 @@ from dashpot.sessions.integrate import (
     HarnessOutcome,
     HarnessReport,
     IncompleteIntegrationError,
+    IncompleteRemovalError,
     IntegrationError,
 )
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
@@ -1812,6 +1813,30 @@ def test_an_incomplete_integrate_reports_what_it_wrote_then_what_failed(
         "dashpot: could not install the Dashpot Second skill in /x: disk full; "
         "the rest of the integration is written, and rerunning 'dashpot "
         "integrate codex' once that is fixed finishes it\n"
+    )
+
+
+def test_an_incomplete_removal_reports_what_it_removed_then_what_failed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    incomplete = IncompleteRemovalError(
+        "opencode",
+        ["could not remove Dashpot worker agent from /a: denied"],
+        ["removed the OpenCode plugin /p", "removed the Dashpot First skill from /s"],
+    )
+    with mock.patch.object(cli, "remove_integration", side_effect=incomplete):
+        code = cli.main(["integrate", "opencode", "--remove"])
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.out.splitlines() == [
+        "removed the OpenCode plugin /p",
+        "removed the Dashpot First skill from /s",
+    ]
+    assert captured.err == (
+        "dashpot: could not remove Dashpot worker agent from /a: denied; the "
+        "rest of the integration is removed, and rerunning 'dashpot integrate "
+        "opencode --remove' once that is fixed finishes it\n"
     )
 
 

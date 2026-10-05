@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import shutil
+import stat
 import subprocess
 import sysconfig
 from collections.abc import Callable, Sequence
@@ -15,24 +17,28 @@ import pytest
 from dashpot.core.model import Harness
 from dashpot.repository.cleanup import DESPITE_SUBAGENTS_FLAG
 from dashpot.repository.cleanup.obstacles import session_exit
-from dashpot.sessions import integrate as integrate_module
 from dashpot.sessions.harnesses import HarnessError
 from dashpot.sessions.hook_records import HookRecordStore
 from dashpot.sessions.integrate import (
     BUNDLED_SKILL_VERSION,
+    BUNDLED_SKILLS,
     CLAUDE_CODE_HOOK_EVENTS,
     CODEX_HOOK_EVENTS,
     ISSUE_WORK_SKILL,
     OPENCODE_ACCEPTED_VERSION,
     BundledSkill,
     CombinedStatus,
+    ConfigurationDirectory,
     HarnessReport,
+    IncompleteRemovalError,
     IntegrationError,
     codex_integration_status,
+    configuration_directory,
     install_codex_integration,
     install_integration,
     install_integrations,
     integration,
+    integration_presence,
     integration_status,
     integrations_status,
     refresh_integrations,
@@ -381,6 +387,27 @@ def test_remove_without_installation_is_a_calm_message(tmp_path: Path) -> None:
 
     (home / "hooks.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": []}]}}))
     assert "no Dashpot hooks" in remove_codex_integration(home)[0]
+
+
+@pytest.mark.parametrize(
+    ("document", "said"),
+    [
+        ({"hooks": []}, "no hooks in"),
+        ({"hooks": {"Stop": "not a list"}}, "no Dashpot hooks in"),
+    ],
+)
+def test_remove_leaves_a_hooks_file_without_dashpot_hooks_unchanged(
+    tmp_path: Path, document: dict[str, Any], said: str
+) -> None:
+    home = codex_home(tmp_path)
+    (home / "hooks.json").write_text(json.dumps(document))
+
+    messages = remove_codex_integration(home)
+
+    assert messages[0] == (
+        f"Codex integration is not installed: {said} {home / 'hooks.json'}"
+    )
+    assert read_hooks(home) == document
 
 
 def test_remove_cleans_the_managed_skill_when_hooks_are_already_absent(
@@ -1454,19 +1481,26 @@ def test_installed_leaves_a_managed_skill_without_hooks_unchanged(
     assert every_file(user_home) == before
 
 
+@pytest.mark.parametrize("unreadable", [b"{not json", b"\xff{}"])
 def test_installed_refuses_a_harness_whose_hooks_cannot_be_read(
-    tmp_path: Path, user_home: Path
+    tmp_path: Path, user_home: Path, unreadable: bytes
 ) -> None:
     integrate_one("claude-code", tmp_path)
     hooks = default_home("codex") / "hooks.json"
-    hooks.write_text("{not json")
+    hooks.write_bytes(unreadable)
 
     reports = refresh(tmp_path)
+    status = combined_status(tmp_path)
 
     assert outcomes(reports)[:2] == [("claude-code", "installed"), ("codex", "refused")]
     assert reports[1].error is not None
     assert reports[1].error.startswith(f"cannot read Codex hooks at {hooks}: ")
-    assert hooks.read_text() == "{not json"
+    assert (
+        status.harnesses[1]
+        .messages[0]
+        .startswith(f"cannot read Codex hooks at {hooks}: ")
+    )
+    assert hooks.read_bytes() == unreadable
 
 
 def test_one_refused_harness_does_not_stop_the_others(
@@ -1497,14 +1531,14 @@ def test_a_harness_left_incomplete_does_not_stop_the_others(
 ) -> None:
     for harness in ("claude-code", "codex"):
         default_home(harness)
-    write = integrate_module.replace_atomically
+    rename = os.replace
 
-    def full_disk(path: Path, text: str, *, temporary_prefix: str) -> None:
-        if path.name == "settings.json":
+    def full_disk(source: str | os.PathLike[str], destination: Path) -> None:
+        if destination.name == "settings.json":
             raise OSError(28, "No space left on device")
-        write(path, text, temporary_prefix=temporary_prefix)
+        rename(source, destination)
 
-    monkeypatch.setattr(integrate_module, "replace_atomically", full_disk)
+    monkeypatch.setattr(os, "replace", full_disk)
 
     reports = refresh(tmp_path, "codex", "claude-code")
 
@@ -1775,3 +1809,310 @@ def test_a_skill_copy_that_is_not_text_is_no_update(
     messages = combined_status(tmp_path).messages
 
     assert not any(message.startswith("updates available") for message in messages)
+
+
+# --- The user's configuration, where each harness reads it (ADR 0130) ------
+
+
+def removed_skills(home: Path) -> tuple[str, ...]:
+    """What removing every bundled skill's Codex copy reports."""
+    spec = integration("codex")
+    return tuple(
+        f"removed the Dashpot {skill.label} from {skill_directory(spec, home, skill)}"
+        for skill in BUNDLED_SKILLS
+    )
+
+
+@pytest.mark.parametrize("harness", ["codex", "claude-code"])
+def test_install_and_remove_write_through_a_linked_hooks_file(
+    tmp_path: Path, harness: Harness
+) -> None:
+    spec = integration(harness)
+    home = tmp_path / spec.home_name
+    home.mkdir()
+    dotfiles = tmp_path / "dotfiles"
+    dotfiles.mkdir()
+    managed = dotfiles / spec.hooks_file
+    managed.write_text('{\n  "statusLine": "café → ✓"\n}\n', encoding="utf-8")
+    managed.chmod(0o644)
+    link = home / spec.hooks_file
+    link.symlink_to(managed)
+
+    installed = install_integration(
+        harness, home, command_path=publishers(tmp_path)[harness]
+    )
+
+    assert f"installed {spec.display} lifecycle hooks in {link}" in installed
+    assert link.is_symlink()
+    assert link.readlink() == managed
+    text = managed.read_text(encoding="utf-8")
+    assert '"statusLine": "café → ✓"' in text
+    assert set(json.loads(text)["hooks"]) == {
+        *spec.events,
+        *(event for event, _matcher in spec.matched_events),
+    }
+    assert stat.S_IMODE(managed.stat().st_mode) == 0o644
+    assert list(dotfiles.iterdir()) == [managed]
+
+    removed = remove_integration(harness, home)
+
+    assert f"removed the Dashpot hooks from {link}" in removed
+    assert link.is_symlink()
+    assert managed.read_text(encoding="utf-8") == '{\n  "statusLine": "café → ✓"\n}\n'
+    assert stat.S_IMODE(managed.stat().st_mode) == 0o644
+
+
+def test_remove_keeps_a_linked_hooks_file_that_held_only_dashpot_hooks(
+    tmp_path: Path,
+) -> None:
+    home = codex_home(tmp_path)
+    managed = tmp_path / "dotfiles" / "hooks.json"
+    managed.parent.mkdir()
+    managed.write_text("{}\n")
+    (home / "hooks.json").symlink_to(managed)
+    install_codex_integration(home, command_path=publisher(tmp_path))
+
+    messages = remove_codex_integration(home)
+
+    assert f"removed the Dashpot hooks from {home / 'hooks.json'}" in messages
+    assert (home / "hooks.json").is_symlink()
+    assert managed.read_text() == "{}\n"
+
+
+def test_a_replaced_hooks_file_keeps_its_mode(tmp_path: Path) -> None:
+    home = codex_home(tmp_path)
+    hooks = home / "hooks.json"
+    hooks.write_text("{}\n")
+    hooks.chmod(0o640)
+
+    install_codex_integration(home, command_path=publisher(tmp_path))
+
+    assert stat.S_IMODE(hooks.stat().st_mode) == 0o640
+    assert not hooks.is_symlink()
+    assert [path.name for path in home.iterdir()] == ["hooks.json"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
+def test_a_hooks_file_linked_into_a_read_only_directory_refuses_the_install(
+    tmp_path: Path,
+) -> None:
+    home = claude_home(tmp_path)
+    store = tmp_path / "store"
+    store.mkdir()
+    managed = store / "settings.json"
+    managed.write_text("{}\n")
+    link = home / "settings.json"
+    link.symlink_to(managed)
+    store.chmod(0o555)
+    try:
+        with pytest.raises(IntegrationError) as refused:
+            install_integration(
+                "claude-code", home, command_path=claude_publisher(tmp_path)
+            )
+    finally:
+        store.chmod(0o755)
+
+    assert str(refused.value) == (
+        f"cannot install the Claude Code lifecycle hooks in {link}, a link to "
+        f"{managed}: {store} is not writable; make it writable and retry"
+    )
+    assert link.is_symlink()
+    assert managed.read_text() == "{}\n"
+    assert not (home / "skills").exists()
+
+
+def test_a_dangling_hooks_link_is_refused_naming_what_it_names(
+    tmp_path: Path,
+) -> None:
+    home = claude_home(tmp_path)
+    gone = tmp_path / "dotfiles" / "settings.json"
+    hop = tmp_path / "hop.json"
+    hop.symlink_to(gone)
+    link = home / "settings.json"
+    link.symlink_to(hop)
+
+    with pytest.raises(IntegrationError) as refused:
+        install_integration(
+            "claude-code", home, command_path=claude_publisher(tmp_path)
+        )
+
+    assert str(refused.value) == (
+        f"cannot install the Claude Code lifecycle hooks in {link}: the link leads "
+        f"to nothing at {gone.resolve()}; restore what it names or move it, and retry"
+    )
+    assert link.is_symlink()
+    assert not gone.exists()
+    assert not (home / "skills").exists()
+
+
+def test_a_hooks_file_that_is_not_utf8_is_refused_by_install_status_and_remove(
+    tmp_path: Path,
+) -> None:
+    home = codex_home(tmp_path)
+    install_codex_integration(home, command_path=publisher(tmp_path))
+    hooks = home / "hooks.json"
+    hooks.write_bytes(b"\xff{}")
+
+    with pytest.raises(IntegrationError) as install_refused:
+        install_codex_integration(home, command_path=publisher(tmp_path))
+    report = codex_integration_status(
+        home, state_dir=tmp_path / "state", current=tmp_path
+    )
+    with pytest.raises(IncompleteRemovalError) as remove_incomplete:
+        remove_codex_integration(home)
+
+    refusal = f"cannot read Codex hooks at {hooks}: "
+    assert str(install_refused.value).startswith(refusal)
+    assert str(install_refused.value).endswith("; fix or move the file and retry")
+    assert report[0].startswith(refusal)
+    assert str(remove_incomplete.value).startswith(refusal)
+    # Each skill copy, a step of its own, is removed regardless.
+    assert remove_incomplete.value.messages == removed_skills(home)
+    assert hooks.read_bytes() == b"\xff{}"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
+@pytest.mark.parametrize("foreign", [False, True])
+def test_remove_carries_on_past_a_hooks_file_it_cannot_change(
+    tmp_path: Path, foreign: bool
+) -> None:
+    home = codex_home(tmp_path)
+    if foreign:
+        theirs = {"type": "command", "command": "notify-send done"}
+        (home / "hooks.json").write_text(
+            json.dumps({"hooks": {"Stop": [{"hooks": [theirs]}]}})
+        )
+    install_codex_integration(home, command_path=publisher(tmp_path))
+    hooks = (home / "hooks.json").read_bytes()
+    home.chmod(0o555)
+    try:
+        with pytest.raises(IncompleteRemovalError) as incomplete:
+            remove_codex_integration(home)
+    finally:
+        home.chmod(0o755)
+
+    path = home / "hooks.json"
+    assert str(incomplete.value).startswith(
+        f"could not remove the Dashpot hooks from {path}: [Errno 13] "
+    )
+    assert str(incomplete.value).endswith(
+        "; the rest of the integration is removed, and rerunning 'dashpot "
+        "integrate codex --remove' once that is fixed finishes it"
+    )
+    assert incomplete.value.messages == removed_skills(home)
+    assert not installed_skill(home).exists()
+    assert path.read_bytes() == hooks
+    assert [entry.name for entry in home.iterdir()] == ["hooks.json"]
+
+
+def test_each_harness_reads_its_own_configuration_variable() -> None:
+    claude = integration("claude-code")
+    codex = integration("codex")
+    opencode = integration("opencode")
+
+    assert configuration_directory(
+        claude, {"CLAUDE_CONFIG_DIR": "/work/claude", "CODEX_HOME": "/work/codex"}
+    ) == ConfigurationDirectory(Path("/work/claude"), "CLAUDE_CONFIG_DIR")
+    assert configuration_directory(
+        codex, {"CODEX_HOME": "/work/codex"}
+    ) == ConfigurationDirectory(Path("/work/codex"), "CODEX_HOME")
+    assert configuration_directory(codex, {"CODEX_HOME": ""}) == (
+        ConfigurationDirectory(Path.home() / ".codex")
+    )
+    assert configuration_directory(claude, {}) == (
+        ConfigurationDirectory(Path.home() / ".claude")
+    )
+    assert configuration_directory(
+        opencode, {"XDG_CONFIG_HOME": "/xdg", "CLAUDE_CONFIG_DIR": "/work/claude"}
+    ) == ConfigurationDirectory(Path("/xdg/opencode"))
+    assert str(ConfigurationDirectory(Path("/w"), "CODEX_HOME")) == (
+        "/w (from CODEX_HOME)"
+    )
+
+
+def test_claude_code_is_integrated_where_claude_config_dir_names(
+    tmp_path: Path, user_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured = tmp_path / "work-claude"
+    configured.mkdir()
+    (user_home / ".claude").mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(configured))
+    settings = configured / "settings.json"
+
+    installed = install_integration(
+        "claude-code", command_path=publishers(tmp_path)["claude-code"]
+    )
+    report = integration_status(
+        "claude-code", state_dir=tmp_path / "state", current=tmp_path, environ={}
+    )
+
+    assert f"installed Claude Code lifecycle hooks in {settings}" in installed
+    copy = configured / "skills" / ISSUE_WORK_SKILL.name
+    assert f"installed Dashpot Issue work skill in {copy}" in installed
+    assert list((user_home / ".claude").iterdir()) == []
+    assert report[0] == (
+        f"Claude Code configuration directory: {configured} (from CLAUDE_CONFIG_DIR)"
+    )
+    assert report[1].startswith(f"installed in {settings} for: ")
+    assert integration_presence("claude-code").state == "integrated"
+    hooks = settings.read_text()
+    settings.unlink()
+    partial = integration_presence("claude-code")
+    assert partial.state == "partial"
+    assert partial.detail.startswith(
+        f"no Dashpot hooks at {settings} (CLAUDE_CONFIG_DIR names {configured}), "
+        "but the Dashpot "
+    )
+    settings.write_text(hooks)
+
+    removed = remove_integration("claude-code")
+
+    assert f"removed {settings}; it contained only the Dashpot hooks" in removed
+    assert not copy.exists()
+    assert integration_presence("claude-code").detail == (
+        f"no Dashpot hooks at {settings} (CLAUDE_CONFIG_DIR names {configured})"
+    )
+
+
+def test_codex_is_integrated_where_codex_home_names_with_its_skills_in_agents(
+    tmp_path: Path, user_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    configured = tmp_path / "codex-home"
+    configured.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(configured))
+
+    installed = install_integration("codex", command_path=publishers(tmp_path)["codex"])
+
+    hooks = configured / "hooks.json"
+    assert f"installed Codex lifecycle hooks in {hooks}" in installed
+    copy = user_home / ".agents" / "skills" / ISSUE_WORK_SKILL.name
+    assert f"installed Dashpot Issue work skill in {copy}" in installed
+    assert not (user_home / ".codex").exists()
+    assert [report.outcome for report in refresh(tmp_path, "codex")] == ["installed"]
+
+
+def test_a_configuration_variable_naming_no_directory_is_named_in_the_refusal(
+    tmp_path: Path, user_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    default_home("codex")
+    missing = tmp_path / "missing"
+    monkeypatch.setenv("CODEX_HOME", str(missing))
+
+    with pytest.raises(IntegrationError) as refused:
+        install_integration("codex", command_path=publishers(tmp_path)["codex"])
+    report = integration_status(
+        "codex", state_dir=tmp_path / "state", current=tmp_path, environ={}
+    )
+
+    assert str(refused.value) == (
+        f"no Codex configuration directory at {missing} (from CODEX_HOME); "
+        "install and run Codex once before integrating"
+    )
+    assert report[:2] == [
+        f"Codex configuration directory: {missing} (from CODEX_HOME)",
+        f"Codex configuration directory not found: {missing} (from CODEX_HOME)",
+    ]
+    assert integration_presence("codex").detail == (
+        f"no Codex configuration directory at {missing} (from CODEX_HOME)"
+    )
+    assert list((user_home / ".codex").iterdir()) == []

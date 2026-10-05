@@ -501,6 +501,18 @@ integration installs lifecycle hooks and every agent skill Dashpot bundles,
 such as `dashpot-issue-work` and the user-invoked `dashpot-execute-issues`,
 each as a managed copy marked as Dashpot's. It
 preserves unrelated settings; repeated installation refreshes its own entries.
+Claude Code's and Codex's hooks go in the configuration directory each
+harness reads: `$CLAUDE_CONFIG_DIR`, else `~/.claude`, and `$CODEX_HOME`,
+else `~/.codex`. Run `integrate` with the same variables the harness runs
+with; `--status` names the variable when one chose the directory. Claude
+Code's skill copies go in that directory's `skills/`, and Codex's in
+`~/.agents/skills` wherever `CODEX_HOME` points. A hooks file that is a
+symbolic link, as a dotfiles manager leaves it, is changed where the link
+leads: the link stays, and the file keeps its mode and any text outside
+ASCII. A link into a directory Dashpot cannot write, such as the Nix store,
+is refused before anything is written; add the hooks where that file is
+generated instead
+([ADR 0130](adr/0130-write-integrates-configuration-where-each-harness-reads-it.md)).
 A directory of a bundled skill's name that Dashpot did not write is never
 overwritten or removed: installation is refused until it is moved, `--status`
 reports it as a conflict, and `--remove` leaves it in place. One that cannot
@@ -511,7 +523,9 @@ Dashpot wrote into it: an update
 leaves the copy holding exactly the files this Dashpot ships, removing one an
 earlier release shipped, and `--remove` deletes every file the manifest
 names. A file you add inside a managed copy is never touched
-([ADR 0103](adr/0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md)).
+([ADR 0103](adr/0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md)),
+and a directory inside a copy that links outside it refuses the
+installation until it is moved, so nothing outside the copy is written.
 Before writing anything, `integrate` checks that it can write every hook
 file, plugin, skill copy and agent it would change, and refuses the whole
 installation, naming each one it cannot write, so an unwritable copy never
@@ -657,6 +671,7 @@ integrated harnesses have an update available, its last line names
 | The repository is unconfigured | Run `dashpot init`, or `dashpot init --markdown issues`, and commit `.dashpot/config.json`. |
 | An Issue Source is unavailable | Inspect Diagnostics in the TUI or `dashpot --json`; a bad Markdown file fails the complete collection. |
 | Sessions are missing or Issue opt-in is refused | Run `dashpot integrate <harness> --status` inside the session's Worktree; inspect hook trust, publisher path, skill version, and the confirmed Agent Session Identity. |
+| `--status` reports the hooks installed, yet the harness's sessions are missing, while `CLAUDE_CONFIG_DIR` or `CODEX_HOME` is set where the harness runs | `integrate` writes the configuration directory its own environment names. Run `dashpot integrate <harness>` and `--status` with the same variable the harness runs with: `--status` names the variable when it chose the directory, and shows the default directory when it did not. |
 | Every hook event fails after a Worktree was removed, or `--status` warns that the publisher lives in a linked Worktree | The hooks were bound to a publisher in that Worktree's `.venv`, which the Cleanup removed. Rerun `dashpot integrate <harness>` from the Repository's main working tree or from an installed tool environment; `integrate` refuses to bind a linked Worktree's publisher in the first place. |
 | The dashboard shows an `event-log-unavailable` Diagnostic | It could not write its [Event Log](#event-log); the work carries on and the events are dropped. Check that the checkout's `.dashpot/state/events/`, or the machine-local fallback, is writable and its disk is not full, or set `event_level = 'off'`. |
 | The dashboard shows an `event-log-large` Diagnostic | Its checkout's Event Log holds more than 200 MB. Preview with `dashpot events remove --before DATE --dry-run` in the directory the Diagnostic names, then remove, or schedule removal; see [Remove old Event Log files](#remove-old-event-log-files). |
@@ -703,7 +718,12 @@ uv tool uninstall dashpot
 ```
 
 Remove only integrations you installed. These commands preserve unrelated
-harness settings. Uninstalling the tool does not delete Project configuration,
+harness settings, and change a linked hooks file where its link leads. A
+step `--remove` cannot finish, such as a file in a directory it cannot
+write, does not stop the others: it prints what it removed, names each
+failure, and exits with an error; rerun it once the cause is fixed
+([ADR 0130](adr/0130-write-integrates-configuration-where-each-harness-reads-it.md)).
+Uninstalling the tool does not delete Project configuration,
 Local Issues, Worktrees, or Work Stores. Any later state removal is a separate
 person-selected action; inspect active Agent Runs and pending Relocation
 Intents first. Session records outside configured Projects use the documented

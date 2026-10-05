@@ -1296,18 +1296,18 @@ def _integrate_one(
     if status:
         messages = integration_status(harness)
         outcome.action = "reported"
-    elif remove:
-        messages = remove_integration(harness)
-        outcome.action = "removed"
-    else:
-        try:
-            messages = install_integration(harness)
-        except IncompleteIntegrationError as incomplete:
-            # What was written is reported before the failures it carried
-            # on past, which end the command as any refusal does.
-            _report(incomplete.messages)
-            raise
-        outcome.action = "installed"
+        _report(messages)
+        return 0
+    try:
+        messages = (
+            remove_integration(harness) if remove else install_integration(harness)
+        )
+    except IncompleteIntegrationError as incomplete:
+        # What was written or removed is reported before the failures it
+        # carried on past, which end the command as any refusal does.
+        _report(incomplete.messages)
+        raise
+    outcome.action = "removed" if remove else "installed"
     _report(messages)
     return 0
 

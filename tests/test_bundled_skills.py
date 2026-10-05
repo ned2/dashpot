@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from dashpot.core.model import Harness
-from dashpot.sessions import integrate as integrate_module
 from dashpot.sessions.integrate import (
     BUNDLED_SKILL_VERSION,
     BUNDLED_SKILLS,
@@ -27,10 +26,12 @@ from dashpot.sessions.integrate import (
     BundledSkill,
     HarnessIntegration,
     IncompleteIntegrationError,
+    IncompleteRemovalError,
     IntegrationError,
     install_integration,
     integration,
     integration_status,
+    refresh_integrations,
     remove_integration,
     skill_directory,
 )
@@ -729,17 +730,19 @@ def test_a_shipped_file_it_cannot_read_is_an_update_not_a_traceback(
 
 
 def fail_writing(monkeypatch: pytest.MonkeyPatch, *paths: Path) -> None:
-    """Make writing each of these files fail, as a full disk or a crash would."""
-    write = integrate_module.replace_atomically
+    """Make writing each of these files fail, as a full disk or a crash would.
 
-    def failing(
-        path: Path, content: str, *, temporary_prefix: str, durable: bool = False
-    ) -> None:
-        if path in paths:
+    Every file ``integrate`` writes is renamed into place, the user's
+    configuration and Dashpot's own copies alike, so the rename fails.
+    """
+    rename = os.replace
+
+    def failing(source: str | os.PathLike[str], destination: Path) -> None:
+        if destination in paths:
             raise OSError(28, "No space left on device")
-        write(path, content, temporary_prefix=temporary_prefix, durable=durable)
+        rename(source, destination)
 
-    monkeypatch.setattr(integrate_module, "replace_atomically", failing)
+    monkeypatch.setattr(os, "replace", failing)
 
 
 def test_a_first_install_cut_short_leaves_a_directory_free_to_install_into(
@@ -808,6 +811,42 @@ def test_remove_never_follows_a_link_the_user_put_inside_a_copy(
     assert not (copy / "SKILL.md").exists()
 
 
+def test_an_update_never_writes_through_a_link_the_user_put_inside_a_copy(
+    tmp_path: Path, second: BundledSkill
+) -> None:
+    skills = (ISSUE_WORK_SKILL, second)
+    install("codex", tmp_path, skills)
+    copy = copy_of("codex", second)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "notes.md").write_text("Mine.\n")
+    shutil.rmtree(copy / "references" / "deep")
+    (copy / "references" / "deep").symlink_to(elsewhere, target_is_directory=True)
+    hooks = integration_file("codex")
+    before = hooks.read_bytes()
+
+    with pytest.raises(IntegrationError) as refused:
+        install("codex", tmp_path, skills)
+    (refreshed,) = [
+        report
+        for report in refresh_integrations(
+            command_paths={"codex": publisher(tmp_path, integration("codex"))},
+            skills=skills,
+        )
+        if report.harness == "codex"
+    ]
+
+    expected = (
+        f"cannot install the Dashpot Second skill at {copy}: "
+        f"{copy / 'references' / 'deep'} resolves outside the copy through a "
+        "link; move it and retry"
+    )
+    assert str(refused.value) == expected
+    assert (refreshed.outcome, refreshed.error) == ("refused", expected)
+    assert (elsewhere / "notes.md").read_text() == "Mine.\n"
+    assert hooks.read_bytes() == before
+
+
 def test_remove_never_follows_a_link_loop_inside_a_copy(
     tmp_path: Path, second: BundledSkill
 ) -> None:
@@ -841,7 +880,8 @@ def test_a_managed_copy_it_cannot_write_refuses_the_install_and_is_kept(
     try:
         with pytest.raises(IntegrationError) as refused:
             install("codex", tmp_path, skills)
-        messages = remove_integration("codex", config_home("codex"), skills=skills)
+        with pytest.raises(IncompleteRemovalError) as incomplete:
+            remove_integration("codex", config_home("codex"), skills=skills)
     finally:
         copy.chmod(0o755)
 
@@ -849,9 +889,17 @@ def test_a_managed_copy_it_cannot_write_refuses_the_install_and_is_kept(
         f"cannot install the Dashpot Second skill at {copy}: {copy} is not "
         "writable; make it writable and retry"
     )
-    assert any(
-        message.startswith(f"could not remove Dashpot Second skill from {copy}: ")
-        for message in messages
+    assert str(incomplete.value).startswith(
+        f"could not remove Dashpot Second skill from {copy}: "
+    )
+    assert str(incomplete.value).endswith(
+        "; the rest of the integration is removed, and rerunning 'dashpot "
+        "integrate codex --remove' once that is fixed finishes it"
+    )
+    # Every other step ran, and what it removed is reported.
+    assert (
+        f"removed the Dashpot Issue work skill from "
+        f"{copy_of('codex', ISSUE_WORK_SKILL)}" in incomplete.value.messages
     )
     # The refused install wrote nothing; the copy is still Dashpot's to
     # remove once it can be.

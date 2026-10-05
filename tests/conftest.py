@@ -22,8 +22,15 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
 def isolated_settings(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Keep every test from reading the machine-local settings of whoever runs it."""
+    """Keep every test from reading the machine-local settings of whoever runs it.
+
+    That includes the harnesses' own configuration directories, which their
+    variables would otherwise point ``integrate`` at, whatever ``HOME`` a
+    test sets.
+    """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg-config")))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
 
 
 @pytest.fixture(autouse=True)
