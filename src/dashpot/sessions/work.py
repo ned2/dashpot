@@ -31,6 +31,7 @@ from ..core.model import (
     Harness,
     WorkerState,
 )
+from ..core.text import counted
 from ..core.timestamps import utc_now
 from ..core.worktree_paths import repository_worktrees, same_path, worktree_root
 from ..issues.issue_resolution import resolve_issue
@@ -409,7 +410,7 @@ def ended_assignments(work: ActiveWork) -> str:
         f"{worker.worker_id} on {worker.issue_reference}" for worker in work.workers
     )
     return (
-        f"ended {count} Worker Assignment{'' if count == 1 else 's'} of the run "
+        f"ended {counted(count, 'Worker Assignment')} of the run "
         f"on {work.issue_reference} ({workers})"
     )
 

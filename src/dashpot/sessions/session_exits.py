@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from ..core.model import HARNESS_DISPLAY, Harness
 from ..core.shell import in_directory, shell_command
+from ..core.text import counted
 
 # The words of a resume template that stand for the session's identity and
 # the directory it resumes at.
@@ -123,8 +124,7 @@ def resume_template(harness: Harness) -> ResumeTemplate | None:
 
 def listed_subagents(count: int) -> str:
     """``1 sub-agent listed as working``: how many sub-agents a session lists."""
-    noun = "sub-agent" if count == 1 else "sub-agents"
-    return f"{count} {noun} listed as working"
+    return f"{counted(count, 'sub-agent')} listed as working"
 
 
 def named_subagents(agents: Sequence[str]) -> str:

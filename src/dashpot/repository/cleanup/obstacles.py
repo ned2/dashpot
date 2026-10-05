@@ -11,6 +11,7 @@ from typing import Literal
 from ...core.git import Git, GitError
 from ...core.model import HARNESS_DISPLAY
 from ...core.shell import in_directory, shell_command, then
+from ...core.text import counted
 from ...core.worktree_paths import is_within, same_path, worktree_paths, worktree_root
 from ...sessions.hook_scan import (
     HookRecordClassification,
@@ -47,11 +48,6 @@ PROTECTED_DETAIL = (
     "this is the checkout Dashpot runs from or a configured Repository Anchor, "
     "which observation cannot lose"
 )
-
-
-def counted(count: int, noun: str) -> str:
-    """``1 commit`` or ``3 commits``: a count with its noun agreeing."""
-    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
 @dataclass(frozen=True, slots=True)

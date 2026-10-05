@@ -9,6 +9,7 @@ from typing import Literal
 from ...core.git import Git
 from ...core.model import IntegrationState
 from ...core.shell import shell_command
+from ...core.text import counted
 from ...core.worktree_paths import worktree_root
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.working_directories import ProcessScan
@@ -25,7 +26,6 @@ from .obstacles import (
     NO_INTEGRATION_BRANCH,
     LocatedWorktree,
     assess_worktree,
-    counted,
     integration_fact,
     locate_worktree,
 )

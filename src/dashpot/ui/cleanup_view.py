@@ -20,6 +20,7 @@ from textual.widgets import Button, Checkbox, Collapsible, Footer, Static
 
 from ..core.ages import relative_age
 from ..core.model import HARNESS_DISPLAY
+from ..core.text import counted
 from ..repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     NO_ACKNOWLEDGEMENT,
@@ -30,7 +31,6 @@ from ..repository.cleanup import (
     CleanupReport,
     CleanupRequest,
     CleanupTarget,
-    counted,
     default_choices,
     describe_cleanup_report,
     lifted,

@@ -23,6 +23,7 @@ from dashpot.core.commands import (
 )
 from dashpot.core.git import Git, GitError
 from dashpot.core.state_paths import ensure_state_directory
+from dashpot.core.text import counted
 from dashpot.repository.cleanup import (
     CHANGED_SINCE_PREVIEW,
     SUB_AGENT_SCOPE,
@@ -44,7 +45,6 @@ from dashpot.repository.cleanup.adapter import GitCleanupAdapter
 from dashpot.repository.cleanup.obstacles import (
     NO_INTEGRATION_BRANCH,
     assess_worktree_occupancy,
-    counted,
 )
 from dashpot.repository.refs import short_ref
 from dashpot.repository.worktrees.removability import (
