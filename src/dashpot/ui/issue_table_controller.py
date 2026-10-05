@@ -7,7 +7,6 @@ but it is not a Screen: column headings for submitted ordering are pure.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
@@ -29,7 +28,6 @@ from .issue_table import (
     build_rows,
     column_header,
     column_specs,
-    searchable_columns,
     shown_columns,
 )
 from .keyed_table import cursor_row_key, restore_selection
@@ -136,10 +134,7 @@ class IssueTableController:
         """Rebuild the table from the accepted page and return the query result."""
         app = self.screen.dashpot
         table = self.table
-        query = replace(
-            self.screen.list_queries.issues, search_fields=searchable_columns()
-        )
-        result = app.store.query_issues(query)
+        result = app.store.query_issues()
         self.update_page_summary()
         shown = shown_columns(self.issue_view.columns, result.rows)
         self.show_table_columns(shown)

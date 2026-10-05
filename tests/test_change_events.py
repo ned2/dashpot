@@ -308,7 +308,7 @@ def test_a_source_that_is_no_identifier_or_path_is_left_out(
     [
         "github",
         "settings:/home/some one/config.toml",
-        "refresh:workspace:*",
+        "refresh:targets:project:test-repo",
         "0123abcd",
     ],
 )
@@ -381,7 +381,7 @@ async def test_the_dashboard_records_what_it_observes_change(tmp_path: Path) -> 
         for event in diagnostics
     } == {
         ("appeared", "github-rate-limit-low", "github"),
-        ("appeared", "refresh-failed", "refresh:workspace:*"),
+        ("appeared", "refresh-failed", "refresh:targets:project:test-repo"),
     }
     written = "".join(p.read_text() for p in (tmp_path / "events").glob("*.jsonl"))
     assert "secret" not in written

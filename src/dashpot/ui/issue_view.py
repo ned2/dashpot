@@ -25,7 +25,7 @@ from textual.widgets import Footer, Markdown, Static
 from ..core.ages import relative_age
 from ..core.issue_profile import IssueProfile, issue_location
 from ..core.model import ProjectObservation
-from ..issues.ordering import is_priority_label, issue_activity, issue_priority
+from ..issues.ordering import is_priority_label, issue_priority
 from ..observation.issue_list import IssueListRow, unobserved_auxiliary
 from .detail_fields import DetailFields, DetailItem
 from .issue_cells import (
@@ -282,11 +282,7 @@ def issue_metadata_items(
         DetailItem(_timestamp(issue.closed_at, current), "Closed"),
     ]
 
-    activity = (
-        (context.auxiliary.activity if context.auxiliary else None)
-        if context.queried
-        else issue_activity(issue, context.project)
-    )
+    activity = context.auxiliary.activity if context.auxiliary else None
     if activity is None:
         availability = unobserved_auxiliary(context)
         items.append(DetailItem(availability, "Comments"))

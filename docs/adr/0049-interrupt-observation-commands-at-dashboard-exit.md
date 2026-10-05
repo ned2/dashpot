@@ -62,10 +62,12 @@ commands have raised, which is milliseconds later, and interpreter exit's
 join of them is then immediate.
 
 The registry travels as a context variable rather than a thread-local so a
-pool thread that fans out reaches its children: `GitHubGateway.graphql_many`
-runs each request in a copy of the calling thread's context, so the `gh`
-children of a batched identity resolution are as interruptible as the
-thread that started them.
+pool thread that fans out reaches its children by running each in a copy of
+its own context, making their commands as interruptible as its own.
+`GitHubGateway.graphql_many` did so for batched identity resolution until
+[#548](https://github.com/ned2/dashpot/issues/548) removed it as unused; no
+thread fans out now, and the context variable stays for the next one that
+does.
 
 Which commands may be abandoned follows the line
 [ADR 0008](0008-let-management-commands-mutate-on-explicit-invocation.md)
@@ -102,9 +104,8 @@ seconds of input-thread teardown remain: its key thread polls at a hundred
 milliseconds and `disable_input` joins it before one final poll. The
 exit path is covered by `tests/test_app_exit.py`, which runs the shipped
 app over an observation holding a real sleeping child and asserts the
-thread is released when the app exits, the registry by
-`tests/test_commands.py`, and the fan-out's context by
-`tests/test_github.py`. The
+thread is released when the app exits, and the registry by
+`tests/test_commands.py`. The
 [Textual implementation notes](../textual-implementation-notes.md#refresh-concurrency)
 record that executor work is released at exit by interrupting its command,
 not by cancelling the worker.

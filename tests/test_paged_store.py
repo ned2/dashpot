@@ -11,7 +11,7 @@ from app_harness import (
     with_first_project,
     workspace_snapshot,
 )
-from dashpot.core.model import Diagnostic, WorkspaceSnapshot
+from dashpot.core.model import Diagnostic
 from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.markdown_queries import PULL_REQUESTS_NOT_CONFIGURED
 from dashpot.queries.source_queries import (
@@ -50,11 +50,6 @@ def page(source: SnapshotQuerySource) -> QueryPage:
     return source.query_page(QueryRequest(kind="issues")).page
 
 
-def observed(source: SnapshotQuerySource) -> WorkspaceSnapshot:
-    """The Workspace Snapshot the collector observes once the source has moved on."""
-    return workspace_snapshot().model_copy(update={"projects": (source.project,)})
-
-
 def titles(store: PagedObservationStore) -> list[str]:
     return [
         f"{row.project.display_label}: #{row.issue.number}"
@@ -62,42 +57,18 @@ def titles(store: PagedObservationStore) -> list[str]:
     ]
 
 
-def test_a_transferred_issue_keeps_its_row_while_its_page_is_in_flight() -> None:
+def test_a_transferred_issue_joins_its_new_project_when_its_page_lands() -> None:
     store, source = transfer()
     assert titles(store) == ["Test Repository: #7"]
 
-    # The Project observation names a Project the shown page does not while
-    # the page is queried again: the row keeps the Project it last joined
-    # with, and can still be detailed, until the refreshed page lands.
-    shown = store.pages["issues"]
-    store.accept_page("issues", shown, in_flight=True)
-    store.replace(observed(source))
+    # The new Project is published beside the old, which the store keeps:
+    # the shown page still lists the Issue under the Project it named.
+    store.replace_project(source.project)
     assert titles(store) == ["Test Repository: #7"]
     assert store.detail_for(store.query_issues().rows[0]) is not None
-    store.accept_page("issues", shown, in_flight=True)
-    assert titles(store) == ["Test Repository: #7"]
 
     store.accept_page("issues", page(source))
     assert titles(store) == ["New Repository: #70"]
-
-
-def test_a_landed_page_joins_strictly() -> None:
-    store, _source = transfer()
-    stale = SnapshotQuerySource(store.checkpoint())
-
-    # The Project leaves the Workspace while the page is in flight, and the
-    # page that lands still names it: the row goes with the Project.
-    store.accept_page("issues", store.pages["issues"], in_flight=True)
-    store.replace(workspace_snapshot().model_copy(update={"projects": ()}))
-    assert titles(store) == ["Test Repository: #7"]
-    store.accept_page("issues", page(stale))
-    assert titles(store) == []
-
-    # A page that landed before the Projects changed is not in flight, so
-    # the change joins it strictly too.
-    store, _source = transfer()
-    store.replace(workspace_snapshot().model_copy(update={"projects": ()}))
-    assert titles(store) == []
 
 
 def test_a_page_naming_a_project_never_observed_has_no_row() -> None:
@@ -107,7 +78,6 @@ def test_a_page_naming_a_project_never_observed_has_no_row() -> None:
         page(source).model_copy(
             update={"issues": (issue("other#1", "Unknown", projectId="project:x"),)}
         ),
-        in_flight=True,
     )
     assert titles(store) == []
     assert store.row_for("I_other#1") is None
@@ -189,7 +159,6 @@ def test_only_the_identities_last_requested_keep_their_outcomes() -> None:
     store, source, issue_id = listed_store()
     store.accept_identities((outcome(source, "I_elsewhere", BEFORE),))
     assert "I_elsewhere" in store.resolved
-    revision = store.source_revision
     assert any(
         entry.diagnostic.code == "issue-not-resolved" for entry in store.diagnostics()
     )
@@ -198,14 +167,11 @@ def test_only_the_identities_last_requested_keep_their_outcomes() -> None:
     # with the Diagnostic it carried.
     store.accept_identities((outcome(source, issue_id, BEFORE, "unavailable"),))
     assert set(store.resolved) == {issue_id}
-    assert store.source_revision == revision + 1
     assert not any(
         entry.diagnostic.code == "issue-not-resolved" for entry in store.diagnostics()
     )
     store.accept_identities(())
     assert store.resolved == {}
-    store.accept_identities(())
-    assert store.source_revision == revision + 2
 
 
 def test_a_page_and_its_totals_reporting_alike_show_one_line() -> None:

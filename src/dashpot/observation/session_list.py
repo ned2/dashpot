@@ -52,7 +52,6 @@ def query_indexed_session_list(
     issues: Mapping[tuple[str, str], IssueProfile],
     agent_runs: Mapping[str, AgentRun],
     issue_runs: Mapping[str, Sequence[str]],
-    revision: int,
 ) -> ListResult[SessionListRow]:
     # Accepted bindings win over the record's own hint so the pane agrees
     # with the Issue table about which Issue a session is working on.
@@ -85,7 +84,7 @@ def query_indexed_session_list(
         )
         rows.append(SessionListRow(key, run, project, issue))
     rows.sort(key=_sort_key)
-    return ListResult(rows=tuple(rows), summary=None, revision=revision)
+    return ListResult(rows=tuple(rows), summary=None)
 
 
 def _sort_key(row: SessionListRow) -> tuple[int, int, str, str]:

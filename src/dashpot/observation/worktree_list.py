@@ -47,7 +47,6 @@ def query_indexed_worktree_list(
     projects: Mapping[str, ProjectObservation],
     observation_targets: Mapping[tuple[str, str], ObservationTarget],
     agent_runs: Mapping[str, AgentRun],
-    revision: int,
 ) -> ListResult[WorktreeListRow]:
     sessions_by_target: dict[tuple[str, str | None], list[AgentRun]] = {}
     for run in agent_runs.values():
@@ -69,7 +68,7 @@ def query_indexed_worktree_list(
             )
         )
     rows.sort(key=_sort_key)
-    return ListResult(rows=tuple(rows), summary=None, revision=revision)
+    return ListResult(rows=tuple(rows), summary=None)
 
 
 def _sort_key(row: WorktreeListRow) -> tuple[int, str]:

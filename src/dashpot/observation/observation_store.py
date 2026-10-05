@@ -1,10 +1,15 @@
-"""Retain observations per Project and derive the Workspace Snapshot from them."""
+"""Hold the accepted observations per Project and derive the Workspace Snapshot.
+
+The store holds what was published last, and nothing older: a Project
+replaced with a failed half shows that failure, since every source that
+retains a last good observation does so before it publishes (ADR 0137).
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import Any
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import (
@@ -21,49 +26,23 @@ from .branch_list import (
     BranchListSummary,
     query_indexed_branch_list,
 )
-from .issue_list import (
-    IssueListQuery,
-    IssueListRow,
-    IssueListSummary,
-    query_indexed_issue_list,
-    row_key,
-    worker_states,
-)
 from .list_result import ListResult
-from .pull_request_list import (
-    DEFAULT_PULL_REQUEST_QUERY,
-    PullRequestListQuery,
-    PullRequestListRow,
-    PullRequestListSummary,
-    query_indexed_pull_request_list,
-)
 from .session_list import SessionListRow, query_indexed_session_list
 from .worktree_list import (
     WorktreeListRow,
     query_indexed_worktree_list,
 )
 
-StoreChangeKind = Literal["workspace", "projects", "agent-runs"]
-
 
 @dataclass(frozen=True, slots=True)
 class StoreChange:
-    revision: int
-    kinds: frozenset[StoreChangeKind]
-    project_ids: frozenset[str] = frozenset()
-    issue_keys: frozenset[tuple[str, str]] = frozenset()
-    observation_target_keys: frozenset[tuple[str, str]] = frozenset()
-    branch_keys: frozenset[tuple[str, str]] = frozenset()
-    agent_run_ids: frozenset[str] = frozenset()
-    pull_request_keys: frozenset[tuple[str, str]] = frozenset()
+    """What one publish changed that another observation depends on.
+
+    Agent Run binding reads Project facts, so a change to them asks for the
+    Agent Runs to be observed again.
+    """
+
     agent_dependency_project_ids: frozenset[str] = frozenset()
-
-
-@dataclass(frozen=True, slots=True)
-class IssueContext:
-    project: ProjectObservation
-    issue: IssueProfile
-    observed_runs: tuple[AgentRun, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +56,7 @@ class ObservedDiagnostic:
 
 @dataclass(frozen=True, slots=True)
 class StoreState:
-    """Hold one accepted revision of the indexed observations, replaced whole on commit."""
+    """Hold the indexed observations one commit accepted, replaced whole on the next."""
 
     revision: int
     collected_at: str
@@ -114,6 +93,7 @@ class WorkspaceObservationStore:
 
     @property
     def revision(self) -> int:
+        """Count the commits accepted so far, each publish one."""
         return self._state.revision
 
     @property
@@ -121,45 +101,27 @@ class WorkspaceObservationStore:
         return self._state.revision > 0
 
     def replace(self, snapshot: WorkspaceSnapshot) -> StoreChange:
-        """Atomically accept a complete collector checkpoint."""
-        before = self._state
+        """Accept a complete Workspace Snapshot in one commit.
 
-        accepted_projects: list[ProjectObservation] = []
-        retained_issue_ids: set[str] = set()
-        for project in snapshot.projects:
-            accepted, retained = self._preserve_last_good(project, before.projects)
-            accepted_projects.append(accepted)
-            retained_issue_ids.update(retained)
-        projects = _projects_by_id(accepted_projects)
-        issues = _issues_by_project(projects)
-        pull_requests = _pull_requests_by_project(projects)
-        observation_targets = _targets_by_project(projects)
-        branches = _branches_by_project(projects)
-        agent_runs = _agent_runs_by_id(snapshot.agent_runs)
-        # The store owns its binding index and restore writes into it, so the
-        # frozen snapshot mapping is expanded into fresh mutable containers.
-        issue_runs = {
-            issue_id: list(run_ids) for issue_id, run_ids in snapshot.issue_runs.items()
-        }
-        _restore_retained_issue_runs(
-            issue_runs,
-            agent_runs,
-            issues,
-            retained_issue_ids,
-        )
-
+        The test suite seeds a store this way; the coordinator publishes one
+        Project and the Agent Runs at a time instead (ADR 0137).
+        """
+        projects = _projects_by_id(snapshot.projects)
         return self._commit(
             StoreState(
-                revision=before.revision,
+                revision=self._state.revision,
                 collected_at=snapshot.collected_at,
                 elapsed_ms=snapshot.elapsed_ms,
                 projects=projects,
-                issues=issues,
-                pull_requests=pull_requests,
-                observation_targets=observation_targets,
-                branches=branches,
-                agent_runs=agent_runs,
-                issue_runs=issue_runs,
+                issues=_issues_by_project(projects),
+                pull_requests=_pull_requests_by_project(projects),
+                observation_targets=_targets_by_project(projects),
+                branches=_branches_by_project(projects),
+                agent_runs=_agent_runs_by_id(snapshot.agent_runs),
+                issue_runs={
+                    issue_id: list(run_ids)
+                    for issue_id, run_ids in snapshot.issue_runs.items()
+                },
                 diagnostics=tuple(snapshot.diagnostics),
             )
         )
@@ -171,15 +133,14 @@ class WorkspaceObservationStore:
         collected_at: str | None = None,
         elapsed_ms: int | None = None,
     ) -> StoreChange:
-        """Atomically replace one Project while retaining its last good data.
+        """Atomically replace one Project with its latest composition.
 
         ``collected_at``/``elapsed_ms`` optionally record the observation that
         produced this publish as the Workspace's latest collection metadata.
         """
         before = self._state
-        accepted, _retained = self._preserve_last_good(observation, before.projects)
         projects = dict(before.projects)
-        projects[accepted.project_id] = accepted
+        projects[observation.project_id] = observation
         issues = _issues_by_project(projects)
         pull_requests = _pull_requests_by_project(projects)
         observation_targets = _targets_by_project(projects)
@@ -229,20 +190,6 @@ class WorkspaceObservationStore:
             )
         )
 
-    def query_issues(
-        self, query: IssueListQuery = IssueListQuery()
-    ) -> ListResult[IssueListRow, IssueListSummary]:
-        state = self._state
-        result = query_indexed_issue_list(
-            projects=state.projects,
-            issues=state.issues,
-            agent_runs=state.agent_runs,
-            issue_runs=state.issue_runs,
-            query=query,
-            revision=state.revision,
-        )
-        return result
-
     def query_sessions(self) -> ListResult[SessionListRow]:
         """Query every active Agent Session, with its Project and Issue joined."""
         state = self._state
@@ -251,7 +198,6 @@ class WorkspaceObservationStore:
             issues=state.issues,
             agent_runs=state.agent_runs,
             issue_runs=state.issue_runs,
-            revision=state.revision,
         )
         return result
 
@@ -262,7 +208,6 @@ class WorkspaceObservationStore:
             projects=state.projects,
             observation_targets=state.observation_targets,
             agent_runs=state.agent_runs,
-            revision=state.revision,
         )
         return result
 
@@ -274,21 +219,8 @@ class WorkspaceObservationStore:
             branches=state.branches,
             observation_targets=state.observation_targets,
             agent_runs=state.agent_runs,
-            revision=state.revision,
         )
         return result
-
-    def query_pull_requests(
-        self, query: PullRequestListQuery = DEFAULT_PULL_REQUEST_QUERY
-    ) -> ListResult[PullRequestListRow, PullRequestListSummary]:
-        """Query every Pull Request with its independent freshness."""
-        state = self._state
-        return query_indexed_pull_request_list(
-            projects=state.projects,
-            pull_requests=state.pull_requests,
-            query=query,
-            revision=state.revision,
-        )
 
     def projects(self) -> tuple[ProjectObservation, ...]:
         """Every observed Project, in acceptance order."""
@@ -300,27 +232,6 @@ class WorkspaceObservationStore:
     def agent_runs(self) -> tuple[AgentRun, ...]:
         """Every observed Agent Session row, bound to an Issue or not."""
         return tuple(self._state.agent_runs.values())
-
-    def issue(
-        self,
-        issue_id: str,
-        *,
-        project_id: str | None = None,
-    ) -> IssueContext | None:
-        state = self._state
-        contexts = [
-            context
-            for context in _issue_contexts(state, issue_id)
-            if project_id is None or context.project.project_id == project_id
-        ]
-        if len(contexts) != 1:
-            return None
-        return contexts[0]
-
-    def detail_for(self, row: IssueListRow) -> IssueListRow | None:
-        """Resolve a queried row's identity against the current state."""
-        state = self._state
-        return _issue_detail(state, row, row.issue)
 
     def diagnostics(self) -> tuple[ObservedDiagnostic, ...]:
         state = self._state
@@ -342,60 +253,6 @@ class WorkspaceObservationStore:
     def checkpoint(self) -> WorkspaceSnapshot:
         """Return a detached serializable view of the latest accepted state."""
         return _checkpoint(self._state)
-
-    def _preserve_last_good(
-        self,
-        incoming: ProjectObservation,
-        projects: Mapping[str, ProjectObservation],
-    ) -> tuple[ProjectObservation, frozenset[str]]:
-        previous = projects.get(incoming.project_id)
-        if (
-            previous is None
-            or previous.repository_id != incoming.repository_id
-            or previous.snapshot is None
-        ):
-            return incoming, frozenset[str]()
-        retained_issue_ids = frozenset(issue.id for issue in previous.snapshot.issues)
-        if incoming.snapshot is None and incoming.status == "unavailable":
-            return (
-                incoming.model_copy(update={"snapshot": previous.snapshot}),
-                retained_issue_ids,
-            )
-        if incoming.snapshot is None:
-            return incoming, frozenset[str]()
-        snapshot = incoming.snapshot
-        snapshot_updates: dict[str, Any] = {}
-        accepted_status = incoming.status
-        if (
-            snapshot.issue_source_status == "unavailable"
-            and previous.snapshot.issue_source_last_good_at is not None
-        ):
-            snapshot_updates.update(
-                issue_source_status="stale",
-                issue_source_last_good_at=previous.snapshot.issue_source_last_good_at,
-                issues=previous.snapshot.issues,
-            )
-            accepted_status = "stale"
-        else:
-            retained_issue_ids = frozenset[str]()
-        if (
-            snapshot.pull_request_status == "unavailable"
-            and previous.snapshot.pull_request_last_good_at is not None
-        ):
-            snapshot_updates.update(
-                pull_request_status="stale",
-                pull_request_last_good_at=(previous.snapshot.pull_request_last_good_at),
-                pull_requests=previous.snapshot.pull_requests,
-            )
-        if not snapshot_updates:
-            return incoming, retained_issue_ids
-        accepted_snapshot = snapshot.model_copy(update=snapshot_updates)
-        return (
-            incoming.model_copy(
-                update={"status": accepted_status, "snapshot": accepted_snapshot}
-            ),
-            retained_issue_ids,
-        )
 
     def _commit(self, candidate: StoreState) -> StoreChange:
         before = self._state
@@ -428,114 +285,14 @@ def _checkpoint(state: StoreState) -> WorkspaceSnapshot:
     )
 
 
-def _issue_detail(
-    state: StoreState, row: IssueListRow, issue: IssueProfile
-) -> IssueListRow | None:
-    issue_id = issue.id
-    if row.key == row_key("issue", issue_id):
-        matches = [
-            (project_id, issue)
-            for (project_id, indexed_issue_id), issue in state.issues.items()
-            if indexed_issue_id == issue_id
-        ]
-        if len(matches) != 1:
-            return None
-        project_id, current_issue = matches[0]
-    else:
-        project_id = row.project.project_id
-        current_issue = state.issues.get((project_id, issue_id))
-        if current_issue is None:
-            return None
-    project = state.projects.get(project_id)
-    if project is None:
-        return None
-    bound_run_ids = state.issue_runs.get(issue_id, [])
-    observed_runs = tuple(
-        state.agent_runs[run_id]
-        for run_id in bound_run_ids
-        if run_id in state.agent_runs
-    )
-    observed_by = sum(1 for _project_id, indexed in state.issues if indexed == issue_id)
-    session_states = tuple(
-        state.agent_runs[run_id].activity if run_id in state.agent_runs else "unknown"
-        for run_id in bound_run_ids
-    ) + (
-        # As no run binds to it, no Worker counts toward an Issue Identity
-        # more than one Project observes.
-        worker_states(state.agent_runs.values(), issue_id) if observed_by == 1 else ()
-    )
-    return IssueListRow(
-        key=row.key,
-        project=project,
-        issue=current_issue,
-        observed_runs=observed_runs,
-        session_states=session_states,
-    )
-
-
-def _issue_contexts(state: StoreState, issue_id: str) -> list[IssueContext]:
-    observed_runs = tuple(
-        state.agent_runs[run_id]
-        for run_id in state.issue_runs.get(issue_id, [])
-        if run_id in state.agent_runs
-    )
-    return [
-        IssueContext(state.projects[project_id], issue, observed_runs)
-        for (project_id, indexed_issue_id), issue in state.issues.items()
-        if indexed_issue_id == issue_id
-    ]
-
-
 def _store_change(before: StoreState, after: StoreState) -> StoreChange:
-    project_ids = _changed_keys(before.projects, after.projects)
-    agent_dependency_project_ids = {
-        project_id
-        for project_id in before.projects.keys() | after.projects.keys()
-        if _agent_project_projection(before.projects.get(project_id))
-        != _agent_project_projection(after.projects.get(project_id))
-    }
-    issue_keys = _changed_keys(before.issues, after.issues)
-    pull_request_keys = _changed_keys(before.pull_requests, after.pull_requests)
-    binding_issue_ids = _changed_keys(before.issue_runs, after.issue_runs)
-    observation_target_keys = _changed_keys(
-        before.observation_targets,
-        after.observation_targets,
-    )
-    branch_keys = _changed_keys(before.branches, after.branches)
-    agent_run_ids = _changed_keys(before.agent_runs, after.agent_runs)
-    binding_issue_ids.update(
-        issue_id
-        for bindings in (before.issue_runs, after.issue_runs)
-        for issue_id, run_ids in bindings.items()
-        if any(run_id in agent_run_ids for run_id in run_ids)
-    )
-    # A changed run changes the activity of each Issue its Workers were, or
-    # now are, assigned to.
-    binding_issue_ids.update(
-        worker.issue_id
-        for runs in (before.agent_runs, after.agent_runs)
-        for run_id in agent_run_ids
-        if run_id in runs
-        for worker in runs[run_id].workers
-    )
-    issue_keys.update(key for key in after.issues if key[1] in binding_issue_ids)
-    kinds: set[StoreChangeKind] = set()
-    if project_ids:
-        kinds.add("projects")
-    if agent_run_ids or before.issue_runs != after.issue_runs:
-        kinds.add("agent-runs")
-    if _workspace_metadata(before) != _workspace_metadata(after):
-        kinds.add("workspace")
     return StoreChange(
-        revision=after.revision,
-        kinds=frozenset(kinds),
-        project_ids=frozenset(project_ids),
-        issue_keys=frozenset(issue_keys),
-        observation_target_keys=frozenset(observation_target_keys),
-        branch_keys=frozenset(branch_keys),
-        agent_run_ids=frozenset(agent_run_ids),
-        pull_request_keys=frozenset(pull_request_keys),
-        agent_dependency_project_ids=frozenset(agent_dependency_project_ids),
+        agent_dependency_project_ids=frozenset(
+            project_id
+            for project_id in before.projects.keys() | after.projects.keys()
+            if _agent_project_projection(before.projects.get(project_id))
+            != _agent_project_projection(after.projects.get(project_id))
+        )
     )
 
 
@@ -556,20 +313,6 @@ def _agent_project_projection(
         project.snapshot.issues,
         project.snapshot.observation_targets,
     )
-
-
-def _workspace_metadata(
-    state: StoreState,
-) -> tuple[str, int, tuple[Diagnostic, ...]]:
-    return state.collected_at, state.elapsed_ms, state.diagnostics
-
-
-def _changed_keys[Key, Value](
-    before: Mapping[Key, Value], after: Mapping[Key, Value]
-) -> set[Key]:
-    return {
-        key for key in before.keys() | after.keys() if before.get(key) != after.get(key)
-    }
 
 
 def _issues_by_project(
@@ -660,20 +403,3 @@ def _agent_runs_by_id(agent_runs: Sequence[AgentRun]) -> dict[str, AgentRun]:
             raise ValueError(f"Duplicate Agent Run Identity {run.id}")
         indexed[run.id] = run
     return indexed
-
-
-def _restore_retained_issue_runs(
-    issue_runs: dict[str, list[str]],
-    agent_runs: Mapping[str, AgentRun],
-    issues: Mapping[tuple[str, str], IssueProfile],
-    retained_issue_ids: set[str],
-) -> None:
-    project_counts: dict[str, int] = {}
-    for _project_id, issue_id in issues:
-        project_counts[issue_id] = project_counts.get(issue_id, 0) + 1
-    for issue_id in retained_issue_ids:
-        if project_counts.get(issue_id) != 1:
-            continue
-        issue_runs[issue_id] = [
-            run.id for run in agent_runs.values() if run.issue_id == issue_id
-        ]

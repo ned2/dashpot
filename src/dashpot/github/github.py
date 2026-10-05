@@ -13,9 +13,7 @@ import re
 import threading
 import time
 from collections.abc import Callable, Container, Iterator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
-from contextvars import Context, copy_context
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -41,12 +39,6 @@ RATE_LIMIT_SELECTION = "rateLimit { cost limit remaining resetAt }"
 # A GraphQL variable as gh sends it: a string, a typed Int, or a list of
 # strings (an ``[ID!]!`` of nodes to look up).
 GraphQLVariables = Mapping[str, str | int | Sequence[str]]
-
-# How many requests one refresh may have in flight at once. GitHub asks
-# clients to avoid concurrency and caps GraphQL at sixty seconds of CPU time
-# a minute; four batches of a second or two each stay well inside that
-# while a Source Enumeration of thousands of Issues finishes within its budget.
-MAX_IN_FLIGHT = 4
 
 MALFORMED_RESPONSE = "github-malformed-response"
 NOT_FOUND = "github-not-found"
@@ -352,10 +344,16 @@ class GraphQLResponse:
 class RefreshBudget:
     """How much one refresh may fetch before it is abandoned as too costly.
 
-    Both bounds are checked before each request, so a refresh overruns by at
-    most the requests in flight plus the command timeout. The default covers
-    a Source Enumeration of about two and a half thousand Issues in batches of
-    twenty-four beside the probe, the delta and the nested pages.
+    Both bounds are checked before each request. A refresh sends its requests
+    one after another, so it overruns by at most one request's command
+    timeout. The largest refresh is a Source Enumeration: a serial cursor
+    loop over pages of a hundred Issues, plus a page for each nested
+    connection or Linked Pull Request list that overflows an Issue's first
+    page. A hundred and twenty requests enumerate up to twelve thousand
+    Issues, one page fewer for each nested page spent, and sixty seconds
+    allow each request half a second, so on a slower connection the time
+    bound ends an enumeration first. A Query Page or an identity resolution
+    needs a handful.
     """
 
     seconds: float = 60.0
@@ -531,41 +529,6 @@ class GitHubGateway:
                     part for item in value for part in ("-f", f"{key}[]={item}")
                 )
         return self._run(args, tolerated=tolerated, partial=partial)
-
-    def graphql_many(
-        self,
-        query: str,
-        variables: Sequence[GraphQLVariables],
-        *,
-        tolerated: Container[str] = (),
-    ) -> list[Mapping[str, Any]]:
-        """Run one query for each set of variables, at most MAX_IN_FLIGHT at once.
-
-        Answers come back in the order asked; the first failure is raised
-        once the requests already running have finished. Each request is a
-        span of its own under the caller's, with its own rate limit reading.
-        """
-        if len(variables) <= 1:
-            return [
-                self.graphql(query, each, tolerated=tolerated) for each in variables
-            ]
-        with ThreadPoolExecutor(
-            max_workers=min(MAX_IN_FLIGHT, len(variables)), thread_name_prefix="gh"
-        ) as executor:
-            # Each request runs in its own copy of this thread's context, so
-            # the registry an exit interrupts reaches the fanned-out commands,
-            # and each request's span is a child of the span current here.
-            def request(context: Context, each: GraphQLVariables) -> Mapping[str, Any]:
-                return context.run(self.graphql, query, each, tolerated=tolerated)
-
-            futures = [
-                executor.submit(request, copy_context(), each) for each in variables
-            ]
-            try:
-                return [future.result() for future in futures]
-            except BaseException:
-                executor.shutdown(wait=True, cancel_futures=True)
-                raise
 
     def rest(self, path: str) -> Mapping[str, Any]:
         """Run one REST request and return its JSON object."""

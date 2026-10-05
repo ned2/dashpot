@@ -38,14 +38,18 @@ publishes a changed binding input; Pull Request-only changes do not trigger
 them. An [`ObservationCoordinator`](../src/dashpot/observation/collect.py) tracks a
 generation per key so a superseded observation can never overwrite a newer
 one, retains the last good result per key when a refresh fails, and composes
-each Project from its latest accepted parts. The Issue Source and Pull
-Request source a Project's configuration declares are built by
-[`source_factories.py`](../src/dashpot/issues/source_factories.py), the one module
-the coordinator and Issue resolution both go through, so resolving an Issue
-Hint never loads the coordinator. The Textual interface publishes
-every accepted observation into a process-local `WorkspaceObservationStore`
-as soon as it lands, then re-queries read models carrying a store revision; a
-slow GitHub call therefore never delays branch or dirty state.
+each Project from its latest accepted parts. A Project's collector observes
+its Issues and Pull Requests through the Project's Query Source alone, the
+source the dashboard pages too.
+[`source_factories.py`](../src/dashpot/issues/source_factories.py) checks that
+the Repository Anchor can serve the configured Issue Source before the
+collector is built, and builds the Issue Source that Issue resolution reads,
+so resolving an Issue Hint never loads the coordinator. The Textual interface
+publishes every accepted observation into a process-local
+`PagedObservationStore` as soon as it lands, then re-queries its read
+models; a slow GitHub call therefore never delays branch or dirty state. The
+store holds what was published last: retention happens before publish
+([ADR 0137](adr/0137-hold-only-what-was-published-last-in-the-observation-store.md)).
 A key is observed at most once at a time: a request for a key whose
 observation is still in flight coalesces onto it rather than superseding it,
 so a slow Issue Source that outlasts its Refresh Period still publishes when
@@ -171,9 +175,9 @@ qualifies it as one adapter per long-lived peer rather than one for the whole
 interface.
 The page store ([paged_store.py](../src/dashpot/observation/paged_store.py)) never puts partial
 query rows in complete snapshot inventory fields; every accepted page, total,
-identity or Diagnostic a source reports about itself goes through a method
-that advances its `source_revision`, so a read
-model's `revision` changes whenever what it was built from does. It joins Agent
+identity or Diagnostic a source reports about itself replaces the one it
+held, and the Issue list is the accepted page's rows in the source's order.
+A page's Issue joins the Project the store holds for it. It joins Agent
 Runs to targeted identity evidence without changing Work Store Issue Bindings.
 Opening a selected Issue works from the Issues table; relationship titles in
 Issue Detail are resolved one level deep. Relevant identities are
@@ -562,7 +566,7 @@ the messages the dashboard posts to itself — the outcomes of off-loop work
 and the body's layout — are the dataclass messages of
 [`messages.py`](../src/dashpot/ui/messages.py). The Sessions pane is its own read model
 ([`session_list.py`](../src/dashpot/observation/session_list.py), queried through
-`WorkspaceObservationStore.query_sessions` and rendered by
+`PagedObservationStore.query_sessions` and rendered by
 [`session_cells.py`](../src/dashpot/ui/session_cells.py)): every active Agent Session of the
 observed Project exactly once, sorted running → waiting → unknown and then by
 most recent activity, with any bound Issue joined from the Work Store's

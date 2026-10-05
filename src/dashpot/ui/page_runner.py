@@ -4,8 +4,7 @@ Each query key — a kind's page, which counts its Project Totals too, and the
 identities — runs on its own executor thread against its own Query Source,
 one query at a time: a request for a key whose query is running waits its
 turn, and only the latest such request runs when the key is free. The runner owns each paged
-kind's navigation and publishes its accepted page to the store, so every
-store write goes through a method that advances the store's revision.
+kind's navigation and publishes its accepted page to the store.
 
 Each query is timed as a key span, under the refresh that asked for it or,
 for a page a person moved to and the Issues a selection resolves, as a root.
@@ -285,9 +284,9 @@ class PageRunner:
         )
 
     def publish(self) -> None:
-        """Show each navigation's page in the store, in flight while its query runs."""
+        """Show each navigation's page in the store."""
         for kind, navigation in self.navigation.items():
-            self.store.accept_page(kind, navigation.shown, in_flight=kind in self.busy)
+            self.store.accept_page(kind, navigation.shown)
 
 
 def _observe_page(

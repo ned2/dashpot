@@ -40,7 +40,10 @@ pane ([#83](https://github.com/ned2/dashpot/issues/83)) use:
   [ADR 0023](0023-reconcile-github-issues-by-identity-in-bounded-parallel-batches.md)
   sends batches in flight, the budget counts requests, a hundred and twenty
   of them, checked before each is sent, and a refresh overruns by at most
-  the requests in flight; the Diagnostic names the requests.) Nested pagination of an
+  the requests in flight; the Diagnostic names the requests. No refresh
+  sends requests in parallel since
+  [#548](https://github.com/ned2/dashpot/issues/548) removed the unused
+  batching, so one overruns by at most one request.) Nested pagination of an
   Issue's labels, assignees and relationships spends the same budget as the
   Issue pages, and a `find` runs under its own. An overrun is a failed
   refresh with one `github-refresh-budget` Diagnostic naming the pages, the

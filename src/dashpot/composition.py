@@ -197,9 +197,6 @@ def create_collector(
     options: ObservationOptions, *, recurring: bool = True
 ) -> ObservationCoordinator:
     """Resolve the Workspaces one run observes into its coordinator."""
-    polling_seconds = (
-        options.refresh_seconds if recurring and options.refresh_seconds > 0 else None
-    )
     inventory_diagnostics: Sequence[Diagnostic] = ()
     if options.workspaces:
         workspaces = merge_workspaces(list(options.workspaces))
@@ -236,14 +233,12 @@ def create_collector(
     resolution = resolve_workspace_projects(
         workspaces,
         timeout=options.timeout,
-        polling_seconds=polling_seconds,
     )
     return ObservationCoordinator(
         resolution.projects,
         timeout=options.timeout,
         state_dir=options.state_dir.expanduser() if options.state_dir else None,
         diagnostics=[*inventory_diagnostics, *resolution.diagnostics],
-        polling_seconds=polling_seconds,
         query_driven=recurring,
     )
 

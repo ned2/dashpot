@@ -16,8 +16,8 @@ import pytest
 
 import factories
 from app_harness import (
+    HARNESS_KEY,
     PROJECT_ID,
-    WORKSPACE_KEY,
     SequenceCollector,
     SnapshotScheduler,
     issue,
@@ -249,7 +249,7 @@ def test_a_failed_cleanup_releases_the_project_and_reobserves_anyway() -> None:
     cleanups.finish_cleanup(CleanupFinished(PROJECT_ID, confirmation(), error="boom"))
     assert not cleanups.cleaning
     assert host.toasts[-1] == ("error", "Dashpot cleanup", f"{LABEL}: boom")
-    assert host.observed_groups() == [WORKSPACE_KEY.group]
+    assert host.observed_groups() == [HARNESS_KEY.group]
 
 
 def test_a_late_report_after_shutdown_is_dropped() -> None:

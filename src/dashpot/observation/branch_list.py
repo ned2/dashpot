@@ -58,7 +58,6 @@ def query_indexed_branch_list(
     branches: Mapping[tuple[str, str], Branch],
     observation_targets: Mapping[tuple[str, str], ObservationTarget],
     agent_runs: Mapping[str, AgentRun],
-    revision: int,
 ) -> ListResult[BranchListRow, BranchListSummary]:
     locals_by_name: dict[tuple[str, str], Branch] = {}
     remotes_by_name: dict[tuple[str, str], list[Branch]] = {}
@@ -118,7 +117,6 @@ def query_indexed_branch_list(
     )
     return ListResult(
         rows=tuple(rows),
-        revision=revision,
         summary=BranchListSummary(
             fetched_at=max(fetched, default=None),
             integration_refs=tuple(integration_refs),

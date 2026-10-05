@@ -1,9 +1,15 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-17
+amended-by: 0137-hold-only-what-was-published-last-in-the-observation-store.md
 ---
 
 # Group leaf and domain modules into subpackages
+
+Amended by [ADR 0137](0137-hold-only-what-was-published-last-in-the-observation-store.md):
+a `ListResult` no longer carries the store revision, and the Pull Request
+list, its summary and `issues/pull_request_search.py` are gone with the
+store's local query engine.
 
 The [codebase review](../reviews/codebase-review-2026-09-13.md#proposed-subpackage-layout)
 derives a package layout from the import graph and shared domain language.

@@ -1068,8 +1068,7 @@ the Worker:
   Host Process wrote it.
 - **Nothing** otherwise, including once the Worker's stop is reported, while
   its Lead's run is orphaned, or when only another Host Process's record
-  lists it. An assignment alone never shows anything, and no Worker counts
-  toward an Issue Identity more than one Project observes.
+  lists it. An assignment alone never shows anything.
 
 The cell's existing precedence combines assigned Workers with any directly
 bound runs. When one Worker on an Issue finishes, any other contributor keeps

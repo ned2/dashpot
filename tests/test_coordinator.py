@@ -200,14 +200,8 @@ def test_keys_select_one_project_or_the_whole_workspace(workspace) -> None:
         AGENT_RUNS_KEY,
     ]
     assert coordinator.keys("unknown") == coordinator.keys()
-    projects_changed = StoreChange(
-        1,
-        frozenset({"projects"}),
-        agent_dependency_project_ids=frozenset({"alpha"}),
-    )
-    runs_changed = StoreChange(
-        2, frozenset({"agent-runs"}), frozenset(), frozenset(), frozenset(), frozenset()
-    )
+    projects_changed = StoreChange(agent_dependency_project_ids=frozenset({"alpha"}))
+    runs_changed = StoreChange()
     assert coordinator.follow_ups([runs_changed, projects_changed]) == [AGENT_RUNS_KEY]
     assert coordinator.follow_ups([runs_changed]) == []
 
@@ -236,9 +230,7 @@ def test_project_is_published_only_after_every_project_part_is_observed(
     assert coordinator.observe(targets).accepted
     changes = coordinator.publish(store)
 
-    assert [change.kinds for change in changes] == [
-        frozenset({"projects", "workspace"})
-    ]
+    assert changes == [StoreChange(agent_dependency_project_ids=frozenset({"alpha"}))]
     assert project_ids(store) == ["alpha"]
     project = store.project("alpha")
     assert project is not None and project.snapshot is not None
@@ -473,7 +465,8 @@ def test_current_project_refresh_leaves_other_projects_untouched(
     observe_all(coordinator, "beta")
     changes = coordinator.publish(store)
 
-    assert {pid for change in changes for pid in change.project_ids} == {"beta"}
+    # Beta's Project and then the Agent Runs; beta's facts are unchanged.
+    assert changes == [StoreChange(), StoreChange()]
     assert collectors["alpha"].source.calls == alpha_calls
     assert collectors["beta"].source.calls == 2
     after = store.project("alpha")
@@ -488,11 +481,13 @@ def test_workspace_fan_out_refreshes_every_project(workspace) -> None:
     observe_all(coordinator)
     changes = coordinator.publish(store)
 
-    assert {pid for change in changes for pid in change.project_ids} == {
-        "alpha",
-        "beta",
-    }
-    assert [change.kinds for change in changes][-1] >= {"agent-runs"}
+    # Each Project, then the Agent Runs that depend on them.
+    assert project_ids(store) == ["alpha", "beta"]
+    assert changes == [
+        StoreChange(agent_dependency_project_ids=frozenset({"alpha"})),
+        StoreChange(agent_dependency_project_ids=frozenset({"beta"})),
+        StoreChange(),
+    ]
     assert all(c.source.calls == 1 for c in collectors.values())
     assert all(c.pull_request_calls == 1 for c in collectors.values())
     assert all(c.target_calls == 1 for c in collectors.values())

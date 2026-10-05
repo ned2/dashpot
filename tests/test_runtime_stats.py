@@ -612,9 +612,11 @@ async def test_refresh_health_is_shown_by_trigger_and_by_key(tmp_path: Path) -> 
 
     async with app.run_test(size=(100, 60)) as pilot:
         await wait_until(lambda: first_load_landed(app))
+        # The dashboard's own first load observes ``targets``; these
+        # refreshes observe a kind it never schedules, so only they count.
         outcomes: list[tuple[str, KeyOutcome, float]] = [
-            ("targets", "landed", 0.5),
-            ("targets", "skipped", 0.0),
+            ("issues", "landed", 0.5),
+            ("issues", "skipped", 0.0),
             ("agent-runs", "dropped", 0.0),
         ]
         for seconds, keys in ((1.0, outcomes), (3.0, outcomes[:1])):
@@ -639,13 +641,13 @@ async def test_refresh_health_is_shown_by_trigger_and_by_key(tmp_path: Path) -> 
         assert rows_starting(
             section(app, "keys"),
             "key",
-            "observation targets",
+            "observation issues",
             "observation agent-runs",
             "query identities",
         ) == [
             "key runs typical worst skipped dropped failed",
             "observation agent-runs 0 — — 0 1 0",
-            "observation targets 2 500 ms 500 ms 1 0 0",
+            "observation issues 2 500 ms 500 ms 1 0 0",
             "query identities 1 2.0 s 2.0 s 0 0 1",
         ]
 

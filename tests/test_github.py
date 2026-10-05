@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import json
-import threading
 import unittest
-from collections.abc import Mapping, Sequence
-from contextvars import copy_context
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, override
@@ -14,8 +11,6 @@ from typing import Any, override
 from dashpot.core.commands import (
     CommandError,
     CommandResult,
-    RunningCommands,
-    adopted_commands,
 )
 from dashpot.github.github import (
     CursorTrail,
@@ -648,93 +643,6 @@ class RateLimitPauseTests(unittest.TestCase):
         )
         self.assertIn("for its secondary rate limit", secondary.message)
         self.assertEqual((), pause_diagnostics(None, "github"))
-
-
-class ConcurrentRunner:
-    """Answer each request by its ``n`` variable, holding until enough are active."""
-
-    def __init__(self, *, hold_until_active: int = 0, failing: str | None = None):
-        self.calls: list[list[str]] = []
-        self.lock = threading.Lock()
-        self.active = 0
-        self.max_active = 0
-        self.hold_until_active = hold_until_active
-        self.failing = failing
-        self.released = threading.Event()
-        if not hold_until_active:
-            self.released.set()
-
-    def __call__(self, args, cwd, timeout):
-        with self.lock:
-            self.calls.append(list(args))
-            self.active += 1
-            self.max_active = max(self.max_active, self.active)
-            if self.active >= self.hold_until_active:
-                self.released.set()
-        self.released.wait(timeout=2)
-        with self.lock:
-            self.active -= 1
-        number = next(arg.removeprefix("n=") for arg in args if arg.startswith("n="))
-        if number == self.failing:
-            raise CommandError("timed out")
-        return completed(json.dumps({"data": {"n": number}}))
-
-
-class ManyRequestsTests(unittest.TestCase):
-    def test_answers_come_back_in_the_order_asked(self) -> None:
-        runner = ConcurrentRunner()
-        gate = GitHubGateway(Path("/repo"), runner=runner)
-
-        answers = gate.graphql_many(QUERY, [{"n": str(n)} for n in range(10)])
-
-        self.assertEqual([{"n": str(n)} for n in range(10)], answers)
-        self.assertEqual(10, len(runner.calls))
-
-    def test_at_most_four_requests_are_in_flight(self) -> None:
-        runner = ConcurrentRunner(hold_until_active=4)
-        gate = GitHubGateway(Path("/repo"), runner=runner)
-
-        answers = gate.graphql_many(QUERY, [{"n": str(n)} for n in range(9)])
-
-        self.assertEqual(9, len(answers))
-        self.assertEqual(4, runner.max_active)
-
-    def test_one_request_is_sent_without_a_pool(self) -> None:
-        runner = RecordingRunner(completed(json.dumps({"data": {"n": "0"}})))
-        gate = GitHubGateway(Path("/repo"), runner=runner)
-
-        self.assertEqual([{"n": "0"}], gate.graphql_many(QUERY, [{"n": "0"}]))
-        self.assertEqual([], gate.graphql_many(QUERY, []))
-
-    def test_a_failed_request_fails_the_whole_batch(self) -> None:
-        runner = ConcurrentRunner(failing="2")
-        gate = GitHubGateway(Path("/repo"), runner=runner)
-
-        with self.assertRaises(GitHubRequestError) as caught:
-            gate.graphql_many(QUERY, [{"n": str(n)} for n in range(6)])
-
-        self.assertEqual("github-timeout", caught.exception.code)
-
-    def test_each_request_runs_in_the_calling_threads_context(self) -> None:
-        # The registry a dashboard exit interrupts reaches a thread through
-        # its context, so the fanned-out requests must carry the caller's.
-        running = RunningCommands()
-        seen: list[RunningCommands | None] = []
-        answer = completed(json.dumps({"data": {"n": "0"}}))
-
-        def runner(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
-            seen.append(adopted_commands())
-            return answer
-
-        gate = GitHubGateway(Path("/repo"), runner=runner)
-
-        def ask() -> list[Mapping[str, Any]]:
-            running.adopt()
-            return gate.graphql_many(QUERY, [{"n": "0"}] * 6)
-
-        self.assertEqual(6, len(copy_context().run(ask)))
-        self.assertEqual([running] * 6, seen)
-        self.assertIsNone(adopted_commands())
 
 
 class CursorTrailTests(unittest.TestCase):

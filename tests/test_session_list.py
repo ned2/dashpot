@@ -10,6 +10,7 @@ import pytest
 from rich.text import Text
 
 import factories
+from app_harness import issue_rows
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import (
     AgentRun,
@@ -128,7 +129,7 @@ def test_store_lists_every_active_session_once_with_its_relationships() -> None:
 
     result = store.query_sessions()
 
-    assert result.revision == store.revision == 1
+    assert store.revision == 1
     assert result.count == 3
     assert [row.key for row in result.rows] == [
         row_key("session", "claude-code-session:two"),
@@ -254,7 +255,9 @@ def test_correlated_hook_and_work_records_are_one_session_row() -> None:
         runs, diagnostics = observe_agent_runs(targets, hooks, lookup=present(process))
         alpha = project(
             "project:alpha",
-            issue("I_alpha#7", 7, "Alpha work"),
+            issue("I_alpha#7", 7, "Alpha work").model_copy(
+                update={"project_id": "project:alpha"}
+            ),
             targets=targets["project:alpha"],
         )
         store = WorkspaceObservationStore(workspace(alpha))
@@ -567,7 +570,9 @@ def test_sandboxed_bindings_of_both_harnesses_reach_the_sessions_and_issues_read
         )
         alpha = project(
             "project:alpha",
-            issue("I_alpha#7", 7, "Alpha work"),
+            issue("I_alpha#7", 7, "Alpha work").model_copy(
+                update={"project_id": "project:alpha"}
+            ),
             targets=targets["project:alpha"],
         )
         store = WorkspaceObservationStore(workspace(alpha))
@@ -576,7 +581,7 @@ def test_sandboxed_bindings_of_both_harnesses_reach_the_sessions_and_issues_read
         )
 
         sessions = store.query_sessions()
-        issues = store.query_issues()
+        issues = issue_rows(store.checkpoint())
 
         assert diagnostics == []
         assert sessions.count == 2

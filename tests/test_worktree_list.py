@@ -87,7 +87,6 @@ def test_store_lists_every_target_across_projects_in_topology_order() -> None:
     # default; ty checks this ``assert_type`` as part of the gate.
     assert_type(result.summary, None)
     assert result.summary is None
-    assert result.revision == 1
     assert result.count == 4
     assert [(row.project.display_label, row.target.path) for row in result.rows] == [
         ("Alpha", "/elsewhere/beta-checkout"),
@@ -243,7 +242,6 @@ def test_worktree_cells_carry_every_scan_level_fact_without_clipping_paths() -> 
 
     main_row, linked_row = worktree_rows(result, dark=True, home=home)
 
-    assert result.revision == 1
     assert len(main_row.cells) == len(WORKTREE_COLUMNS)
     assert main_row.key == row_key(
         "worktree", "project:alpha", "/home/agent/projects/alpha"
