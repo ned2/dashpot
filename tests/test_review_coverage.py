@@ -59,8 +59,15 @@ def test_evidence_survives_staging_and_committing_same_content(checkout, monkeyp
         review_coverage.verify(checkout, "HEAD")
 
 
-@pytest.mark.parametrize("change", ["edit", "new", "delete", "mode", "symlink"])
+@pytest.mark.parametrize(
+    "change", ["edit", "new", "delete", "mode", "symlink", "script"]
+)
 def test_source_changes_invalidate_evidence(checkout, monkeypatch, change):
+    script = checkout / "scripts" / "tool.py"
+    script.parent.mkdir()
+    script.write_text('"""A maintenance script."""\n')
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    commit_checkout(checkout, "Script")
     fake_pytest(monkeypatch, report)
     review_coverage.collect(checkout, "HEAD")
     source = checkout / "module.py"
@@ -72,6 +79,8 @@ def test_source_changes_invalidate_evidence(checkout, monkeypatch, change):
         source.unlink()
     elif change == "mode":
         source.chmod(0o755)
+    elif change == "script":
+        script.write_text('"""A changed maintenance script."""\n')
     else:
         source.unlink()
         source.symlink_to("missing.py")
