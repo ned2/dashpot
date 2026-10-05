@@ -397,10 +397,10 @@ contract retains all Issue Profiles and Pull Request lifecycle distinctions.
 Paged CLI queries share the dashboard's source semantics:
 
 ```bash
-dashpot issue list --query 'label:bug' --state open --page-size 50 --json
-dashpot pr list --query 'draft:true' --state open --page-size 50 --json
+dashpot issue list --query 'label:bug' --state open --page-size 50
+dashpot pr list --query 'draft:true' --state open --page-size 50
 dashpot issue list --query 'is:closed OR author:@me' --state all --compact-json
-dashpot issue list --state ready --json
+dashpot issue list --state ready
 ```
 
 `--state ready` lists Ready Issues; a Pull Request list has no Ready state. Each

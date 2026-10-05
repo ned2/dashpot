@@ -700,6 +700,8 @@ def remove_working_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         ["worktree", "check"],
         ["worktree", "remove", "elsewhere"],
         ["branch", "delete", "feature", "--local"],
+        ["integrate", "claude-code", "--status"],
+        ["integrate", "codex", "opencode", "--status"],
     ],
 )
 def test_a_command_run_in_a_removed_directory_refuses_on_one_line(
@@ -1936,7 +1938,7 @@ def test_integrate_codex_dispatches_install_remove_and_status(
         cli, "integration_status", return_value=["installed in x"]
     ) as status:
         assert cli.main(["integrate", "claude-code", "--status"]) == 0
-    status.assert_called_once_with("claude-code")
+    status.assert_called_once_with("claude-code", current=current_directory())
 
     output = capsys.readouterr().out
     assert "installed hooks" in output
@@ -2040,7 +2042,7 @@ def test_integrate_status_without_a_harness_reports_every_harness(
     with mock.patch.object(cli, "integrations_status", return_value=combined) as run:
         assert cli.main(argv) == 0
 
-    run.assert_called_once_with(())
+    run.assert_called_once_with((), current=current_directory())
     assert capsys.readouterr().out.splitlines() == [
         "Claude Code:",
         "  installed in /c",

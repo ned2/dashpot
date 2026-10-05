@@ -29,6 +29,7 @@ from ..core.pydantic import (
 )
 from ..core.record_store import replace_atomically
 from ..core.state_paths import is_configured_checkout
+from ..core.working_directory import current_directory
 from ..core.worktree_paths import (
     main_worktree,
     same_path,
@@ -1645,7 +1646,7 @@ def _record_store_status(
     """
     messages: list[str] = []
     try:
-        root = worktree_root(current or Path.cwd())
+        root = worktree_root(current or current_directory())
     except GitError:
         root = None
     if root is not None and is_configured_checkout(root):
@@ -1709,7 +1710,7 @@ def _claimed_identity_status(
         f"{claim.session_id} (from {claim.source})"
     )
     try:
-        root = worktree_root(current or Path.cwd())
+        root = worktree_root(current or current_directory())
     except GitError:
         return [f"{prefix}, not validated: not inside a Git worktree"]
     try:
@@ -2101,7 +2102,7 @@ def _opencode_plugin_copies(
     environment = environ if environ is not None else os.environ
     directories = [own.parent.parent]
     if not _enabled(environment.get("OPENCODE_DISABLE_PROJECT_CONFIG")):
-        start = (current or Path.cwd()).resolve()
+        start = (current or current_directory()).resolve()
         for directory in (start, *start.parents):
             directories.append(directory / ".opencode")
             if (directory / ".git").exists():

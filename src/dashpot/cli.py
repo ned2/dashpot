@@ -1319,7 +1319,7 @@ def integrate(
                 named[0], status=status, remove=remove, outcome=outcome
             )
         if status:
-            combined = integrations_status(named)
+            combined = integrations_status(named, current=current_directory())
             _report_harnesses(combined.harnesses)
             _report(combined.messages)
             outcome.action = "reported"
@@ -1339,7 +1339,7 @@ def _integrate_one(
     """Install, check or remove one named harness's integration, refusing as it does."""
     outcome.target_harness = harness
     if status:
-        messages = integration_status(harness)
+        messages = integration_status(harness, current=current_directory())
         outcome.action = "reported"
     elif remove:
         messages = remove_integration(harness)
