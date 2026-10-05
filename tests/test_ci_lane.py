@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,8 @@ from scripts import ci_lane
 
 sys.path.pop(0)
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 
 def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
@@ -19,18 +22,7 @@ def git(root, *args):
 
 def commit(root):
     git(root, "add", ".")
-    git(
-        root,
-        "-c",
-        "user.name=Test",
-        "-c",
-        "user.email=test@example.invalid",
-        "-c",
-        "commit.gpgsign=false",
-        "commit",
-        "-qm",
-        "Change",
-    )
+    git(root, "commit", "-qm", "Change")
     return git(root, "rev-parse", "HEAD")
 
 
@@ -47,6 +39,10 @@ def checkout(tmp_path, monkeypatch):
     "name,expected",
     [
         ("README.md", "docs"),
+        ("AGENTS.md", "docs"),
+        ("README-pypi.md", "full"),
+        ("CHANGELOG.md", "full"),
+        ("docs/CHANGELOG.md", "docs"),
         ("docs/deep/topic.md", "docs"),
         ("conformance/issue/spec.md", "docs"),
         ("src/README.md", "full"),
@@ -65,6 +61,11 @@ def test_complete_diff_classification(checkout, name, expected):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("Changed\n")
     assert ci_lane.classify("pull_request", base, commit(root)) == expected
+
+
+def test_the_package_description_is_a_build_input():
+    project = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())["project"]
+    assert project["readme"] in ci_lane.BUILD_INPUTS
 
 
 def test_earlier_code_change_is_not_hidden_by_latest_docs_commit(checkout):

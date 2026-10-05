@@ -53,8 +53,6 @@ def repository_with_worktree(tmp_path: Path) -> tuple[Path, Path]:
     root = tmp_path / "repo"
     root.mkdir()
     git(root, "init", "-q", "-b", "main")
-    git(root, "config", "user.email", "sim@example.invalid")
-    git(root, "config", "user.name", "Sim")
     (root / "README.md").write_text("Sim\n")
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "base")

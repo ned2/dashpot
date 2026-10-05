@@ -8,13 +8,20 @@ import os
 import subprocess
 from pathlib import PurePosixPath
 
+# Root Markdown the build reads: the package description `twine check --strict`
+# and `check_distributions.py` inspect, and the release notes `check_release.py`
+# parses. Their checks run only in the full lane's build job.
+BUILD_INPUTS = frozenset({"README-pypi.md", "CHANGELOG.md"})
+
 
 def documentation_path(name: str) -> bool:
-    """Recognize documentation without skipping executable or configuration files."""
+    """Recognize documentation, never an executable, configuration, or build input."""
     path = PurePosixPath(name)
-    return path.suffix == ".md" and (
-        len(path.parts) == 1 or path.parts[0] in {"docs", "conformance"}
-    )
+    if path.suffix != ".md":
+        return False
+    if len(path.parts) == 1:
+        return path.name not in BUILD_INPUTS
+    return path.parts[0] in {"docs", "conformance"}
 
 
 def classify(event: str, base: str, head: str, *, force_full: bool = False) -> str:

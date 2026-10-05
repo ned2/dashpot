@@ -245,8 +245,6 @@ def test_real_git_inventory_tracks_linked_worktree_runtime_lifecycle(
     linked = tmp_path / "linked"
     main.mkdir()
     git(main, "init")
-    git(main, "config", "user.email", "dashpot@example.invalid")
-    git(main, "config", "user.name", "Dashpot Tests")
     (main / "tracked.txt").write_text("base\n")
     git(main, "add", "tracked.txt")
     git(main, "commit", "-m", "initial")
@@ -295,17 +293,7 @@ def test_observing_a_worktree_leaves_its_index_alone(
     tracked = root / "tracked.txt"
     tracked.write_text("unchanged\n")
     git(root, "add", "tracked.txt")
-    git(
-        root,
-        "-c",
-        "user.name=Sim",
-        "-c",
-        "user.email=sim@example.invalid",
-        "commit",
-        "-q",
-        "-m",
-        "first",
-    )
+    git(root, "commit", "-q", "-m", "first")
     # Same content, older stat: a plain ``git status`` would take index.lock
     # to write the refreshed stat cache back.
     os.utime(tracked, (1_000_000_000, 1_000_000_000))

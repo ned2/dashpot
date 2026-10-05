@@ -13,9 +13,11 @@ parallel execution is the local default for pytest and the development gates.
 
 [`ci_lane.py`](../scripts/ci_lane.py) classifies the complete PR diff, including
 both paths of renames. Only Markdown at the root or under `docs/` and
-`conformance/` qualifies. Other files, mixed changes, empty diffs, and an
-unavailable comparison select full verification. Manual and reusable workflow
-invocations always select full verification.
+`conformance/` qualifies, except the root Markdown the build reads
+(`README-pypi.md` and `CHANGELOG.md`, whose checks run in the build job).
+Other files, mixed changes, empty diffs, and an unavailable comparison select
+full verification. Manual and reusable workflow invocations always select full
+verification.
 
 Quality checks, PR ancestry validation, and the revision artifact run in both
 lanes. The aggregate gate accepts the expensive jobs' skipped results only after

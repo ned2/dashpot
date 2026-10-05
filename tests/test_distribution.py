@@ -27,8 +27,6 @@ OTHER = "b" * 40
 def committed(root: Path) -> Path:
     """A Git repository at ``root`` with one empty commit, by a named committer."""
     init_repository(root)
-    git(root, "config", "user.email", "sim@example.invalid")
-    git(root, "config", "user.name", "Sim")
     git(root, "commit", "-q", "--allow-empty", "-m", "first")
     return root
 

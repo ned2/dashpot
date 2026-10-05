@@ -107,18 +107,7 @@ def fallback_directory() -> Path:
 def repository_with_linked_worktree(tmp_path: Path) -> tuple[Path, Path]:
     main = init_repository(tmp_path / "repo")
     write_project_config(main)
-    git(
-        main,
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "user.name=Test",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "seed",
-    )
+    git(main, "commit", "-q", "--allow-empty", "-m", "seed")
     linked = tmp_path / "repo-linked"
     git(main, "worktree", "add", "-q", "-b", "linked", str(linked))
     write_project_config(linked)

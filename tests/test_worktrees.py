@@ -57,8 +57,6 @@ def sim(tmp_path: Path, *, origin_head: bool = True) -> Path:
     root = tmp_path / "p" / "sim"
     root.mkdir(parents=True)
     git(root, "init", "-q", "-b", "main")
-    git(root, "config", "user.email", "sim@example.invalid")
-    git(root, "config", "user.name", "Sim")
     (root / "README.md").write_text("Sim\n")
     (root / ".gitignore").write_text(".dashpot/state/\n")
     git(root, "add", "-A")
