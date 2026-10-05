@@ -26,7 +26,9 @@ from dashpot.sessions.integrate import (
     HarnessIntegration,
     IncompleteIntegrationError,
     IncompleteRemovalError,
+    IntegrationEnvironment,
     IntegrationError,
+    configuration_directory,
     install_integration,
     integration,
     integration_status,
@@ -76,9 +78,9 @@ def second(tmp_path: Path) -> BundledSkill:
 
 def config_home(harness: Harness) -> Path:
     """The harness's default configuration directory, created as its first run would."""
-    spec = integration(harness)
-    spec.default_home.mkdir(parents=True, exist_ok=True)
-    return spec.default_home
+    home = configuration_directory(integration(harness), os.environ).path
+    home.mkdir(parents=True, exist_ok=True)
+    return home
 
 
 def publisher(tmp_path: Path, spec: HarnessIntegration) -> Path:
@@ -101,8 +103,7 @@ def install(
         harness,
         config_home(harness),
         command_path=publisher(tmp_path, spec),
-        version_probe=accepted,
-        skills=skills,
+        environment=IntegrationEnvironment(skills=skills, version_probe=accepted),
     )
 
 
@@ -114,19 +115,26 @@ def status(
         config_home(harness),
         state_dir=tmp_path / "state",
         current=tmp_path,
-        environ={},
-        version_probe=accepted,
-        skills=skills,
+        environment=IntegrationEnvironment(
+            skills=skills, version_probe=accepted, environ={}
+        ),
+    )
+
+
+def remove(harness: Harness, skills: tuple[BundledSkill, ...]) -> list[str]:
+    return remove_integration(
+        harness, config_home(harness), environment=IntegrationEnvironment(skills=skills)
     )
 
 
 def copy_of(harness: Harness, skill: BundledSkill) -> Path:
-    return skill_directory(integration(harness), config_home(harness), skill)
+    return skill_directory(
+        integration(harness), config_home(harness), skill, os.environ
+    )
 
 
 def integration_file(harness: Harness) -> Path:
-    spec = integration(harness)
-    return spec.default_home / spec.hooks_file
+    return config_home(harness) / integration(harness).hooks_file
 
 
 def files_in(directory: Path) -> set[Path]:
@@ -263,7 +271,7 @@ def test_an_unmanaged_directory_of_a_bundled_skills_name_is_never_touched(
         harness, tmp_path, skills
     )
 
-    messages = remove_integration(harness, config_home(harness), skills=skills)
+    messages = remove(harness, skills)
 
     assert f"left unmanaged Second skill unchanged at {theirs}" in messages
     assert (theirs / "SKILL.md").read_text() == mine
@@ -313,7 +321,7 @@ def test_a_path_that_is_no_dashpot_skill_is_a_conflict_left_in_place(
     assert f"Second skill conflict at {theirs}: not managed by Dashpot" in status(
         harness, tmp_path, skills
     )
-    messages = remove_integration(harness, config_home(harness), skills=skills)
+    messages = remove(harness, skills)
     assert f"left unmanaged Second skill unchanged at {theirs}" in messages
     assert kept.read_text() == "mine\n"
 
@@ -329,9 +337,8 @@ def test_an_empty_directory_is_free_to_install_into(
     assert f"Second skill not installed: no {vacant / 'SKILL.md'}" in status(
         harness, tmp_path, skills
     )
-    assert (
-        f"Dashpot Second skill is not installed: no {vacant / 'SKILL.md'}"
-        in remove_integration(harness, config_home(harness), skills=skills)
+    assert f"Dashpot Second skill is not installed: no {vacant / 'SKILL.md'}" in remove(
+        harness, skills
     )
     install(harness, tmp_path, skills)
     assert (vacant / "SKILL.md").read_bytes() == (
@@ -356,7 +363,7 @@ def test_an_unreadable_skill_is_refused_reported_and_left_alone(
         message.startswith(f"Second skill unreadable at {theirs}: ")
         for message in status(harness, tmp_path, skills)
     )
-    messages = remove_integration(harness, config_home(harness), skills=skills)
+    messages = remove(harness, skills)
     assert any(
         message.startswith(f"could not inspect Dashpot Second skill at {theirs}: ")
         for message in messages
@@ -374,7 +381,7 @@ def test_remove_takes_every_managed_skill_and_keeps_foreign_files(
     foreign = other / "references" / "mine.md"
     foreign.write_text("keep me\n")
 
-    messages = remove_integration(harness, config_home(harness), skills=skills)
+    messages = remove(harness, skills)
 
     first = copy_of(harness, ISSUE_WORK_SKILL)
     assert f"removed the Dashpot Issue work skill from {first}" in messages
@@ -385,7 +392,7 @@ def test_remove_takes_every_managed_skill_and_keeps_foreign_files(
     # The emptied nested directory goes; the one holding a foreign file stays.
     assert not (other / "references" / "deep").exists()
 
-    again = remove_integration(harness, config_home(harness), skills=skills)
+    again = remove(harness, skills)
 
     assert (
         f"Dashpot Issue work skill is not installed: no {first / 'SKILL.md'}" in again
@@ -547,7 +554,7 @@ def test_remove_takes_what_an_earlier_dashpot_shipped_and_never_the_users_files(
         (copy / relative).write_text("keep me\n")
     retire(second, retired)
 
-    messages = remove_integration(harness, config_home(harness), skills=skills)
+    messages = remove(harness, skills)
 
     assert f"removed the Dashpot Second skill from {copy}" in messages
     if users:
@@ -594,7 +601,7 @@ def test_remove_takes_the_shipped_files_of_a_copy_written_before_the_manifest(
     mine = earlier / "references" / "mine.md"
     mine.write_text("keep me\n")
 
-    messages = remove_integration(harness, config_home(harness), skills=skills)
+    messages = remove(harness, skills)
 
     assert f"removed the Dashpot Second skill from {earlier}" in messages
     assert files_in(earlier) == {Path("references/mine.md")}
@@ -628,7 +635,7 @@ def test_an_invalid_manifest_stands_for_the_shipped_files(
     assert files_in(copy) == {*second.files, SKILL_MANIFEST}
 
     (copy / SKILL_MANIFEST).write_text(manifest)
-    messages = remove_integration("codex", config_home("codex"), skills=skills)
+    messages = remove("codex", skills)
 
     assert f"removed the Dashpot Second skill from {copy}" in messages
     assert not copy.exists()
@@ -653,7 +660,7 @@ def test_a_directory_it_cannot_list_is_reported_and_left_alone(
             install(harness, tmp_path, skills)
         after = integration_file(harness).read_bytes()
         report = status(harness, tmp_path, skills)
-        messages = remove_integration(harness, config_home(harness), skills=skills)
+        messages = remove(harness, skills)
     finally:
         theirs.chmod(0o755)
 
@@ -692,7 +699,7 @@ def test_a_managed_copy_it_cannot_list_is_updated_and_removed_by_its_manifest(
     updated_files = files_in(copy)
     copy.chmod(0o311)
     try:
-        removed = remove_integration("codex", config_home("codex"), skills=skills)
+        removed = remove("codex", skills)
     finally:
         if copy.exists():
             copy.chmod(0o755)
@@ -787,7 +794,7 @@ def test_an_update_cut_short_leaves_every_file_dashpot_wrote_to_remove(
     mine = copy / "references" / "mine.md"
     mine.write_text("keep me\n")
 
-    messages = remove_integration("codex", config_home("codex"), skills=skills)
+    messages = remove("codex", skills)
 
     assert f"removed the Dashpot Second skill from {copy}" in messages
     assert files_in(copy) == {Path("references/mine.md")}
@@ -803,7 +810,7 @@ def test_remove_never_follows_a_link_the_user_put_inside_a_copy(
     shutil.move(copy / "references" / "deep", elsewhere)
     (copy / "references" / "deep").symlink_to(elsewhere, target_is_directory=True)
 
-    messages = remove_integration("codex", config_home("codex"), skills=skills)
+    messages = remove("codex", skills)
 
     assert f"removed the Dashpot Second skill from {copy}" in messages
     assert (elsewhere / "notes.md").read_text() == "Notes.\n"
@@ -831,7 +838,7 @@ def test_an_update_never_writes_through_a_link_the_user_put_inside_a_copy(
         report
         for report in refresh_integrations(
             command_paths={"codex": publisher(tmp_path, integration("codex"))},
-            skills=skills,
+            environment=IntegrationEnvironment(skills=skills),
         )
         if report.harness == "codex"
     ]
@@ -858,7 +865,7 @@ def test_remove_never_follows_a_link_loop_inside_a_copy(
     (references / "deep").symlink_to(references / "loop", target_is_directory=True)
     (references / "loop").symlink_to(references / "deep", target_is_directory=True)
 
-    messages = remove_integration("codex", config_home("codex"), skills=skills)
+    messages = remove("codex", skills)
 
     assert f"removed the Dashpot Second skill from {copy}" in messages
     assert (references / "deep").is_symlink()
@@ -881,7 +888,7 @@ def test_a_managed_copy_it_cannot_write_refuses_the_install_and_is_kept(
         with pytest.raises(IntegrationError) as refused:
             install("codex", tmp_path, skills)
         with pytest.raises(IncompleteRemovalError) as incomplete:
-            remove_integration("codex", config_home("codex"), skills=skills)
+            remove("codex", skills)
     finally:
         copy.chmod(0o755)
 
@@ -905,9 +912,7 @@ def test_a_managed_copy_it_cannot_write_refuses_the_install_and_is_kept(
     # remove once it can be.
     assert (copy / "SKILL.md").read_bytes() == edited
     assert (copy / SKILL_MANIFEST).is_file()
-    assert "removed the Dashpot Second skill from" in "\n".join(
-        remove_integration("codex", config_home("codex"), skills=skills)
-    )
+    assert "removed the Dashpot Second skill from" in "\n".join(remove("codex", skills))
     assert not copy.exists()
 
 
@@ -951,8 +956,9 @@ def test_an_unwritable_copy_among_the_skills_refuses_before_anything_is_written(
                 harness,
                 home,
                 command_path=other_publisher(tmp_path, harness),
-                version_probe=accepted,
-                skills=skills,
+                environment=IntegrationEnvironment(
+                    skills=skills, version_probe=accepted
+                ),
             )
     finally:
         second.chmod(0o755)
@@ -1118,7 +1124,7 @@ def test_a_copy_directory_it_cannot_search_refuses_before_anything_is_written(
                 "codex",
                 config_home("codex"),
                 command_path=other_publisher(tmp_path, "codex"),
-                skills=skills,
+                environment=IntegrationEnvironment(skills=skills),
             )
     finally:
         references.chmod(0o755)
@@ -1143,7 +1149,7 @@ def test_a_skill_directory_it_cannot_search_is_reported_not_raised(
         with pytest.raises(IntegrationError) as refused:
             install("codex", tmp_path, skills)
         report = status("codex", tmp_path, skills)
-        messages = remove_integration("codex", config_home("codex"), skills=skills)
+        messages = remove("codex", skills)
     finally:
         copy.parent.chmod(0o755)
 

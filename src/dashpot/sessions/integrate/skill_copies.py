@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import stat
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Literal
 
@@ -17,7 +17,13 @@ from pydantic import ValidationError
 from ...core.model import Harness
 from ...core.pydantic import PersistedRecord, RepositoryRelativePath
 from ...core.record_store import replace_atomically
-from .registry import BUNDLED_SKILL_VERSION, BundledSkill, HarnessIntegration
+from .registry import (
+    BUNDLED_SKILL_VERSION,
+    BundledSkill,
+    HarnessIntegration,
+    configuration_directory,
+    user_skills_directory,
+)
 from .writes import IntegrationError, PendingWrite, Planned, file_mode
 
 # Written beside the marker in every managed skill copy, it names each file
@@ -40,20 +46,33 @@ class SkillManifest(PersistedRecord):
 CopyState = Literal["vacant", "managed", "unmanaged", "not a directory"]
 
 
-def skill_directory(spec: HarnessIntegration, home: Path, skill: BundledSkill) -> Path:
-    """Locate this harness's user-wide copy of one bundled skill."""
+def skill_directory(
+    spec: HarnessIntegration,
+    home: Path,
+    skill: BundledSkill,
+    environ: Mapping[str, str],
+) -> Path:
+    """Locate this harness's user-wide copy of one bundled skill.
+
+    A harness that reads skills outside its configuration directory, as
+    Codex does, reads them from the home directory's when ``home`` is the
+    directory ``environ`` names, and beside ``home`` otherwise.
+    """
     if spec.skills_in_configuration:
         return home / spec.skills_home / skill.name
-    if home == spec.default_home:
-        return spec.default_skills_home / skill.name
+    if home == configuration_directory(spec, environ).path:
+        return user_skills_directory(spec, environ) / skill.name
     return home.parent / spec.skills_home / skill.name
 
 
 def skill_copies(
-    spec: HarnessIntegration, home: Path, skills: tuple[BundledSkill, ...]
+    spec: HarnessIntegration,
+    home: Path,
+    skills: tuple[BundledSkill, ...],
+    environ: Mapping[str, str],
 ) -> list[tuple[BundledSkill, Path]]:
     """Each bundled skill, paired with where this harness keeps its copy."""
-    return [(skill, skill_directory(spec, home, skill)) for skill in skills]
+    return [(skill, skill_directory(spec, home, skill, environ)) for skill in skills]
 
 
 def _skill_text(destination: Path) -> str:

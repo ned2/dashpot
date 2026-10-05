@@ -158,6 +158,7 @@ calls them. The `work` commands, which change the Work Store, are under
 | Worker Assignment | [`sessions/worker_assignments.py`](../src/dashpot/sessions/worker_assignments.py) | Assigns a Lead's working Sub-agents, as Workers, to Issues, and ends those assignments. |
 | Harness Integration | [`sessions/integrate/__init__.py`](../src/dashpot/sessions/integrate/__init__.py) | The integration seam the CLI imports. |
 | | [`sessions/integrate/registry.py`](../src/dashpot/sessions/integrate/registry.py) | What each harness's integration installs and where, and the skills and agents it bundles. |
+| | [`sessions/integrate/environment.py`](../src/dashpot/sessions/integrate/environment.py) | What one `integrate` command installs and asks of its host: the bundled skills and agents, the OpenCode version probe, the process lookup and the environment variables, the process's own by default. |
 | | [`sessions/integrate/harness.py`](../src/dashpot/sessions/integrate/harness.py) | Installs, removes, checks and describes one harness's integration. |
 | | [`sessions/integrate/across.py`](../src/dashpot/sessions/integrate/across.py) | Installs, refreshes and reports several harnesses' integrations in one command. |
 | | [`sessions/integrate/arguments.py`](../src/dashpot/sessions/integrate/arguments.py) | Refuses `dashpot integrate` arguments that name no one action, and totals its harnesses' reports. |

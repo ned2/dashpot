@@ -22,7 +22,7 @@ from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
-from dashpot.sessions.integrate import integration_status
+from dashpot.sessions.integrate import IntegrationEnvironment, integration_status
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.session_identity import IssueWorkError, identify_agent_session
 from dashpot.sessions.work import (
@@ -639,8 +639,7 @@ def test_a_childs_integrate_status_reports_its_root_sessions_identity(
         home,
         state_dir=tmp_path / "global-state",
         current=a,
-        lookup=codex_lookup,
-        environ=CHILD_SHELL,
+        environment=IntegrationEnvironment(lookup=codex_lookup, environ=CHILD_SHELL),
     )
 
     assert [m for m in messages if "identity claimed here" in m] == [

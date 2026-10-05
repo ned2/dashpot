@@ -38,7 +38,11 @@ from dashpot.sessions.hook_scan import (
     reachable_hook_stores,
     sessions_with_live_subagents,
 )
-from dashpot.sessions.integrate import diagnostics, integration_status
+from dashpot.sessions.integrate import (
+    IntegrationEnvironment,
+    diagnostics,
+    integration_status,
+)
 from dashpot.sessions.opencode_publish import (
     OpenCodeOutcome,
     parse_request,
@@ -1237,9 +1241,11 @@ def claimed_here(
         tmp_path / "opencode-home",
         state_dir=tmp_path / "state",
         current=project,
-        lookup=lookup,
-        environ={**environ, "XDG_STATE_HOME": str(tmp_path / "xdg-state")},
-        version_probe=lambda: "opencode v2.0.22",
+        environment=IntegrationEnvironment(
+            lookup=lookup,
+            environ={**environ, "XDG_STATE_HOME": str(tmp_path / "xdg-state")},
+            version_probe=lambda: "opencode v2.0.22",
+        ),
     )
     return [
         message

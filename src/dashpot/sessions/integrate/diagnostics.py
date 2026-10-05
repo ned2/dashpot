@@ -7,7 +7,6 @@ identity this command's environment claims.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -78,7 +77,7 @@ def claimed_identity_status(
     spec: HarnessIntegration,
     current: Path | None,
     lookup: ProcessLookup,
-    environ: Mapping[str, str] | None,
+    environ: Mapping[str, str],
 ) -> list[str]:
     """Report the Agent Session Identity this command's environment claims.
 
@@ -86,15 +85,14 @@ def claimed_identity_status(
     whether it names a live hook record here is what to check when opt-in
     from a sandbox is refused.
     """
-    environment = environ if environ is not None else os.environ
     try:
-        claim = override_claim(environment)
+        claim = override_claim(environ)
     except HarnessError as exc:
         return [f"Agent Session identity claimed here: {exc}"]
     if claim is None or claim.harness != spec.harness:
-        claim = adapter(spec.harness).claim_session_identity(environment)
+        claim = adapter(spec.harness).claim_session_identity(environ)
     if claim is None and spec.harness == "opencode":
-        refusal = opencode_shell_refusal(environment, in_opencode=False) or (
+        refusal = opencode_shell_refusal(environ, in_opencode=False) or (
             "only a shell OpenCode ran for its agent, prepared by the plugin, "
             "carries one"
         )

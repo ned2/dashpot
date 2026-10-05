@@ -5,9 +5,10 @@ hook installer writes the hooks themselves: ``hooks_file`` for Codex and
 Claude Code, ``opencode_plugin`` for OpenCode. ``skill_copies`` and
 ``agent_copies`` manage the bundled skills and agents, ``harness`` runs one
 harness's installation, removal and report, and ``across`` runs several in
-one command. ``arguments`` refuses the command's conflicting arguments and
-totals its harnesses' reports. ``diagnostics`` reports the session records
-and claimed identity ``--status`` closes with.
+one command, each taking from ``environment`` what it installs and what it
+asks of its host. ``arguments`` refuses the command's conflicting arguments
+and totals its harnesses' reports. ``diagnostics`` reports the session
+records and claimed identity ``--status`` closes with.
 """
 
 from .across import INTEGRATION_ORDER as INTEGRATION_ORDER
@@ -22,6 +23,8 @@ from .agent_copies import agent_file as agent_file
 from .arguments import IntegrationTotals as IntegrationTotals
 from .arguments import integration_totals as integration_totals
 from .arguments import refuse_integrate_arguments as refuse_integrate_arguments
+from .environment import PROCESS_ENVIRONMENT as PROCESS_ENVIRONMENT
+from .environment import IntegrationEnvironment as IntegrationEnvironment
 from .harness import IntegrationPresence as IntegrationPresence
 from .harness import IntegrationState as IntegrationState
 from .harness import install_integration as install_integration
@@ -43,6 +46,7 @@ from .registry import HarnessIntegration as HarnessIntegration
 from .registry import configuration_directory as configuration_directory
 from .registry import integration as integration
 from .registry import resolve_hook_command as resolve_hook_command
+from .registry import user_skills_directory as user_skills_directory
 from .skill_copies import skill_directory as skill_directory
 from .writes import IncompleteIntegrationError as IncompleteIntegrationError
 from .writes import IncompleteRemovalError as IncompleteRemovalError

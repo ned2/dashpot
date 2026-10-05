@@ -7,6 +7,8 @@ must stay hidden from the model in each harness until a person invokes it.
 
 from __future__ import annotations
 
+import dataclasses
+import os
 import re
 from pathlib import Path
 
@@ -16,6 +18,8 @@ from dashpot.core.model import Harness
 from dashpot.sessions.harnesses import OPENCODE_ACCEPTED_VERSION
 from dashpot.sessions.integrate import (
     BUNDLED_SKILLS,
+    IntegrationEnvironment,
+    configuration_directory,
     install_integration,
     integration,
     integration_status,
@@ -24,6 +28,9 @@ from dashpot.sessions.integrate import (
 )
 
 HARNESSES: tuple[Harness, ...] = ("codex", "claude-code", "opencode")
+ACCEPTED = IntegrationEnvironment(
+    version_probe=lambda: f"opencode v{OPENCODE_ACCEPTED_VERSION}"
+)
 
 SKILL = next(
     skill for skill in BUNDLED_SKILLS if skill.name == "dashpot-execute-issues"
@@ -88,18 +95,16 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def installed(harness: Harness, tmp_path: Path) -> tuple[Path, list[str]]:
     """Install ``harness``'s integration; return the skill's copy and messages."""
     spec = integration(harness)
-    spec.default_home.mkdir(parents=True, exist_ok=True)
+    home = configuration_directory(spec, os.environ).path
+    home.mkdir(parents=True, exist_ok=True)
     command = tmp_path / "bin" / spec.command_name
     command.parent.mkdir(parents=True, exist_ok=True)
     command.write_text("#!/bin/sh\n")
     command.chmod(0o755)
     messages = install_integration(
-        harness,
-        spec.default_home,
-        command_path=command,
-        version_probe=lambda: f"opencode v{OPENCODE_ACCEPTED_VERSION}",
+        harness, home, command_path=command, environment=ACCEPTED
     )
-    return skill_directory(spec, spec.default_home, SKILL), messages
+    return skill_directory(spec, home, SKILL, os.environ), messages
 
 
 @pytest.mark.parametrize("harness", HARNESSES)
@@ -120,20 +125,19 @@ def test_integrate_installs_checks_and_removes_the_skill(
         Path("references/run-records.md"),
         Path("references/strategies.md"),
     } == set(SKILL.files)
-    spec = integration(harness)
+    home = configuration_directory(integration(harness), os.environ).path
     report = integration_status(
         harness,
-        spec.default_home,
+        home,
         state_dir=tmp_path / "state",
         current=tmp_path,
-        environ={},
-        version_probe=lambda: f"opencode v{OPENCODE_ACCEPTED_VERSION}",
+        environment=dataclasses.replace(ACCEPTED, environ={}),
     )
     assert any(
         line.startswith(f"Issue arc skill installed in {copy}") for line in report
     )
 
-    removed = remove_integration(harness, spec.default_home)
+    removed = remove_integration(harness, home)
 
     assert f"removed the Dashpot Issue arc skill from {copy}" in removed
     assert not copy.exists()

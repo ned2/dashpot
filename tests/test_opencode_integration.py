@@ -20,12 +20,15 @@ from dashpot.sessions.integrate import (
     BUNDLED_SKILL_VERSION,
     ISSUE_WORK_SKILL,
     IncompleteRemovalError,
+    IntegrationEnvironment,
     IntegrationError,
+    configuration_directory,
     install_integration,
     integration,
     integration_status,
     remove_integration,
     skill_directory,
+    user_skills_directory,
 )
 from dashpot.sessions.integrate.opencode_plugin import render_plugin
 from dashpot.sessions.processes import (
@@ -96,26 +99,25 @@ def status(
         home,
         state_dir=tmp_path / "state",
         current=tmp_path,
-        lookup=lookup,
-        environ=environ or {},
-        version_probe=version_probe,
+        environment=IntegrationEnvironment(
+            lookup=lookup, environ=environ or {}, version_probe=version_probe
+        ),
     )
 
 
 def test_the_default_home_is_opencodes_global_configuration_directory(
-    _home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    _home: Path, tmp_path: Path
 ) -> None:
-    assert integration("opencode").default_home == _home / ".config" / "opencode"
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    spec = integration("opencode")
+    assert configuration_directory(spec, {}).path == _home / ".config" / "opencode"
+    environ = {"XDG_CONFIG_HOME": str(tmp_path / "xdg")}
 
-    assert integration("opencode").default_home == tmp_path / "xdg" / "opencode"
-    assert (
-        integration("opencode").default_skills_home
-        == tmp_path / "xdg" / "opencode" / "skills"
+    home = configuration_directory(spec, environ).path
+    assert home == tmp_path / "xdg" / "opencode"
+    assert user_skills_directory(spec, environ) == home / "skills"
+    assert skill_directory(spec, home, ISSUE_WORK_SKILL, environ) == (
+        home / "skills" / "dashpot-issue-work"
     )
-    assert skill_directory(
-        integration("opencode"), integration("opencode").default_home, ISSUE_WORK_SKILL
-    ) == (tmp_path / "xdg" / "opencode" / "skills" / "dashpot-issue-work")
 
 
 def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
@@ -349,7 +351,7 @@ def test_remove_carries_on_past_a_plugin_it_cannot_unlink(tmp_path: Path) -> Non
     assert str(incomplete.value).startswith(
         f"could not remove the OpenCode plugin {plugin_file(home)}: [Errno 13] "
     )
-    skill = skill_directory(integration("opencode"), home, ISSUE_WORK_SKILL)
+    skill = skill_directory(integration("opencode"), home, ISSUE_WORK_SKILL, {})
     assert f"removed the Dashpot Issue work skill from {skill}" in (
         incomplete.value.messages
     )
@@ -689,19 +691,31 @@ def test_status_asks_the_opencode_on_path(
     monkeypatch.setenv("PATH", str(binary.parent))
 
     messages = integration_status(
-        "opencode", home, state_dir=tmp_path / "state", current=tmp_path, environ={}
+        "opencode",
+        home,
+        state_dir=tmp_path / "state",
+        current=tmp_path,
+        environment=IntegrationEnvironment(environ={}),
     )
 
     assert "OpenCode release on PATH: 2.0.21" in messages
     for broken in ("#!/bin/sh\nexit 3\n", "#!/nonexistent/interpreter\n"):
         binary.write_text(broken)
         messages = integration_status(
-            "opencode", home, state_dir=tmp_path / "state", current=tmp_path, environ={}
+            "opencode",
+            home,
+            state_dir=tmp_path / "state",
+            current=tmp_path,
+            environment=IntegrationEnvironment(environ={}),
         )
         assert "OpenCode release on PATH: none found" in messages
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     messages = integration_status(
-        "opencode", home, state_dir=tmp_path / "state", current=tmp_path, environ={}
+        "opencode",
+        home,
+        state_dir=tmp_path / "state",
+        current=tmp_path,
+        environment=IntegrationEnvironment(environ={}),
     )
     assert "OpenCode release on PATH: none found" in messages
 
@@ -742,12 +756,11 @@ def test_status_warns_about_another_harness_copy_opencode_also_discovers(
 
 
 def test_status_checks_the_claude_code_skills_opencode_reads_from_the_home_directory(
-    tmp_path: Path, _home: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, _home: Path
 ) -> None:
     home = opencode_home(tmp_path)
     install_integration("opencode", home, command_path=helper(tmp_path))
     configured = tmp_path / "work-claude"
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(configured))
     # OpenCode reads Claude Code's skills from ``~/.claude`` alone, so a copy
     # where ``CLAUDE_CONFIG_DIR`` points is not one it discovers.
     for skills in (_home / ".claude" / "skills", configured / "skills"):
@@ -755,7 +768,7 @@ def test_status_checks_the_claude_code_skills_opencode_reads_from_the_home_direc
         stale.mkdir(parents=True)
         (stale / "SKILL.md").write_bytes(b"\xff not a skill Dashpot wrote\n")
 
-    messages = status(home, tmp_path)
+    messages = status(home, tmp_path, environ={"CLAUDE_CONFIG_DIR": str(configured)})
 
     discovered = _home / ".claude" / "skills" / "dashpot-issue-work"
     assert [message for message in messages if "also discovers" in message] == [
@@ -795,8 +808,9 @@ def test_status_warns_about_another_copy_of_the_plugin_opencode_also_loads(
             home,
             state_dir=tmp_path / "state",
             current=current,
-            environ=environ,
-            version_probe=lambda: f"opencode v{ACCEPTED}",
+            environment=IntegrationEnvironment(
+                environ=environ, version_probe=lambda: f"opencode v{ACCEPTED}"
+            ),
         )
         prefix = "warning: OpenCode also loads a copy of the Dashpot plugin at "
         return [

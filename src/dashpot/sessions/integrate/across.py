@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from ...core.model import HARNESS_DISPLAY, Harness
-from ..processes import ProcessLookup, host_process_lookup
 from .diagnostics import record_store_status
+from .environment import PROCESS_ENVIRONMENT, IntegrationEnvironment
 from .harness import (
     has_update,
     install_integration,
@@ -17,14 +17,7 @@ from .harness import (
     integration_status,
 )
 from .publisher import linked_worktree_binding, linked_worktree_consequence
-from .registry import (
-    BUNDLED_AGENTS,
-    BUNDLED_SKILLS,
-    BundledAgent,
-    BundledSkill,
-    integration,
-    resolve_hook_command,
-)
+from .registry import configuration_directory, integration, resolve_hook_command
 from .writes import IncompleteIntegrationError, IntegrationError
 
 # Several harnesses in one command run in this order, whatever order they
@@ -88,9 +81,7 @@ def install_integrations(
     harnesses: Sequence[Harness],
     *,
     command_paths: Mapping[Harness, Path] | None = None,
-    version_probe: Callable[[], str | None] | None = None,
-    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
-    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+    environment: IntegrationEnvironment = PROCESS_ENVIRONMENT,
 ) -> list[HarnessReport]:
     """Install each named harness's integration, each standing alone.
 
@@ -103,18 +94,14 @@ def install_integrations(
     return _install_across(
         [_plan_install(harness, command_paths) for harness in named],
         " ".join(named),
-        version_probe=version_probe,
-        skills=skills,
-        agents=agents,
+        environment,
     )
 
 
 def refresh_integrations(
     *,
     command_paths: Mapping[Harness, Path] | None = None,
-    version_probe: Callable[[], str | None] | None = None,
-    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
-    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+    environment: IntegrationEnvironment = PROCESS_ENVIRONMENT,
 ) -> list[HarnessReport]:
     """Refresh every integrated harness, as ``--installed``, and install into no other.
 
@@ -125,14 +112,12 @@ def refresh_integrations(
     """
     return _install_across(
         [
-            _skip_unless_integrated(harness, skills, agents)
+            _skip_unless_integrated(harness, environment)
             or _plan_install(harness, command_paths)
             for harness in INTEGRATION_ORDER
         ],
         "--installed",
-        version_probe=version_probe,
-        skills=skills,
-        agents=agents,
+        environment,
     )
 
 
@@ -152,10 +137,7 @@ def _plan_install(
 def _install_across(
     planned: Sequence[HarnessReport | _PlannedInstall],
     arguments: str,
-    *,
-    version_probe: Callable[[], str | None] | None,
-    skills: tuple[BundledSkill, ...],
-    agents: tuple[BundledAgent, ...],
+    environment: IntegrationEnvironment,
 ) -> list[HarnessReport]:
     """Install each planned harness in turn, once no publisher is a linked Worktree's.
 
@@ -174,9 +156,7 @@ def _install_across(
             messages = install_integration(
                 item.harness,
                 command_path=item.command,
-                version_probe=version_probe,
-                skills=skills,
-                agents=agents,
+                environment=environment,
             )
         except IncompleteIntegrationError as exc:
             reports.append(
@@ -192,13 +172,11 @@ def _install_across(
 
 
 def _skip_unless_integrated(
-    harness: Harness,
-    skills: tuple[BundledSkill, ...],
-    agents: tuple[BundledAgent, ...],
+    harness: Harness, environment: IntegrationEnvironment
 ) -> HarnessReport | None:
     """The report of a harness ``--installed`` leaves alone; ``None`` to refresh it."""
     try:
-        presence = integration_presence(harness, skills=skills, agents=agents)
+        presence = integration_presence(harness, environment=environment)
     except IntegrationError as exc:
         return _refused(harness, exc)
     if presence.state == "integrated":
@@ -261,11 +239,7 @@ def integrations_status(
     *,
     state_dir: Path | None = None,
     current: Path | None = None,
-    lookup: ProcessLookup = host_process_lookup,
-    environ: Mapping[str, str] | None = None,
-    version_probe: Callable[[], str | None] | None = None,
-    skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
-    agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
+    environment: IntegrationEnvironment = PROCESS_ENVIRONMENT,
 ) -> CombinedStatus:
     """Report each named harness's integration, or every harness's when none is named.
 
@@ -282,11 +256,7 @@ def integrations_status(
             harness,
             state_dir=state_dir,
             current=current,
-            lookup=lookup,
-            environ=environ,
-            version_probe=version_probe,
-            skills=skills,
-            agents=agents,
+            environment=environment,
             records=False,
         )
 
@@ -295,14 +265,14 @@ def integrations_status(
     for harness in in_integration_order(harnesses or INTEGRATION_ORDER):
         spec = integration(harness)
         try:
-            presence = integration_presence(harness, skills=skills, agents=agents)
+            presence = integration_presence(harness, environment=environment)
         except IntegrationError:
             # The harness's own report names what cannot be read.
             presence = None
         state = None if presence is None else presence.state
         detail = "" if presence is None else presence.detail
         if state == "integrated" and has_update(
-            spec, spec.default_home, skills, agents
+            spec, configuration_directory(spec, environment.environ).path, environment
         ):
             stale.append(harness)
         if state == "partial":
@@ -315,7 +285,7 @@ def integrations_status(
             reports.append(HarnessReport(harness, "not integrated", note=note))
         else:
             reports.append(HarnessReport(harness, "reported", tuple(report(harness))))
-    messages = record_store_status(state_dir, current, lookup)
+    messages = record_store_status(state_dir, current, environment.lookup)
     if len(stale) > 1:
         rerun = " ".join(stale) if harnesses else "--installed"
         messages.append(
