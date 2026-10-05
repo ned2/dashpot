@@ -5,7 +5,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from factories import git, init_repository
+
+SUITE_CHECKOUT = Path(__file__).resolve().parents[1]
 
 
 def test_git_reads_only_the_suite_configuration(git_repository: Path) -> None:
@@ -35,3 +39,12 @@ def test_a_test_commit_is_unsigned_by_the_suite_identity_on_main(
     )
     assert git(root, "branch", "--show-current") == "main"
     assert not (tmp_path / "hook-ran").exists()
+
+
+def test_the_suite_checkout_is_trusted_whoever_owns_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # As in CI's minimum-Git job, where root runs over another user's checkout.
+    monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+
+    assert git(SUITE_CHECKOUT, "rev-parse", "--show-toplevel") == str(SUITE_CHECKOUT)

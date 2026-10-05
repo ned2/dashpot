@@ -20,7 +20,7 @@ def documentation_path(name: str) -> bool:
     if path.suffix != ".md":
         return False
     if len(path.parts) == 1:
-        return name not in BUILD_INPUTS
+        return path.name not in BUILD_INPUTS
     return path.parts[0] in {"docs", "conformance"}
 
 

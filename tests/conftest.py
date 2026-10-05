@@ -10,6 +10,18 @@ import pytest
 from dashpot.sessions.working_directories import WorkingDirectories
 from factories import init_repository
 
+SUITE_CHECKOUT = Path(__file__).resolve().parents[1]
+
+# Settings Git takes from the environment over every configuration file.
+INHERITED_GIT_SETTINGS = (
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+)
+
 
 def pytest_xdist_auto_num_workers(config: pytest.Config) -> int | None:
     """Bound automatic local workers while reserving CPU capacity."""
@@ -62,7 +74,13 @@ def bounded_checkout_search(
 
 @pytest.fixture(scope="session")
 def suite_git_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The suite's own global Git configuration, in place of whoever runs it."""
+    """The suite's own global Git configuration, in place of whoever runs it.
+
+    It trusts this checkout, which a test's Git reads (``maintain_docs.py``
+    lists its documents): CI's minimum-Git job runs as root over a checkout
+    another user owns, and trusts it only through a global
+    ``safe.directory`` this configuration replaces.
+    """
     root = tmp_path_factory.mktemp("git-config")
     hooks = root / "hooks"
     hooks.mkdir()
@@ -79,6 +97,8 @@ def suite_git_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "\tdefaultBranch = main\n"
         "[core]\n"
         f"\thooksPath = {hooks}\n"
+        "[safe]\n"
+        f"\tdirectory = {SUITE_CHECKOUT}\n"
     )
     return config
 
@@ -87,17 +107,20 @@ def suite_git_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def isolated_git_config(
     suite_git_config: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Run every Git command a test starts under the suite's configuration alone.
+    """Run every Git command a test starts under the suite's configuration.
 
     A developer's global or system configuration would otherwise reach each
     test repository: ``commit.gpgsign`` makes every commit need a reachable
     signing agent, and ``core.hooksPath`` runs that developer's own hooks.
     The hooks path names an empty directory, so no hook runs in a test
-    repository either. The environment reaches every process a test starts,
-    the CLI's included.
+    repository either. Configuration and identity the developer's
+    environment passes to Git are dropped too. The environment reaches
+    every process a test starts, the CLI's included.
     """
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(suite_git_config))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for name in INHERITED_GIT_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

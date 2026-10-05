@@ -3,8 +3,8 @@ from __future__ import annotations
 import subprocess
 import sys
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
 
 import pytest
 
@@ -16,7 +16,8 @@ from scripts import check_quality  # ruff: ignore[module-import-not-at-top-of-fi
 sys.path.pop(0)
 
 
-class Gate(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class Gate:
     """One gate the quality script ran, with the directory and environment it got."""
 
     name: str
@@ -28,6 +29,7 @@ class Gate(NamedTuple):
 def record_gates(
     monkeypatch: pytest.MonkeyPatch, *, failing: str | None = None
 ) -> list[Gate]:
+    """Replace every gate with a recorder, raising for the gate named ``failing``."""
     calls: list[Gate] = []
 
     def run_gate(
