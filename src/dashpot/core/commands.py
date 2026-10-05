@@ -492,9 +492,9 @@ def _exit_state(
 ) -> Literal["running", "exited", "reaped"]:
     """How far ``process`` has ended: running, exited unreaped, or reaped.
 
-    It is read without reaping. A reaped command's pid, and with it its group's id, may already name
-    another process, so it is never signalled; an exited one that is not
-    yet reaped still holds both.
+    It is read without reaping. A reaped command's pid, and with it its
+    group's id, may already name another process, so it is never
+    signalled; an exited one that is not yet reaped still holds both.
     """
     if process.returncode is not None:
         return "reaped"
