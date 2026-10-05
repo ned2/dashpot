@@ -67,12 +67,20 @@ def hook_store_at(store: Path, worktrees: Sequence[Path]) -> HookRecordStore:
 
 @contextmanager
 def locked_session_stores(
-    stores: Sequence[Path], worktrees: Sequence[Path], session_id: str
+    stores: Sequence[Path],
+    worktrees: Sequence[Path],
+    session_id: str,
+    harness: str,
+    *,
+    create: bool = True,
 ) -> Iterator[None]:
-    """Hold the session's record lock in every one of ``stores``, in path order.
+    """Hold the session's record locks in every one of ``stores``, in path order.
 
-    Every writer of the session's hook records takes the same locks in the
-    same order, so two reconciling hooks never deadlock.
+    Each store's are both keys of the identity, as ``locked_identity`` takes
+    them, so no writer, release or prune of one of the session's records
+    runs while they are held, and two reconciling hooks never deadlock. A
+    caller that only reads or removes records (``create`` false) creates no
+    store directory, and skips a store whose directory is gone.
     """
     hook_stores = sorted(
         (hook_store_at(store, worktrees) for store in stores),
@@ -80,7 +88,9 @@ def locked_session_stores(
     )
     with ExitStack() as stack:
         for store in hook_stores:
-            stack.enter_context(store.locked(session_id))
+            stack.enter_context(
+                store.locked_identity(session_id, harness, create=create)
+            )
         yield
 
 
@@ -151,14 +161,17 @@ def continue_session_work(
         recorded = work.session_process
         if recorded is None or recorded.key == process.key:
             continue
-        if session_liveness(recorded.key, lookup).liveness != "gone":
+        if (
+            session_liveness(
+                recorded.key, lookup, namespace=recorded.pid_namespace
+            ).liveness
+            != "gone"
+        ):
             continue
         continued = replace(
             work,
             session_label=work_session_label(harness, session_id, pid=process.pid),
-            session_process=SessionProcess(
-                pid=process.pid, started_at=process.started_at
-            ),
+            session_process=SessionProcess.of(process),
         )
         try:
             if store.replace_current(work, continued):
@@ -214,7 +227,7 @@ def complete_session_work_relocation(
         for store in reachable_hook_stores(worktrees, global_store)
         if store.is_dir()
     ]
-    with locked_session_stores(stores, worktrees, session_id):
+    with locked_session_stores(stores, worktrees, session_id, "codex", create=False):
         if not _sequential_target_is_confirmed(stores, session_id, target, lookup):
             return None
         matching: list[tuple[Path, WorkStore, ActiveWork]] = []
@@ -254,11 +267,7 @@ def complete_session_work_relocation(
             source_worktree, target
         ):
             return None
-        session_process = (
-            SessionProcess(pid=process.pid, started_at=process.started_at)
-            if process is not None
-            else None
-        )
+        session_process = SessionProcess.of(process) if process is not None else None
         # The crash window of an earlier completion left this run at both.
         repairing = next(
             (
@@ -416,7 +425,7 @@ def carry_live_session_work(
         for store in reachable_hook_stores(worktrees, global_store)
         if store.is_dir()
     ]
-    with locked_session_stores(stores, worktrees, session_id):
+    with locked_session_stores(stores, worktrees, session_id, harness):
         origin = _live_origin(record, process, stores, written, target)
         if origin is None:
             return None
@@ -564,7 +573,7 @@ def remove_ended_session_records(
         for store in reachable_hook_stores(worktrees, global_store)
         if store.is_dir() and not same_path(store, written)
     ]
-    with locked_session_stores(stores, worktrees, session_id):
+    with locked_session_stores(stores, worktrees, session_id, harness, create=False):
         records, _unreadable = stored_session_records(stores, harness, session_id)
         for item in records:
             if (

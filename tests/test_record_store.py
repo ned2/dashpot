@@ -6,6 +6,8 @@ import re
 import threading
 import time
 from pathlib import Path
+from typing import NoReturn
+from unittest import mock
 
 import pytest
 
@@ -135,3 +137,24 @@ def test_sweeping_a_missing_directory_removes_nothing(tmp_path: Path) -> None:
     store = store_at(tmp_path / "absent")
 
     assert store.sweep_temporaries() == 0
+
+
+def test_a_writers_lock_that_cannot_be_opened_fails_the_write(tmp_path: Path) -> None:
+    # Only a conditional change reads a missing lock directory as nothing to
+    # change; a writer created the directory, so losing it is a failure.
+    store = store_at(tmp_path / "records")
+
+    def vanished(_path: Path) -> NoReturn:
+        raise FileNotFoundError("removed meanwhile")
+
+    with (
+        mock.patch("dashpot.core.record_store.locked_path", vanished),
+        pytest.raises(FileNotFoundError),
+        store.locked("one"),
+    ):
+        pass
+    with (
+        mock.patch("dashpot.core.record_store.locked_path", vanished),
+        store.locked("one", create=False) as held,
+    ):
+        assert held is False

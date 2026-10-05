@@ -1222,16 +1222,21 @@ def test_an_unobserved_record_reads_gone_once_its_process_is_gone() -> None:
 @pytest.mark.parametrize(
     ("harness", "process"), [("codex", CODEX), ("claude-code", CLAUDE)]
 )
-def test_a_record_with_one_of_process_and_unobservable_classifies_as_before(
+def test_a_record_with_one_of_process_and_unobservable_reads_the_recorded_reason(
     harness: str, process: ProcessIdentity
 ) -> None:
     assert classified(harness, process, None, present(process)) == ("live", None)
     assert classified(harness, process, None, absent()) == ("gone", None)
+    # A hook that could name no Host Process said why: that is the reason.
     assert classified(harness, None, "isolated-namespace", present(process)) == (
         "unknown",
-        "no recorded process identity",
+        "isolated-namespace",
     )
-    assert classified(harness, None, "isolated-namespace", absent()) == (
+    assert classified(harness, None, "ps-timeout", absent()) == (
+        "unknown",
+        "ps-timeout",
+    )
+    assert classified(harness, None, None, absent()) == (
         "unknown",
         "no recorded process identity",
     )
@@ -2260,7 +2265,9 @@ def test_an_unreadable_record_is_skipped_by_a_switch_and_left_by_a_release(
         harness="claude-code",
     )
 
-    assert not HookRecordStore(tmp_path).release_subagents("broken", ["agent-1"], by)
+    assert not HookRecordStore(tmp_path).release_subagents(
+        "broken", ["agent-1"], by, session_id="broken"
+    )
 
     publish_switch(tmp_path, "entered", "SessionStart", source="clear")
 
@@ -2311,14 +2318,14 @@ def test_releasing_sub_agents_changes_only_an_ended_record_of_the_same_process(
         harness="claude-code",
     )
 
-    assert not store.release_subagents("live", ["agent-1"], by)
-    assert not store.release_subagents("missing", ["agent-1"], by)
-    assert not store.release_subagents("left", ["agent-1"], codex_by)
-    assert not store.release_subagents("left", ["agent-1"], other_by)
-    assert not store.release_subagents("left", ["agent-3"], by)
-    assert store.release_subagents("left", ["agent-1"], by)
+    assert not store.release_subagents("live", ["agent-1"], by, session_id="live")
+    assert not store.release_subagents("missing", ["agent-1"], by, session_id="missing")
+    assert not store.release_subagents("left", ["agent-1"], codex_by, session_id="left")
+    assert not store.release_subagents("left", ["agent-1"], other_by, session_id="left")
+    assert not store.release_subagents("left", ["agent-3"], by, session_id="left")
+    assert store.release_subagents("left", ["agent-1"], by, session_id="left")
     assert stored_records(tmp_path)["left"]["liveSubagents"] == ["agent-2"]
-    assert store.release_subagents("left", ["agent-2"], by)
+    assert store.release_subagents("left", ["agent-2"], by, session_id="left")
 
     records = stored_records(tmp_path)
     assert records.keys() == {"live"}

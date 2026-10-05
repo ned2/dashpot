@@ -442,7 +442,11 @@ def observe_work_runs(
                 work.session_process
                 if work.relocation is None
                 and work.session_process is not None
-                and probe.observe(work.session_process.key).liveness == "gone"
+                and probe.observe(
+                    work.session_process.key,
+                    namespace=work.session_process.pid_namespace,
+                ).liveness
+                == "gone"
                 else None
             )
             identities = run_identities(work)
@@ -865,16 +869,22 @@ def locate_observation_target(
         for target in targets
         if target.availability == "available"
     ]
-    cwd_path = Path(record.cwd).resolve()
+    try:
+        cwd_path = Path(record.cwd).resolve()
+        root_path = (
+            Path(record.repository_root).resolve() if record.repository_root else None
+        )
+    except (OSError, RuntimeError, ValueError):
+        # A recorded path that cannot be resolved places the session nowhere.
+        return None, None
     cwd_matches = [
         (project_id, target)
         for project_id, target in available
         if is_within(cwd_path, Path(target.path).resolve())
     ]
     cwd_target = max(cwd_matches, key=lambda item: len(item[1].path), default=None)
-    if not record.repository_root:
+    if root_path is None:
         return cwd_target, None
-    root_path = Path(record.repository_root).resolve()
     root_target = next(
         (
             (project_id, target)

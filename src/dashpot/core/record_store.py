@@ -9,7 +9,7 @@ import re
 import tempfile
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -95,14 +95,30 @@ class LockedRecordStore:
         return self.directory / f".{key}.lock"
 
     @contextmanager
-    def locked(self, key: str) -> Iterator[None]:
-        """Hold the key's lock, creating the store directory when absent."""
+    def locked(self, key: str, *, create: bool = True) -> Iterator[bool]:
+        """Hold the key's lock, yielding whether it is held.
+
+        A writer creates the store directory when absent, and always holds
+        the lock. A conditional change of a record that may exist (``create``
+        false) never creates a directory: a store whose directory is gone,
+        such as one beneath a Worktree a Cleanup removed, holds no record to
+        change, so nothing is locked and the context yields false.
+        """
         self.record_path(key)
-        if self._checkout is not None:
-            ensure_state_directory(self._checkout)
-        self.directory.mkdir(parents=True, exist_ok=True)
-        with locked_path(self.lock_path(key)):
-            yield
+        if create:
+            if self._checkout is not None:
+                ensure_state_directory(self._checkout)
+            self.directory.mkdir(parents=True, exist_ok=True)
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(locked_path(self.lock_path(key)))
+            except FileNotFoundError:
+                if create:
+                    raise
+                held = False
+            else:
+                held = True
+            yield held
 
     def replace(self, key: str, record: dict[str, Any]) -> None:
         """Replace the key's record atomically and durably."""

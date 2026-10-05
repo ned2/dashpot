@@ -22,6 +22,7 @@ from dashpot.sessions.processes import (
     lock_holder_probe,
     namespace_is_isolated,
     observe_agent_ancestry,
+    pid_namespace,
     process_started_at,
 )
 from helpers import absent, present, table_lookup, unobservable
@@ -92,6 +93,7 @@ class ProcessLookupTests(unittest.TestCase):
                     "codex",
                     "Tue Aug 25 01:00:00 2026",
                     "/opt/codex exec --sandbox workspace-write",
+                    pid_namespace(),
                 )
             ),
             result,
@@ -171,7 +173,12 @@ class ProcessLookupTests(unittest.TestCase):
         self.assertEqual(
             ProcessPresent(
                 ProcessIdentity(
-                    42, 1, helper, "Tue Aug 25 01:00:00 2026", f"{helper} --continue"
+                    42,
+                    1,
+                    helper,
+                    "Tue Aug 25 01:00:00 2026",
+                    f"{helper} --continue",
+                    pid_namespace(),
                 )
             ),
             result,
@@ -214,7 +221,15 @@ class ProcessLookupTests(unittest.TestCase):
             result = host_process_lookup(42)
 
         self.assertEqual(
-            ProcessPresent(ProcessIdentity(42, 1, "codex", "Tue Aug 25 01:00:00 2026")),
+            ProcessPresent(
+                ProcessIdentity(
+                    42,
+                    1,
+                    "codex",
+                    "Tue Aug 25 01:00:00 2026",
+                    pid_namespace=pid_namespace(),
+                )
+            ),
             result,
         )
 
@@ -463,3 +478,12 @@ class BootTimeTests(unittest.TestCase):
             "dashpot.sessions.processes.subprocess.run", side_effect=OSError
         ):
             self.assertIsNone(boot_time(missing))
+
+
+def test_a_host_without_a_pid_namespace_link_names_none() -> None:
+    with mock.patch(
+        "dashpot.sessions.processes.os.readlink",
+        side_effect=FileNotFoundError("/proc/self/ns/pid"),
+    ):
+        # The cached answer is this process's; the uncached read is the probe.
+        assert pid_namespace.__wrapped__() is None

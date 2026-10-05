@@ -625,7 +625,9 @@ is live while nothing observes the session in it, as for the running
 sessions of an OpenCode Host Process whose last plugin instance was cleaned
 up ([ADR 0080](adr/0080-keep-a-retired-opencode-generations-backend-on-its-sessions.md),
 [ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)),
-and is never evidence that the session ended.
+and is never evidence that the session ended. A Host Process is probed only
+from the PID namespace it was recorded in; one recorded in another is
+unknown ([ADR 0131](adr/0131-judge-session-liveness-in-the-recorded-pid-namespace.md)).
 
 **Orphaned Agent Run**:
 An active Work Store record whose Agent Session's recorded Host Process is

@@ -120,4 +120,5 @@ of date.
 | 0124 | [Keep sub-agent Workers, and qualify root-session Workers one harness at a time](0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md) | accepted | — |
 | 0125 | [Block removing a Worktree that holds another Worktree](0125-block-removing-a-worktree-that-holds-another-worktree.md) | accepted | — |
 | 0130 | [Write integrate's configuration where each harness reads it, and finish `--remove` past a failed step](0130-write-integrates-configuration-where-each-harness-reads-it.md) | accepted | — |
+| 0131 | [Judge Session Liveness in the recorded PID namespace](0131-judge-session-liveness-in-the-recorded-pid-namespace.md) | accepted | — |
 | 0132 | [Refuse a session's end only on another named Host Process](0132-refuse-a-session-end-only-on-another-named-host-process.md) | accepted | — |

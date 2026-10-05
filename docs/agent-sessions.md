@@ -891,9 +891,9 @@ A session that was killed, or whose `SessionEnd` hook never ran, is dropped
 quietly and its stale record and lock file are cleaned up, unless it leaves
 an Orphaned Agent Run behind, which keeps the record for when it was last seen
 (see below). When the
-process cannot be observed at all (for example from inside a sandboxed process
-namespace) the session is shown with `unknown` state rather than assumed to
-have exited. `dashpot integrate <harness> --status` classifies every session
+process cannot be observed at all (for example from another PID namespace,
+below) the session is shown with `unknown` state rather than assumed to have
+exited. `dashpot integrate <harness> --status` classifies every session
 record as live, unknown, stale, or unreadable and lists the stale ones, which
 is where to look when lifecycle events seem not to be delivered.
 
@@ -907,6 +907,37 @@ consume a named hook observation.
 Liveness and orphan detection still follow the host process: a session's
 hooks always run on the host, so its record names the harness process even
 when the session's own commands cannot see it.
+
+A recorded Host Process is judged in the PID namespace it was recorded in
+([ADR 0131](adr/0131-judge-session-liveness-in-the-recorded-pid-namespace.md)).
+Wherever Linux names one (`/proc/self/ns/pid`), the hook record's
+`sessionProcess` and the Work Store record's carry it as `pidNamespace`
+beside the PID and start time. Dashpot probes a recorded process only from
+that namespace: one recorded in another, such as a session in a
+devcontainer observed from the host or the reverse, has `unknown` liveness
+for the reason `isolated-namespace`, so its hook record is not pruned and
+its Agent Run is not orphaned; one recorded in Dashpot's own namespace is
+probed even inside a container, so a harness running in the same container
+is live or gone as anywhere else, and a command there finds it in its
+ancestry. A record that names no namespace, written before Dashpot kept one
+or on a host without `/proc` such as macOS, keeps the earlier rule: inside a
+sandbox's or container's PID namespace its process is unknown, and elsewhere
+it is probed. When a hook could name no Host Process, the session's unknown
+liveness is reported with the reason the hook recorded, such as
+`isolated-namespace`.
+
+A record is untrusted input, so a malformed one never stops observation of
+the others. A hook record whose `cwd` holds a NUL, or whose version,
+`sessionId`, harness or state is malformed, is reported unreadable
+(`agent-session-record-unreadable`); one whose `sessionProcess` or
+`repositoryRoot` is malformed, such as a PID outside 1 to 2³¹−1 or a path
+holding a NUL, is read without that field and reported degraded
+(`agent-session-record-degraded`). A malformed `subagentProcesses` entry is
+reported the same way, and leaves that one Sub-agent's Host Process unknown,
+so it stays listed rather than being judged by the session's own process. A
+record without a harness is a Codex one, as before. A Work Store record
+naming such a PID is reported unreadable, as any malformed Work Store record
+is.
 
 ## Issue work opt-in
 

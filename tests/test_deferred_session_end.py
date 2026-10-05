@@ -604,15 +604,37 @@ def test_the_settler_starts_detached_from_the_hook(tmp_path: Path) -> None:
 
     ((command, options),) = calls
     assert command == settler_command(deferred)
-    assert command[:4] == [sys.executable, "-m", "dashpot.hook", "settle"]
-    assert DeferredEnd.parse(command[4]) == deferred
+    assert command[:5] == [sys.executable, "-P", "-m", "dashpot.hook", "settle"]
+    assert DeferredEnd.parse(command[5]) == deferred
     assert options == {
+        "cwd": "/",
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
         "close_fds": True,
         "start_new_session": True,
     }
+
+
+def test_the_settlers_interpreter_never_imports_from_the_session_directory(
+    tmp_path: Path,
+) -> None:
+    # A Project with a top-level module named like one the settler imports
+    # must neither break it nor run inside it.
+    _root, _work, deferred = deferred_end(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "json.py").write_text("raise SystemExit('shadowed json')\n")
+    command = settler_command(deferred)
+    interpreter = command[: command.index("-m")]
+    result = subprocess.run(
+        [*interpreter, "-c", "import json; print(json.__name__)"],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode, result.stdout.strip()) == (0, "json")
 
 
 def written(directory: Path) -> list[dict[str, Any]]:

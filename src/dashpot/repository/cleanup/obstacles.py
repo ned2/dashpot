@@ -278,7 +278,11 @@ def assess_worktree_occupancy(
     )
     for work in active:
         liveness = (
-            session_liveness(work.session_process.key, lookup).liveness
+            session_liveness(
+                work.session_process.key,
+                lookup,
+                namespace=work.session_process.pid_namespace,
+            ).liveness
             if work.session_process is not None
             else "unknown"
         )

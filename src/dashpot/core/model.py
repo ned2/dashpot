@@ -33,8 +33,12 @@ HARNESS_DISPLAY: dict[Harness, str] = {
 
 
 def is_harness(value: object) -> TypeIs[Harness]:
-    """Tell whether a value names a supported harness."""
-    return value in HARNESS_DISPLAY
+    """Tell whether a value names a supported harness.
+
+    Total over every value: a persisted harness that is no string at all,
+    such as a list a hand edit left, is simply not one.
+    """
+    return isinstance(value, str) and value in HARNESS_DISPLAY
 
 
 def harness_alternatives() -> str:

@@ -470,10 +470,25 @@ def test_releasing_an_untagged_record_changes_only_its_list(tmp_path: Path) -> N
 
     ended = {**before, "state": "ended", "event": "SessionEnd"}
     store.replace(CLAUDE_SESSION, ended)
-    assert store.release_subagents(CLAUDE_SESSION, [WORKER], stop) is True
+    assert (
+        store.release_subagents(
+            CLAUDE_SESSION, [WORKER], stop, session_id=CLAUDE_SESSION
+        )
+        is True
+    )
     assert stored_in(tmp_path) == {**ended, "liveSubagents": [second]}
     # Another process's stop changes nothing.
     other = {**stop, "sessionProcess": RESUMED.as_record()}
-    assert store.release_subagents(CLAUDE_SESSION, [second], other) is False
-    assert store.release_subagents(CLAUDE_SESSION, [second], stop) is True
+    assert (
+        store.release_subagents(
+            CLAUDE_SESSION, [second], other, session_id=CLAUDE_SESSION
+        )
+        is False
+    )
+    assert (
+        store.release_subagents(
+            CLAUDE_SESSION, [second], stop, session_id=CLAUDE_SESSION
+        )
+        is True
+    )
     assert list(tmp_path.glob("*.json")) == []

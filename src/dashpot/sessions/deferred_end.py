@@ -105,7 +105,7 @@ def pending_session_end(
     deferred = DeferredEnd(
         harness=harness,
         session_id=session_id,
-        host=SessionProcess(pid=process.pid, started_at=process.started_at),
+        host=SessionProcess.of(process),
         ended_at=ended_at,
         worktrees=tuple(str(worktree) for worktree in worktrees),
         cwd=require_string(record.get("cwd"), "cwd"),
@@ -132,7 +132,9 @@ def settle_session_end(
     key = deferred.host.key
     deadline = clock() + SETTLE_SECONDS
     while True:
-        liveness = session_liveness(key, lookup).liveness
+        liveness = session_liveness(
+            key, lookup, namespace=deferred.host.pid_namespace
+        ).liveness
         if liveness == "gone":
             return []
         if clock() >= deadline:
@@ -150,8 +152,19 @@ def settle_session_end(
 
 
 def settler_command(deferred: DeferredEnd) -> list[str]:
-    """The command a detached settler runs: this interpreter and the hook module."""
-    return [sys.executable, "-m", SETTLER_MODULE, SETTLE_COMMAND, deferred.wire()]
+    """The command a detached settler runs: this interpreter and the hook module.
+
+    ``-P`` keeps the working directory off the module path, so no module of
+    the session's Project can shadow one the settler imports.
+    """
+    return [
+        sys.executable,
+        "-P",
+        "-m",
+        SETTLER_MODULE,
+        SETTLE_COMMAND,
+        deferred.wire(),
+    ]
 
 
 def spawn_settler(
@@ -163,9 +176,12 @@ def spawn_settler(
     Codex waits for its hook's output to close and kills the hook's process
     when it is slow, and the daemon then exits; the settler must outlive all
     three, so it shares no stream, process group or session with the hook.
+    It runs at the filesystem root rather than in the session's directory:
+    every path it needs is in the deferred end, absolute.
     """
     popen(
         settler_command(deferred),
+        cwd="/",
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
