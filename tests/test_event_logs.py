@@ -33,6 +33,7 @@ from dashpot.event_logs import (
     LEVEL_VARIABLE,
     event_level,
     open_event_log,
+    owned_event_log,
     process_identity,
     route_event_log,
 )
@@ -712,3 +713,25 @@ def test_a_symlinked_working_directory_routes_to_the_checkout_git_reports(
     assert route_event_log(link) == EventLogDestination(
         checkout / ".dashpot" / "state" / "events", checkout=checkout
     )
+
+
+def test_a_symlink_loop_working_directory_is_placed_by_its_unresolved_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    checkout = init_repository(tmp_path / "checkout")
+    write_project_config(checkout)
+    inside = checkout / "loop"
+    inside.symlink_to(inside)
+    outside = tmp_path / "loop"
+    outside.symlink_to(outside)
+
+    # ``resolve`` leaves a loop unresolved, so its parents still place it.
+    own = EventLogDestination(
+        checkout / ".dashpot" / "state" / "events", checkout=checkout
+    )
+    fallback = EventLogDestination(tmp_path / "state" / "dashpot" / "events")
+    assert route_event_log(inside) == own
+    assert owned_event_log(inside) == own
+    assert route_event_log(outside) == fallback
+    assert owned_event_log(outside) == fallback

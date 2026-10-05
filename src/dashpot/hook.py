@@ -43,8 +43,9 @@ NON_BLOCKING_FAILURE_EXIT_CODE = 1
 # What fails a hook run, reported and recorded rather than shown as a
 # traceback. ``ValueError`` is a store's refusal of an occupied destination,
 # the base of a record's Pydantic validation failure and of unreadable JSON.
-# ``RuntimeError`` stays for Python's own runtime faults, such as a symlink
-# loop under ``Path.resolve``: a hook must never break its harness.
+# ``RuntimeError`` stays for Python's own runtime faults, such as the
+# ``RecursionError`` of deeply nested JSON or ``Path.expanduser`` naming a
+# user with no home directory: a hook must never break its harness.
 HOOK_FAILURES: tuple[type[Exception], ...] = (
     OSError,
     ValueError,

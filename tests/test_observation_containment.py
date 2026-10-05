@@ -271,6 +271,31 @@ def test_a_recorded_path_that_cannot_be_resolved_places_the_session_nowhere(
         )
 
 
+def test_a_recorded_symlink_loop_places_the_session_by_its_unresolved_path(
+    tmp_path: Path,
+) -> None:
+    root = repository(tmp_path / "repo")
+    loop = root / "loop"
+    loop.symlink_to(loop)
+    classified = classify_hook_record(
+        hook_record_document(root, CODEX_SESSION, "codex", CODEX, cwd=str(loop)),
+        LivenessProbe(present(CODEX)),
+    )
+    elsewhere = tmp_path / "loop"
+    elsewhere.symlink_to(elsewhere)
+    outside = replace(
+        classified,
+        published=classified.published.model_copy(update={"cwd": str(elsewhere)}),
+    )
+    targets = {"project:test": [target(root)]}
+
+    assert locate_observation_target(classified, targets) == (
+        ("project:test", target(root)),
+        None,
+    )
+    assert locate_observation_target(outside, targets)[0] is None
+
+
 def test_an_overflowing_pid_reached_without_a_record_is_unobservable() -> None:
     assert local_process_lookup(OVERFLOWING_PID) == ProcessUnobservable(
         OVERFLOWING_PID, "kill-failed"

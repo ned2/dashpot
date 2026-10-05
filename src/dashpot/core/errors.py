@@ -20,8 +20,8 @@ class DashpotError(Exception):
       a refusal to state, and ``cli.main`` lets it traceback.
     - The observation boundary (``core.observation_errors``) still contains
       ``RuntimeError`` beside this base: a dashboard keeps running on an
-      adapter's runtime fault, such as a symlink loop under ``Path.resolve``,
-      and reports it as a Diagnostic.
+      adapter's runtime fault, such as ``Path.home`` with neither ``HOME``
+      nor a password-database entry, and reports it as a Diagnostic.
 
     Public classes that predate the contract keep their second base
     (``RuntimeError`` or ``ValueError``) for callers outside the package that

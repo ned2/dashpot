@@ -300,11 +300,11 @@ def _skill_write_outside(skill: BundledSkill, destination: Path) -> str | None:
 
 def _resolves_inside(path: Path, root: Path) -> bool:
     """Whether the directory holding ``path`` resolves inside the resolved ``root``."""
-    # A link loop is never followed: Python 3.12 raises ``RuntimeError``
-    # for one where later releases leave the path unresolved.
+    # A link loop is left unresolved, so it reads as inside, and the write's
+    # own inspection of the directory refuses it.
     try:
         return path.parent.resolve().is_relative_to(root)
-    except (OSError, RuntimeError):
+    except OSError:
         return False
 
 

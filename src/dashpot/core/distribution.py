@@ -151,8 +151,7 @@ def source_revision(checkout: Path) -> str:
                 value = loose.read_text().strip()
                 return value if _OBJECT_ID.match(value) else UNKNOWN
         return _packed_ref(common / "packed-refs", ref)
-    except (OSError, UnicodeDecodeError, RuntimeError):
-        # ``RuntimeError``: a symlink loop under ``resolve`` on Python 3.12.
+    except (OSError, UnicodeDecodeError):
         return UNKNOWN
 
 

@@ -109,8 +109,7 @@ def _git_ceiling_directories() -> frozenset[Path]:
         if resolve:
             try:
                 path = path.resolve(strict=True)
-            except (OSError, RuntimeError):
-                # ``RuntimeError``: a symlink loop under ``resolve`` on Python 3.12.
+            except OSError:
                 continue
         ceilings.add(path)
     return frozenset(ceilings)

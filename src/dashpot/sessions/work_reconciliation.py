@@ -206,7 +206,7 @@ def complete_session_work_relocation(
         return None
     try:
         target = Path(root).resolve()
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, ValueError):
         return None
     if worktrees is None:
         try:

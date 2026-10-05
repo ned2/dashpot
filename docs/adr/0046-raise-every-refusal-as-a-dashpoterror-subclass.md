@@ -40,9 +40,11 @@ Two kinds of `RuntimeError` remain, recorded in `core/errors.py`:
 - The observation boundary keeps `RuntimeError` beside `DashpotError` in
   `OBSERVATION_FAILURES`: a Project's observation turns any failure of its
   own sources into a Diagnostic, and a bug in a source is still a Diagnostic
-  rather than a crashed dashboard. The same goes for the `except` clauses
-  around `Path.resolve`, which raises `RuntimeError` for a symlink loop:
-  that is Python's fault to report, not a refusal Dashpot raises.
+  rather than a crashed dashboard. The same went for the `except` clauses
+  around `Path.resolve`, which raised `RuntimeError` for a symlink loop on
+  Python 3.12: that is Python's fault to report, not a refusal Dashpot
+  raises. [ADR 0105](0105-raise-the-python-floor-to-3-13.md) records their
+  removal on the 3.13 floor.
 
 Public classes that already derived from both `DashpotError` and a standard
 base (`GitError(DashpotError, RuntimeError)`,
