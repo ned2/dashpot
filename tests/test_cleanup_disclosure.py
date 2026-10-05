@@ -13,6 +13,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,7 @@ from dashpot.repository.worktrees.removability import (
 )
 from dashpot.sessions.liveness import LivenessObservation, SessionLiveness
 from dashpot.sessions.orphaned_runs import orphaned_process
+from dashpot.sessions.processes import lock_holder_probe
 from dashpot.sessions.work_store import (
     ActiveWork,
     RelocationIntent,
@@ -180,11 +182,19 @@ def test_a_branch_rebased_by_a_stack_in_another_worktree_is_in_use(
     git(root, "commit", "-q", "--allow-empty", "-m", "main moves on")
     worktree = tmp_path / "wt"
     git(root, "worktree", "add", "-q", str(worktree), "top")
-    # Stop at the first commit, with ``low`` still to be moved.
+    # Stop at the first commit, with ``low`` still to be moved. The todo is
+    # edited by Python, since ``sed -i`` is spelled differently on macOS.
+    edit_first = tmp_path / "edit_first.py"
+    edit_first.write_text(
+        "import pathlib, sys\n"
+        "todo = pathlib.Path(sys.argv[1])\n"
+        "todo.write_text(todo.read_text().replace('pick', 'edit', 1))\n"
+    )
+    editor = shell_command(sys.executable, edit_first)
     subprocess.run(
         ["git", "rebase", "-i", "--update-refs", "main"],
         cwd=worktree,
-        env={**os.environ, "GIT_SEQUENCE_EDITOR": "sed -i 1s/^pick/edit/"},
+        env={**os.environ, "GIT_SEQUENCE_EDITOR": editor},
         capture_output=True,
         check=False,
     )
@@ -483,7 +493,11 @@ def test_the_production_adapter_probes_the_lock_holder(tmp_path: Path) -> None:
     )
 
     (locked,) = [one for one in preview.targets[0].blockers if one.kind == "locked"]
-    assert locked.detail == f"locked: pid {os.getpid()} (holding process live)"
+    # The host's own answer: live wherever this process can be probed, as
+    # on Linux CI, which an unwired probe never says; unknown where the host
+    # cannot be probed, as in a container or on macOS.
+    holder = lock_holder_probe(os.getpid())
+    assert locked.detail == f"locked: pid {os.getpid()} (holding process {holder})"
 
 
 def test_a_stale_locked_record_inside_is_unlocked_then_pruned(
