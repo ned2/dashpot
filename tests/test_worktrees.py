@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from dashpot.core.commands import CommandError, CommandResult, run_command
-from dashpot.core.git import MUTATION_TIMEOUT, Git
+from dashpot.core.git import MUTATION_TIMEOUT, Git, GitError
 from dashpot.core.model import Diagnostic
 from dashpot.project.settings import Settings, SettingsError
 from dashpot.repository.cleanup import SUB_AGENT_SCOPE, CleanupError
@@ -714,6 +714,7 @@ def test_a_timed_out_add_is_rolled_back(tmp_path: Path) -> None:
     assert message.startswith(
         "git worktree add did not complete: command timed out after 300s: git; "
     )
+    assert isinstance(failure.value.__cause__, GitError)
     assert "removed the Branch worktree-protocol this command created" in message
     # The add is a named mutation, bounded apart from the Git timeout.
     assert adds == [MUTATION_TIMEOUT]

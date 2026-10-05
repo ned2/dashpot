@@ -387,12 +387,14 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
     created_directories = _make_directories(path.parent)
     mutating_git = git.at(git.root, timeout=mutation_timeout(git.timeout))
     failure: str | None = None
+    error: GitError | None = None
     try:
         with nonzero_exit_fails(WorktreeCreateError):
             result = mutating_git.run(
                 "worktree", "add", "-b", plan.branch, str(path), plan.base_commit
             )
     except GitError as exc:
+        error = exc
         failure = f"git worktree add did not complete: {exc.detail}"
     else:
         if result.returncode != 0:
@@ -400,7 +402,9 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
             failure = f"git worktree add failed: {detail}"
     if failure is not None:
         leftovers = _roll_back(git, plan, created_directories, branch_existed)
-        raise WorktreeCreateError(failure + "".join(f"; {item}" for item in leftovers))
+        raise WorktreeCreateError(
+            failure + "".join(f"; {item}" for item in leftovers)
+        ) from error
     problems = _verify_worktree(git, plan)
     if problems:
         raise WorktreeCreateError(

@@ -446,11 +446,12 @@ def _stop(process: subprocess.Popen[bytes], *, group: bool) -> None:
     """Stop a command that is not to finish: ask it to, then kill what is left.
 
     The termination request comes first so Git removes its lock files on the
-    way out; whatever still runs after :data:`STOP_GRACE` is killed. A
-    command in its own session (``group``) leads its own process group, and
-    the whole group is signalled, so a helper it started — an SSH transport,
-    ``index-pack``, a hook — stops with it rather than running on orphaned,
-    even one that outlives a leader which stopped when asked.
+    way out; what is left is killed once the command has stopped, or after
+    :data:`STOP_GRACE` if it has not. A command in its own session
+    (``group``) leads its own process group, and the whole group is
+    signalled, so a helper it started — an SSH transport, ``index-pack``, a
+    hook — stops with it rather than running on orphaned, even one that
+    outlives a leader which stopped when asked.
     """
     _signal(process, signal.SIGTERM, group=group)
     if group:
