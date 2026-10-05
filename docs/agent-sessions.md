@@ -526,9 +526,9 @@ Linux.
 #### Stopping `codex exec`
 
 Stop a `codex exec` session with SIGINT: `kill -INT <pid>` for a detached
-one, as measured, or Ctrl-C in its terminal, which sends the same signal. SIGINT publishes `Interrupt` and then
-`SessionEnd`, and the session's Agent Run ends. SIGTERM and SIGKILL publish
-nothing. The `exec` process exits, and the command it was running with it,
+one, as measured, or Ctrl-C in its terminal, which sends the same signal.
+SIGINT publishes `Interrupt` and then `SessionEnd`, and the session's Agent
+Run ends. SIGTERM and SIGKILL publish nothing. The `exec` process exits, and the command it was running with it,
 but its bound run stays, an Orphaned Agent Run under the gone process. Cleanup
 then refuses to remove its Worktree, and the `agent-run` blocker names the run
 (`Orphaned Agent Run on <issue> for codex pid N`)
