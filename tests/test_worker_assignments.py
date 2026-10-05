@@ -38,16 +38,15 @@ from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessLookup
+from dashpot.sessions.session_identity import IssueWorkError
 from dashpot.sessions.work import (
-    IssueWorkError,
-    assign_worker,
     relocate_issue_work,
     show_issue_work,
     start_issue_work,
     stop_issue_work,
-    unassign_worker,
 )
 from dashpot.sessions.work_store import ActiveWork, WorkStore
+from dashpot.sessions.worker_assignments import assign_worker, unassign_worker
 from dashpot.ui.glyphs import SESSION_STATE_GLYPHS
 from helpers import (
     absent,

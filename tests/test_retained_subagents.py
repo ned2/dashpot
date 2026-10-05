@@ -29,12 +29,9 @@ from dashpot.sessions.hook_records import (
 )
 from dashpot.sessions.hook_scan import summarize_session_records
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup
+from dashpot.sessions.session_identity import IssueWorkError
 from dashpot.sessions.session_matching import session_storage_key
-from dashpot.sessions.work import (
-    IssueWorkError,
-    forget_session_subagents,
-    show_issue_work,
-)
+from dashpot.sessions.work import forget_session_subagents, show_issue_work
 from dashpot.sessions.work_store import WorkStore
 from helpers import absent, present, unobservable
 from test_deferred_session_end import (

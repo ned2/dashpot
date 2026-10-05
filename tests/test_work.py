@@ -26,9 +26,8 @@ from dashpot.sessions.harnesses import SESSION_OVERRIDE_VARIABLE, HarnessError
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup, ProcessPresent
+from dashpot.sessions.session_identity import IssueWorkError, identify_agent_session
 from dashpot.sessions.work import (
-    IssueWorkError,
-    identify_agent_session,
     relocate_issue_work,
     show_issue_work,
     show_session_events,

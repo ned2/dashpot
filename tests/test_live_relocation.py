@@ -30,8 +30,8 @@ from dashpot.sessions.hook_scan import (
     sessions_with_live_subagents,
 )
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup
+from dashpot.sessions.session_identity import IssueWorkError
 from dashpot.sessions.work import (
-    IssueWorkError,
     relocate_issue_work,
     show_issue_work,
     start_issue_work,

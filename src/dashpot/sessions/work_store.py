@@ -300,22 +300,6 @@ class WorkStore(LockedRecordStore):
             self.record_path(expected.session_key).unlink()
             return True
 
-    def stop(self, session_key: str) -> bool:
-        """End the session's active Agent Run; the session itself stays alive.
-
-        The record's lock file goes with it: a `start` queued behind this stop
-        re-acquires on a fresh lock file rather than the unlinked one.
-        """
-        destination = self.record_path(session_key)
-        with self.locked(session_key):
-            try:
-                destination.unlink()
-                stopped = True
-            except FileNotFoundError:
-                stopped = False
-            self.lock_path(session_key).unlink(missing_ok=True)
-            return stopped
-
     def replace_current(self, expected: ActiveWork, replacement: ActiveWork) -> bool:
         """Replace one run only while its previously read state is current."""
         if replacement.session_key != expected.session_key:

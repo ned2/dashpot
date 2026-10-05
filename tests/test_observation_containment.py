@@ -47,13 +47,9 @@ from dashpot.sessions.processes import (
     local_process_lookup,
     observe_agent_ancestry,
 )
+from dashpot.sessions.session_identity import IssueWorkError
 from dashpot.sessions.session_matching import session_storage_key
-from dashpot.sessions.work import (
-    IssueWorkError,
-    show_issue_work,
-    start_issue_work,
-    stop_issue_work,
-)
+from dashpot.sessions.work import show_issue_work, start_issue_work, stop_issue_work
 from dashpot.sessions.work_reconciliation import locked_session_stores
 from dashpot.sessions.work_store import WorkStore
 from factories import CLAUDE, CODEX, hook_record, hook_record_document

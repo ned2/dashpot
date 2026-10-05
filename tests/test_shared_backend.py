@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import dashpot.sessions.session_identity as identity_module
 import dashpot.sessions.work as work_module
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import HookRecordStore, session_directory
@@ -15,12 +16,8 @@ from dashpot.sessions.hook_scan import (
     read_hook_record,
     sessions_at_worktree,
 )
-from dashpot.sessions.work import (
-    IssueWorkError,
-    identify_agent_session,
-    start_issue_work,
-    stop_issue_work,
-)
+from dashpot.sessions.session_identity import IssueWorkError, identify_agent_session
+from dashpot.sessions.work import start_issue_work, stop_issue_work
 from dashpot.sessions.work_store import (
     ActiveWork,
     SessionProcess,
@@ -46,7 +43,7 @@ def setup_sessions(tmp_path):
 def test_named_session_is_not_placed_at_other_sessions_worktree(tmp_path):
     a, _b, stores = setup_sessions(tmp_path)
     location = locate_agent_session(
-        stores, present(CODEX), session_id=A, process_key=(CODEX.pid, CODEX.started_at)
+        stores, present(CODEX), harness="codex", session_id=A
     )
     assert location is not None
     assert location.record.session_id == A, (
@@ -97,15 +94,10 @@ def test_session_end_preserves_different_session_on_same_backend(tmp_path):
 
 
 def test_start_preserves_other_sessions_issue_binding(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-
-    import dashpot.sessions.work as work_module
-    from dashpot.sessions.work import start_issue_work
-
     a, b, stores = setup_sessions(tmp_path)
     monkeypatch.setattr(work_module, "worktree_root", lambda path: path)
     monkeypatch.setattr(work_module, "repository_worktrees", lambda root: [a, b])
-    monkeypatch.setattr(work_module, "reachable_hook_stores", lambda roots: stores)
+    monkeypatch.setattr(identity_module, "reachable_hook_stores", lambda roots: stores)
     monkeypatch.setattr(
         work_module,
         "resolve_issue",
@@ -126,14 +118,6 @@ def test_start_preserves_other_sessions_issue_binding(tmp_path, monkeypatch):
     )
     assert [w.issue_id for w in WorkStore(a).active()[0]] == ["I_a"]
     assert [w.issue_id for w in WorkStore(b).active()[0]] == ["I_b"], messages
-
-
-def test_identity_only_lookup_is_a_passing_control(tmp_path):
-    a, _b, stores = setup_sessions(tmp_path)
-    location = locate_agent_session(stores, present(CODEX), session_id=A)
-    assert location is not None
-    assert location.record.session_id == A
-    assert location.worktree == a
 
 
 def test_session_end_distinct_process_is_a_passing_control(tmp_path):
@@ -166,7 +150,7 @@ def roots(tmp_path, monkeypatch):
     a, b, stores = setup_sessions(tmp_path)
     monkeypatch.setattr(work_module, "worktree_root", lambda path: path)
     monkeypatch.setattr(work_module, "repository_worktrees", lambda root: [a, b])
-    monkeypatch.setattr(work_module, "reachable_hook_stores", lambda roots: stores)
+    monkeypatch.setattr(identity_module, "reachable_hook_stores", lambda roots: stores)
     monkeypatch.setattr(
         work_module,
         "resolve_issue",

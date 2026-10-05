@@ -23,7 +23,8 @@ from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup
-from dashpot.sessions.work import assign_worker, start_issue_work
+from dashpot.sessions.work import start_issue_work
+from dashpot.sessions.worker_assignments import assign_worker
 from helpers import present, table_lookup
 from test_work import CLAUDE_ENVIRON, CLAUDE_SESSION, target
 from test_worker_assignments import activity, arc, states

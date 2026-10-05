@@ -24,19 +24,17 @@ from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.integrate import codex_integration_status
 from dashpot.sessions.processes import ProcessIdentity
+from dashpot.sessions.session_identity import IssueWorkError, identify_agent_session
 from dashpot.sessions.work import (
-    IssueWorkError,
-    assign_worker,
     forget_session_subagents,
-    identify_agent_session,
     relocate_issue_work,
     show_issue_work,
     show_session_events,
     start_issue_work,
     stop_issue_work,
-    unassign_worker,
 )
 from dashpot.sessions.work_store import WorkStore
+from dashpot.sessions.worker_assignments import assign_worker, unassign_worker
 from factories import CODEX
 from helpers import present
 from test_work import (
