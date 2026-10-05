@@ -102,7 +102,7 @@ of date.
 | 0096 | [Attribute a Lead's Workers to their Issues by explicit assignment](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md) | amended | [0137](0137-hold-only-what-was-published-last-in-the-observation-store.md) |
 | 0097 | [Carry a live session's sub-agents through its own SessionStart](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md) | amended | [0100](0100-keep-a-compacted-sessions-turn-state.md), [0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md), [0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md), [0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md) |
 | 0098 | [Show Runtime Events and Stats as tabs of one temporary screen](0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md) | accepted | — |
-| 0099 | [Print Runtime Events as JSON Lines](0099-print-runtime-events-as-json-lines.md) | accepted | — |
+| 0099 | [Print Runtime Events as JSON Lines](0099-print-runtime-events-as-json-lines.md) | amended | [0146](0146-stream-the-event-log-by-utc-day-and-select-lines-before-validating-them.md) |
 | 0100 | [Keep a compacted session's turn state](0100-keep-a-compacted-sessions-turn-state.md) | amended | [0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md), [0106](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md) |
 | 0101 | [Move a conversation switch's sub-agents to the session that runs them](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md) | amended | [0102](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md), [0106](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md) |
 | 0102 | [Clear a stopped sub-agent from the records a moved session left behind](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md) | amended | [0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md) |
@@ -126,3 +126,4 @@ of date.
 | 0134 | [Place a session by its freshest current hook record](0134-place-a-session-by-its-freshest-current-hook-record.md) | accepted | — |
 | 0137 | [Hold only what was published last in the observation store](0137-hold-only-what-was-published-last-in-the-observation-store.md) | accepted | — |
 | 0139 | [Share the Local Issue reader and contain Linked Pull Request completion](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md) | accepted | — |
+| 0146 | [Stream the Event Log by UTC day, and select lines before validating them](0146-stream-the-event-log-by-utc-day-and-select-lines-before-validating-them.md) | accepted | — |

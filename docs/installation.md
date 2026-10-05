@@ -252,7 +252,11 @@ dashpot events --issue <issue-identity> --json
 
 It merges the Event Log of every Worktree of the Repository, as
 `git worktree list` names them, with the machine-local fallback, ordered by
-time; outside a Repository it reads the fallback alone. It is the supported
+time; outside a Repository it reads the fallback alone. It prints as it reads,
+one UTC day at a time, so `dashpot events | head` stops early. A span is
+filed on the day it ended, so the one exception to the order is a span
+stamped more than two days before that day, which prints once its day is
+read ([ADR 0146](adr/0146-stream-the-event-log-by-utc-day-and-select-lines-before-validating-them.md)). It is the supported
 route to a sibling Worktree's events for an agent whose sandbox cannot read
 that Worktree directly. `--session` takes an Agent Session ID, `--issue` an
 Issue Identity as `dashpot work show` prints it, and `--project` a Project
@@ -270,7 +274,10 @@ narrows them to one Project.
 Reading is tolerant. A line that is not a Runtime Event this version knows —
 a torn write, an event a newer Dashpot recorded, anything else — is skipped
 and reported on standard error with its file, and a file that cannot be read
-is reported the same way; the command still prints what it could read.
+is reported the same way; the command still prints what it could read. A
+filter is applied to each line before it is checked, so an event's line the
+filters leave out is skipped unchecked; a line that is not a Runtime Event
+this version knows is reported whatever the filters.
 `--json` prints JSON Lines, one event per line in the same order, each under
 the field names it has in the Event Log with an unknown field as `null`, so
 `dashpot events --json | jq -c 'select(.["otel.status_code"] == "ERROR")'`

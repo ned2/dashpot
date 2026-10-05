@@ -684,6 +684,17 @@ def read_runtime_event(line: str | bytes) -> RuntimeEvent | None:
     is not an event this Dashpot knows — malformed, of a later schema, or
     naming an event it has no model for — reads as nothing.
     """
+    fields = runtime_event_fields(line)
+    return None if fields is None else runtime_event_from_fields(fields)
+
+
+def runtime_event_fields(line: str | bytes) -> dict[str, Any] | None:
+    """The fields of one Event Log line, before they are validated as an event.
+
+    A line has them when it is a JSON object of this schema naming an event
+    this Dashpot has a model for; a malformed line, one of a later schema, or
+    one naming an unknown event has none.
+    """
     try:
         raw = json.loads(line)
     except ValueError:
@@ -691,27 +702,38 @@ def read_runtime_event(line: str | bytes) -> RuntimeEvent | None:
     if not isinstance(raw, dict) or raw.get("schema") != SCHEMA_VERSION:
         return None
     name = raw.get("event.name")
-    body_model = EVENT_BODIES.get(name) if isinstance(name, str) else None
-    if body_model is None:
+    if not isinstance(name, str) or name not in EVENT_BODIES:
         return None
-    body = _known(body_model, raw)
+    return raw
+
+
+def runtime_event_from_fields(fields: Mapping[str, Any]) -> RuntimeEvent | None:
+    """Validate the fields :func:`runtime_event_fields` read as one Runtime Event.
+
+    Fields a newer Dashpot added are ignored rather than refused; fields that
+    do not make an event this Dashpot knows read as nothing.
+    """
+    body_model = EVENT_BODIES[fields["event.name"]]
+    body = _known(body_model, fields)
     try:
-        if body_model is SpanEnded and isinstance(raw.get("attributes"), dict):
-            span_name = raw.get("dashpot.span.name")
+        if body_model is SpanEnded and isinstance(fields.get("attributes"), dict):
+            span_name = fields.get("dashpot.span.name")
             attributes_model = (
                 SPAN_ATTRIBUTES.get(span_name) if isinstance(span_name, str) else None
             )
             if attributes_model is None:
                 return None
             body["attributes"] = attributes_model.model_validate(
-                _known(attributes_model, raw["attributes"])
+                _known(attributes_model, fields["attributes"])
             )
         return RuntimeEvent.model_validate(
             {
                 "schema": SCHEMA_VERSION,
-                "time": raw.get("time"),
-                "dashpot.level": raw.get("dashpot.level"),
-                "process": ProcessIdentity.model_validate(_known(ProcessIdentity, raw)),
+                "time": fields.get("time"),
+                "dashpot.level": fields.get("dashpot.level"),
+                "process": ProcessIdentity.model_validate(
+                    _known(ProcessIdentity, fields)
+                ),
                 "body": body_model.model_validate(body),
             }
         )

@@ -59,6 +59,12 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   error only, and `directories` is gone. This breaks the earlier `--json`
   shape before the first release. `dashpot events remove --json` still prints
   one document.
+- `dashpot events` prints as it reads, one UTC day at a time, so
+  `dashpot events | head` stops early. It holds about three days of events
+  in memory rather than every event, and it checks only the lines its
+  filters may keep. A span stamped more than two days before the day it
+  ended prints out of order, and a malformed line of an event the filters
+  leave out is no longer reported.
 - See a running dashboard's own recent Runtime Events on the Runtime screen,
   opened with `e` or from the command palette: filter them by kind, level or
   errors, follow new events or read back through them, and see every field
