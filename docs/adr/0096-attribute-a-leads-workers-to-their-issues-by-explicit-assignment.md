@@ -12,9 +12,9 @@ observes held only in the snapshot Issue list, which is retired; the Issue
 list is one Project's Query Page.
 
 Amended in place for [#593](https://github.com/ned2/dashpot/issues/593):
-headless `observe` retires the check that left unbound an Agent Run whose
-Issue Identity more than one Project observes, and reported that Identity as
-an `agent-issue-identity-conflict`. Dashpot observes one Project at a time
+this amendment retires, from headless `observe`, the check that left unbound
+an Agent Run whose Issue Identity more than one Project observes, and
+reported that Identity as an `agent-issue-identity-conflict`. Dashpot observes one Project at a time
 ([ADR 0004](0004-observe-one-project-per-run.md)), so no such Identity
 occurs; observing several Projects together would need its own ADR, which
 decides the rule afresh.
