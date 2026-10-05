@@ -1,4 +1,8 @@
-"""Machine-local Dashpot settings, kept beside the Workspace inventory."""
+"""Machine-local Dashpot settings, and the configuration directory they share.
+
+The settings live in Dashpot's machine-local configuration directory beside
+the Workspace inventory, and this module names that directory for both.
+"""
 
 from __future__ import annotations
 
@@ -112,7 +116,7 @@ def machine_config_directory() -> Path:
 
 
 def default_settings_path() -> Path:
-    """Locate this machine's settings: ``config.toml`` in its configuration directory."""
+    """Locate this machine's settings: ``config.toml`` in Dashpot's configuration directory."""
     return machine_config_directory() / SETTINGS_FILE_NAME
 
 

@@ -221,7 +221,7 @@ def test_a_relative_xdg_config_home_is_ignored_for_the_settings(
     )
 
 
-def test_xdg_config_home_may_name_the_home_directory(
+def test_a_tilde_in_xdg_config_home_is_expanded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", "~/config")
