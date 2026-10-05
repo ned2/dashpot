@@ -38,8 +38,8 @@ from dashpot.core.model import (
     WorkspaceSnapshot,
 )
 from dashpot.observation.issue_list import row_key
-from dashpot.ui import session_cells
 from dashpot.ui.app import DashpotApp
+from dashpot.ui.glyphs import SESSION_STATE_GLYPHS
 from dashpot.ui.issue_view import IssueScreen
 from dashpot.ui.messages import ObservationTrigger
 from helpers import snapshot_of, wait_until
@@ -352,7 +352,7 @@ async def test_a_theme_change_repaints_the_list_panes() -> None:
         session_run("codex-session:busy", state="running"), issues=issues
     )
     app = dashboard_app(SequenceCollector(snapshot))
-    running = session_cells.STATE_GLYPHS["running"]
+    running = SESSION_STATE_GLYPHS["running"]
 
     def state_color() -> str:
         cell = app.dashboard.sessions_pane().table.get_row_at(0)[0]

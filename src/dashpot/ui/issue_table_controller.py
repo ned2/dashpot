@@ -101,9 +101,10 @@ class IssueTableController:
     def update_sort_headers(self) -> None:
         """Re-head every column for the ordering the source last accepted."""
         table = self.table
-        for key, column in table.columns.items():
-            column.label = self.column_label(cast("ColumnKey", str(key.value)))
-        table.refresh()
+        for key in table.columns:
+            table.relabel_column(
+                key, self.column_label(cast("ColumnKey", str(key.value)))
+            )
 
     def apply_issue_columns(self, columns: tuple[ColumnKey, ...] | None) -> None:
         """Show the columns the editor chose; nothing changes on cancel or no change."""
@@ -157,13 +158,15 @@ class IssueTableController:
             cells_by_key
         )
         with app.batch_update():
+            # Relabelled first, so a rebuild's clear measures the headers it
+            # will show rather than the ones it replaces.
+            self.update_sort_headers()
             if in_place:
                 self.update_changed_cells(cells_by_key)
             else:
                 table.clear()
                 for key, cells in cells_by_key.items():
                     table.add_row(*cells, key=key)
-        self.update_sort_headers()
         self.rows_by_key = contexts
         if in_place and table.row_count:
             selected_key = cursor_row_key(table)

@@ -31,13 +31,13 @@ from ..issues.ordering import (
     issue_priority_label,
 )
 from .glyphs import (
-    ACTIVITY_COLUMN_GLYPH,
     DONE_EMPHASIS_COLORS,
     MUTED_COLORS,
     NEUTRAL_EMPHASIS_COLORS,
     OPEN_EMPHASIS_COLORS,
-    SESSION_STATE_GLYPHS,
     Glyph,
+    activity_glyph_cell,
+    liveliest,
 )
 
 IssueStateKind = Literal[
@@ -60,29 +60,13 @@ ISSUE_STATE_GLYPHS: dict[IssueStateKind, Glyph] = {
     for kind, colors in GITHUB_ISSUE_STATE_COLORS.items()
 }
 ISSUE_STATE_COLUMN_GLYPH = Glyph("◉", "the Issue state column")
-AGENT_STATE_COLUMN_GLYPH = ACTIVITY_COLUMN_GLYPH
-AGENT_STATE_GLYPHS = SESSION_STATE_GLYPHS
 SORT_GLYPHS: dict[bool | None, Glyph] = {
     None: Glyph("↕", "a sortable column"),
     False: Glyph("↑", "sorted ascending"),
     True: Glyph("↓", "sorted descending"),
 }
 LEGEND_ISSUE_STATE = (ISSUE_STATE_COLUMN_GLYPH, *ISSUE_STATE_GLYPHS.values())
-LEGEND_AGENT_STATE = (AGENT_STATE_COLUMN_GLYPH, *AGENT_STATE_GLYPHS.values())
 LEGEND_SORT = tuple(SORT_GLYPHS.values())
-
-
-class AgentStateCell(Text):
-    """The aggregate Agent Run state as its shared Glyph."""
-
-    __slots__ = ()
-
-    def __init__(self, state: SessionActivity | None, *, dark: bool) -> None:
-        glyph = AGENT_STATE_GLYPHS[state] if state is not None else None
-        super().__init__(
-            glyph.symbol if glyph is not None else "",
-            style=glyph.style(dark=dark) if glyph is not None else "",
-        )
 
 
 class IssueStateCell(Text):
@@ -202,15 +186,7 @@ def chip_foreground(background: str) -> str:
     return "#000000" if luminance > 0.55 else "#ffffff"
 
 
-TableCell = (
-    str
-    | Text
-    | AgentStateCell
-    | IssueStateCell
-    | IssueNumberCell
-    | LabelsCell
-    | PriorityCell
-)
+TableCell = str | Text | IssueStateCell | IssueNumberCell | LabelsCell | PriorityCell
 
 
 def cells_match(left: TableCell, right: TableCell) -> bool:
@@ -328,9 +304,6 @@ def issue_state_cell(issue: IssueProfile, *, dark: bool) -> IssueStateCell:
     return IssueStateCell(issue_state_kind(issue), dark=dark)
 
 
-def agent_state_cell(
-    states: tuple[SessionActivity, ...], *, dark: bool = True
-) -> AgentStateCell:
-    """Summarize bound Agent Runs with the shared Agent Session state Glyphs."""
-    state = next((state for state in AGENT_STATE_GLYPHS if state in states), None)
-    return AgentStateCell(state, dark=dark)
+def agent_state_cell(states: tuple[SessionActivity, ...], *, dark: bool = True) -> Text:
+    """Summarize bound Agent Runs by the liveliest one's Agent Session state Glyph."""
+    return activity_glyph_cell(liveliest(states), dark=dark)

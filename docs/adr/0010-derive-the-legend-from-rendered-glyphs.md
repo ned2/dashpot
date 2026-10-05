@@ -79,6 +79,12 @@ is because its fill is the liveliness.
   the Legend derives from the panes' column definitions as well as their
   Glyph values, one section per column whether or not it renders a Glyph,
   and an inventory test holds every column of every pane to it.
+- The Sessions pane's `STATE_GLYPHS` and the Issue table's
+  `AGENT_STATE_GLYPHS` were always one table under two names; since
+  [#547](https://github.com/ned2/dashpot/issues/547) every agent-activity
+  column renders `SESSION_STATE_GLYPHS` in `glyphs.py` through one
+  `activity_glyph_cell`, ranked by one `liveliest`, and shows its Legend
+  as `ACTIVITY_LEGEND`.
 - Severity Glyphs carry no colour of their own; they name the theme variable
   the alert and Diagnostics stylesheets use, so the Legend's swatch and the
   boxes stay in step without a second hex value.

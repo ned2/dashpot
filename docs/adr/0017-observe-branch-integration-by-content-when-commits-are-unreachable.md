@@ -41,8 +41,15 @@ fetch and without mutating anything:
 - `False` means the content was not found by these two facts, never that it
   is absent from history. A Branch that changes nothing against its merge
   base — empty commits, or work reverted within the Branch — has no content
-  to find and stays `↑N`: it is retained commits, not a squash merge. `git cherry` patch equivalence is not used: it
-  cannot see a multi-commit Branch squashed into one commit, and GitHub's
+  to find and stays `↑N`: it is retained commits, not a squash merge. So
+  does a Branch that shares no history with the Integration Branch, such as
+  an orphan `gh-pages`: it has no merge base, so `merge-base` is asked
+  before the tip merge, which refuses unrelated histories, and its answer is
+  `False`, with no Diagnostic
+  ([#547](https://github.com/ned2/dashpot/issues/547)). A shallow clone
+  whose history stops short of the fork point reads the same way. `git
+  cherry` patch equivalence is not used: it cannot see a multi-commit
+  Branch squashed into one commit, and GitHub's
   squash differs from the Branch's own diff whenever the Integration Branch
   moved under it, as measured on this Repository.
 - Worktree removability reads the same fact. A Worktree whose Branch is

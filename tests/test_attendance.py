@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
+import shutil
+import subprocess
+import time
+import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from dashpot.core.commands import CommandError, CommandResult
+from dashpot.core.commands import CommandError, CommandResult, run_command
 from dashpot.ui.attendance import (
     UNATTENDED_PAUSED,
     Attendance,
@@ -225,9 +231,114 @@ def test_the_probe_asks_how_many_clients_attend_the_panes_session(
 
     assert probe is not None
     assert probe() is attached
-    assert runner.calls == [
-        ("tmux", "display-message", "-p", "-t", "%3", "#{session_attached}")
-    ]
+    # A grouped session is asked for its whole group's clients.
+    grouped = "#{?session_grouped,#{session_group_attached},#{session_attached}}"
+    assert runner.calls == [("tmux", "display-message", "-p", "-t", "%3", grouped)]
+
+
+class TmuxServer:
+    """A private tmux server, with clients attached in control mode."""
+
+    def __init__(self) -> None:
+        self.prefix = (
+            "tmux",
+            "-L",
+            f"dashpot-test-{uuid.uuid4().hex}",
+            "-f",
+            os.devnull,
+        )
+        self.environ = {
+            key: value for key, value in os.environ.items() if key != "TMUX"
+        }
+        self.clients: list[subprocess.Popen[bytes]] = []
+
+    def __call__(self, *args: str) -> str:
+        return subprocess.run(
+            [*self.prefix, *args],
+            env=self.environ,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+
+    def attach(self, session: str) -> None:
+        """Attach a client that stays attached until the server is killed."""
+        self.clients.append(
+            subprocess.Popen(
+                [*self.prefix, "-C", "attach-session", "-t", session],
+                env=self.environ,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        )
+        self.wait_for_clients(len(self.clients))
+
+    def wait_for_clients(self, count: int) -> None:
+        deadline = time.monotonic() + 10
+        while len(self("list-clients", "-F", "#{client_name}").split()) != count:
+            assert time.monotonic() < deadline, f"tmux never had {count} clients"
+            time.sleep(0.05)
+
+    def run(self, args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        """Run a probe's ``tmux`` command against this server."""
+        assert args[0] == "tmux"
+        return run_command([*self.prefix, *args[1:]], cwd, timeout)
+
+    def close(self) -> None:
+        """Kill the server, its clients and its socket, which tmux leaves behind."""
+        socket: str | None = None
+        with contextlib.suppress(subprocess.SubprocessError):
+            socket = self("display-message", "-p", "#{socket_path}")
+            self("kill-server")
+        if socket:
+            Path(socket).unlink(missing_ok=True)
+        for client in self.clients:
+            if client.stdin is not None:
+                client.stdin.close()
+            try:
+                client.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                client.kill()
+                client.wait()
+
+
+@pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux is not installed")
+def test_a_client_of_another_session_in_the_group_attends() -> None:
+    # ``tmux new -t main -s viewer`` groups viewer with main: both hold the
+    # dashboard's pane. With a client on each and main's then detached, tmux
+    # resolves the pane to main, the session active last, which no client
+    # holds; the client still watching viewer sees the pane all the same.
+    tmux = TmuxServer()
+    try:
+        tmux("new-session", "-d", "-s", "main", "-x", "80", "-y", "24")
+        tmux("new-session", "-d", "-t", "main", "-s", "viewer")
+        pane = tmux("display-message", "-p", "-t", "main", "#{pane_id}")
+        tmux.attach("viewer")
+        tmux.attach("main")
+        tmux("detach-client", "-s", "main")
+        tmux.wait_for_clients(1)
+        assert (
+            tmux(
+                "display-message",
+                "-p",
+                "-t",
+                pane,
+                "#{session_name} #{session_attached}",
+            )
+            == "main 0"
+        )
+        probe = tmux_attachment({"TMUX": "set", "TMUX_PANE": pane}, 5.0, run=tmux.run)
+
+        assert probe is not None
+        assert probe() is True
+
+        tmux("detach-client", "-s", "viewer")
+        tmux.wait_for_clients(0)
+        assert probe() is False
+    finally:
+        tmux.close()
 
 
 @pytest.mark.parametrize(

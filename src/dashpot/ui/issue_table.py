@@ -33,11 +33,9 @@ from ..observation.issue_list import (
     unobserved_auxiliary,
 )
 from ..observation.list_result import ListResult
-from .glyphs import Glyph
+from .glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_LEGEND, Glyph
 from .issue_cells import (
-    AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
-    LEGEND_AGENT_STATE,
     LEGEND_ISSUE_STATE,
     SORT_GLYPHS,
     WAITING_ON_LIMIT,
@@ -199,9 +197,9 @@ LAST_ACTION_DESCRIPTION = (
 COLUMN_SPECS = (
     ColumnSpec(
         "agent_state",
-        AGENT_STATE_COLUMN_GLYPH.symbol,
+        ACTIVITY_COLUMN_GLYPH.symbol,
         AGENT_STATE_DESCRIPTION,
-        glyphs=LEGEND_AGENT_STATE,
+        glyphs=ACTIVITY_LEGEND,
         sortable=False,
         spread_weight=0,
     ),

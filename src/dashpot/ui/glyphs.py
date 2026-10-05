@@ -8,8 +8,10 @@ Legend cannot omit one that a pane renders.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+
+from rich.text import Text
 
 from ..core.model import SessionActivity
 from ..observation.session_list import SESSION_STATE_ORDER
@@ -73,7 +75,7 @@ SESSION_STATE_GLYPHS: dict[SessionActivity, Glyph] = {
     ),
     "unknown": Glyph("○", "an Agent Session in an unknown state", MUTED_COLORS),
 }
-# The shared agent-activity column's Legend, ranked as its cells are.
+# The shared agent-activity column's Legend, ranked as ``liveliest`` ranks.
 ACTIVITY_LEGEND = (
     ACTIVITY_COLUMN_GLYPH,
     *(SESSION_STATE_GLYPHS[state] for state in SESSION_STATE_ORDER),
@@ -86,3 +88,20 @@ def align_symbols(glyphs: Sequence[Glyph]) -> list[tuple[str, str]]:
     """Pair each symbol, padded to the widest, with its meaning."""
     width = max((len(glyph.symbol) for glyph in glyphs), default=0)
     return [(glyph.symbol.ljust(width), glyph.meaning) for glyph in glyphs]
+
+
+def liveliest(states: Iterable[SessionActivity]) -> SessionActivity | None:
+    """The liveliest of these Agent Session states, or None when there are none.
+
+    Running ranks before waiting, before orphaned, before unknown: the order
+    the Sessions pane lists them in, which every activity column summarizes by.
+    """
+    return min(states, key=SESSION_STATE_ORDER.__getitem__, default=None)
+
+
+def activity_glyph_cell(state: SessionActivity | None, *, dark: bool) -> Text:
+    """An Agent Session state as its Glyph in the theme's colour, or blank for none."""
+    if state is None:
+        return Text("")
+    glyph = SESSION_STATE_GLYPHS[state]
+    return Text(glyph.symbol, style=glyph.style(dark=dark))

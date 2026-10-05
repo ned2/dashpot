@@ -7,6 +7,7 @@ from threading import Event
 import pytest
 from textual import events
 from textual.pilot import Pilot
+from textual.render import measure
 from textual.widgets import DataTable, Input, Select, Static
 
 import factories
@@ -21,6 +22,7 @@ from app_harness import (
     pane_title,
     prepare_pane,
     serve_snapshot,
+    settle_screen,
     show_query_peer,
     toasts,
     workspace_snapshot,
@@ -31,7 +33,7 @@ from dashpot.ui.issue_cells import PriorityCell
 from dashpot.ui.issue_table import DEFAULT_COLUMNS
 from dashpot.ui.issue_view import IssueScreen
 from dashpot.ui.list_pane import ListRow
-from helpers import wait_until
+from helpers import settled, wait_until
 
 
 @pytest.mark.asyncio
@@ -409,6 +411,68 @@ async def test_a_submitted_sort_qualifier_owns_the_order_until_it_is_cleared() -
         await submit_search(app, pilot, "")
         await wait_until(lambda: titles(app) == ["Recently active", "Newly created"])
         assert headers(app)[2] == "# ↕"
+
+
+@pytest.mark.asyncio
+async def test_a_returning_sort_marker_is_measured_in_a_table_that_scrolls() -> None:
+    # Titles too long for the pane leave no spare width, so each column is
+    # exactly as wide as what was measured for it.
+    older = issue(
+        "test/repo#1",
+        "Older " + "x" * 80,
+        createdAt="2026-08-01T01:00:00Z",
+        updatedAt="2026-08-28T01:00:00Z",
+    )
+    newer = issue(
+        "test/repo#2",
+        "Newer " + "y" * 80,
+        createdAt="2026-08-27T01:00:00Z",
+        updatedAt="2026-08-27T02:00:00Z",
+    )
+    app = dashboard_app(SequenceCollector(workspace_snapshot(older, newer)))
+
+    def clipped_headers() -> list[str]:
+        table = app.query_screen.queue_table()
+        console = app.console
+        return [
+            str(column.label)
+            for column in table.columns.values()
+            if column.get_render_width(table) - 2 * table.cell_padding
+            < measure(console, column.label, 1)
+        ]
+
+    def first_titles() -> list[str]:
+        return [title.split()[0] for title in titles(app)]
+
+    async with app.run_test(size=(60, 24)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await show_query_peer(app, pilot)
+        table = app.query_screen.queue_table()
+        await wait_until(lambda: table.max_scroll_x > 0)
+        assert await settled(pilot, clipped_headers, "the headers") == []
+
+        # The qualifier strips every marker, and its reordered page is
+        # rebuilt under the bare headers.
+        await submit_search(app, pilot, "sort:created-desc")
+        await wait_until(lambda: first_titles() == ["Newer", "Older"])
+        assert "PRIORITY" in headers(app)
+        # Clearing it rebuilds the page again, under the marked headers.
+        await submit_search(app, pilot, "")
+        await wait_until(lambda: first_titles() == ["Older", "Newer"])
+        assert "PRIORITY ↕" in headers(app)
+        assert await settled(pilot, clipped_headers, "the rebuilt headers") == []
+
+        # A page already in the order shown is not rebuilt: the markers
+        # return to headers last measured bare, as the page was rebuilt.
+        await submit_search(app, pilot, "sort:created-desc")
+        await wait_until(lambda: first_titles() == ["Newer", "Older"])
+        await submit_search(app, pilot, "sort:created-asc")
+        await wait_until(lambda: first_titles() == ["Older", "Newer"])
+        await settle_screen(app, pilot, "the bare headers")
+        await submit_search(app, pilot, "")
+        await wait_until(lambda: "PRIORITY ↕" in headers(app))
+        assert first_titles() == ["Older", "Newer"]
+        assert await settled(pilot, clipped_headers, "the relabelled headers") == []
 
 
 @pytest.mark.asyncio

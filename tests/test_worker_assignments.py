@@ -14,6 +14,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from rich.text import Text
 
 import factories
 from app_harness import (
@@ -48,7 +49,6 @@ from dashpot.sessions.work import (
 )
 from dashpot.sessions.work_store import ActiveWork, WorkStore
 from dashpot.ui.glyphs import SESSION_STATE_GLYPHS
-from dashpot.ui.issue_cells import AgentStateCell
 from helpers import (
     absent,
     make_issue,
@@ -553,7 +553,7 @@ async def test_the_issue_list_shows_a_worker_running_until_it_stops() -> None:
 
         def glyph(issue_id: str) -> str:
             cell = table.get_cell(row_key("issue", issue_id), "agent_state")
-            assert isinstance(cell, AgentStateCell)
+            assert isinstance(cell, Text)
             return str(cell)
 
         await wait_until(lambda: glyph(first.id) != "")

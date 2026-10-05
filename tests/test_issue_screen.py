@@ -36,10 +36,10 @@ from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import AgentRun, IssueActivity, LinkedPullRequest
 from dashpot.observation.issue_list import IssueListQuery, row_key
 from dashpot.observation.observation_store import WorkspaceObservationStore
-from dashpot.ui import session_cells
 from dashpot.ui.app import DashpotApp, legend_keys
 from dashpot.ui.column_editor import IssueColumnEditor
 from dashpot.ui.detail_fields import DetailFields, detail_items_text
+from dashpot.ui.glyphs import SESSION_STATE_GLYPHS
 from dashpot.ui.issue_cells import IssueStateCell
 from dashpot.ui.issue_table import COLUMN_SPECS
 from dashpot.ui.issue_view import (
@@ -969,7 +969,7 @@ async def test_question_mark_opens_the_legend_and_escape_closes_it() -> None:
         # A dashboard key proves the screen's bindings reach the Legend too.
         assert any(line.startswith("o") and line.endswith("Lifecycle") for line in keys)
         # A colour-bearing Glyph shows the swatch the cell would.
-        running = session_cells.STATE_GLYPHS["running"]
+        running = SESSION_STATE_GLYPHS["running"]
         sessions_index = next(
             index for index, section in enumerate(LEGEND) if running in section.glyphs
         )

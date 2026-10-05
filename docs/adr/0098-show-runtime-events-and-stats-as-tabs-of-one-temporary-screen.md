@@ -31,7 +31,14 @@ buffer, which keeps every level whatever the Event Level records.
   narrow the table and last for the life of the process, never on disk.
   The table follows the newest event until a person moves back through it,
   and `End` resumes following.
-- **Stats** holds the Runtime Stats sections unchanged, at full width.
+- **Stats** holds the Runtime Stats sections at full width, unchanged but
+  for their clock, below.
+- **Both tabs keep one clock.** Every time either tab shows, from an
+  event's row and summary to a pause's end and the last refresh, is on the
+  local clock, so a time on one tab is found on the other as it reads.
+  Only the detail pane shows an event's stored UTC time, which matches the
+  event to its line in the Event Log
+  ([#547](https://github.com/ned2/dashpot/issues/547)).
 
 ### Tabs inside a temporary screen
 

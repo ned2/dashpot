@@ -62,15 +62,15 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
         # feature: two retained commits whose merge leaves main's tree as is.
         completed("2\n"),
         completed("tree-main\n"),
-        completed("tree-main\n"),
         completed("base\n"),
+        completed("tree-main\n"),
         completed("src/feature.py\0"),
         # orphan: one retained commit, a conflicting merge, and no squash
         # commit on main touching what it changed.
         completed("1\n"),
         completed("tree-main\n"),
-        completed("tree-conflict\n", returncode=1),
         completed("base\n"),
+        completed("tree-conflict\n", returncode=1),
         completed("src/orphan.py\0"),
         completed("c" * 40 + "\n\nsrc/other.py\n"),
         completed(".git\n"),
@@ -87,13 +87,13 @@ def test_observes_local_and_remote_tracking_branches_without_fetching(
         "for-each-ref",
         "rev-list",
         "rev-parse",
-        "merge-tree",
         "merge-base",
+        "merge-tree",
         "diff",
         "rev-list",
         "rev-parse",
-        "merge-tree",
         "merge-base",
+        "merge-tree",
         "diff",
         "log",
         "rev-parse",
@@ -427,6 +427,45 @@ def test_cached_observation_tracks_squash_rebase_and_force_push(tmp_path: Path) 
     assert observe_again()["refs/heads/kept"] == (0, None)
 
 
+def test_a_branch_with_unrelated_history_changes_nothing_and_is_cached(
+    tmp_path: Path,
+) -> None:
+    root = squash_repository(tmp_path)
+    # An orphan Branch, as a project site's gh-pages is: it shares no commit
+    # with main, so there is no merge base and no content to find.
+    git(root, "checkout", "-q", "--orphan", "gh-pages")
+    git(root, "rm", "-rqf", ".")
+    _commit(root, "index.html", "<p>site</p>\n", "publish the site")
+    git(root, "checkout", "-q", "main")
+    git(root, "update-ref", "refs/remotes/origin/gh-pages", "gh-pages")
+    cache = IntegrationCache()
+    calls: list[str] = []
+
+    def recording(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        calls.append(args[1])
+        return run_command(args, cwd, timeout)
+
+    adapter = Git(root, runner=recording)
+    first = observe_branches([root], git=adapter, cache=cache)
+
+    assert first.diagnostics == []
+    pages = [branch for branch in first.branches if branch.name == "gh-pages"]
+    assert [branch.refname for branch in pages] == [
+        "refs/heads/gh-pages",
+        "refs/remotes/origin/gh-pages",
+    ]
+    assert all(
+        (branch.unintegrated_commits, branch.content_integrated) == (1, False)
+        for branch in pages
+    )
+    # Both refs share the gh-pages head, which is now cached like any other.
+    calls.clear()
+    second = observe_branches([root], git=adapter, cache=cache)
+    assert second.diagnostics == []
+    assert second.branches == first.branches
+    assert calls == ["for-each-ref", "for-each-ref", "rev-parse"]
+
+
 def test_cache_keeps_live_ref_metadata_and_captured_commit_operands() -> None:
     listing = ref_stream(ref("refs/heads/main", "aaa"), ref("refs/heads/feat", "bbb"))
     moved_metadata = ref_stream(
@@ -438,6 +477,7 @@ def test_cache_keeps_live_ref_metadata_and_captured_commit_operands() -> None:
         completed(ref_stream(("aaa",))),
         completed("1"),
         completed("tree-a"),
+        completed("base"),
         completed("tree-b"),
         completed(".git"),
         completed(moved_metadata),
@@ -453,7 +493,7 @@ def test_cache_keeps_live_ref_metadata_and_captured_commit_operands() -> None:
     assert second.branches[1].checked_out_at == "/linked"
     assert runner.calls[2][0][-1] == "aaa..bbb"
     assert runner.calls[4][0][-2:] == ["aaa", "bbb"]
-    assert len(runner.calls) == 9
+    assert len(runner.calls) == 10
 
 
 def test_configured_collector_owns_the_cache_across_local_refreshes(
@@ -487,7 +527,9 @@ def test_configured_collector_owns_the_cache_across_local_refreshes(
     assert "merge-tree" in calls
 
 
-@pytest.mark.parametrize("failure", ["count", "content", "silent-content", "merged"])
+@pytest.mark.parametrize(
+    "failure", ["count", "merge-base", "content", "silent-content", "merged"]
+)
 def test_failures_are_retried_on_the_next_refresh(failure: str) -> None:
     listing = completed(
         ref_stream(ref("refs/heads/main", "aaa"), ref("refs/heads/feat", "bbb"))
@@ -496,7 +538,8 @@ def test_failures_are_retried_on_the_next_refresh(failure: str) -> None:
     error = completed("", "fatal: temporary failure", 128)
     failing_analysis = {
         "count": [merged, error],
-        "content": [merged, completed("1"), completed("tree"), error],
+        "merge-base": [merged, completed("1"), completed("tree"), error],
+        "content": [merged, completed("1"), completed("tree"), completed("b"), error],
         "silent-content": [merged, completed("1"), error],
         "merged": [error],
     }[failure]
@@ -508,6 +551,7 @@ def test_failures_are_retried_on_the_next_refresh(failure: str) -> None:
         merged,
         completed("1"),
         completed("tree-a"),
+        completed("base"),
         completed("tree-b"),
         completed(".git"),
     )
@@ -529,13 +573,20 @@ def test_cache_is_bounded_and_scoped_to_the_answering_anchor() -> None:
 
     def refresh(anchor: Path, warm: bool) -> None:
         analysis = (
-            [] if warm else [completed("1"), completed("tree-a"), completed("tree-b")]
+            []
+            if warm
+            else [
+                completed("1"),
+                completed("tree-a"),
+                completed("base"),
+                completed("tree-b"),
+            ]
         )
         runner = SequenceRunner(listing, merged, *analysis, completed(".git"))
         result = observe_branches([anchor], git=over(runner), cache=cache)
         assert not result.diagnostics
         assert result.branches[1].content_integrated is False
-        assert len(runner.calls) == (3 if warm else 6)
+        assert len(runner.calls) == (3 if warm else 7)
 
     refresh(Path("/a"), False)
     refresh(Path("/a"), True)
@@ -568,6 +619,7 @@ def test_ref_moving_between_listings_cannot_poison_the_captured_head() -> None:
         merged,
         completed("1"),
         completed("tree-a"),
+        completed("base"),
         completed("tree-b"),
         completed(".git"),
         after_move,
@@ -587,7 +639,7 @@ def test_ref_moving_between_listings_cannot_poison_the_captured_head() -> None:
         for branch in second.branches
     ] == [(0, None), (0, None), (1, False)]
     assert runner.calls[2][0][-1] == "aaa..bbb"
-    assert len(runner.calls) == 9
+    assert len(runner.calls) == 10
 
 
 def test_failed_squash_candidate_tree_is_diagnosed_and_retried() -> None:
@@ -599,8 +651,8 @@ def test_failed_squash_candidate_tree_is_diagnosed_and_retried() -> None:
     analysis = [
         completed("1"),
         completed("tree-main"),
-        completed("", returncode=1),
         completed("base"),
+        completed("", returncode=1),
         completed("app\0"),
         completed(f"{candidate}\n\napp\n"),
         completed("tree-squash"),

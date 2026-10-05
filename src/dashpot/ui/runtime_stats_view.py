@@ -12,7 +12,7 @@ interval while the tab is shown.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Protocol, override
 
 from rich.text import Text
@@ -107,6 +107,11 @@ def duration_text(seconds: float | None) -> str:
     return long_duration_text(seconds)
 
 
+def clock_text(instant: datetime) -> str:
+    """An instant on the local clock, to the second, as both Runtime tabs show it."""
+    return f"{instant.astimezone():%H:%M:%S}"
+
+
 def long_duration_text(seconds: float) -> str:
     """A long duration in days, hours, minutes and seconds, leading unit first."""
     whole = int(seconds)
@@ -192,7 +197,7 @@ def allowance_text(
         (
             *paused,
             ("remaining", f"{reading.remaining:,} of {points_text(reading.limit)}"),
-            ("resets", f"{reset:%H:%M:%S} UTC, in {long_duration_text(left)}"),
+            ("resets", f"{clock_text(reset)}, in {long_duration_text(left)}"),
             ("last request", points_text(reading.cost)),
             (
                 "rest of account",
@@ -206,19 +211,20 @@ def allowance_text(
 
 def pause_text(pause: RateLimitPause, now: datetime) -> str:
     """Until when GitHub queries are held, and which limit refused them."""
-    until = pause.until.astimezone(UTC)
-    left = max(0.0, (until - now).total_seconds())
-    return f"until {until:%H:%M:%S} UTC, in {long_duration_text(left)} ({pause.limit_text})"
+    left = max(0.0, (pause.until - now).total_seconds())
+    return (
+        f"until {clock_text(pause.until)}, in {long_duration_text(left)} "
+        f"({pause.limit_text})"
+    )
 
 
 def unattended_text(
     attendance: Attendance, pause: UnattendedPause, now: datetime
 ) -> str:
     """Since when automatic GitHub refreshes are held, and what showed nobody attending."""
-    since = pause.since.astimezone(UTC)
-    held = max(0.0, (now - since).total_seconds())
+    held = max(0.0, (now - pause.since).total_seconds())
     return (
-        f"since {since:%H:%M:%S} UTC, {long_duration_text(held)} ago "
+        f"since {clock_text(pause.since)}, {long_duration_text(held)} ago "
         f"({attendance.signal_text(pause)})"
     )
 
@@ -263,8 +269,8 @@ def spend_text(spend: Sequence[OperationSpend]) -> Text:
 def last_refresh_heading(refresh: RefreshSpend | None) -> str:
     if refresh is None:
         return f"{SPEND_LABEL} · last refresh"
-    at = observed_instant(refresh.started)
-    return f"{SPEND_LABEL} · last refresh, {refresh.trigger} at {at:%H:%M:%S} UTC"
+    at = clock_text(observed_instant(refresh.started))
+    return f"{SPEND_LABEL} · last refresh, {refresh.trigger} at {at}"
 
 
 def refreshes_text(health: Sequence[RefreshHealth]) -> Text:
