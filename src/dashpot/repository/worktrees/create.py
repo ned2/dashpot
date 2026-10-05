@@ -302,7 +302,7 @@ def _check_collisions(
             refusals.append(
                 f"{path} is a partially created Worktree (locked: {lock}); "
                 "recover with: "
-                f"{_recovery(path, short_branch(registered) or branch)}"
+                f"{_removal_commands(path, short_branch(registered) or branch)}"
             )
         else:
             refusals.append(
@@ -415,15 +415,16 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
             f"created {path} but it is not the Worktree that was planned: "
             + "; ".join(problems)
             + f"; inspect it with: {shell_command('git', 'worktree', 'list')}; "
-            f"if it is not wanted, remove it with: {_recovery(path, plan.branch)}"
+            f"if it is not wanted, remove it with: {_removal_commands(path, plan.branch)}"
         )
 
 
-def _recovery(path: Path, branch: str) -> str:
-    """The commands that remove a Worktree an add left behind, then its Branch.
+def _removal_commands(path: Path, branch: str) -> str:
+    """The commands that remove a Worktree an add created or left, then its Branch.
 
-    A killed ``git worktree add`` leaves its Worktree locked, which only a
-    doubled ``-f`` removes; the Branch goes once nothing has it checked out.
+    The doubled ``-f`` removes a Worktree a killed ``git worktree add`` left
+    locked as well as one left unclean; the Branch goes once nothing has it
+    checked out.
     """
     return then(
         shell_command("git", "worktree", "remove", "-f", "-f", path),
@@ -490,7 +491,7 @@ def _remove_what_this_created(
             messages.append(
                 f"a Worktree is registered at {path} locked '{lock}': another "
                 f"creator may still be adding it, or a killed add left it behind; "
-                f"if it stays locked, recover with: {_recovery(path, plan.branch)}"
+                f"if it stays locked, recover with: {_removal_commands(path, plan.branch)}"
             )
         else:
             messages.append(

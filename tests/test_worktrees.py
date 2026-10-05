@@ -767,10 +767,30 @@ def test_a_branch_made_after_the_plan_is_never_rolled_back(
     assert not (tmp_path / "p" / "sim.worktrees").exists()
 
 
+# A Worktree Root a pasted recovery command would split at its space.
+SPACED_ROOT = "worktree pool"
+
+
+def recovery_after(message: str, lead: str) -> list[list[str]]:
+    """The argv of each command a message gives after ``lead``, as a shell reads it."""
+    commands: list[list[str]] = [[]]
+    for word in shlex.split(message.split(lead, 1)[1]):
+        if word == "&&":
+            commands.append([])
+        else:
+            commands[-1].append(word)
+    return commands
+
+
 def test_a_rollback_git_cannot_inspect_removes_nothing(tmp_path: Path) -> None:
-    """Not knowing what a failed add left is not knowing it left nothing."""
+    """Not knowing what a failed add left is not knowing it left nothing.
+
+    The Branch carries a shell metacharacter Git allows, which the check
+    command quotes.
+    """
     root = sim(tmp_path)
     base = git(root, "rev-parse", "HEAD")
+    branch = "fix-$HOME"
     added: list[bool] = []
 
     def failing_after_add(
@@ -778,21 +798,26 @@ def test_a_rollback_git_cannot_inspect_removes_nothing(tmp_path: Path) -> None:
     ) -> CommandResult:
         if list(args[:3]) == ["git", "worktree", "add"]:
             added.append(True)
-            git(root, "branch", "worktree-protocol", base)
+            git(root, "branch", branch, base)
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         if added and list(args[:3]) == ["git", "worktree", "list"]:
             raise CommandError("command timed out after 10s: git")
         return run_command(args, cwd, timeout)
 
     with pytest.raises(WorktreeCreateError) as failure:
-        create(root, git_adapter=Git(root, runner=failing_after_add))
+        create(root, branch=branch, git_adapter=Git(root, runner=failing_after_add))
 
-    assert str(failure.value) == (
+    message = str(failure.value)
+    assert message == (
         "git worktree add failed: fatal: simulated failure; what it left could "
         "not be inspected (command timed out after 10s: git); check with: "
-        "git worktree list && git branch --list worktree-protocol"
+        "git worktree list && git branch --list 'fix-$HOME'"
     )
-    assert "worktree-protocol" in local_branches(root)
+    assert recovery_after(message, "check with: ") == [
+        ["git", "worktree", "list"],
+        ["git", "branch", "--list", branch],
+    ]
+    assert branch in local_branches(root)
     assert (tmp_path / "p" / "sim.worktrees").is_dir()
 
 
@@ -816,16 +841,6 @@ def test_partially_created_worktree_is_reported_with_recovery_and_left_alone(
         "&& git branch -D worktree-protocol"
     )
     assert git(root, "worktree", "list", "--porcelain") == before
-
-
-# A Worktree Root a pasted recovery command would split at its space.
-SPACED_ROOT = "worktree pool"
-
-
-def recovery_after(message: str, lead: str) -> list[list[str]]:
-    """The argv of each command a message gives after ``lead``, as a shell reads it."""
-    tail = message.split(lead, 1)[1]
-    return [shlex.split(command) for command in tail.split(" && ")]
 
 
 def test_a_partial_worktree_refusal_quotes_a_root_with_a_space(
@@ -903,7 +918,6 @@ def test_a_branch_the_rollback_cannot_delete_names_a_quoted_command(
         create(
             root,
             branch=branch,
-            worktree_root_option=tmp_path / SPACED_ROOT,
             git_adapter=Git(root, runner=stuck_branch),
         )
 
