@@ -55,9 +55,21 @@ def observation_attributes(key: ObservationKey) -> ObservationAttributes:
     return attributes
 
 
-def refresh_pool_size(key_count: int) -> int:
-    """Size the refresh pool to the keys, between two and eight threads."""
-    return max(2, min(8, key_count))
+# The explicit work the refresh pool serves beside its keys that is not one
+# per Project: the Worktree launch, the tmux attachment probe and the Event
+# Log measurement, each of which runs at most once at a time.
+SINGLE_FLOW_THREADS = 3
+
+
+def refresh_pool_size(keys: Sequence[ObservationKey]) -> int:
+    """Size the refresh pool to the keys plus the explicit work that shares it.
+
+    A key is observed at most once at a time, and each Project runs at most
+    one Remote Fetch or Cleanup operation at a time, which hold one another
+    off; the remaining explicit work is ``SINGLE_FLOW_THREADS``.
+    """
+    projects = {key.project_id for key in keys if key.project_id != WORKSPACE_SCOPE}
+    return len(keys) + len(projects) + SINGLE_FLOW_THREADS
 
 
 class TimerHandle(Protocol):
@@ -153,13 +165,15 @@ class ObservationRunner:
         self.indicator_seconds = indicator_seconds
         self.indicator_timer: TimerHandle | None = None
         self.refreshing_visible = False
-        # A key is observed at most once at a time, so a pool sized to the
-        # keys lets every key run concurrently and a slow Issue Source never
-        # holds a thread the Git or Agent Run observation needs. The pool's
-        # threads adopt the app's registry so an exit can stop their commands.
+        # The pool serves every key and the explicit work the app runs off
+        # the loop: Remote Fetches, Cleanups, the Worktree launch, the tmux
+        # probe and the Event Log measurement. Sized for all of them at
+        # once, every key runs concurrently even while a fetch or Cleanup
+        # holds a thread per Project. The pool's threads adopt the app's
+        # registry so an exit can stop their commands.
         self.executor = start_pool(
             running,
-            max_workers=refresh_pool_size(len(scheduler.keys())),
+            max_workers=refresh_pool_size(scheduler.keys()),
             thread_name_prefix="dashpot-refresh",
         )
 

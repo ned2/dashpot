@@ -21,6 +21,7 @@ from dashpot.core.runtime_events import (
     SpanEnded,
 )
 from dashpot.observation.keys import (
+    AGENT_RUNS_KEY,
     ObservationKey,
     ObservationOutcome,
     ObservationTicket,
@@ -405,11 +406,31 @@ def test_the_rerun_is_scheduled_even_when_presenting_fails() -> None:
     assert host.pop_call(ALPHA).land().trigger == "manual"
 
 
+def project_keys(count: int) -> list[ObservationKey]:
+    """The dashboard's keys for ``count`` Projects: one targets key each, then Agent Runs."""
+    return [
+        *(ObservationKey("targets", f"project-{index}") for index in range(count)),
+        AGENT_RUNS_KEY,
+    ]
+
+
 @pytest.mark.parametrize(
-    ("key_count", "threads"), [(0, 2), (1, 2), (5, 5), (8, 8), (12, 8)]
+    ("keys", "threads"),
+    [
+        ([], 3),
+        (project_keys(0), 4),
+        (project_keys(1), 6),
+        # Every key, one Remote Fetch or Cleanup per Project, and the three
+        # single flows at once: no cap leaves a key waiting behind a fetch.
+        (project_keys(12), 13 + 12 + 3),
+        # A Project's several keys still hold only one flow thread for it.
+        ([ALPHA, TARGETS, BETA, AGENT_RUNS_KEY], 4 + 2 + 3),
+    ],
 )
-def test_the_pool_is_sized_to_the_keys(key_count: int, threads: int) -> None:
-    assert refresh_pool_size(key_count) == threads
+def test_the_pool_is_sized_to_the_keys_and_the_flows(
+    keys: list[ObservationKey], threads: int
+) -> None:
+    assert refresh_pool_size(keys) == threads
 
 
 def test_refresh_observes_every_key() -> None:

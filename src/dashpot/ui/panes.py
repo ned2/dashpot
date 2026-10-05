@@ -19,7 +19,7 @@ from ..observation.pull_request_list import (
     DEFAULT_PULL_REQUEST_QUERY,
     PullRequestListRow,
 )
-from ..observation.related_rows import FocusedSource, RelatedRows
+from ..observation.related_rows import RelatedRows
 from ..observation.session_list import shows_target
 from ..queries.page_navigation import PageNavigation, page_text, totals_text
 from ..queries.pages import ResourceKind
@@ -33,7 +33,7 @@ from .list_pane import (
     WORKTREES_PANE_LABEL,
     ListCell,
     ListColumn,
-    ListRow,
+    PaneRows,
 )
 from .list_rows import build_list_rows
 from .pull_request_cells import PULL_REQUEST_COLUMNS, pull_request_cells
@@ -41,26 +41,6 @@ from .session_cells import SESSION_COLUMNS, session_cells, session_columns
 from .session_table import SessionTable
 from .worktree_cells import WORKTREE_COLUMNS, worktree_cells
 from .worktree_table import WorktreeTable
-
-
-@dataclass(frozen=True, slots=True)
-class PaneRows:
-    """What one refresh hands a list pane: records and the per-refresh extras.
-
-    ``columns`` re-declares the pane's columns when the read model varies
-    them; ``note`` is a pane-level fact for the frame's subtitle;
-    ``filter_count`` is the matched count the pane's controls show; and
-    ``records`` are the read-model rows the list rows were built from, kept
-    for relationship emphasis so a cursor move never queries the store.
-    """
-
-    rows: tuple[ListRow, ...]
-    columns: tuple[ListColumn, ...] | None = None
-    note: str | None = None
-    empty_message: str | None = None
-    title_summary: str | None = None
-    filter_count: str | None = None
-    records: tuple[FocusedSource, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

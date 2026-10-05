@@ -241,3 +241,33 @@ async def test_a_refused_launch_is_a_toast_and_releases_the_row(tmp_path):
         if call.kwargs.get("severity") == "error"
     ]
     assert errors == ["launcher exited 2: no tmux"] * 2
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_launch_failure_is_a_toast_and_releases_the_row(tmp_path):
+    # The launch runs inside the dashboard's off-loop error boundary, so a
+    # failure the launcher never anticipated still reaches the person.
+    path = tmp_path / "unexpected"
+    path.mkdir()
+    snapshot = with_first_target(
+        workspace_snapshot(issue("test/repo#1", "First")), path=str(path)
+    )
+    opener = Mock(side_effect=RuntimeError("opener bug"))
+    app = dashboard_app(
+        SequenceCollector(snapshot),
+        launcher_configuration=LauncherConfiguration(opener),
+    )
+    notify = Mock(wraps=app.notify)
+    app.notify = notify
+    async with app.run_test(size=(120, 45)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        table = app.query_one(WorktreeTable)
+        table.focus()
+        await pilot.press("enter")
+        await wait_until(lambda: opener.call_count == 1 and not table.opening)
+    errors = [
+        (call.args[0], call.kwargs.get("title"))
+        for call in notify.call_args_list
+        if call.kwargs.get("severity") == "error"
+    ]
+    assert errors == [("opener bug", "Open Worktree")]

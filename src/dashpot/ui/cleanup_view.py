@@ -43,6 +43,7 @@ from ..repository.cleanup import (
     unchecked_processes_note,
     worktree_target,
 )
+from ..repository.refs import REMOTE_REF_PREFIX
 from ..repository.refs import short_ref as ref_name
 from .branch_cells import fetch_age_text
 from .marked_widgets import MarkedCheckbox
@@ -53,9 +54,38 @@ CHANGED_HELP = (
 )
 
 
-def short_ref(ref: str | None) -> str:
-    """Label a ref without its Git namespace, or name the Integration Branch."""
+def integration_ref_label(ref: str | None) -> str:
+    """Label the ref integration was judged against, or name the Integration Branch."""
     return ref_name(ref) if ref else "the Integration Branch"
+
+
+def judged_against_remote_tracking(target: CleanupTarget) -> bool:
+    """Whether integration was judged against a Remote-Tracking Branch.
+
+    Such a judgement is only as fresh as the last Remote Fetch: Dashpot never
+    fetches on its own, so a merged Pull Request whose commit has not been
+    fetched still reads as unintegrated.
+    """
+    fact = target.integration
+    return fact is not None and (fact.integration_ref or "").startswith(
+        REMOTE_REF_PREFIX
+    )
+
+
+def target_ref_label(target: CleanupTarget) -> str:
+    """Label a Branch target's ref as a person reads it."""
+    return ref_name(target.ref or "")
+
+
+def remote_branch_name(target: CleanupTarget) -> str:
+    """The Branch's name at its remote, without the remote's own prefix."""
+    return target_ref_label(target).removeprefix(f"{target.remote}/")
+
+
+def required_label(preview: CleanupPreview, target: CleanupTarget) -> str:
+    """Name the target ``target`` can only be selected with, or the Worktree."""
+    required = preview.target(target.requires) if target.requires else None
+    return required.label if required else "the Worktree"
 
 
 FETCH_HINT = "If it has since merged, press f to fetch and check again."
@@ -66,20 +96,47 @@ NOTHING_DELETABLE = "Nothing here can be deleted."
 CALLOUT_IGNORED_NAMES = 3
 
 
+def rests_on_remote_facts(preview: CleanupPreview) -> bool:
+    """Whether the preview rests on facts only a Remote Fetch refreshes."""
+    return preview.kind == "worktree" or any(
+        target.kind == "remote-branch" or judged_against_remote_tracking(target)
+        for target in preview.targets
+    )
+
+
+def freshness_line(
+    preview: CleanupPreview, fetched_at: str | None, now: datetime
+) -> Static | None:
+    """Say when the remotes were last fetched, where the preview rests on them.
+
+    ``fetched_at`` is the Repository's last fetch as the preview knows it,
+    else the first target observed with one; the hover says it is the
+    Repository's, not a verification of each remote.
+    """
+    if not rests_on_remote_facts(preview):
+        return None
+    fetched_at = fetched_at or next(
+        (target.observed_at for target in preview.targets if target.observed_at),
+        None,
+    )
+    age = fetch_age_text(fetched_at, now)
+    line = Static(age[:1].upper() + age[1:], markup=False, id="cleanup-freshness")
+    if fetched_at:
+        line.tooltip = Content(
+            f"Repository fetch timestamp: {fetched_at} (not per-remote verification)"
+        )
+    return line
+
+
 def blocker_summary(blocker: CleanupBlocker, target: CleanupTarget) -> str:
     """Keep each blocking condition visible beside its target.
 
     An integration block judged against a Remote-Tracking Branch may only be
-    stale: Dashpot never fetches on its own, so a merged Pull Request whose
-    commit has not been fetched still reads as unintegrated.
+    stale, so it says how to check again.
     """
     summary = _blocker_text(blocker, target)
-    fact = target.integration
-    if (
-        blocker.kind in {"unintegrated", "unknown-integration"}
-        and fact is not None
-        and (fact.integration_ref or "").startswith("refs/remotes/")
-    ):
+    integration = blocker.kind in {"unintegrated", "unknown-integration"}
+    if integration and judged_against_remote_tracking(target):
         return f"{summary} {FETCH_HINT}"
     return summary
 
@@ -92,7 +149,7 @@ def _blocker_text(blocker: CleanupBlocker, target: CleanupTarget) -> str:
         fact = target.integration
         return (
             f"{counted(fact.unintegrated_commits or 0, 'commit')} not reachable from "
-            f"{short_ref(fact.integration_ref)}."
+            f"{integration_ref_label(fact.integration_ref)}."
         )
     # An agent-session blocker is shown whole, as its detail: it names the
     # session, whether it is live here, and its harness's way out.
@@ -135,19 +192,18 @@ def target_summary(preview: CleanupPreview, target: CleanupTarget) -> str:
     else:
         fact = target.integration
         if fact and fact.state == "integrated":
-            lines.append(f"Commits integrated into {short_ref(fact.integration_ref)}.")
+            lines.append(
+                f"Commits integrated into {integration_ref_label(fact.integration_ref)}."
+            )
         elif fact and fact.state == "content-integrated":
             original = fact.unintegrated_commits or 0
             lines.append(
-                f"Content integrated into {short_ref(fact.integration_ref)}; "
+                f"Content integrated into {integration_ref_label(fact.integration_ref)}; "
                 f"{counted(original, 'original commit')} "
                 f"{'is' if original == 1 else 'are'} not retained there."
             )
         if target.requires:
-            required = preview.target(target.requires)
-            lines.append(
-                f"Requires removing {required.label if required else 'the Worktree'}."
-            )
+            lines.append(f"Requires removing {required_label(preview, target)}.")
         if target.kind == "remote-branch":
             lines.append(
                 f"Deletes the Branch on {target.remote}; refuses if its tip changed."
@@ -171,12 +227,11 @@ def target_facts(target: CleanupTarget, now: datetime) -> list[TargetFact]:
     if target.kind == "worktree":
         facts += [("Path", target.path or ""), ("HEAD", commit)]
     elif target.kind == "local-branch":
-        facts += [("Branch", short_ref(target.ref)), ("Commit", commit)]
+        facts += [("Branch", target_ref_label(target)), ("Commit", commit)]
     else:
-        name = short_ref(target.ref).removeprefix(f"{target.remote}/")
         age = relative_age(target.observed_at, now)
         facts += [
-            ("Branch", f"{name} at {target.remote}"),
+            ("Branch", f"{remote_branch_name(target)} at {target.remote}"),
             (
                 "Commit",
                 f"{commit}, as of the last Repository fetch ({age})" if age else commit,
@@ -254,7 +309,6 @@ def confirmation_lines(
     for target in preview.targets:
         if target.identity not in selected:
             continue
-        name = short_ref(target.ref)
         if target.kind == "worktree":
             lines.append(f"remove Worktree {target.path}")
             if acknowledged:
@@ -268,10 +322,11 @@ def confirmation_lines(
                 more = ", …" if len(preview.ignored) > CALLOUT_IGNORED_NAMES else ""
                 lines.append(f"  with {ignored_description(preview)}: {names}{more}")
         elif target.kind == "local-branch":
-            lines.append(f"delete local Branch {name}")
+            lines.append(f"delete local Branch {target_ref_label(target)}")
         else:
-            name = name.removeprefix(f"{target.remote}/")
-            lines.append(f"delete Branch {name} at {target.remote}")
+            lines.append(
+                f"delete Branch {remote_branch_name(target)} at {target.remote}"
+            )
     return lines
 
 
@@ -457,6 +512,14 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
             )
         return self.preview.kind == "branch" and bool(self.preview.selectable)
 
+    def unverified_remote(self, target: CleanupTarget) -> bool:
+        """Whether the latest fetch here left a remote Branch's remote unverified."""
+        return (
+            target.kind == "remote-branch"
+            and self.verified_remotes is not None
+            and target.remote not in self.verified_remotes
+        )
+
     @property
     def confirm_label(self) -> str:
         """The dialog's title and its confirm button's fixed label."""
@@ -490,33 +553,8 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                     yield Static(
                         f"Blocked: {refusal}", markup=False, classes="cleanup-blocker"
                     )
-                if preview.kind == "worktree" or any(
-                    target.kind == "remote-branch"
-                    or (
-                        target.integration
-                        and (target.integration.integration_ref or "").startswith(
-                            "refs/remotes/"
-                        )
-                    )
-                    for target in preview.targets
-                ):
-                    fetched_at = self.fetched_at or next(
-                        (
-                            target.observed_at
-                            for target in preview.targets
-                            if target.observed_at
-                        ),
-                        None,
-                    )
-                    age = fetch_age_text(fetched_at, datetime.now(UTC))
-                    freshness = Static(
-                        age[:1].upper() + age[1:], markup=False, id="cleanup-freshness"
-                    )
-                    if fetched_at:
-                        freshness.tooltip = Content(
-                            f"Repository fetch timestamp: {fetched_at} "
-                            "(not per-remote verification)"
-                        )
+                freshness = freshness_line(preview, self.fetched_at, datetime.now(UTC))
+                if freshness is not None:
                     yield freshness
                 scope = sub_agent_scope(preview)
                 if scope is not None:
@@ -549,11 +587,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
                             index,
                             primary=target.identity == self.primary_identity,
                             chosen=target.identity in self.chosen,
-                            unverified_remote=(
-                                target.kind == "remote-branch"
-                                and self.verified_remotes is not None
-                                and target.remote not in self.verified_remotes
-                            ),
+                            unverified_remote=self.unverified_remote(target),
                             grouped=grouped,
                         )
                 if sessions := despite_sessions(preview):
@@ -653,8 +687,10 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         for identity in selected:
             target = self.preview.target(identity)
             if target and target.requires and target.requires not in selected:
-                required = self.preview.target(target.requires)
-                return f"{target.label} requires removing {required.label if required else 'the Worktree'}."
+                return (
+                    f"{target.label} requires removing "
+                    f"{required_label(self.preview, target)}."
+                )
         return None
 
     def refresh_state(self) -> None:

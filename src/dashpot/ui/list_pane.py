@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, cast, override
+from typing import TYPE_CHECKING, Literal, Self, cast, override
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -19,6 +19,11 @@ from .item_filter import ItemFilterBar
 from .keyed_table import capture_selection, restore_selection
 from .list_rows import ListCell, ListColumn, ListRow, column_help
 from .pane_layout import content_height_wish, pane_wish
+
+if TYPE_CHECKING:
+    # Only named in an annotation: ``panes`` imports this module to build
+    # its specs, so a runtime import would be a cycle.
+    from .panes import PaneSpec
 
 ISSUE_PANE_LABEL = "ISSUES"
 SESSIONS_PANE_LABEL = "SESSIONS"
@@ -36,7 +41,31 @@ __all__ = [
     "ListColumn",
     "ListPane",
     "ListRow",
+    "PaneRows",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class PaneRows:
+    """What one refresh hands a list pane: records and the per-refresh extras.
+
+    ``columns`` re-declares the pane's columns when the read model varies
+    them, such as the Sessions pane's single-Observation-Target case;
+    ``note`` is a pane-level fact for the frame's subtitle, such as when the
+    Branches pane's Remote-Tracking Branches were last fetched;
+    ``empty_message`` and ``title_summary`` replace the pane's own for this
+    refresh; ``filter_count`` is the matched count the pane's controls show;
+    and ``records`` are the read-model rows the list rows were built from,
+    kept for relationship emphasis so a cursor move never queries the store.
+    """
+
+    rows: tuple[ListRow, ...]
+    columns: tuple[ListColumn, ...] | None = None
+    note: str | None = None
+    empty_message: str | None = None
+    title_summary: str | None = None
+    filter_count: str | None = None
+    records: tuple[FocusedSource, ...] = ()
 
 
 class ListPane(Vertical):
@@ -82,6 +111,23 @@ class ListPane(Vertical):
         self.controls = controls
         self._controls_height = controls_height
         self.visible_row_limit = visible_row_limit
+
+    @classmethod
+    def from_spec(
+        cls, spec: PaneSpec, *, controls: ItemFilterBar | None = None
+    ) -> Self:
+        """The pane a spec declares, with the filter bar its screen composed for it."""
+        return cls(
+            spec.label,
+            columns=spec.columns,
+            empty_message=spec.empty_message,
+            id=spec.pane_id,
+            table_id=spec.table_id,
+            table_type=spec.table_type,
+            controls=controls,
+            controls_height=spec.controls_height,
+            visible_row_limit=spec.visible_row_limit,
+        )
 
     @override
     def compose(self) -> ComposeResult:
@@ -137,35 +183,22 @@ class ListPane(Vertical):
                 tooltip=column_help(column),
             )
 
-    def show_rows(
-        self,
-        rows: Sequence[ListRow],
-        *,
-        columns: Sequence[ListColumn] | None = None,
-        note: str | None = None,
-        empty_message: str | None = None,
-        title_summary: str | None = None,
-        filter_count: str | None = None,
-        records: tuple[FocusedSource, ...] = (),
-    ) -> None:
-        """Replace the listed records, keeping the cursor by row identity.
+    def show_rows(self, rows: Sequence[ListRow]) -> None:
+        """Replace the listed records alone, with none of a refresh's extras."""
+        self.show(PaneRows(tuple(rows)))
 
-        ``columns`` re-declares the pane's columns when the read model has
-        dropped one, such as the Sessions pane's single-Observation-Target
-        case. ``note`` is a separate pane-level fact, such as when the
-        Branches pane's Remote-Tracking Branches were last fetched.
-        ``filter_count`` is the matched count the pane's controls show, and
-        ``records`` are the read-model rows ``rows`` were built from.
-        """
+    def show(self, view: PaneRows) -> None:
+        """Replace the listed records and their extras, keeping the cursor by row identity."""
+        rows = view.rows
         table = self.table
-        message = empty_message or self.empty_message
+        message = view.empty_message or self.empty_message
         prior_key, prior_index = self.highlighted()
         desired = {row.key: row for row in rows}
         if len(desired) != len(rows):
             raise ValueError(f"Duplicate row identity in the {self.label} pane")
         with self.app.batch_update():
-            if columns is not None and tuple(columns) != self.columns:
-                self.declare_columns(columns)
+            if view.columns is not None and view.columns != self.columns:
+                self.declare_columns(view.columns)
             table.clear()
             for row in rows:
                 cells = tuple(
@@ -176,12 +209,12 @@ class ListPane(Vertical):
                 )
                 table.add_row(*cells, key=row.key)
         self.rows_by_key = desired
-        self.records = records
-        summary = str(self.count) if title_summary is None else title_summary
+        self.records = view.records
+        summary = str(self.count) if view.title_summary is None else view.title_summary
         self.border_title = Content(f"{self.label} · {summary}")
-        self.border_subtitle = Content(note) if note else None
-        if self.controls is not None and filter_count is not None:
-            self.controls.count.update(filter_count)
+        self.border_subtitle = Content(view.note) if view.note else None
+        if self.controls is not None and view.filter_count is not None:
+            self.controls.count.update(view.filter_count)
         # The empty state is the message line alone: a header over nothing
         # would only cost the Issue table a row.
         table.show_header = bool(rows)
