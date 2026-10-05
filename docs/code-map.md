@@ -12,7 +12,8 @@ docstring carries the rest of its contract.
 
 The map lists every module Dashpot ships, each linked by its own path, and
 every asset beside them. An empty package initializer is left out, since it
-holds nothing; an initializer that exports a seam is listed with its package.
+holds nothing; an initializer with any content, such as one that exports a
+seam, is listed with its package.
 `uv run python scripts/maintain_docs.py` fails while a shipped module or asset
 is missing from the map or the map links one that is not shipped, so a new
 module is added here in the change that creates it, under the concept it
@@ -31,7 +32,7 @@ rules are in [AGENTS.md](../AGENTS.md#code-conventions).
 
 | Concept | Module | Role |
 | --- | --- | --- |
-| Package | [`__init__.py`](../src/dashpot/__init__.py) | Exports the observation values a library caller reads: the Workspace Snapshot and its parts. |
+| Package | [`__init__.py`](../src/dashpot/__init__.py) | Exports the values a library caller reads: the Workspace Snapshot and its parts, and the Issue Profile. |
 | | [`py.typed`](../src/dashpot/py.typed) | Marks the package as typed for type checkers. |
 | Command line | [`__main__.py`](../src/dashpot/__main__.py) | Runs `python -m dashpot`. |
 | | [`cli/__init__.py`](../src/dashpot/cli/__init__.py) | Re-exports `main`, the `dashpot` console script. |
@@ -104,10 +105,19 @@ rules are in [AGENTS.md](../AGENTS.md#code-conventions).
 | | [`repository/refs.py`](../src/dashpot/repository/refs.py) | Names a Repository's Branch refs and chooses its Integration Branch among them. |
 | Worktree topology | [`core/worktree_paths.py`](../src/dashpot/core/worktree_paths.py) | Locates paths within a Repository's Worktrees, without loading Git observation. |
 | | [`repository/worktrees/records.py`](../src/dashpot/repository/worktrees/records.py) | Locates and identifies Worktrees in Git's topology records. |
+
+## Repository mutations
+
+What changes a Repository runs only on explicit invocation and changes only
+what it names: a Remote Fetch, an Issue Worktree's creation, a Cleanup.
+Observation never calls these modules. The `work` commands, which change the
+Work Store, are under [Agent Sessions](#agent-sessions).
+
+| Concept | Module | Role |
+| --- | --- | --- |
 | Remote Fetch | [`repository/fetch.py`](../src/dashpot/repository/fetch.py) | Fetches every remote of one Repository Anchor on explicit invocation. |
 | Issue Worktree, Worktree Root | [`repository/worktrees/create.py`](../src/dashpot/repository/worktrees/create.py) | Prepares an Issue Worktree after validating its plan. |
 | | [`repository/worktrees/base.py`](../src/dashpot/repository/worktrees/base.py) | Resolves a new Worktree's base ref and commit. |
-| | [`repository/worktree_launcher.py`](../src/dashpot/repository/worktree_launcher.py) | Opens a selected Worktree through one bounded launcher request. |
 | Cleanup | [`repository/cleanup/__init__.py`](../src/dashpot/repository/cleanup/__init__.py) | The Cleanup seam the CLI, serialization and dashboard import. |
 | | [`repository/cleanup/targets.py`](../src/dashpot/repository/cleanup/targets.py) | Cleanup requests, targets, blockers and preview evidence. |
 | | [`repository/cleanup/preview.py`](../src/dashpot/repository/cleanup/preview.py) | Inspects Cleanup targets without mutating their Repository. |
@@ -128,7 +138,7 @@ rules are in [AGENTS.md](../AGENTS.md#code-conventions).
 | | [`sessions/liveness.py`](../src/dashpot/sessions/liveness.py) | Derives Session Liveness from a session's recorded Host Process. |
 | | [`sessions/session_matching.py`](../src/dashpot/sessions/session_matching.py) | Keeps Agent Session Identity apart from shared Host Process evidence. |
 | Background Command | [`sessions/working_directories.py`](../src/dashpot/sessions/working_directories.py) | Finds the processes on this host whose working directory is inside a directory. |
-| Hook records, Session History | [`sessions/hook_publish.py`](../src/dashpot/sessions/hook_publish.py) | Publishes a hook event to its Agent Session's record stores. |
+| Hook publication, Session History | [`sessions/hook_publish.py`](../src/dashpot/sessions/hook_publish.py) | Publishes a hook event to its Agent Session's record stores. |
 | | [`sessions/hook_records.py`](../src/dashpot/sessions/hook_records.py) | The hook record and its store: what each event writes, under the store's lock. |
 | | [`sessions/hook_scan.py`](../src/dashpot/sessions/hook_scan.py) | Classifies and scans hook records into each session's Session History. |
 | | [`sessions/hook_claims.py`](../src/dashpot/sessions/hook_claims.py) | Validates a claimed Agent Session Identity against hook evidence. |
@@ -202,6 +212,7 @@ rules are in [AGENTS.md](../AGENTS.md#code-conventions).
 | | [`ui/keyed_table.py`](../src/dashpot/ui/keyed_table.py) | Keeps a keyed table's selection across refreshes. |
 | | [`ui/marked_widgets.py`](../src/dashpot/ui/marked_widgets.py) | `MarkedSelectionList` and `MarkedCheckbox`: toggles whose `X` shows only when on. |
 | Remote Fetch on `f` | [`ui/fetch_flow.py`](../src/dashpot/ui/fetch_flow.py) | Runs the Remote Fetch a person asks for, one Project at a time. |
+| Opening a Worktree | [`repository/worktree_launcher.py`](../src/dashpot/repository/worktree_launcher.py) | Opens the selected Worktree on `Enter` through one bounded launcher request; it changes nothing. |
 | Cleanup on `x` | [`ui/cleanup_flow.py`](../src/dashpot/ui/cleanup_flow.py) | Runs a Cleanup: preview, confirm, perform, re-observe. |
 | | [`ui/cleanup_view.py`](../src/dashpot/ui/cleanup_view.py) | The Cleanup dialog: each target's choice, blockers, consequences and evidence. |
 | Runtime screen | [`ui/runtime_view.py`](../src/dashpot/ui/runtime_view.py) | The Runtime screen that holds the Events and Stats tabs. |
@@ -217,7 +228,8 @@ where one process's Event Log is and at which Event Level, then opens it;
 open returns, appending events and timing spans;
 [`core/event_log_files.py`](../src/dashpot/core/event_log_files.py) works on
 the files afterwards, finding, reading, measuring and removing them. The
-opener sits at the root because it reads the Project's settings, which `core`
+opener sits at the root because it reads the machine-local settings
+([`project/settings.py`](../src/dashpot/project/settings.py)), which `core`
 may not import. [`observability-design.md`](observability-design.md#implementation)
 holds the design they implement.
 
@@ -246,7 +258,7 @@ holds the design they implement.
 | | [`core/record_store.py`](../src/dashpot/core/record_store.py) | The locked, atomic JSON record store beneath the hook and Work stores. |
 | | [`core/file_locks.py`](../src/dashpot/core/file_locks.py) | Per-record lock files a pruner may delete without breaking exclusion. |
 | Errors | [`core/errors.py`](../src/dashpot/core/errors.py) | The CLI error contract: `DashpotError`, the one-line refusal every seam's error derives from. |
-| | [`core/working_directory.py`](../src/dashpot/core/working_directory.py) | Reads a command's working directory, refusing once it no longer exists. |
+| Working directory | [`core/working_directory.py`](../src/dashpot/core/working_directory.py) | Reads a command's working directory, refusing once it no longer exists. |
 | Time and wording | [`core/timestamps.py`](../src/dashpot/core/timestamps.py) | Stamps and reads the RFC 3339 UTC instants Dashpot records and observes. |
 | | [`core/ages.py`](../src/dashpot/core/ages.py) | Says how long ago an observed timestamp was. |
 | | [`core/text.py`](../src/dashpot/core/text.py) | Words the English a person reads the same way on every surface. |

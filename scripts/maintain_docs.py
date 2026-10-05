@@ -33,7 +33,7 @@ import argparse
 import re
 import subprocess
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
@@ -642,7 +642,7 @@ def needs_listing(name: str) -> bool:
     """Report whether the code map must list a shipped file at all.
 
     A package initializer with nothing in it holds no code to find, so only
-    one that exports a seam, or runs anything, is listed.
+    one with any content, such as a seam it exports, is listed.
     """
     if PurePosixPath(name).name != "__init__.py":
         return True
@@ -650,14 +650,13 @@ def needs_listing(name: str) -> bool:
     return not module.is_file() or bool(module.read_text(encoding="utf-8").strip())
 
 
-def is_listed(name: str, linked: Iterable[str]) -> bool:
+def is_listed(name: str, links: Collection[str]) -> bool:
     """Report whether the code map's links cover one shipped file.
 
     A Python module is listed only by its own path, so a link to its package
     never stands in for it. An asset may be listed by a directory holding it,
     as a bundled skill is by its own directory.
     """
-    links = set(linked)
     if name in links:
         return True
     if PurePosixPath(name).suffix == ".py":
@@ -704,7 +703,7 @@ def check_code_map(shipped: Sequence[str]) -> list[Problem]:
             "add it under the concept it serves",
         )
         for name in sorted(files)
-        if needs_listing(name) and not is_listed(name, linked)
+        if needs_listing(name) and not is_listed(name, linked.keys())
     )
     return problems
 

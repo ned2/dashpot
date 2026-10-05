@@ -11,10 +11,6 @@ a `ListResult` no longer carries the store revision, and the Pull Request
 list, its summary and `issues/pull_request_search.py` are gone with the
 store's local query engine.
 
-The module ownership table this ADR carried is now the living
-[code map](../code-map.md), which is kept complete by a gate; see
-[Completed layout](#completed-layout).
-
 The [codebase review](../reviews/codebase-review-2026-09-13.md#proposed-subpackage-layout)
 derives a package layout from the import graph and shared domain language.
 [Issue #188](https://github.com/ned2/dashpot/issues/188) implements its first

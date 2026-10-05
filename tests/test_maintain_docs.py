@@ -778,7 +778,7 @@ def check_map(
 def test_a_code_map_listing_every_shipped_module_passes(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A row may link a module at a line; links that leave the package are not counted."""
+    """A link is resolved as the link gate resolves it; links leaving the package do not count."""
     shipped = ship(tmp_path, "hook.py", "core/git.py")
 
     messages = check_map(
@@ -786,7 +786,7 @@ def test_a_code_map_listing_every_shipped_module_passes(
         tmp_path,
         shipped,
         "| [`hook.py`](../src/dashpot/hook.py) | Publish. |\n"
-        "| [`core/git.py`](../src/dashpot/core/git.py#L1) | Run Git. |\n"
+        "| [`core/git.py`](../src/dashpot/core/../core/git%2Epy?plain=1#L1) | Run Git. |\n"
         "See [the design](design.md) and [AGENTS.md](../AGENTS.md#code-conventions).\n"
         "[Upstream](https://example.invalid/src/dashpot/gone.py) and [up](#code-map).\n",
     )
@@ -897,6 +897,7 @@ def test_links_in_code_do_not_list_a_module(
 def test_a_missing_code_map_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """With no map at all, every shipped module is unlisted; the gate says why once."""
     monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
 
     problems = maintain_docs.check_code_map(ship(tmp_path, "hook.py"))
