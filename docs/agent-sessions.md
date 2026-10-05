@@ -441,7 +441,7 @@ and start time Dashpot records and checks for liveness:
 | `codex --remote`, or a controller on the daemon | The daemon | As above |
 | A controller on `codex app-server --listen` | That app-server | `SessionEnd` about 60 s after the thread's last client leaves, or when the server exits |
 | `codex --disable daemon_auto_start`, launched while no daemon runs | The terminal itself | `SessionEnd` at `/exit` |
-| `codex exec` | The `exec` process | `SessionEnd` when it exits |
+| `codex exec` | The `exec` process | `SessionEnd` when it exits on its own or on SIGINT; none after SIGTERM or SIGKILL, which leave its run orphaned ([stopping `codex exec`](#stopping-codex-exec)) |
 
 Codex 0.160.0 starts the managed daemon automatically (`daemon_auto_start`
 is on by default), so a plain terminal's thread, its hooks and its shells all
@@ -479,7 +479,9 @@ In the dashboard, a Codex session's state means:
   with no run, though one resumed on the same daemon within those 10 s can
   show the old run until it ends.
 - **Gone.** The Host Process was killed or crashed, and no hook says so, or
-  the managed daemon was stopped or restarted. A bound run is listed as an
+  the managed daemon was stopped or restarted. A `codex exec` sent SIGTERM
+  or SIGKILL is gone this way ([stopping `codex exec`](#stopping-codex-exec)).
+  A bound run is listed as an
   [Orphaned Agent Run](domain-language.md) (`◌`) under the gone process
   (`codex pid N`), and an unbound session leaves the Sessions pane. A killed
   daemon orphans every bound run it hosted at once. So does
@@ -520,6 +522,45 @@ switching conversations inside one terminal (`/new`, `/resume`, `/cd`) and
 Codex-managed `/worktree`; Remote Control paired with an account; the Code
 Mode remote host; the stdio transport; and every operating system other than
 Linux.
+
+#### Stopping `codex exec`
+
+Stop a `codex exec` session with SIGINT: Ctrl-C in its terminal, or
+`kill -INT <pid>` for a detached one. SIGINT publishes `Interrupt` and then
+`SessionEnd`, and the session's Agent Run ends. SIGTERM and SIGKILL publish
+nothing. The `exec` process exits, and the command it was running with it,
+but its bound run stays, an Orphaned Agent Run under the gone process. Cleanup
+then refuses to remove its Worktree, and the `agent-run` blocker names the run
+(`Orphaned Agent Run on <issue> for codex pid N`)
+([measured at 0.160.0](agent-harness-server-client-reference.md#codex-exec-signals-at-01600)).
+
+The rule is the `exec` process's own. A `codex app-server --listen` sent
+SIGTERM does publish `SessionEnd` for the thread it holds
+([measured at 0.155.1](agent-harness-server-client-reference.md#measured-lifecycle-at-01551)),
+and a stopped or restarted managed daemon publishes `SessionEnd` but leaves
+its runs orphaned, as above.
+
+Dashpot does not end the run of an `exec` sent SIGTERM or SIGKILL on its own.
+With no `SessionEnd`, it cannot tell an `exec` killed for good from one about
+to be continued with `codex exec resume`, and a gone Host Process is not
+evidence that work ended
+([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
+[ADR 0086](adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)
+orphans the runs of a stopped or restarted managed daemon, rather than ending
+them, for the same reason. Reading the run as ended would discard a run its
+person can still recover. Recover it in one of two ways:
+
+- Resume the thread in the run's Worktree, and run `dashpot work start
+  <issue>` with the run's Issue from the resumed session, as for any orphaned
+  Codex run [above](#codex-hosting-modes). `codex exec -C <worktree> resume
+  <id> <prompt>` resumes it headless. Restate its sandbox flags before
+  `resume`, since a bare `exec resume` runs at the configured default.
+- End the run with `dashpot work stop --session <key>`.
+
+A Lead's Codex Workers in the `dashpot-execute-issues` skill are Sub-agents
+of the Lead's thread, not `exec` processes, so this rule does not reach them;
+[its Codex notes](../src/dashpot/skills/dashpot-execute-issues/references/harnesses.md#codex)
+say how to stop one.
 
 ### Claude Code hosting modes
 
