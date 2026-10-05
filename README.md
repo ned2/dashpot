@@ -468,9 +468,9 @@ and Repository Anchors, so automation and diagnostics do not depend on labels or
 paths for identity.
 
 The headless JSON key set is a stable contract, for `dashpot --json` and for
-every other command's `--json` (`issue show`, `worktree create`,
+the `--json` of `issue show`, `worktree create`,
 `worktree check`, `worktree remove`, `branch delete`, `events`,
-`events remove`): keys are camelCase,
+and `events remove`: keys are camelCase,
 every documented field is present, and
 an unknown value is an explicit `null` rather than an omitted key, so a
 consumer can tell "unknown" from "not emitted by this version". A shape change

@@ -12,16 +12,17 @@ here, and this document explains the commands behind them.
 
 ## Agent session observation
 
-Installing Dashpot provides the no-stdout `dashpot-codex-hook`,
-`dashpot-claude-code-hook`, and `dashpot-opencode-hook` publishers; OpenCode
-reaches its helper through a managed plugin rather than command hooks
-([OpenCode hosting modes](#opencode-hosting-modes)). Nothing is installed into a harness
-automatically; register the lifecycle hooks once per user with:
+Installing Dashpot provides the no-stdout `dashpot-codex-hook` and
+`dashpot-claude-code-hook` publishers, and the `dashpot-opencode-hook`
+helper that OpenCode's managed plugin runs, which prints the one-line
+acknowledgment the plugin reads
+([OpenCode hosting modes](#opencode-hosting-modes)). Nothing is installed
+into a harness automatically; register the lifecycle hooks once per user with:
 
 ```bash
 dashpot integrate codex                 # hooks plus the bundled skills in ~/.agents/skills/
 dashpot integrate claude-code           # hooks plus the bundled skills in ~/.claude/skills/
-dashpot integrate opencode              # the managed plugin, worker agent and skills in OpenCode's config
+dashpot integrate opencode              # the managed plugin, the dashpot-worker agent and skills in OpenCode's config
 dashpot integrate --installed           # refresh every harness already integrated
 dashpot integrate <harness> --status    # diagnose hooks, skills, records, identity
 dashpot integrate <harness> --remove    # remove Dashpot's hooks and managed skills

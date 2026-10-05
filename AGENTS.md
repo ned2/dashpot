@@ -132,9 +132,9 @@ Address findings, refresh validation for changed sources, and request focused
 follow-up review of the fixes. Changed tests, conflict resolutions, or
 CI-driven fixes can invalidate approval too. Verify the coverage source digest
 after hooks and before push, except for a documentation-only change, which has
-no evidence, and a [content-preserving rebase](#integration-and-rebase), whose evidence stays that
-of the head it rebased; a commit that leaves the digest unchanged does not
-invalidate review. Changes to the reviewed diff/base need appropriate follow-up review.
+no evidence, and a [content-preserving rebase](#integration-and-rebase),
+whose evidence stays that of the head it rebased; a commit that leaves the
+digest unchanged does not invalidate review. Changes to the reviewed diff/base need appropriate follow-up review.
 Green CI on unchanged reviewed code finishes verification without another
 routine review. Follow the README's [integration sequence](README.md#contributing)
 and keep the Issue Binding through all delegated work and green PR CI.
@@ -211,15 +211,17 @@ The conventions the tooling enforces or the code assumes:
 - Values at validating seams — untrusted input, persisted state, published
   wire shapes — are Pydantic models on the shared, frozen `PublishedModel`
   base in `src/dashpot/core/pydantic.py`
-  ([ADR 0013](docs/adr/0013-adopt-pydantic-models-by-seam.md)). Each seam
-  has its own base, and the base sets what an unknown field does
-  ([ADR 0041](docs/adr/0041-distinguish-github-wire-models-from-configuration.md)):
+  ([ADR 0013](docs/adr/0013-adopt-pydantic-models-by-seam.md)). The seams
+  below have their own base, which sets what an unknown field does
+  ([ADR 0041](docs/adr/0041-distinguish-github-wire-models-from-configuration.md));
+  another seam model subclasses `PublishedModel` and sets its own policy, as
+  the Event Log's `EventModel` forbids unknown fields:
 
   | Base | Seam | Unknown fields |
   | --- | --- | --- |
   | `WireModel` | A selected GitHub response | Forbidden: the response's field contract is closed |
-  | `ObservationModel` (`src/dashpot/core/model.py`) | A published observation or query value | Set per model: query requests, contexts and continuations forbid them, keeping their closed key contracts |
-  | `PersistedRecord` | State Dashpot persists: a hook record, a Work Store record, a skill manifest | Kept (`extra="allow"`), for a record a newer Dashpot may have written |
+  | `ObservationModel` (`src/dashpot/core/model.py`) | A published observation or query value | Ignored unless the model sets a policy: query requests, contexts and continuations forbid them, keeping their closed key contracts |
+  | `PersistedRecord` | A record Dashpot persists and a newer Dashpot may extend: a hook record, a Work Store record, a skill manifest | Kept (`extra="allow"`) |
   | `ConfigModel` | A configuration file whose key set is a closed contract | Forbidden, so a misspelt key is refused rather than ignored |
 
   Trusted internal values stay frozen, slotted dataclasses
