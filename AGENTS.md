@@ -267,7 +267,9 @@ The conventions the tooling enforces or the code assumes:
   GitHub; nothing in the suite talks to the network.
 - Every document under `docs/` declares `status` and `date` in frontmatter,
   every in-repo Markdown link resolves — path, heading anchor, and `#L`
-  line fragment — and every ADR carries a four-digit number no other ADR
+  line fragment — whether it is in a document or in a docstring or comment
+  of the Python under `src/` or `scripts/`, where it is relative to the
+  module, and every ADR carries a four-digit number no other ADR
   claims, so a bare "ADR NNNN" in prose or in a code comment still names one
   document.
   `scripts/maintain_docs.py` fails the gate on any of them. The
