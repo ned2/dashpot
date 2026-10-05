@@ -41,12 +41,28 @@ lives in `.dashpot/state/`, which ignores itself in Git. For a Project without
 GitHub, use `dashpot init --markdown issues` with an existing directory of
 [Local Issue Markdown](https://github.com/ned2/dashpot/blob/main/conformance/issue/local-markdown.md).
 
-Harness observation is opt-in:
+Harness observation is opt-in. Integrate only the harnesses you use, naming
+any of `claude-code`, `codex` or `opencode`, one or several in one command,
+then check them:
 
 ```bash
-dashpot integrate codex
-dashpot integrate claude-code
+dashpot integrate claude-code codex
+dashpot integrate --status
 ```
+
+Before upgrading Dashpot, finish active Issue work and exit harness clients.
+Then refresh every harness already integrated, and no other, and restart the
+clients:
+
+```bash
+uv tool upgrade dashpot
+dashpot integrate --installed
+dashpot integrate --status
+```
+
+See
+[Upgrade and uninstall](https://github.com/ned2/dashpot/blob/main/docs/installation.md#upgrade-and-uninstall)
+for the complete steps.
 
 Dashpot 0.1.0 is alpha software. Documented command behavior, JSON, and user
 configuration remain compatible within 0.1.x; breaking changes require a new
