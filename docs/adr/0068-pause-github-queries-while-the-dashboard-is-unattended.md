@@ -22,9 +22,14 @@ no allowance, so it is not the concern here; its process spend is
     `TMUX` and `TMUX_PANE` set), it asks
     `tmux display-message -p -t $TMUX_PANE '#{session_attached}'`. That
     names the session holding the dashboard's own pane, and reports 0 once
-    every client has detached. An answer that cannot be read (tmux missing,
-    a timeout, a non-zero exit, output that is not a count) changes
-    nothing.
+    every client has detached. A grouped session (`tmux new -t`) shares its
+    windows with every session in its group, and tmux resolves the pane to
+    one of them, possibly one no client holds while a client of another
+    watches the pane; for a grouped session the probe therefore asks
+    `#{session_group_attached}`, the clients of the whole group
+    ([#547](https://github.com/ned2/dashpot/issues/547)). An answer that
+    cannot be read (tmux missing, a timeout, a non-zero exit, output that
+    is not a count) changes nothing.
   - **No input for the idle period.** No key or mouse event for
     `unattended_seconds`, a machine-local setting with the
     `--unattended-seconds` flag, 7,200 seconds (two hours) by default. Zero

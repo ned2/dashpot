@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import time
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
@@ -38,6 +40,7 @@ from dashpot.core.runtime_events import (
     ProcessIdentity,
     ProcessStart,
     QueryAttributes,
+    RateLimitPauseChanged,
     RefreshAttributes,
     RefreshTrigger,
 )
@@ -51,15 +54,17 @@ from dashpot.core.runtime_stats import (
     last_github_refresh,
     resident_memory,
 )
-from dashpot.github.github import LatestRateLimit, RateLimit
+from dashpot.github.github import LatestRateLimit, RateLimit, RateLimitPause
 from dashpot.project.settings import default_settings_path
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.attendance import Attendance
+from dashpot.ui.runtime_events_view import event_instant_text
 from dashpot.ui.runtime_stats_view import (
     duration_text,
     keys_text,
     long_duration_text,
     memory_text,
+    pause_text,
     refreshes_text,
     size_text,
     window_text,
@@ -72,6 +77,22 @@ REVISION = "0123456789abcdef0123456789abcdef01234567"
 MIDDAY = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
 HOUR = DASHBOARD_RECENT_WINDOW.total_seconds()
 MIDDAY_STAMP = "2026-09-27T12:00:00Z"
+
+
+@pytest.fixture
+def local_clock_ten_hours_ahead() -> Iterator[None]:
+    """Set the local clock ten hours ahead of UTC, so a UTC time on screen shows."""
+    before = os.environ.get("TZ")
+    os.environ["TZ"] = "<+10>-10"
+    time.tzset()
+    try:
+        yield
+    finally:
+        if before is None:
+            del os.environ["TZ"]
+        else:
+            os.environ["TZ"] = before
+        time.tzset()
 
 
 class Clock:
@@ -417,6 +438,7 @@ async def test_l_changes_the_level_for_the_run_and_never_the_settings(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 async def test_the_allowance_shows_the_latest_reading_the_sources_share(
     tmp_path: Path,
 ) -> None:
@@ -438,13 +460,26 @@ async def test_the_allowance_shows_the_latest_reading_the_sources_share(
 
         assert squeezed(section(app, "allowance")) == [
             "remaining 4,321 of 5,000 points",
-            "resets 13:00:00 UTC, in 1h 00m 00s",
+            "resets 23:00:00, in 1h 00m 00s",
             "last request 1 point",
             "rest of account not known until two readings share a window",
         ]
 
 
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
+def test_both_runtime_tabs_read_a_pause_on_one_clock() -> None:
+    pause = RateLimitPause("primary", datetime(2026, 9, 27, 12, 1, tzinfo=UTC))
+    event = RateLimitPauseChanged(
+        change="started", limit="primary", until=pause.until_text
+    )
+
+    # The Stats row and the Events summary name the same local time.
+    assert pause_text(pause, MIDDAY).startswith("until 22:01:00, ")
+    assert event_instant_text(event.until) == "22:01:00"
+
+
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
     tmp_path: Path,
 ) -> None:
@@ -459,7 +494,7 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
 
         # Refused before any response reported the rate limit.
         assert squeezed(section(app, "allowance")) == [
-            "paused until 12:01:00 UTC, in 1m 00s (secondary rate limit)"
+            "paused until 22:01:00, in 1m 00s (secondary rate limit)"
         ]
 
         shared.record(RateLimit(cost=1, limit=5000, remaining=0, reset_at=RESET))
@@ -467,7 +502,7 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
         screen.update_shown()
 
         assert squeezed(section(app, "allowance"))[:2] == [
-            "paused until 12:01:00 UTC, in 30s (secondary rate limit)",
+            "paused until 22:01:00, in 30s (secondary rate limit)",
             "remaining 0 of 5,000 points",
         ]
 
@@ -478,6 +513,7 @@ async def test_the_allowance_leads_with_a_pause_while_one_holds_github_queries(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 async def test_the_allowance_says_since_when_nobody_has_attended(
     tmp_path: Path,
 ) -> None:
@@ -498,7 +534,7 @@ async def test_the_allowance_says_since_when_nobody_has_attended(
         screen.update_shown()
 
         assert squeezed(section(app, "allowance")) == [
-            "unattended since 12:10:00 UTC, 1m 30s ago (no key or mouse input for 10m)"
+            "unattended since 22:10:00, 1m 30s ago (no key or mouse input for 10m)"
         ]
 
         # A Rate Limit Pause leads: it holds even a person's refresh.
@@ -506,12 +542,13 @@ async def test_the_allowance_says_since_when_nobody_has_attended(
         screen.update_shown()
 
         assert squeezed(section(app, "allowance")) == [
-            "paused until 12:12:30 UTC, in 1m 00s (secondary rate limit)",
-            "unattended since 12:10:00 UTC, 1m 30s ago (no key or mouse input for 10m)",
+            "paused until 22:12:30, in 1m 00s (secondary rate limit)",
+            "unattended since 22:10:00, 1m 30s ago (no key or mouse input for 10m)",
         ]
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 async def test_github_requests_are_counted_by_operation_for_the_last_refresh_and_hour(
     tmp_path: Path,
 ) -> None:
@@ -546,7 +583,7 @@ async def test_github_requests_are_counted_by_operation_for_the_last_refresh_and
         await open_stats(app, pilot)
 
         assert heading(app, "refresh-spend") == (
-            "GITHUB REQUESTS · last refresh, manual at 12:00:20 UTC"
+            "GITHUB REQUESTS · last refresh, manual at 22:00:20"
         )
         assert squeezed(section(app, "refresh-spend")) == [
             "operation requests points failed",

@@ -14,8 +14,8 @@ from pathlib import Path
 
 from rich.text import Text
 
-from ..core.model import ObservationTarget, SessionActivity
-from ..observation.session_list import SESSION_STATE_ORDER, abbreviate_path
+from ..core.model import AgentRun, ObservationTarget
+from ..observation.session_list import abbreviate_path
 from ..observation.worktree_list import WorktreeListRow
 from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
@@ -23,9 +23,10 @@ from .glyphs import (
     ACTIVITY_WIDTH,
     ATTENTION_COLORS,
     BAD_COLORS,
+    activity_glyph_cell,
+    liveliest,
 )
 from .list_rows import ListCell, ListColumn, truncate_end
-from .session_cells import STATE_GLYPHS
 
 BRANCH_LIMIT = 24
 SHORT_HEAD = 7
@@ -102,8 +103,8 @@ def worktree_cells(
 ) -> tuple[ListCell, ...]:
     target = row.target
     return (
-        activity_cell(tuple(session.activity for session in row.sessions), dark=dark),
-        sessions_cell(tuple(session.activity for session in row.sessions), dark=dark),
+        activity_cell(row.sessions, dark=dark),
+        sessions_cell(row.sessions),
         path_cell(row, dark=dark, home=home),
         target.role,
         branch_cell(target),
@@ -147,14 +148,13 @@ def freshness_color(freshness: str, *, dark: bool) -> str:
     return ATTENTION_COLORS[dark]
 
 
-def sessions_cell(states: Sequence[SessionActivity], *, dark: bool) -> ListCell:
+def sessions_cell(sessions: Sequence[AgentRun]) -> ListCell:
     """Report the total number of located Agent Sessions."""
-    return str(len(states)) if states else "-"
+    return str(len(sessions)) if sessions else "-"
 
 
-def activity_cell(states: Sequence[SessionActivity], *, dark: bool) -> Text:
-    """Render the liveliest Agent Session state, or blank when absent."""
-    if not states:
-        return Text("")
-    glyph = STATE_GLYPHS[min(states, key=lambda item: SESSION_STATE_ORDER[item])]
-    return Text(glyph.symbol, style=glyph.style(dark=dark))
+def activity_cell(sessions: Sequence[AgentRun], *, dark: bool) -> Text:
+    """Render the liveliest located Agent Session's state, or blank when absent."""
+    return activity_glyph_cell(
+        liveliest(session.activity for session in sessions), dark=dark
+    )

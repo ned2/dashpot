@@ -2,9 +2,10 @@
 
 A dashboard left running with nobody watching still spends the GitHub
 allowance on data nobody reads (ADR 0068). Two signals show it unattended:
-every tmux client detached from its session, or no key or mouse event for
-the idle period. Blur alone is not one: a visible dashboard beside a
-person's work is attended, and tmux reports focus unreliably on detach.
+every tmux client detached from its session and the session's group, or no
+key or mouse event for the idle period. Blur alone is not one: a visible
+dashboard beside a person's work is attended, and tmux reports focus
+unreliably on detach.
 """
 
 import time
@@ -18,6 +19,11 @@ from ..core.model import Diagnostic
 from ..core.runtime_events import UnattendedPauseChange, UnattendedSignal
 
 UNATTENDED_PAUSED = "github-unattended-paused"
+
+# How many tmux clients see the dashboard's pane: those of the whole group
+# for a grouped session, since ``#{session_attached}`` counts only the clients
+# of the one session tmux resolves the pane to.
+ATTACHED_CLIENTS = "#{?session_grouped,#{session_group_attached},#{session_attached}}"
 
 # Whether a tmux client is attached to the dashboard's session, or None when
 # that could not be told; an unknown answer changes nothing.
@@ -150,12 +156,14 @@ def tmux_attachment(
 
     It asks tmux how many clients are attached to the session holding the
     dashboard's own pane, which answers even once every client has
-    detached.
+    detached. A grouped session (``tmux new -t``) shares its windows with
+    the rest of its group, so a client of any session in the group sees the
+    pane, and the group's count is the one asked for.
     """
     pane = environ.get("TMUX_PANE")
     if not environ.get("TMUX") or not pane:
         return None
-    args = ("tmux", "display-message", "-p", "-t", pane, "#{session_attached}")
+    args = ("tmux", "display-message", "-p", "-t", pane, ATTACHED_CLIENTS)
 
     def probe() -> bool | None:
         try:

@@ -2,6 +2,7 @@ from dataclasses import replace
 from unittest.mock import Mock
 
 import pytest
+from rich.text import Text
 
 from app_harness import (
     SequenceCollector,
@@ -21,7 +22,6 @@ from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
 from dashpot.ui.column_editor import IssueColumnEditor
 from dashpot.ui.glyphs import SESSION_STATE_GLYPHS
-from dashpot.ui.issue_cells import AgentStateCell
 from dashpot.ui.issue_table import IssueTableViewState
 from dashpot.ui.keyed_table import capture_selection
 from dashpot.ui.marked_widgets import MarkedSelectionList
@@ -380,7 +380,7 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
             activity = app.query_screen.queue_table().get_cell(
                 row_key("issue", "I_alpha#2"), "agent_state"
             )
-            assert isinstance(activity, AgentStateCell)
+            assert isinstance(activity, Text)
             assert str(activity.style) == SESSION_STATE_GLYPHS["running"].style(
                 dark=app.current_theme.dark
             )

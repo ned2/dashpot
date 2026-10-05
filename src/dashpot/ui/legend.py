@@ -26,7 +26,13 @@ from textual.widgets import Static
 
 from . import alerts, issue_cells
 from .branch_cells import BRANCH_COLUMNS
-from .glyphs import MEANING_GUTTER, Glyph, LegendSection, align_symbols
+from .glyphs import (
+    ACTIVITY_COLUMN_GLYPH,
+    MEANING_GUTTER,
+    Glyph,
+    LegendSection,
+    align_symbols,
+)
 from .issue_table import COLUMN_SPECS, DEFAULT_COLUMNS
 from .list_pane import (
     BRANCHES_PANE_LABEL,
@@ -97,7 +103,7 @@ def _issue_columns_note() -> str:
     return (
         "a marked header orders the page by its column when selected, and again "
         "reverses it, where the Issue Source can order by that column; c chooses "
-        f"and orders the columns after {issue_cells.AGENT_STATE_COLUMN_GLYPH.symbol}, "
+        f"and orders the columns after {ACTIVITY_COLUMN_GLYPH.symbol}, "
         f"which are {', '.join(default)} until chosen otherwise and "
         f"{', '.join(optional)} on request"
     )

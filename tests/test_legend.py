@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import itertools
 import pkgutil
 from pathlib import Path
 from typing import cast, get_args
@@ -55,16 +56,37 @@ def test_glyph_style_follows_the_theme() -> None:
     assert plain.style(dark=True, theme={"error": "#ff0000"}) == ""
 
 
+def test_every_activity_column_shows_the_state_its_legend_ranks_first() -> None:
+    ranked = glyphs.ACTIVITY_LEGEND[1:]
+    states = cast(tuple[SessionActivity, ...], get_args(SessionActivity))
+    for size in range(1, len(states) + 1):
+        for chosen in itertools.permutations(states, size):
+            first = min(
+                chosen,
+                key=lambda state: ranked.index(glyphs.SESSION_STATE_GLYPHS[state]),
+            )
+            glyph = glyphs.SESSION_STATE_GLYPHS[first]
+
+            assert glyphs.liveliest(chosen) == first
+            # The Issue table's column summarizes bound Agent Runs by the
+            # same rule as the Worktrees and Branches columns.
+            cell = issue_cells.agent_state_cell(chosen, dark=True)
+            assert (cell.plain, str(cell.style)) == (
+                glyph.symbol,
+                glyph.style(dark=True),
+            )
+    assert glyphs.liveliest(()) is None
+    assert issue_cells.agent_state_cell(()).plain == ""
+
+
 def test_every_rendered_glyph_map_is_in_the_legend() -> None:
     symbols = legend_symbols()
 
-    assert set(session_cells.STATE_GLYPHS) == set(get_args(SessionActivity))
-    assert set(issue_cells.AGENT_STATE_GLYPHS) == set(get_args(SessionActivity))
+    assert set(glyphs.SESSION_STATE_GLYPHS) == set(get_args(SessionActivity))
     assert set(issue_cells.ISSUE_STATE_GLYPHS) == set(get_args(IssueStateKind))
     assert set(alerts.SEVERITY_GLYPH) == set(get_args(AlertSeverity))
     for mapping in (
-        session_cells.STATE_GLYPHS,
-        issue_cells.AGENT_STATE_GLYPHS,
+        glyphs.SESSION_STATE_GLYPHS,
         issue_cells.ISSUE_STATE_GLYPHS,
         issue_cells.SORT_GLYPHS,
         alerts.SEVERITY_GLYPH,
@@ -72,7 +94,7 @@ def test_every_rendered_glyph_map_is_in_the_legend() -> None:
         assert {glyph.symbol for glyph in mapping.values()} <= symbols
     assert {glyph.symbol for glyph in branch_cells.LEGEND} <= symbols
     assert issue_cells.ISSUE_STATE_COLUMN_GLYPH.symbol in symbols
-    assert issue_cells.AGENT_STATE_COLUMN_GLYPH.symbol in symbols
+    assert glyphs.ACTIVITY_COLUMN_GLYPH.symbol in symbols
 
 
 def test_a_symbol_carries_one_meaning() -> None:
@@ -97,7 +119,7 @@ def test_a_symbol_carries_one_meaning() -> None:
         if len(found) > 1 and symbol not in shared
     }
     assert collisions == {}
-    assert session_cells.STATE_GLYPHS["unknown"].symbol != (
+    assert glyphs.SESSION_STATE_GLYPHS["unknown"].symbol != (
         branch_cells.NO_UPSTREAM_GLYPH.symbol
     )
 
@@ -373,9 +395,9 @@ def test_section_text_renders_symbols_in_their_colour() -> None:
     text = legend.section_text(section, dark=True)
     lines = text.plain.splitlines()
 
-    assert lines[1].startswith(session_cells.STATE_GLYPHS["running"].symbol)
-    assert lines[1].endswith(session_cells.STATE_GLYPHS["running"].meaning)
-    assert str(text.spans[0].style) == session_cells.STATE_GLYPHS["running"].style(
+    assert lines[1].startswith(glyphs.SESSION_STATE_GLYPHS["running"].symbol)
+    assert lines[1].endswith(glyphs.SESSION_STATE_GLYPHS["running"].meaning)
+    assert str(text.spans[0].style) == glyphs.SESSION_STATE_GLYPHS["running"].style(
         dark=True
     )
 

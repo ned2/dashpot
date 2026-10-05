@@ -17,13 +17,11 @@ from ..core.ages import relative_age
 from ..core.model import (
     HARNESS_DISPLAY,
     AgentRun,
-    SessionActivity,
     harness_alternatives,
 )
 from ..observation.list_result import ListResult
 from ..observation.session_list import (
     OUTSIDE_PROJECT_TEXT,
-    SESSION_STATE_ORDER,
     UNBOUND_ISSUE_TEXT,
     SessionListRow,
     abbreviate_path,
@@ -34,7 +32,7 @@ from .glyphs import (
     ACTIVITY_COLUMN_GLYPH,
     ACTIVITY_LEGEND,
     ACTIVITY_WIDTH,
-    SESSION_STATE_GLYPHS,
+    activity_glyph_cell,
 )
 from .list_rows import (
     ListCell,
@@ -43,8 +41,6 @@ from .list_rows import (
     truncate_start,
 )
 
-STATE_GLYPHS = SESSION_STATE_GLYPHS
-LEGEND = tuple(STATE_GLYPHS[state] for state in SESSION_STATE_ORDER)
 # Long values are clipped so a row stays scannable; the scan-level fact is
 # the tail of a path and the head of a branch or title.
 PATH_LIMIT = 28
@@ -142,7 +138,7 @@ def session_cells(
 ) -> tuple[ListCell, ...]:
     session = row.session
     return (
-        session_state_cell(session.activity, dark=dark),
+        activity_glyph_cell(session.activity, dark=dark),
         HARNESS_DISPLAY[session.harness],
         *((session_target_cell(row, home=home),) if target else ()),
         truncate_end(session.branch or "detached", BRANCH_LIMIT),
@@ -199,11 +195,6 @@ def session_target_cell(row: SessionListRow, *, home: Path | None = None) -> Lis
     return truncate_start(
         abbreviate_path(row.session.observation_target, home=home), PATH_LIMIT
     )
-
-
-def session_state_cell(state: SessionActivity, *, dark: bool) -> Text:
-    glyph = STATE_GLYPHS[state]
-    return Text(glyph.symbol, style=glyph.style(dark=dark))
 
 
 def session_issue_cell(row: SessionListRow) -> ListCell:

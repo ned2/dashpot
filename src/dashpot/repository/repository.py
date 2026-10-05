@@ -676,19 +676,23 @@ def assess_content_integration(
     commit of the Integration Branch, committed after the Branch's last
     commit and touching every path the Branch changed, whose tree is exactly
     what merging the Branch onto its parent produces. A Branch that changes
-    nothing against its merge base has no content to find and is ``False``,
-    as is content these facts cannot find; neither means it is absent from
-    history. ``None`` means Git could not answer.
+    nothing against its merge base, or shares no history with the
+    Integration Branch and so has no merge base, such as ``gh-pages``, has
+    no content to find and is ``False``, as is content these facts cannot
+    find; none of them means it is absent from history. ``None`` means Git
+    could not answer.
     """
     integration_tree = git.maybe("rev-parse", f"{integration_ref}^{{tree}}")
     if integration_tree is None:
         return None
+    # Asked first because ``merge-tree`` refuses unrelated histories, which
+    # would read as Git failing to answer for a Branch that simply has none.
+    base = _merge_base(git, integration_ref, branch_ref)
+    if base is None:
+        return False
     merged_tree = _merge_tree(git, integration_ref, branch_ref)
     if merged_tree is not None and merged_tree != integration_tree:
         return False
-    base = git.maybe("merge-base", integration_ref, branch_ref)
-    if base is None:
-        return None
     changed = git.maybe("diff", "--name-only", "-z", base, branch_ref)
     if changed is None:
         return None
@@ -700,6 +704,23 @@ def assess_content_integration(
     return _squash_commit_exists(
         git, integration_ref, branch_ref, base, paths, committed_at
     )
+
+
+def _merge_base(git: Git, integration_ref: str, branch_ref: str) -> str | None:
+    """The best common ancestor of the two refs; None when they share no history.
+
+    ``merge-base`` answers that there is no common ancestor with exit 1 and
+    no output; any other non-zero exit is Git failing to answer and raises.
+    """
+    args = ("merge-base", integration_ref, branch_ref)
+    with nonzero_exit_fails(GitError, answers=(1,)):
+        result = git.run(*args)
+    base = result.stdout.strip()
+    if result.returncode == 0 and base:
+        return base
+    if result.returncode == 1 and not base:
+        return None
+    raise GitError(args, git.root, detail=result.stderr.strip() or "merge-base failed")
 
 
 def _merge_tree(git: Git, onto: str, branch_ref: str) -> str | None:

@@ -26,11 +26,9 @@ from dashpot.observation.issue_list import IssueListQuery, IssueListSummary, row
 from dashpot.observation.list_result import ListResult
 from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.queries.source_queries import AuxiliaryObservation
-from dashpot.ui.glyphs import MUTED_COLORS
+from dashpot.ui.glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_LEGEND, MUTED_COLORS
 from dashpot.ui.issue_cells import (
-    AGENT_STATE_COLUMN_GLYPH,
     ISSUE_STATE_COLUMN_GLYPH,
-    LEGEND_AGENT_STATE,
     LEGEND_ISSUE_STATE,
     IssueNumberCell,
     IssueStateCell,
@@ -525,12 +523,12 @@ def test_every_column_help_is_its_description_and_the_legend_glyphs() -> None:
         "agent_state",
     }
     assert COLUMNS_BY_KEY["issue_state"].glyphs == LEGEND_ISSUE_STATE
-    assert COLUMNS_BY_KEY["agent_state"].glyphs == LEGEND_AGENT_STATE
+    assert COLUMNS_BY_KEY["agent_state"].glyphs == ACTIVITY_LEGEND
     agent_help = required(column_help(COLUMNS_BY_KEY["agent_state"]))
     assert ISSUE_STATE_COLUMN_GLYPH.meaning in required(
         column_help(COLUMNS_BY_KEY["issue_state"])
     )
-    assert AGENT_STATE_COLUMN_GLYPH.meaning in agent_help
+    assert ACTIVITY_COLUMN_GLYPH.meaning in agent_help
     # The Issue column summarizes bound Agent Runs, which its help says.
     assert "Issue Binding" in agent_help
     assert f"clipped past {TITLE_LIMIT}" in COLUMNS_BY_KEY["title"].description

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Self, override
 
-from rich.text import TextType
+from rich.text import Text, TextType
 from textual import events
 from textual.geometry import Size
 from textual.render import measure
@@ -71,6 +71,21 @@ class SpreadTable(FocusCursorTable[CellType]):
             for column in self.columns.values():
                 column.content_width = measure(console, column.label, 1)
         return self
+
+    def relabel_column(self, key: ColumnKey, label: Text) -> None:
+        """Head a column with ``label``, widening the column when it is wider.
+
+        Textual measures a label only as its column is added, and this table
+        again as it is cleared, so a label set afterwards, such as a sort
+        marker returning, would otherwise be clipped to the old width.
+        """
+        column = self.columns[key]
+        column.label = label
+        width = measure(self.app.console, label, 1)
+        if width > column.content_width:
+            column.content_width = width
+            self.spread_columns()
+        self.refresh()
 
     # Textual runs ``DataTable._on_resize`` by name on its own class, so this
     # handler adds to it rather than overriding and calling it.

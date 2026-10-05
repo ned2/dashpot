@@ -408,7 +408,10 @@ same in a file and in the command's output.
   error. The table follows the newest event until a person moves back
   through it; `End` follows again.
 - **Runtime Stats** ([#315](https://github.com/ned2/dashpot/issues/315)), the
-  Stats tab, aggregating the buffer when it draws. Its sections:
+  Stats tab, aggregating the buffer when it draws. Its times are on the
+  local clock, as the Events table's are
+  ([ADR 0098](adr/0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md)).
+  Its sections:
   - **GitHub allowance:** `remaining`, `limit` and `resetAt` from the latest
     reading the Query Sources share, and the points the rest of the account
     spent: within each rate limit window, the change in points used between

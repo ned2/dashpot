@@ -51,7 +51,7 @@ from ..core.timestamps import observed_instant
 from ..repository.cleanup import counted
 from .detail_fields import DetailFields, DetailItem
 from .marked_widgets import MarkedCheckbox
-from .runtime_stats_view import duration_text
+from .runtime_stats_view import clock_text, duration_text
 
 # Which buffered events to show: all of them, what the level in force
 # writes to the Event Log, or only what ``standard`` writes.
@@ -197,7 +197,7 @@ def event_summary(event: RuntimeEvent) -> str:
 
 def event_instant_text(stamp: str) -> str:
     """A stored UTC stamp on the local clock, to the second."""
-    return f"{observed_instant(stamp).astimezone():%H:%M:%S}"
+    return clock_text(observed_instant(stamp))
 
 
 def event_outcome(event: RuntimeEvent) -> Text:
