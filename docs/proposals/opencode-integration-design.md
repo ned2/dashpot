@@ -715,7 +715,7 @@ recommendations to resolve before implementing support:
   unrelated files, shared skills, stale paths and unsupported runtime modes.
 - Registration is repeated in [harnesses.py](../../src/dashpot/sessions/harnesses.py),
   [integrate](../../src/dashpot/sessions/integrate/), the
-  [CLI harness union](../../src/dashpot/cli.py), and
+  [CLI harness union](../../src/dashpot/cli/integrate.py), and
   [session labels](../../src/dashpot/observation/session_list.py). A registry could connect
   narrow identity, publisher, installer and display concerns; evaluate that
   consolidation without turning `HarnessAdapter` into a large framework.

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from dashpot import cli
+from dashpot import cli, composition
 from test_github_issues import REPOSITORY_ID
 from test_github_pull_requests import pull_request_node
 from test_runtime_spans import executable
@@ -30,9 +30,10 @@ def gh_record(
 ) -> Iterator[Path]:
     """Fail any test here that starts a ``gh`` process, real or not.
 
-    The CLI reads ``configured_query_source`` through its own name, so a test
-    that patches any other name gets the configured Query Source instead, and
-    a GitHub Query Source would reach the real ``gh`` (#331). A ``gh`` first on
+    The CLI's Query Source comes from ``composition``, which reads
+    ``configured_query_source`` through its own name, so a test that patches
+    any other name gets the configured Query Source instead, and a GitHub
+    Query Source would reach the real ``gh`` (#331). A ``gh`` first on
     ``PATH`` appends each call to the record this yields and fails. A test
     that means to start it reads the record and removes it.
     """
@@ -55,7 +56,7 @@ def test_a_github_source_the_cli_builds_itself_reaches_the_gh_guard(
     tmp_path, monkeypatch, capsys, gh_record
 ):
     github(tmp_path)  # Only for the GitHub configuration it writes.
-    monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
+    monkeypatch.setattr(composition, "worktree_root", lambda current: tmp_path)
     assert cli.main(["issue", "list", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["page"]["status"] == "unavailable"
     # Unpatched, the CLI's own Query Source starts gh, which the guard records.
@@ -65,8 +66,10 @@ def test_a_github_source_the_cli_builds_itself_reaches_the_gh_guard(
 
 def test_list_json_keys_and_cross_invocation_cursor(tmp_path, monkeypatch, capsys):
     source = markdown(tmp_path)
-    monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
-    monkeypatch.setattr(cli, "configured_query_source", lambda *args, **kwargs: source)
+    monkeypatch.setattr(composition, "worktree_root", lambda current: tmp_path)
+    monkeypatch.setattr(
+        composition, "configured_query_source", lambda *args, **kwargs: source
+    )
     assert cli.main(["issue", "list", "--page-size", "1", "--compact-json"]) == 0
     output = capsys.readouterr()
     assert output.err == "" and output.out.count("\n") == 1
@@ -125,8 +128,10 @@ def test_invalid_list_arguments_stderr_and_exit_two(
     tmp_path, monkeypatch, capsys, args
 ):
     source = markdown(tmp_path)
-    monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
-    monkeypatch.setattr(cli, "configured_query_source", lambda *args, **kwargs: source)
+    monkeypatch.setattr(composition, "worktree_root", lambda current: tmp_path)
+    monkeypatch.setattr(
+        composition, "configured_query_source", lambda *args, **kwargs: source
+    )
     assert cli.main(["issue", "list", *args, "--json"]) == 2
     output = capsys.readouterr()
     assert output.out == "" and output.err
@@ -141,8 +146,10 @@ def test_ready_lists_the_open_issues_no_open_blocker_holds(
         path.unlink()
     markdown_issue(directory, 1)
     markdown_issue(directory, 2, blocked_by=["I_1"])
-    monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
-    monkeypatch.setattr(cli, "configured_query_source", lambda *args, **kwargs: source)
+    monkeypatch.setattr(composition, "worktree_root", lambda current: tmp_path)
+    monkeypatch.setattr(
+        composition, "configured_query_source", lambda *args, **kwargs: source
+    )
     assert cli.main(["issue", "list", "--state", "ready", "--json"]) == 0
     document = json.loads(capsys.readouterr().out)
     assert document["page"]["request"]["state"] == "ready"
@@ -174,8 +181,10 @@ def test_list_reports_a_low_rate_limit_beside_the_page(
         }
         answers = (context(), reading(search(pull), 400))
     source, _ = github(tmp_path, *answers)
-    monkeypatch.setattr(cli, "worktree_root", lambda current: tmp_path)
-    monkeypatch.setattr(cli, "configured_query_source", lambda *args, **kwargs: source)
+    monkeypatch.setattr(composition, "worktree_root", lambda current: tmp_path)
+    monkeypatch.setattr(
+        composition, "configured_query_source", lambda *args, **kwargs: source
+    )
     assert cli.main([command, "list", "--json"]) == 0
     document = json.loads(capsys.readouterr().out)
     assert document["page"]["status"] == "fresh"

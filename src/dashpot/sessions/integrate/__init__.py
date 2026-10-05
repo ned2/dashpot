@@ -5,8 +5,9 @@ hook installer writes the hooks themselves: ``hooks_file`` for Codex and
 Claude Code, ``opencode_plugin`` for OpenCode. ``skill_copies`` and
 ``agent_copies`` manage the bundled skills and agents, ``harness`` runs one
 harness's installation, removal and report, and ``across`` runs several in
-one command. ``diagnostics`` reports the session records and claimed
-identity ``--status`` closes with.
+one command. ``arguments`` refuses the command's conflicting arguments and
+totals its harnesses' reports. ``diagnostics`` reports the session records
+and claimed identity ``--status`` closes with.
 """
 
 from .across import INTEGRATION_ORDER as INTEGRATION_ORDER
@@ -18,6 +19,9 @@ from .across import install_integrations as install_integrations
 from .across import integrations_status as integrations_status
 from .across import refresh_integrations as refresh_integrations
 from .agent_copies import agent_file as agent_file
+from .arguments import IntegrationTotals as IntegrationTotals
+from .arguments import integration_totals as integration_totals
+from .arguments import refuse_integrate_arguments as refuse_integrate_arguments
 from .harness import IntegrationPresence as IntegrationPresence
 from .harness import IntegrationState as IntegrationState
 from .harness import install_integration as install_integration

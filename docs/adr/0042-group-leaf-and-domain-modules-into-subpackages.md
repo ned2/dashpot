@@ -96,7 +96,10 @@ agree on the Integration Branch by construction, and a test proves it.
 Root-level `composition.py` owns observation options, collector and Query Source
 construction, configured Cleanup protection, and preview/select/perform
 orchestration returning a report. The CLI retains argument parsing, commands,
-rendering, and exit-status mapping. Composition never imports the CLI. This is
+rendering, and exit-status mapping. The dashboard's own collaborators (its
+attendance, the Remote Fetch and Cleanup adapters, and the Worktree launcher
+configuration) are assembled by `ui/launch.py` around the collector and Query
+Sources composition builds. Composition never imports the CLI. This is
 an intentional root-level file beside the entry points and serialization.
 The coordinator's `query_driven` flag names the existing mode in which source
 pages are observed separately from local Repository State and Agent Runs;
@@ -135,8 +138,9 @@ installed distributions.
 
 The ownership map below accounts for every shipped Python module. Package
 initializers belong to their package; they are empty except the documented
-Cleanup facade. Root `__init__.py` retains its existing public exports. Root
-`__main__.py`, `cli.py`, and `hook.py` are entry points, `composition.py` wires
+Cleanup facade and the `cli` package's, which re-exports `main`. Root
+`__init__.py` retains its existing public exports. Root `__main__.py`, the
+`cli` package, and `hook.py` are entry points, `composition.py` wires
 the application, and `serialization.py` owns published output. The only root
 assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
 
@@ -195,7 +199,12 @@ a `_private` name from another. The layers, from the fan-in floor up:
   longer loads `ui` or Textual to name the configured Query Sources; the
   boundary test covers that path.
 - `sessions`, `repository`, `observation`, and `ui` follow in that order; the
-  root entry points sit above them all.
+  root entry points sit above them all. The `cli` entry point is a package
+  only to hold one module per command group
+  ([#552](https://github.com/ned2/dashpot/issues/552)), so the boundary test
+  counts it in that root layer. It imports `ui` only inside the default
+  command, through `ui/launch.py`, once it opens the dashboard, so no other
+  command loads Textual; the boundary test covers that path too.
 
 `observation_store.StoreState` is the public revision the store commits and
 `PagedObservationStore` extends; it was the private `_StoreState` the

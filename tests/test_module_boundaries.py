@@ -23,10 +23,12 @@ import dashpot
 
 SOURCE_DIR = Path(dashpot.__file__).parent
 SOURCE_MODULES = sorted(SOURCE_DIR.rglob("*.py"))
-# The ADR 0042 packages; a root module is not one of them.
+# The ADR 0042 packages; a root module is not one of them. Nor is the
+# ``cli`` entry point: a package only to keep one module per command group,
+# it sits in the root layer with ``__main__`` and ``composition``.
 PACKAGES = frozenset(
     path.parent.name for path in SOURCE_DIR.glob("*/__init__.py") if path.is_file()
-)
+) - {"cli"}
 # What the CLI, the hook lifecycle and the observation store import; none of
 # it needs a terminal.
 HEADLESS_MODULES = (
@@ -56,9 +58,12 @@ HEADLESS_MODULES = (
 # Issue Hint serves ``work`` and ``worktree``. Neither observes a Project, so
 # neither loads the coordinator, and the hook never loads the GitHub gateway.
 # Composition wires the headless entry points, so it loads neither the CLI
-# nor Textual.
+# nor Textual. The command line loads Textual only to open the dashboard, so
+# ``dashpot work`` and every other command, run constantly by agents, never
+# pays for it; it observes, so it loads the coordinator composition builds.
 LIGHT_PATHS = (
     ("dashpot.composition", ("dashpot.cli", "textual", "dashpot.ui")),
+    ("dashpot.cli", ("textual", "dashpot.ui")),
     ("dashpot.repository.cleanup", ("dashpot.repository.worktrees.create",)),
     (
         "dashpot.repository.worktrees.removability",
