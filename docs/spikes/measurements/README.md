@@ -15,7 +15,9 @@ platform, and, in most traces, the isolated configuration; the records after it 
 hooks, process ancestry samples, and scenario steps the run observed. The
 earlier traces keep the fixture's temporary paths; the later ones rewrite them
 to placeholders such as `$ROOT`. The same experiment's `verify.mjs` checks the
-document's claims against the trace.
+document's claims against the trace. A trace too large for the repository's
+large-file check is kept gzipped as `.jsonl.gz`; the SHA-256 its document
+gives is of the uncompressed JSONL, and its verifier reads the file as kept.
 
 A `.json` file is one JSON array of samples from the first-load latency spike.
 The dashboard timings come from the profiling command its
@@ -72,6 +74,10 @@ line per write, the seconds since the previous write and the bytes written.
 | [`issue-466-claude-trace.jsonl`](issue-466-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.289 | [#466](https://github.com/ned2/dashpot/issues/466) | [`claude-466`](../../../scripts/experiments/claude-466/) | [Background commands and Cleanup experiment](../background-commands-and-cleanup-spike.md#claude-code-21289) |
 | [`issue-466-codex-trace.jsonl`](issue-466-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#466](https://github.com/ned2/dashpot/issues/466) | [`codex-466`](../../../scripts/experiments/codex-466/) | [Background commands and Cleanup experiment](../background-commands-and-cleanup-spike.md#codex-01600) |
 | [`issue-466-opencode-trace.jsonl`](issue-466-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#466](https://github.com/ned2/dashpot/issues/466) | [`opencode-379`](../../../scripts/experiments/opencode-379/) rerun unchanged, verified by [`opencode-466`](../../../scripts/experiments/opencode-466/) | [Background commands and Cleanup experiment](../background-commands-and-cleanup-spike.md#opencode-2022) |
+| [`issue-479-claude-2.1.287-trace.jsonl.gz`](issue-479-claude-2.1.287-trace.jsonl.gz) | Gzipped JSONL trace, Claude Code 2.1.287 | [#479](https://github.com/ned2/dashpot/issues/479) | [`claude-479`](../../../scripts/experiments/claude-479/) | [Root-session Workers experiment](../root-session-workers-spike.md#claude-code-21289) |
+| [`issue-479-claude-2.1.289-trace.jsonl.gz`](issue-479-claude-2.1.289-trace.jsonl.gz) | Gzipped JSONL trace, Claude Code 2.1.289 | [#479](https://github.com/ned2/dashpot/issues/479) | [`claude-479`](../../../scripts/experiments/claude-479/) | [Root-session Workers experiment](../root-session-workers-spike.md#claude-code-21289) |
+| [`issue-479-codex-trace.jsonl`](issue-479-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#479](https://github.com/ned2/dashpot/issues/479) | [`codex-479`](../../../scripts/experiments/codex-479/) | [Root-session Workers experiment](../root-session-workers-spike.md#codex-01600) |
+| [`issue-479-opencode-trace.jsonl`](issue-479-opencode-trace.jsonl) | JSONL trace, OpenCode 2.0.22 | [#479](https://github.com/ned2/dashpot/issues/479) | [`opencode-479`](../../../scripts/experiments/opencode-479/) | [Root-session Workers experiment](../root-session-workers-spike.md#opencode-2022) |
 | [`issue-488-claude-trace.jsonl`](issue-488-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.289 | [#488](https://github.com/ned2/dashpot/issues/488), with [#490](https://github.com/ned2/dashpot/issues/490)'s `/fork` | [`claude-488`](../../../scripts/experiments/claude-488/) | [Idle SessionStart and /fork experiment](../idle-session-start-and-fork-spike.md) |
 
 The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are

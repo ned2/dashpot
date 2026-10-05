@@ -95,7 +95,7 @@ of date.
 | 0086 | [Orphan the runs of a stopped or restarted managed Codex daemon](0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md) | accepted | — |
 | 0089 | [Leave the PR merge to the operator](0089-leave-the-pr-merge-to-the-operator.md) | accepted | — |
 | 0090 | [Observe OpenCode v2 through its own session identity and event order](0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md) | amended | [0094](0094-let-a-root-opencode-session-move-itself-for-issue-work.md), [0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md) |
-| 0092 | [Ship a user-invoked execute-issues skill for every harness](0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md) | accepted | — |
+| 0092 | [Ship a user-invoked execute-issues skill for every harness](0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md) | amended | [0096](0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md), [0108](0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md), [0124](0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md) |
 | 0093 | [Install an OpenCode worker agent that cannot move sessions](0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md) | accepted | — |
 | 0094 | [Let a root OpenCode session move itself for Issue work](0094-let-a-root-opencode-session-move-itself-for-issue-work.md) | accepted | — |
 | 0095 | [Keep an ended session's sub-agents listed until they stop](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md) | amended | [0097](0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md), [0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md), [0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md) |
@@ -117,3 +117,4 @@ of date.
 | 0111 | [Integrate several harnesses, and every integrated one, in one command](0111-integrate-several-harnesses-and-every-integrated-one-in-one-command.md) | accepted | — |
 | 0112 | [Let a person remove a Worktree despite the sub-agents a preview lists](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md) | accepted | — |
 | 0113 | [Name a background command by its process, and show it on a waiting Claude Code session](0113-name-a-background-command-by-its-process-and-show-it-on-a-waiting-claude-code-session.md) | accepted | — |
+| 0124 | [Keep sub-agent Workers, and qualify root-session Workers one harness at a time](0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md) | accepted | — |

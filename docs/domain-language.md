@@ -584,9 +584,14 @@ own Issue Worktree. It shares the Lead's Agent Session, so it has no Agent
 Run or Issue Binding of its own and runs no `work` command. The Worktree it
 works in is where its commands run, never its Observation Location
 ([ADR 0092](adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
-Its Lead's Worker Assignment attributes it to its Issue.
+Its Lead's Worker Assignment attributes it to its Issue. A Worker stays a
+Sub-agent on every harness until an ADR lets a Worker run as its own root
+Agent Session on that harness
+([ADR 0124](adr/0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md)).
 _Avoid_: worker for a Host Process, such as a Claude Code supervised worker
-process; reading a Worker's Issue Worktree as bound to its Issue
+process; reading a Worker's Issue Worktree as bound to its Issue; Worker,
+unqualified, for a root Agent Session a Lead launches, until an ADR rules on
+the vocabulary
 
 **Worker Assignment**:
 A Lead's explicit declaration, with `dashpot work assign`, that one of its

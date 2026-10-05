@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-04
+amended-by: 0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md, 0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md, 0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md
 ---
 
 # Ship a user-invoked execute-issues skill for every harness
@@ -217,3 +218,9 @@ release, and a second check that could only agree with the first.
   an OpenCode Lead launches Workers only when `integrate opencode --status`
   reports its Host Process as the shared service, and otherwise stops before
   any launch and asks the user to start it with a plain `opencode`.
+- Amended by
+  [ADR 0124](0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md):
+  Workers stay background Sub-agents on every harness, and root-session
+  Workers are qualified one harness at a time, starting with a Claude Code
+  pilot. Each Arc names one accountable person, and the Worker ceiling counts
+  per person across their Arcs.
