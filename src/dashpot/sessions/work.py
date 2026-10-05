@@ -115,7 +115,7 @@ class AgentSessionIdentity:
     def session_process(self) -> SessionProcess | None:
         if self.process is None:
             return None
-        return SessionProcess(pid=self.process.pid, started_at=self.process.started_at)
+        return SessionProcess.of(self.process)
 
     @property
     def process_key(self) -> ProcessKey | None:
@@ -664,8 +664,13 @@ def _recorded_session_is_live(
     places a session that may still be running, and an unreadable record is
     not evidence that it is over.
     """
-    if work.session_process is not None:
-        return session_liveness(work.session_process.key, lookup).liveness != "gone"
+    if (recorded := work.session_process) is not None:
+        return (
+            session_liveness(
+                recorded.key, lookup, namespace=recorded.pid_namespace
+            ).liveness
+            != "gone"
+        )
     if work.session_id is None:
         return False
     try:
@@ -951,7 +956,12 @@ def _orphaned(work: ActiveWork, lookup: ProcessLookup) -> bool:
     return (
         work.relocation is None
         and work.session_process is not None
-        and session_liveness(work.session_process.key, lookup).liveness == "gone"
+        and session_liveness(
+            work.session_process.key,
+            lookup,
+            namespace=work.session_process.pid_namespace,
+        ).liveness
+        == "gone"
     )
 
 
@@ -1161,9 +1171,13 @@ def _check_runtime(
     session: AgentSessionIdentity, work: ActiveWork, lookup: ProcessLookup
 ) -> None:
     """Refuse reassignment while another runtime may still own the run."""
-    recorded = work.session_process.key if work.session_process else None
-    if recorded != session.process_key and (
-        recorded is None or session_liveness(recorded, lookup).liveness != "gone"
+    recorded = work.session_process
+    if (recorded.key if recorded else None) != session.process_key and (
+        recorded is None
+        or session_liveness(
+            recorded.key, lookup, namespace=recorded.pid_namespace
+        ).liveness
+        != "gone"
     ):
         raise IssueWorkError(
             "this Agent Session has an Agent Run owned by another live or "

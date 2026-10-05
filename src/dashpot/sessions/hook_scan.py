@@ -200,6 +200,13 @@ def _validated_hook_record(
         record, degraded = validate_degrading(HookRecord, raw, fatal=HOOK_RECORD_FATAL)
     except ValidationError as exc:
         raise ValueError(describe_validation_error(exc)) from exc
+    degraded = (
+        *degraded,
+        *(
+            f"subagentProcesses.{agent} names no readable Host Process"
+            for agent in record.unreadable_subagent_hosts
+        ),
+    )
     if expected_session_id is not None and expected_session_id not in {
         record.session_id,
         SessionEvidence(record.harness, record.session_id).storage_key(),
@@ -213,15 +220,23 @@ def _classify_validated_record(
 ) -> HookRecordClassification:
     """Derive one validated record's outcome from the pass's process evidence."""
     process = record.session_process.identity if record.session_process else None
+    namespace = record.session_process.pid_namespace if record.session_process else None
     if record.state == "ended":
         liveness = LivenessObservation("unknown")
         outcome: HookRecordOutcome = "ended"
         own_living = (
-            process is not None and probe.observe(process.key).liveness != "gone"
+            process is not None
+            and probe.observe(process.key, namespace=namespace).liveness != "gone"
         )
     else:
-        liveness = probe.observe(process.key if process else None)
-        if (
+        liveness = probe.observe(process.key if process else None, namespace=namespace)
+        if process is None and record.session_process_unobservable is not None:
+            # The hook said why it could name no Host Process, such as an
+            # isolated namespace; that is the reason its liveness is unknown.
+            liveness = LivenessObservation(
+                "unknown", record.session_process_unobservable
+            )
+        elif (
             liveness.liveness == "live"
             and record.session_process_unobservable is not None
         ):
@@ -277,11 +292,17 @@ def _subagent_living(
     """Whether the Host Process running ``record``'s ``agent`` is not gone (ADR 0107).
 
     That is the record's own process unless the agent is tagged with another.
+    One tagged with a malformed process is not known to be gone, so it stays.
     """
-    host = record.subagent_processes.get(agent)
-    if host is None:
+    if agent not in record.subagent_processes:
         return own_living
-    return probe.observe(host.identity.key).liveness != "gone"
+    host = record.subagent_processes[agent]
+    if host is None:
+        return True
+    return (
+        probe.observe(host.identity.key, namespace=host.pid_namespace).liveness
+        != "gone"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,7 +364,9 @@ def scan_hook_stores(
             ):
                 keys.append(validated.session_process.identity.key)
             keys.extend(
-                host.identity.key for host in validated.subagent_processes.values()
+                host.identity.key
+                for host in validated.subagent_processes.values()
+                if host is not None
             )
     probe.prepare(keys)
     for pending in readable:

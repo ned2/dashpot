@@ -27,7 +27,7 @@ from .hook_records import (
     project_session_store,
     session_start_kind,
     state_directory,
-    subagent_host_keys,
+    subagent_host_processes,
     subagents_hosted_by,
     switched_from,
 )
@@ -195,7 +195,9 @@ def publish_hook_event(
     # between the two writes leaves them listed twice, which errs toward
     # blocking Cleanup rather than toward forgetting a working sub-agent.
     for item in switched:
-        HookRecordStore(item.store).release_subagents(item.path.stem, adopted, record)
+        HookRecordStore(item.store).release_subagents(
+            item.path.stem, adopted, record, session_id=item.record.session_id
+        )
     if moved_from is not None:
         _release_moved_from(record, moved_from, session_records, destination)
     if ending:
@@ -285,9 +287,17 @@ def _gone_hosts(
     nothing.
     """
     own = None if identity is None else identity.key
-    keys = {key for item in records for key in subagent_host_keys(item.raw)}
+    hosts = {
+        key: host
+        for item in records
+        for key, host in subagent_host_processes(item.raw).items()
+        if key != own
+    }
     return frozenset(
-        key for key in keys - {own} if session_liveness(key, lookup).liveness == "gone"
+        key
+        for key, host in hosts.items()
+        if session_liveness(key, lookup, namespace=host.pid_namespace).liveness
+        == "gone"
     )
 
 
@@ -335,7 +345,9 @@ def _stop_kept_elsewhere(
             continue
         store = HookRecordStore(item.store)
         if item.record.state == "ended":
-            store.release_subagents(item.path.stem, [agent], record)
+            store.release_subagents(
+                item.path.stem, [agent], record, session_id=item.record.session_id
+            )
         elif item.record.session_id == record.get("sessionId"):
             store.release_left_behind(item.path.stem, [agent], record)
 

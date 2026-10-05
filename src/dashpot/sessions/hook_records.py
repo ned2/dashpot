@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Collection, Iterable, Mapping
-from contextlib import ExitStack
+from collections.abc import Collection, Iterable, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast, get_args
@@ -89,9 +89,26 @@ def _blank_to_none(value: str | None) -> str | None:
     return value or None
 
 
+def _path_text(value: str | None) -> str | None:
+    # No operating system path holds a NUL, and resolving one raises.
+    if value is not None and "\0" in value:
+        raise ValueError("must be a path without a NUL character")
+    return value
+
+
+def _readable_hosts(value: object) -> object:
+    # Each sub-agent's Host Process is read alone: one named unreadably is
+    # unknown (None), and never makes its siblings' the record's own.
+    if not isinstance(value, dict):
+        return value
+    return {agent: _session_process(host) for agent, host in value.items()}
+
+
 # The validator ahead of the union keeps the record's refusal naming the state.
 ActiveStateName = Annotated[ActiveState, BeforeValidator(_active_state)]
 OptionalText = Annotated[str | None, AfterValidator(_blank_to_none)]
+PathText = Annotated[NonEmptyString, AfterValidator(_path_text)]
+OptionalPathText = Annotated[OptionalText, AfterValidator(_path_text)]
 
 
 class HookRecord(PersistedRecord):
@@ -109,8 +126,8 @@ class HookRecord(PersistedRecord):
     session_id: HookSessionIdentity
     harness: HarnessName = "codex"
     state: ActiveStateName
-    cwd: NonEmptyString
-    repository_root: OptionalText = None
+    cwd: PathText
+    repository_root: OptionalPathText = None
     branch: OptionalText = None
     event: OptionalText = None
     source: Any = None
@@ -134,12 +151,22 @@ class HookRecord(PersistedRecord):
     # The Host Process of each listed sub-agent that another process runs
     # than the one ``sessionProcess`` names, as a second Host Process's
     # events leave it; an agent absent here is the record's own (ADR 0107).
-    subagent_processes: dict[str, SessionProcessRecord] = Field(default_factory=dict)
+    # One whose entry is malformed maps to None: its Host Process is unknown.
+    subagent_processes: Annotated[
+        dict[str, SessionProcessRecord | None], BeforeValidator(_readable_hosts)
+    ] = Field(default_factory=dict)
     # When this store last saw the session begin an incarnation (its latest
     # ``SessionStart``), so a live move can be told from a restart (ADR
     # 0067); absent on a record written before it was kept, or by a store
     # that has seen none.
     last_session_start_at: OptionalText = None
+
+    @property
+    def unreadable_subagent_hosts(self) -> list[str]:
+        """The sub-agents whose recorded Host Process is malformed, so unknown."""
+        return sorted(
+            agent for agent, host in self.subagent_processes.items() if host is None
+        )
 
     @property
     def has_global_binding(self) -> bool:
@@ -316,10 +343,19 @@ def subagents_hosted_by(record: Mapping[str, Any], process: object) -> list[str]
     )
 
 
-def subagent_host_keys(record: Mapping[str, Any]) -> set[ProcessKey]:
-    """The Host Processes ``record`` names for its listed sub-agents, by key."""
-    keys = {_process_key(host) for host in subagent_hosts(record).values()}
-    return {key for key in keys if key is not None}
+def subagent_host_processes(
+    record: Mapping[str, Any],
+) -> dict[ProcessKey, SessionProcessRecord]:
+    """The Host Processes ``record`` names for its listed sub-agents, by key.
+
+    One named unreadably, such as by a PID no process can have, is left out.
+    """
+    processes: dict[ProcessKey, SessionProcessRecord] = {}
+    for host in subagent_hosts(record).values():
+        process = _session_process(host)
+        if process is not None:
+            processes[process.identity.key] = process
+    return processes
 
 
 def _carried_by_host(
@@ -609,8 +645,14 @@ def _same_named_process(
 
 
 def _process_key(raw: object) -> ProcessKey | None:
+    process = _session_process(raw)
+    return None if process is None else process.identity.key
+
+
+def _session_process(raw: object) -> SessionProcessRecord | None:
+    """A raw ``sessionProcess`` value as a record, or ``None`` if malformed."""
     try:
-        return SessionProcessRecord.model_validate(raw).identity.key
+        return SessionProcessRecord.model_validate(raw)
     except ValidationError:
         return None
 
@@ -694,9 +736,7 @@ class HookRecordStore(LockedRecordStore):
         # unsupported harness is refused by the read model, as a diagnostic.
         native_key = (harness, session_id)
         scoped_key = session_storage_key(harness, session_id)
-        with ExitStack() as stack:
-            for key in sorted((session_id, scoped_key)):
-                stack.enter_context(self.locked(key))
+        with self.locked_identity(session_id, harness):
             scoped = self._read(self.record_path(scoped_key))
             legacy = self._read(self.record_path(session_id))
             if scoped is not None:
@@ -847,8 +887,35 @@ class HookRecordStore(LockedRecordStore):
             self.replace(key, current)
             return HookRecordWrite(destination, stored)
 
+    @contextmanager
+    def locked_identity(
+        self, session_id: str, harness: str, *, create: bool = True
+    ) -> Iterator[bool]:
+        """Hold both record locks of one Agent Session Identity, in sorted key order.
+
+        A record of the identity is named by its plain session id or by its
+        harness-scoped key, and a writer may move it from one to the other,
+        so every path that reads a record of the identity, decides, and
+        writes or removes it takes both locks, and none can act on a record
+        another has just changed. Yields whether the locks are held: a
+        conditional change (``create`` false) never creates the store's
+        directory, and finds nothing to change where it is gone.
+        """
+        keys = sorted(set(_identity_keys(session_id, harness)))
+        with ExitStack() as stack:
+            for key in keys:
+                if not stack.enter_context(self.locked(key, create=create)):
+                    yield False
+                    return
+            yield True
+
     def release_subagents(
-        self, key: str, agents: Iterable[str], by: Mapping[str, Any]
+        self,
+        key: str,
+        agents: Iterable[str],
+        by: Mapping[str, Any],
+        *,
+        session_id: str,
     ) -> bool:
         """Stop listing ``agents`` in the ended record ``key``, if ``by``'s Host Process kept it.
 
@@ -858,9 +925,11 @@ class HookRecordStore(LockedRecordStore):
         (ADR 0101). The record is re-read under its lock: a live record, one
         of another harness or Host Process, or one already rid of them, is
         left as it is, and an ended record left listing none goes. Returns
-        whether the record changed.
+        whether the record changed. ``session_id`` is the session whose
+        record ``key`` names, which may be another session of ``by``'s Host
+        Process.
         """
-        return self._release(key, agents, by, "ended")
+        return self._release(key, agents, by, "ended", session_id)
 
     def release_left_behind(
         self, key: str, agents: Iterable[str], by: Mapping[str, Any]
@@ -876,7 +945,10 @@ class HookRecordStore(LockedRecordStore):
         as fresher than the record the session moved to, and it stays when
         it lists none. Returns whether the record changed.
         """
-        return self._release(key, agents, by, "left-behind")
+        session_id = by.get("sessionId")
+        if not isinstance(session_id, str):
+            return False
+        return self._release(key, agents, by, "left-behind", session_id)
 
     def _release(
         self,
@@ -884,18 +956,28 @@ class HookRecordStore(LockedRecordStore):
         agents: Iterable[str],
         by: Mapping[str, Any],
         kind: ReleasedRecord,
+        session_id: str,
     ) -> bool:
-        """Remove ``agents`` from record ``key`` under its lock, if it is ``kind``.
+        """Remove ``agents`` from record ``key`` under its identity's locks, if it is ``kind``.
 
         An ``ended`` record may be any session's, and goes once it lists
         none; a ``left-behind`` record is a live one of ``by``'s own session,
         and stays. Either names ``by``'s harness, and only the agents it
         lists as run by ``by``'s Host Process leave it: those of a record
-        naming that process, and those tagged with it (ADR 0107).
+        naming that process, and those tagged with it (ADR 0107). ``key``
+        must be one of the names of ``session_id``'s record of that harness,
+        so the locks taken are those every other writer of it takes.
         """
         released = set(agents)
         destination = self.record_path(key)
-        with self.locked(key):
+        harness = by.get("harness")
+        if not isinstance(harness, str) or key not in _identity_keys(
+            session_id, harness
+        ):
+            return False
+        with self.locked_identity(session_id, harness, create=False) as held:
+            if not held:
+                return False
             try:
                 previous = self._read(destination)
             except (HookRecordError, ValueError):
@@ -936,16 +1018,28 @@ class HookRecordStore(LockedRecordStore):
                 )
             return True
 
-    def prune(self, session_id: str, observed: Mapping[str, Any]) -> bool:
-        """Delete a stale record only if it still equals ``observed``.
+    def prune(self, key: str, observed: Mapping[str, Any]) -> bool:
+        """Delete the stale record ``key`` only if it still equals ``observed``.
 
-        The conditional re-read under the session's lock means a record that a
-        hook updated between observation and cleanup is kept. The lock file
-        is left for ``prune_lock`` to reclaim on a later pass. Returns whether
-        the record was removed.
+        The conditional re-read under the identity's locks means a record that
+        a hook updated between observation and cleanup is kept, and a prune
+        never creates the store's directory: a store a Cleanup removed has
+        nothing to prune. The lock files are left for ``prune_lock`` to
+        reclaim on a later pass. Returns whether the record was removed.
         """
-        destination = self.record_path(session_id)
-        with self.locked(session_id):
+        destination = self.record_path(key)
+        # A record without a harness is a Codex one, as ``HookRecord`` reads it.
+        session_id = observed.get("sessionId")
+        harness = observed.get("harness", "codex")
+        if (
+            not isinstance(session_id, str)
+            or not isinstance(harness, str)
+            or key not in _identity_keys(session_id, harness)
+        ):
+            return False
+        with self.locked_identity(session_id, harness, create=False) as held:
+            if not held:
+                return False
             try:
                 current = self._read(destination)
             except (HookRecordError, ValueError):
@@ -964,6 +1058,11 @@ class HookRecordStore(LockedRecordStore):
         if not isinstance(raw, dict):
             raise HookRecordError(f"hook record is not an object: {path}")
         return raw
+
+
+def _identity_keys(session_id: str, harness: str) -> tuple[str, str]:
+    """The two keys a record of one Agent Session Identity may be stored under."""
+    return session_id, session_storage_key(harness, session_id)
 
 
 def session_directory(worktree: Path) -> Path:

@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import SerializerFunctionWrapHandler, model_serializer
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer
 
 from ..core.commands import recording_command
 from ..core.model import Harness
@@ -20,6 +20,10 @@ from ..core.pydantic import PublishedModel
 from .harnesses import ADAPTERS
 
 ProcessKey = tuple[int, str]
+# A recorded process id is one ``kill`` can be asked about: a positive C
+# ``pid_t``. A record naming any other is malformed rather than a reason for
+# a probe to raise.
+ProcessId = Annotated[int, Field(gt=0, lt=2**31)]
 # Whether the process holding a Worktree lock is still running: the answer the
 # process adapter gives the Git observation of a lock Git reports.
 # A process is live, gone, or could not be observed; unknown is never evidence
@@ -29,13 +33,20 @@ ProcessLiveness = Literal["live", "gone", "unknown"]
 
 @dataclass(frozen=True, slots=True)
 class ProcessIdentity:
-    """One host process as the ``ps`` probe observed it."""
+    """One host process as the ``ps`` probe observed it.
+
+    ``pid_namespace`` names the PID namespace its ``pid`` was observed in:
+    the probing command's own, for a process this command observed, and the
+    recorded one for a process read back from a record. It is ``None`` where
+    that is not known.
+    """
 
     pid: int
     parent_pid: int
     command: str
     started_at: str
     arguments: str | None = None
+    pid_namespace: str | None = None
 
     @property
     def key(self) -> ProcessKey:
@@ -46,22 +57,31 @@ class ProcessIdentity:
 
 
 class SessionProcessRecord(PublishedModel):
-    """A hook record's ``sessionProcess``: the identity the hook published."""
+    """A hook record's ``sessionProcess``: the identity the hook published.
 
-    pid: int
+    ``pid_namespace`` is the PID namespace the hook observed the process in,
+    absent from a record written before it was kept, or where the host
+    cannot name one.
+    """
+
+    pid: ProcessId
     parent_pid: int
     command: str
     started_at: str
     arguments: str | None = None
+    pid_namespace: str | None = None
 
     @model_serializer(mode="wrap")
-    def _omit_absent_arguments(
+    def _omit_absent_fields(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, Any]:
-        # The persisted shape omits ``arguments`` rather than writing null.
+        # The persisted shape omits ``arguments`` and ``pidNamespace``
+        # rather than writing null.
         record: dict[str, Any] = handler(self)
         if not self.arguments:
             record.pop("arguments", None)
+        if self.pid_namespace is None:
+            record.pop("pidNamespace", None)
         return record
 
     @classmethod
@@ -72,12 +92,18 @@ class SessionProcessRecord(PublishedModel):
             command=identity.command,
             started_at=identity.started_at,
             arguments=identity.arguments or None,
+            pid_namespace=identity.pid_namespace,
         )
 
     @property
     def identity(self) -> ProcessIdentity:
         return ProcessIdentity(
-            self.pid, self.parent_pid, self.command, self.started_at, self.arguments
+            self.pid,
+            self.parent_pid,
+            self.command,
+            self.started_at,
+            self.arguments,
+            self.pid_namespace,
         )
 
 
@@ -101,6 +127,9 @@ class ProcessUnobservable:
 
     ``reason`` is one of ``isolated-namespace``, ``ps-unavailable``,
     ``ps-timeout``, ``ps-failed``, ``ps-unparseable``, or ``kill-failed``.
+    ``isolated-namespace`` says the process was recorded in another PID
+    namespace than this command's, or, for a process recorded without one,
+    that this command runs where processes outside its namespace are hidden.
     """
 
     pid: int
@@ -128,7 +157,20 @@ def lock_holder_probe(pid: int) -> ProcessLiveness:
 
 
 def host_process_lookup(pid: int) -> ProcessObservation:
-    """Observe one host process with the portable ``kill -0`` and ``ps`` probes.
+    """Observe one host process whose PID namespace is not known.
+
+    Such a PID may name a process outside this command's PID namespace, so
+    inside a sandbox or container, where those are hidden, it is never
+    probed: probing it here could only find PID reuse. Anywhere else it is
+    observed as ``local_process_lookup`` observes it.
+    """
+    if process_namespace_is_isolated():
+        return ProcessUnobservable(pid, "isolated-namespace")
+    return local_process_lookup(pid)
+
+
+def local_process_lookup(pid: int) -> ProcessObservation:
+    """Observe one process of this command's own PID namespace with ``kill -0`` and ``ps``.
 
     Absent is reported only when the host itself says no such process exists.
     Every failure to observe is reported as unobservable with its reason, so a
@@ -156,14 +198,13 @@ def host_process_lookup(pid: int) -> ProcessObservation:
             identity.command,
             identity.started_at,
             arguments_output.strip() or None,
+            identity.pid_namespace,
         )
     )
 
 
 def _host_process_presence(pid: int) -> ProcessAbsent | ProcessUnobservable | None:
-    """Reject an isolated namespace, absent PID, or failed presence probe."""
-    if process_namespace_is_isolated():
-        return ProcessUnobservable(pid, "isolated-namespace")
+    """Reject an absent PID, or a presence probe that failed."""
     if pid <= 0:
         return ProcessAbsent(pid)
     try:
@@ -172,7 +213,9 @@ def _host_process_presence(pid: int) -> ProcessAbsent | ProcessUnobservable | No
         return ProcessAbsent(pid)
     except PermissionError:
         pass  # The process exists; it belongs to another user.
-    except OSError:
+    except (OSError, OverflowError):
+        # A PID beyond ``pid_t``, which only a malformed record can name,
+        # overflows rather than failing as a system call.
         return ProcessUnobservable(pid, "kill-failed")
     return None
 
@@ -190,6 +233,7 @@ def _ps_identity(pid: int, output: str) -> ProcessObservation:
             int(fields[1]),
             fields[7],
             " ".join(fields[2:7]),
+            pid_namespace=pid_namespace(),
         )
     except ValueError:
         return ProcessUnobservable(pid, "ps-unparseable")
@@ -197,7 +241,11 @@ def _ps_identity(pid: int, output: str) -> ProcessObservation:
 
 
 def host_process_identities(pids: Iterable[int]) -> dict[int, ProcessObservation]:
-    """Observe liveness identities in one portable ps call, without arguments.
+    """Observe liveness identities of this PID namespace in one portable ps call.
+
+    The identities are read without arguments, as ``local_process_lookup``
+    would observe each PID; the caller decides which PIDs this namespace
+    may observe at all.
 
     Start times have exactly the single-process probe's representation. Only
     kill-0 can prove absence; missing or malformed ps rows are unobservable.
@@ -351,18 +399,22 @@ def observe_agent_ancestry(
     """Walk this command's ancestry to the nearest supported harness process.
 
     With ``harness`` the walk matches only that harness's host processes;
-    without it, any supported harness. Either way an unobservable ancestor
-    stops the walk with its reason, so "sandboxed, cannot see" is never read
-    as "no harness here".
+    without it, any supported harness. Every ancestor is in this command's
+    own PID namespace, so a harness that shares it, as in a devcontainer, is
+    found wherever the command runs. An unobservable ancestor stops the walk
+    with its reason, and so does a walk that ends without a harness inside
+    a namespace that hides the processes outside it, so "sandboxed, cannot
+    see" is never read as "no harness here".
     """
     hosts = HARNESS_HOSTS if harness is None else {harness: HARNESS_HOSTS[harness]}
+    probe = recorded_process_lookup(lookup, pid_namespace())
     pid = os.getppid()
     seen: set[int] = set()
     for _ in range(12):
         if pid <= 0 or pid in seen:
             break
         seen.add(pid)
-        observed = lookup(pid)
+        observed = probe(pid)
         if isinstance(observed, ProcessUnobservable):
             return AgentAncestry(None, observed.reason)
         if not isinstance(observed, ProcessPresent):
@@ -372,7 +424,54 @@ def observe_agent_ancestry(
             if matches(info):
                 return AgentAncestry((name, info))
         pid = info.parent_pid
+    if lookup is host_process_lookup and process_namespace_is_isolated():
+        # The harness may run outside the namespace the walk could not leave.
+        return AgentAncestry(None, "isolated-namespace")
     return AgentAncestry(None)
+
+
+@cache
+def pid_namespace() -> str | None:
+    """This command's PID namespace, as Linux names it, or ``None`` where it cannot.
+
+    A process cannot leave its PID namespace, so the answer is read once.
+    A host without ``/proc``, such as macOS, names none.
+    """
+    try:
+        return os.readlink("/proc/self/ns/pid")
+    except OSError:
+        return None
+
+
+def hidden_process_lookup(pid: int) -> ProcessObservation:
+    """Answer for a process outside this command's PID namespace: unobservable."""
+    return ProcessUnobservable(pid, "isolated-namespace")
+
+
+def recorded_process_lookup(
+    lookup: ProcessLookup, namespace: str | None
+) -> ProcessLookup:
+    """The lookup that observes a process recorded in the PID namespace ``namespace``.
+
+    A process recorded in another namespace than this command's is hidden
+    from it, whether or not this command runs in a container, and one
+    recorded in this namespace is observable even inside one: the host's
+    lookup then probes it as this namespace's own. A process recorded
+    without a namespace, or where this command cannot name its own, falls
+    back on ``lookup`` itself, whose host form decides by whether this
+    command runs where outside processes are hidden. An injected lookup
+    stands for the probe alone, so only a different recorded namespace
+    overrides it.
+    """
+    own = pid_namespace()
+    known = namespace is not None and own is not None
+    if known and namespace != own:
+        return hidden_process_lookup
+    if lookup is not host_process_lookup:
+        return lookup
+    if known or not process_namespace_is_isolated():
+        return local_process_lookup
+    return hidden_process_lookup
 
 
 # Sandbox helpers that run a command as PID 2 of a fresh PID namespace: the

@@ -10,7 +10,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    ValidationError,
+    model_serializer,
+    model_validator,
+)
 
 from ..core.errors import DashpotError
 from ..core.model import Diagnostic, Harness
@@ -25,7 +31,7 @@ from ..core.state_paths import project_state_directory
 from ..core.timestamps import observed_instant
 from ..core.worktree_paths import same_path
 from .harnesses import HarnessName, HookSessionIdentity
-from .processes import ProcessKey
+from .processes import ProcessId, ProcessIdentity, ProcessKey
 from .session_matching import SessionEvidence
 
 WORK_STORE_VERSION = 2
@@ -36,10 +42,34 @@ BindingProvenance = Literal["explicit-reference", "explicit-identity"]
 
 
 class SessionProcess(PersistedRecord):
-    """The host process a Work Store record attributes its Agent Session to."""
+    """The host process a Work Store record attributes its Agent Session to.
 
-    pid: int
+    ``pid_namespace`` is the PID namespace it was observed in, absent from a
+    record written before it was kept, or where the host names none.
+    """
+
+    pid: ProcessId
     started_at: str
+    pid_namespace: str | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_namespace(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        # The persisted shape omits ``pidNamespace`` rather than writing null.
+        record: dict[str, Any] = handler(self)
+        if self.pid_namespace is None:
+            record.pop("pidNamespace", None)
+        return record
+
+    @classmethod
+    def of(cls, identity: ProcessIdentity) -> SessionProcess:
+        """Record an observed process, with the PID namespace it was observed in."""
+        return cls(
+            pid=identity.pid,
+            started_at=identity.started_at,
+            pid_namespace=identity.pid_namespace,
+        )
 
     @property
     def key(self) -> ProcessKey:

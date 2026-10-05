@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from dashpot.sessions.liveness import LivenessProbe
+from dashpot.sessions.liveness import LivenessObservation, LivenessProbe
 from dashpot.sessions.processes import (
     ProcessAbsent,
     ProcessIdentity,
@@ -15,6 +15,7 @@ from dashpot.sessions.processes import (
     ProcessUnobservable,
     host_process_identities,
     host_process_lookup,
+    pid_namespace,
 )
 
 
@@ -38,11 +39,21 @@ def test_batch_reads_spaced_commands_once_and_never_reads_arguments() -> None:
     assert observed == {
         42: ProcessPresent(
             ProcessIdentity(
-                42, 1, "/Applications/Spaced App/codex", "Tue Aug 25 01:00:00 2026"
+                42,
+                1,
+                "/Applications/Spaced App/codex",
+                "Tue Aug 25 01:00:00 2026",
+                pid_namespace=pid_namespace(),
             )
         ),
         77: ProcessPresent(
-            ProcessIdentity(77, 2, "claude", "Tue Aug 25 02:00:00 2026")
+            ProcessIdentity(
+                77,
+                2,
+                "claude",
+                "Tue Aug 25 02:00:00 2026",
+                pid_namespace=pid_namespace(),
+            )
         ),
     }
     assert kill.call_count == 2
@@ -81,6 +92,9 @@ def test_missing_malformed_or_duplicate_rows_are_unknown_not_gone(output: str) -
         mock.patch(
             "dashpot.sessions.processes.process_namespace_is_isolated",
             return_value=False,
+        ),
+        mock.patch(
+            "dashpot.sessions.processes.pid_namespace", return_value=OWN_NAMESPACE
         ),
         mock.patch("dashpot.sessions.processes.os.kill"),
         mock.patch(
@@ -141,17 +155,48 @@ def test_presence_probes_alone_prove_absence_and_do_not_run_ps() -> None:
         }
         assert host_process_identities([]) == {}
     run.assert_not_called()
+
+
+# A PID namespace as ``/proc/self/ns/pid`` names one; macOS has none, so
+# the tests that need one name it.
+OWN_NAMESPACE = "pid:[4026531836]"
+
+
+def test_an_isolated_probe_reads_only_a_process_recorded_in_its_own_namespace() -> None:
+    # Inside a container, a process recorded without a PID namespace may be
+    # one outside it; one recorded in this namespace, or the batch probing
+    # it as this namespace's own, is observed like anywhere else.
+    started = "Tue Aug 25 01:00:00 2026"
     with (
         mock.patch(
             "dashpot.sessions.processes.process_namespace_is_isolated",
             return_value=True,
         ),
-        mock.patch("dashpot.sessions.processes.os.kill") as kill,
+        mock.patch(
+            "dashpot.sessions.processes.pid_namespace", return_value=OWN_NAMESPACE
+        ),
+        mock.patch("dashpot.sessions.processes.os.kill"),
+        mock.patch(
+            "dashpot.sessions.processes.subprocess.run",
+            return_value=mock.Mock(returncode=0, stdout=f"42 1 {started} claude"),
+        ),
     ):
-        assert host_process_identities([42]) == {
-            42: ProcessUnobservable(42, "isolated-namespace")
-        }
-    kill.assert_not_called()
+        assert host_process_lookup(42) == ProcessUnobservable(42, "isolated-namespace")
+        probe = LivenessProbe(host_process_lookup)
+        probe.prepare([(42, started)])
+        assert probe.observe((42, started), namespace=None) == LivenessObservation(
+            "unknown", "isolated-namespace"
+        )
+        assert probe.observe((42, started), namespace=OWN_NAMESPACE).liveness == "live"
+        assert probe.observe((42, started), namespace="pid:[1]") == LivenessObservation(
+            "unknown", "isolated-namespace"
+        )
+        # A process the pass did not batch is probed alone.
+        unprepared = LivenessProbe(host_process_lookup)
+        assert (
+            unprepared.observe((42, started), namespace=OWN_NAMESPACE).liveness
+            == "live"
+        )
 
 
 def test_prepared_liveness_compares_each_start_time_and_refreshes_next_pass() -> None:
@@ -169,13 +214,13 @@ def test_prepared_liveness_compares_each_start_time_and_refreshes_next_pass() ->
     ):
         probe = LivenessProbe(host_process_lookup)
         probe.prepare([(42, started), (42, "older"), None])
-        assert probe.observe((42, started)).liveness == "live"
-        assert probe.observe((42, "older")).liveness == "gone"
+        assert probe.observe((42, started), namespace=None).liveness == "live"
+        assert probe.observe((42, "older"), namespace=None).liveness == "gone"
         probe.prepare([(42, started)])
         assert run.call_count == 1
         later = LivenessProbe(host_process_lookup)
         later.prepare([(42, started)])
-        assert later.observe((42, started)).liveness == "live"
+        assert later.observe((42, started), namespace=None).liveness == "live"
         assert run.call_count == 2
 
 

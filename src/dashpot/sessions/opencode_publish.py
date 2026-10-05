@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator
-from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -363,9 +362,9 @@ def _rewrite_record(
     """
     records = HookRecordStore(store)
     scoped = session_storage_key("opencode", session_id)
-    with ExitStack() as stack:
-        for key in sorted((session_id, scoped)):
-            stack.enter_context(records.locked(key))
+    with records.locked_identity(session_id, "opencode", create=False) as held:
+        if not held:
+            return
         # The store's own order: the scoped name, once another harness's
         # record took the plain one, else the plain name.
         for key in (scoped, session_id):
