@@ -30,6 +30,8 @@ The shared context for humans and agents is the README:
 - [Agent sessions](docs/agent-sessions.md) — how sessions are observed and
   [Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)
 - [Design](docs/design.md) and the [Documentation map](README.md#documentation-map)
+- [Code map](docs/code-map.md) — the module that owns each domain concept,
+  kept complete by `scripts/maintain_docs.py`
 
 The Worktrees pane also supports explicit terminal/clipboard actions: `Enter`
 opens the selected Worktree and `y` copies its path. These actions do not

@@ -759,6 +759,164 @@ def test_writing_the_index_still_rejects_an_untracked_path(
     assert not (tmp_path / maintain_docs.ADR_INDEX_PATH).exists()
 
 
+def ship(root: Path, *names: str, body: str = '"""A module."""\n') -> list[str]:
+    """Write package files into a disposable tree and name them as Git lists them."""
+    for name in names:
+        write_document(root, f"src/dashpot/{name}", body)
+    return [f"src/dashpot/{name}" for name in names]
+
+
+def check_map(
+    monkeypatch: pytest.MonkeyPatch, root: Path, shipped: list[str], body: str
+) -> list[str]:
+    """Run the code map gate over a disposable map and package."""
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", root)
+    write_document(root, "docs/code-map.md", body)
+    return [problem.render() for problem in maintain_docs.check_code_map(shipped)]
+
+
+def test_a_code_map_listing_every_shipped_module_passes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A link is resolved as the link gate resolves it; links leaving the package do not count."""
+    shipped = ship(tmp_path, "hook.py", "core/git.py")
+
+    messages = check_map(
+        monkeypatch,
+        tmp_path,
+        shipped,
+        "| [`hook.py`](../src/dashpot/hook.py) | Publish. |\n"
+        "| [`core/git.py`](../src/dashpot/core/../core/git%2Epy?plain=1#L1) | Run Git. |\n"
+        "See [the design](design.md) and [AGENTS.md](../AGENTS.md#code-conventions).\n"
+        "[Upstream](https://example.invalid/src/dashpot/gone.py) and [up](#code-map).\n",
+    )
+
+    assert messages == []
+
+
+def test_a_shipped_module_the_code_map_leaves_out_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A new module has to be placed under its concept in the change that adds it."""
+    shipped = ship(tmp_path, "hook.py", "core/git.py")
+
+    messages = check_map(
+        monkeypatch, tmp_path, shipped, "[`hook.py`](../src/dashpot/hook.py)\n"
+    )
+
+    assert messages == [
+        "docs/code-map.md:1: does not list src/dashpot/core/git.py; "
+        "add it under the concept it serves"
+    ]
+
+
+def test_a_code_map_link_to_a_module_not_shipped_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A removed module must not linger on the map, even while its file is on disk."""
+    shipped = ship(tmp_path, "hook.py")
+    write_document(tmp_path, "src/dashpot/untracked.py", "")
+
+    messages = check_map(
+        monkeypatch,
+        tmp_path,
+        shipped,
+        "[`hook.py`](../src/dashpot/hook.py)\n\n"
+        "[`gone.py`](../src/dashpot/gone.py)\n"
+        "[`untracked.py`](../src/dashpot/untracked.py)\n",
+    )
+
+    assert messages == [
+        "docs/code-map.md:3: links src/dashpot/gone.py, "
+        "which the package does not ship",
+        "docs/code-map.md:4: links src/dashpot/untracked.py, "
+        "which the package does not ship",
+    ]
+
+
+def test_only_an_initializer_with_content_needs_listing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An empty initializer holds nothing to find; one that exports a seam does."""
+    shipped = ship(tmp_path, "core/__init__.py", body="") + ship(
+        tmp_path, "cleanup/__init__.py", body="from .perform import run as run\n"
+    )
+
+    messages = check_map(monkeypatch, tmp_path, shipped, "# Code map\n")
+
+    assert messages == [
+        "docs/code-map.md:1: does not list src/dashpot/cleanup/__init__.py; "
+        "add it under the concept it serves"
+    ]
+
+
+def test_a_directory_lists_its_assets_but_never_its_modules(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A bundled skill is one asset; a package link must not hide a module's absence."""
+    shipped = ship(
+        tmp_path,
+        "skills/issue-work/SKILL.md",
+        "skills/issue-work/references/dispatch.md",
+        "sessions/work.py",
+    )
+
+    messages = check_map(
+        monkeypatch,
+        tmp_path,
+        shipped,
+        "[`skills/issue-work/`](../src/dashpot/skills/issue-work/)\n"
+        "[`sessions/`](../src/dashpot/sessions/)\n",
+    )
+
+    assert messages == [
+        "docs/code-map.md:1: does not list src/dashpot/sessions/work.py; "
+        "add it under the concept it serves"
+    ]
+
+
+def test_links_in_code_do_not_list_a_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The map is read the way the link gate reads it, so an example is not an entry."""
+    shipped = ship(tmp_path, "hook.py")
+
+    messages = check_map(
+        monkeypatch,
+        tmp_path,
+        shipped,
+        "```markdown\n[`hook.py`](../src/dashpot/hook.py)\n```\n",
+    )
+
+    assert messages == [
+        "docs/code-map.md:1: does not list src/dashpot/hook.py; "
+        "add it under the concept it serves"
+    ]
+
+
+def test_a_missing_code_map_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """With no map at all, every shipped module is unlisted; the gate says why once."""
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+
+    problems = maintain_docs.check_code_map(ship(tmp_path, "hook.py"))
+
+    assert [problem.render() for problem in problems] == [
+        "docs/code-map.md:1: the code map is missing"
+    ]
+
+
+def test_the_shipped_files_are_what_git_tracks_in_the_package() -> None:
+    """The map covers what the wheel ships, which is every tracked package file."""
+    shipped = maintain_docs.tracked_package_files()
+
+    assert "src/dashpot/hook.py" in shipped
+    assert "src/dashpot/dashpot.tcss" in shipped
+    assert all(name.startswith("src/dashpot/") for name in shipped)
+    assert not any("__pycache__" in name for name in shipped)
+
+
 def test_the_repository_documents_pass_every_gate() -> None:
-    """Guard the real tree, so a stale link, status, ADR number, or index fails here too."""
+    """Guard the real tree, so a stale link, status, ADR number, index or code map fails here too."""
     assert maintain_docs.main([]) == 0

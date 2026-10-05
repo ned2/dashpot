@@ -326,6 +326,17 @@ same in a file and in the command's output.
 
 ## Implementation
 
+- **Where it lives.** Three modules with near-identical names divide the
+  Event Log. [`event_logs.py`](../src/dashpot/event_logs.py), at the
+  package root, opens one process's Event Log: it picks the checkout or the
+  machine-local fallback and the Event Level, reading the machine-local
+  settings `core` may not import.
+  [`core/event_log.py`](../src/dashpot/core/event_log.py) is the `EventLog`
+  writer it returns, which appends events and times spans.
+  [`core/event_log_files.py`](../src/dashpot/core/event_log_files.py) finds,
+  reads, measures and removes the files afterwards. The
+  [code map](code-map.md#runtime) lists them with the event models, the
+  dashboard's recorders and the Runtime screen.
 - **No logging library.** Events are closed Pydantic models rendered to one
   line, so a small appender in Dashpot's own code writes them: no new
   dependency, no process-global configuration, and no import cost in hooks

@@ -14,7 +14,8 @@ Session observation, the Work Store, Issue work, and integration; and
 `observation` for coordination, stores, and read models; and `ui` for Textual
 widgets, rendering, and runners.
 [ADR 0042](adr/0042-group-leaf-and-domain-modules-into-subpackages.md) records
-the layout and its staged scope. Pydantic bases live in
+the layout and its staged scope, and the [code map](code-map.md) lists every
+module under the domain concept it serves. Pydantic bases live in
 [`core/pydantic.py`](../src/dashpot/core/pydantic.py); observation models in
 [`core/model.py`](../src/dashpot/core/model.py); trusted Workspace values in
 [`project/workspace.py`](../src/dashpot/project/workspace.py).
@@ -91,7 +92,7 @@ retried on the next. Nothing is persisted, and Cleanup still assesses its
 targets afresh rather than using the observation cache.
 
 `x` is the other mutating key, a Cleanup
-([`cleanup.py`](../src/dashpot/repository/cleanup/),
+([`repository/cleanup/`](../src/dashpot/repository/cleanup/),
 [`cleanup_flow.py`](../src/dashpot/ui/cleanup_flow.py),
 [`cleanup_view.py`](../src/dashpot/ui/cleanup_view.py),
 [ADR 0019](adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md)).
@@ -719,7 +720,9 @@ checks — where the person deciding what to delete reads it. See
 [`textual-implementation-notes.md`](textual-implementation-notes.md) for
 the framework research behind the current implementation.
 
-The completed [module ownership map](adr/0042-group-leaf-and-domain-modules-into-subpackages.md#completed-layout)
+The [code map](code-map.md) names the module that owns each domain concept,
+and the package layout of
+[ADR 0042](adr/0042-group-leaf-and-domain-modules-into-subpackages.md#completed-layout)
 places coordination, accepted stores, and query read models in `observation/`,
 and Textual runners, messages, widgets, and rendering in `ui/`. Observation
 imports no UI modules. Shared list results carry typed summaries, and the
