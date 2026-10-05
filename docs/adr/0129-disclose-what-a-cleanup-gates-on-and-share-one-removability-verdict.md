@@ -42,7 +42,8 @@ Several of the preview's facts did not hold to that
   Worktree has it checked out, has a rebase of it in progress
   (`rebase-merge/head-name` or `rebase-apply/head-name` in that Worktree's
   administrative directory), or has a bisect of it in progress
-  (`BISECT_START`). The `checked-out` blocker's detail names which and
+  (`BISECT_START`), including a Branch a `rebase --update-refs` will move
+  (`rebase-merge/update-refs`). The `checked-out` blocker's detail names which and
   where, and its command is the one that ends it: `git -C <path> status`
   for a rebase, `git -C <path> bisect reset` for a bisect. The dashboard
   shows the blocker by its detail.
@@ -71,6 +72,12 @@ Several of the preview's facts did not hold to that
 - **Text Dashpot did not write is never markup.** The Cleanup report, its
   problem line, tooltips, the notifications that interpolate Git output or
   paths, and the Runtime screen's event cells render as plain text.
+- **A Sub-agent Override lifts only the Worktree's own hold.** It frees a
+  Branch blocked only because the acknowledged Worktree, which cannot go,
+  has it checked out; one function builds that blocker for the preview and
+  for the override's comparison. A Branch also in use in another Worktree
+  stays blocked
+  ([ADR 0112](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md)).
 - **The lock holder is probed from the process lookup.** The Worktree
   assessment derives the lock-holder probe from the process lookup it is
   given, so the production adapter probes the host and a test probes its
@@ -104,7 +111,8 @@ Several of the preview's facts did not hold to that
 - **Give the in-use Branch a new blocker kind per Git state:** rejected.
   The person's next step differs by its command, which the detail and
   command already carry, while every caller that gates on `checked-out`
-  would have to learn the new kinds.
+  would have to learn the new kinds. The one caller that must tell them
+  apart, the Sub-agent Override, compares the exact blocker instead.
 
 ## Consequences
 

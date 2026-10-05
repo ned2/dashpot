@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git, GitError
 from ...core.model import HARNESS_DISPLAY
-from ...core.shell import in_directory, shell_command
+from ...core.shell import in_directory, shell_command, then
 from ...core.worktree_paths import is_within, same_path, worktree_paths, worktree_root
 from ...sessions.hook_scan import (
     HookRecordClassification,
@@ -21,7 +22,11 @@ from ...sessions.hook_scan import (
 from ...sessions.liveness import LivenessProbe
 from ...sessions.opencode_publishers import NO_LIVE_INSTANCE
 from ...sessions.orphaned_runs import orphaned_process
-from ...sessions.processes import ProcessLookup, host_process_lookup, process_liveness
+from ...sessions.processes import (
+    ProcessLookup,
+    host_process_lookup,
+    lock_holder_probe,
+)
 from ...sessions.session_exits import (
     ended_session_subagent_stop,
     forget_subagents_command,
@@ -33,7 +38,6 @@ from ...sessions.session_exits import (
 from ...sessions.work_store import ActiveWork, WorkStore
 from ...sessions.working_directories import ProcessScan, ScanGap, processes_inside
 from ..repository import (
-    LockHolderProbe,
     RefIndex,
     assess_content_integration,
     lock_holder,
@@ -41,6 +45,12 @@ from ..repository import (
 )
 from ..worktrees.records import INITIALIZING_LOCK, registered_at, short_branch
 from .targets import CleanupBlocker, CleanupError, IntegrationFact
+
+# Why a checkout a Cleanup protects is never removable.
+PROTECTED_DETAIL = (
+    "this is the checkout Dashpot runs from or a configured Repository Anchor, "
+    "which observation cannot lose"
+)
 
 
 def counted(count: int, noun: str) -> str:
@@ -60,7 +70,7 @@ class LocatedWorktree:
     # Every Worktree of the Repository, resolved; bare entries are not Worktrees.
     worktrees: tuple[Path, ...]
     # Every record ``git worktree list`` gave, the main Worktree's first.
-    records: tuple[Mapping[str, str], ...] = ()
+    records: tuple[Mapping[str, str], ...]
 
     @property
     def branch(self) -> str | None:
@@ -107,16 +117,6 @@ def locate_worktree(
     )
 
 
-def lock_holder_probe(lookup: ProcessLookup) -> LockHolderProbe:
-    """Whether a lock's holding process runs, asked of the same process lookup.
-
-    Observation answers the Worktrees pane's lock question with the host's
-    process lookup; a Cleanup preview and ``worktree check`` ask the lookup
-    they were given, so the three agree about one lock.
-    """
-    return lambda pid: process_liveness(lookup(pid))[0]
-
-
 def assess_worktree_safety(
     located: LocatedWorktree, lookup: ProcessLookup = host_process_lookup
 ) -> list[CleanupBlocker]:
@@ -133,7 +133,7 @@ def assess_worktree_safety(
     lock = registered.get("locked")
     if lock is not None:
         reason = lock or "no reason reported"
-        holder = lock_holder(reason, lock_holder_probe(lookup))
+        holder = lock_holder(reason, partial(lock_holder_probe, lookup=lookup))
         if INITIALIZING_LOCK in reason:
             command = shell_command("git", "worktree", "remove", "-f", "-f", path)
         else:
@@ -270,8 +270,10 @@ def assess_worktree_occupancy(
                     f"{record.worktree} ended with "
                     f"{named_subagents(record.live_subagents)}. {unplaced} "
                     f"{ended_session_subagent_stop(record.harness, record.session_id)}.",
-                    command=f"{shell_command('cd', path)} && "
-                    f"{forget_subagents_command(record.harness, record.session_id)}",
+                    command=then(
+                        shell_command("cd", path),
+                        forget_subagents_command(record.harness, record.session_id),
+                    ),
                     session_id=record.session_id,
                     harness=record.harness,
                     agents=record.live_subagents,
@@ -626,8 +628,9 @@ def assess_nested_worktrees(located: LocatedWorktree) -> list[CleanupBlocker]:
                     detail=f"a stale, locked record of the Worktree {path}, {why}, "
                     f"is inside this one: unlock it, then prune it, since prune "
                     f"leaves a locked record alone",
-                    command=f"{shell_command('git', 'worktree', 'unlock', path)} "
-                    f"&& {prune}",
+                    command=then(
+                        shell_command("git", "worktree", "unlock", path), prune
+                    ),
                 )
             )
         else:
@@ -691,12 +694,6 @@ def ignored_content(git: Git, path: Path) -> tuple[list[str], list[CleanupBlocke
     return ignored, []
 
 
-PROTECTED = (
-    "this is the checkout Dashpot runs from or a configured Repository Anchor, "
-    "which observation cannot lose"
-)
-
-
 @dataclass(frozen=True, slots=True)
 class WorktreeAssessment:
     """Whether a Worktree can be removed: one verdict for Cleanup and ``worktree check``.
@@ -735,7 +732,7 @@ def assess_worktree(
     if located.detached:
         blockers.extend(assess_detached_head_preservation(located.git, located.head))
     if any(same_path(path, candidate.expanduser()) for candidate in protected):
-        blockers.append(CleanupBlocker(kind="protected", detail=PROTECTED))
+        blockers.append(CleanupBlocker(kind="protected", detail=PROTECTED_DETAIL))
     prunable = located.record.get("prunable")
     if prunable is not None or not path.is_dir():
         blockers.append(

@@ -31,6 +31,7 @@ from dashpot.repository.cleanup import (
 )
 from dashpot.repository.cleanup.adapter import GitCleanupAdapter
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
+from dashpot.repository.cleanup.override import lifted
 from dashpot.repository.cleanup.selection import retained_choices
 from dashpot.repository.cleanup.targets import disclosed_facts, fingerprint
 from dashpot.repository.worktrees.removability import (
@@ -63,6 +64,7 @@ from test_cleanup import (
     preview_worktree,
     repo,
 )
+from test_subagent_override import BOTH, perform, removing, shown, two_subagents
 
 LOCAL_FEAT = "local:refs/heads/feat"
 
@@ -78,14 +80,19 @@ def run_shell(command: str, cwd: Path) -> None:
 def rebasing(root: Path, worktree: Path) -> None:
     """Stop a rebase of the Branch checked out at ``worktree`` partway."""
     git(root, "worktree", "add", "-q", str(worktree), "feat")
+    rebasing_here(worktree)
+    # Git lists a Worktree mid-rebase as detached, naming no Branch.
+    assert "detached" in git(root, "worktree", "list", "--porcelain")
+
+
+def rebasing_here(worktree: Path) -> None:
+    """Stop a rebase of the Branch checked out at ``worktree`` partway."""
     subprocess.run(
         ["git", "rebase", "--exec", "false", "HEAD~1"],
         cwd=worktree,
         capture_output=True,
         check=False,
     )
-    # Git lists a Worktree mid-rebase as detached, naming no Branch.
-    assert "detached" in git(root, "worktree", "list", "--porcelain")
 
 
 def test_a_branch_being_rebased_in_another_worktree_is_in_use(
@@ -160,6 +167,55 @@ def test_a_branch_being_bisected_in_another_worktree_is_in_use(
         detail=f"being bisected at {worktree.resolve()}; end that bisect first",
         command=f"git -C {worktree.resolve()} bisect reset",
     )
+
+
+def test_a_branch_rebased_by_a_stack_in_another_worktree_is_in_use(
+    tmp_path: Path,
+) -> None:
+    root = repo(tmp_path)
+    branch(root, "low")
+    git(root, "checkout", "-q", "-b", "top", "low")
+    git(root, "commit", "-q", "--allow-empty", "-m", "top")
+    git(root, "checkout", "-q", "main")
+    git(root, "commit", "-q", "--allow-empty", "-m", "main moves on")
+    worktree = tmp_path / "wt"
+    git(root, "worktree", "add", "-q", str(worktree), "top")
+    # Stop at the first commit, with ``low`` still to be moved.
+    subprocess.run(
+        ["git", "rebase", "-i", "--update-refs", "main"],
+        cwd=worktree,
+        env={**os.environ, "GIT_SEQUENCE_EDITOR": "sed -i 1s/^pick/edit/"},
+        capture_output=True,
+        check=False,
+    )
+
+    local = by_identity(preview_branch(root, "low"))["local:refs/heads/low"]
+
+    assert (
+        "checked-out",
+        f"being rebased at {worktree.resolve()}; finish or abort that rebase first",
+    ) in [(one.kind, one.detail) for one in local.blockers]
+
+
+def test_a_sub_agent_override_never_lifts_a_branch_in_use_elsewhere(
+    tmp_path: Path,
+) -> None:
+    root, target = two_subagents(tmp_path)
+    second = tmp_path / "second"
+    git(root, "worktree", "add", "-q", "-f", str(second), "feat")
+    rebasing_here(second)
+    preview = shown(root, target)
+    tree = next(one for one in preview.targets if one.kind == "worktree")
+    held = next(one for one in preview.targets if one.kind == "local-branch")
+
+    report = perform(removing(preview, root, target, BOTH))
+
+    assert lifted(preview, BOTH) == {tree.identity}
+    assert held.identity not in lifted(preview, BOTH)
+    assert report.performed is False
+    assert any("being rebased at" in refusal for refusal in report.refusals)
+    assert target.exists()
+    git(root, "rev-parse", "--verify", "refs/heads/feat")
 
 
 def test_a_branch_checked_out_in_a_second_worktree_stays_after_removing_one(

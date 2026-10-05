@@ -39,6 +39,7 @@ from .targets import (
     IntegrationFact,
     WorktreeCleanupRequest,
     fingerprint,
+    held_by_blocked_worktree,
 )
 
 CANONICAL_FETCH_REFSPEC = "+refs/heads/*:refs/remotes/{remote}/*"
@@ -125,12 +126,7 @@ def _local_branch_target(
     if blocked_worktree is not None:
         # From the Worktrees pane the Branch is a target only because the
         # Worktree goes first; a Worktree that cannot go keeps it checked out.
-        blockers.append(
-            CleanupBlocker(
-                kind="checked-out",
-                detail=f"checked out at {blocked_worktree}, whose removal is blocked",
-            )
-        )
+        blockers.append(held_by_blocked_worktree(blocked_worktree, remote=False))
     blockers.extend(_integration_blockers(fact, refname))
     recreate = shell_command("git", "branch", name, commit)
     consequences = [f"deletes {refname} at {commit[:7]}; recreate with: {recreate}"]
@@ -193,15 +189,7 @@ def _remote_branch_target(
     if blocked_worktree is not None:
         # Offered from the Worktrees pane only as part of finishing the
         # Worktree, so it goes no further than a Worktree that cannot go.
-        blockers.append(
-            CleanupBlocker(
-                kind="checked-out",
-                detail=(
-                    f"its local Branch is checked out at {blocked_worktree}, "
-                    f"whose removal is blocked"
-                ),
-            )
-        )
+        blockers.append(held_by_blocked_worktree(blocked_worktree, remote=True))
     blockers.extend(_remote_blockers(git, remote))
     blockers.extend(_integration_blockers(fact, tracking))
     recreate = shell_command(

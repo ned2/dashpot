@@ -17,6 +17,11 @@ def shell_command(*argv: str | Path | int) -> str:
     return shlex.join(str(argument) for argument in argv)
 
 
+def then(*commands: str) -> str:
+    """Commands a shell runs in turn, each only once the one before succeeded."""
+    return " && ".join(commands)
+
+
 def in_directory(path: str | Path, *argv: str | Path | int) -> str:
     """``cd PATH && COMMAND``: a command a person runs from inside a Worktree."""
-    return f"{shell_command('cd', path)} && {shell_command(*argv)}"
+    return then(shell_command("cd", path), shell_command(*argv))

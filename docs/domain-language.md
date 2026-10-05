@@ -198,7 +198,10 @@ local Branch, and the same Branch at its push remote — the remote a plain
 selected, and the Branch at the remote only at the local Branch's tip
 ([ADR 0054](adr/0054-finish-a-worktree-with-its-branch-by-default.md)). A
 Worktree preview cannot authorize Branch-only deletion when its primary
-removal is blocked.
+removal is blocked. A Branch is in use, and no Cleanup deletes it, while any
+Worktree has it checked out, is rebasing it (including one
+`rebase --update-refs` moves), or is bisecting it, as Git itself derives it
+([ADR 0129](adr/0129-disclose-what-a-cleanup-gates-on-and-share-one-removability-verdict.md)).
 _Avoid_: prune for a Cleanup, which is the Remote Fetch's removal of gone
 Remote-Tracking Branches; cleanup for anything observation does
 
@@ -648,7 +651,10 @@ restarted the run and binds a new run, with a new `startedAt`, in its place
 (the recovery of a [Codex](agent-sessions.md#codex-hosting-modes) or an
 [OpenCode](agent-sessions.md#opencode-hosting-modes) run), or
 until a person ends it with `dashpot work stop --session`; a gone session
-without a run is only stale observation state.
+without a run is only stale observation state. A run whose relocation is
+pending is not orphaned while its old client exits: observation, `work`, and
+Cleanup tell an Orphaned Agent Run by one rule
+([ADR 0129](adr/0129-disclose-what-a-cleanup-gates-on-and-share-one-removability-verdict.md)).
 Orphaned is what a person reads about the run, beside its turn state, which
 is then unknown.
 _Avoid_: interrupted, crashed, or dead run, which claim a cause Dashpot does

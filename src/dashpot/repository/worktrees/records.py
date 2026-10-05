@@ -44,8 +44,9 @@ def branch_in_use(
     """Find a Worktree, other than ``besides``, that uses the Branch ``refname``.
 
     In use is what Git's own ``branch -d`` refuses: a Worktree whose HEAD
-    is the Branch, and one rebasing or bisecting it, which ``git worktree
-    list`` reports only as detached. The rebase and bisect state is read
+    is the Branch, and one rebasing it (as its own Branch or one
+    ``--update-refs`` moves) or bisecting it, which ``git worktree list``
+    reports only as detached. The rebase and bisect state is read
     from each Worktree's administrative directory, as Git reads it.
     """
     listed = list(records)
@@ -68,6 +69,11 @@ def branch_in_use(
         for state in ("rebase-merge/head-name", "rebase-apply/head-name"):
             if _state(admin / state) == refname:
                 return BranchInUse(worktree, "being rebased")
+        # ``rebase --update-refs`` lists every Branch it will move, each as
+        # a line of three: the ref, its old commit, its new one.
+        updated = (_state(admin / "rebase-merge/update-refs") or "").splitlines()
+        if refname in updated[::3]:
+            return BranchInUse(worktree, "being rebased")
         # ``BISECT_START`` holds the short name of the Branch a bisect began on.
         bisected = _state(admin / "BISECT_START")
         if bisected and f"{LOCAL_REF_PREFIX}{bisected}" == refname:
@@ -99,10 +105,14 @@ def _administrative_directories(
 
 
 def _state(path: Path) -> str | None:
-    """A one-line Git state file's content, or None when there is none."""
+    """A Git state file's content, or None when there is none to read.
+
+    A file Git is rewriting, or one this process may not read, says nothing
+    of the state, so it does not fail the preview either.
+    """
     try:
         text = path.read_text(encoding="utf-8").strip()
-    except (FileNotFoundError, NotADirectoryError):
+    except (OSError, UnicodeDecodeError):
         return None
     return text or None
 

@@ -960,7 +960,9 @@ named with the `git worktree prune` that drops it (preceded by
 ([ADR 0125](docs/adr/0125-block-removing-a-worktree-that-holds-another-worktree.md)),
 the checkout the command runs from or a configured Repository Anchor
 (`protected`), and commits not on the upstream or the Integration Branch.
-Every command it names is quoted for a POSIX shell. A removable
+Every command it names is quoted for a POSIX shell. Like the Cleanup
+commands, it refuses when the Workspace config cannot be read, since it
+could not tell which Repository Anchors to protect. A removable
 Worktree's text report says that its remove commands also delete the ignored
 paths inside it, which `--json` lists as `ignored`, and adds that sub-agents
 of Agent Sessions outside the Repository are not checked. When the host's processes could not all be
@@ -1010,7 +1012,8 @@ is already gone there, so that rejection is followed by one read-only
 confirm again) or `already-absent` (the stale Remote-Tracking Branch is pruned
 the same way); a successful delete push drops the Remote-Tracking Branch itself.
 Neither command deletes the Integration Branch, a Branch checked out, being
-rebased, or being bisected in any Worktree, as Git tells it, a
+rebased (including one `rebase --update-refs` moves), or being bisected in
+any Worktree, as Git tells it, a
 Branch with commits the Integration Branch does not reach, or a Worktree that
 is the main one, dirty, locked, occupied by an Agent Session or Agent Run,
 possibly occupied by a live Claude Code sub-agent of a session in the

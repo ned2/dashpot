@@ -64,6 +64,23 @@ class CleanupBlocker(PublishedModel):
     agents: LaxSequence[str] = ()
 
 
+def held_by_blocked_worktree(worktree: str | Path, *, remote: bool) -> CleanupBlocker:
+    """The blocker of a Branch a Worktree preview offers while that Worktree cannot go.
+
+    It is the only ``checked-out`` blocker a Sub-agent Override lifts with
+    the Worktree, so one function builds it for the preview and for the
+    override's comparison: a Branch also in use in another Worktree carries
+    another blocker and stays unavailable (ADR 0112, ADR 0129).
+    """
+    if remote:
+        detail = (
+            f"its local Branch is checked out at {worktree}, whose removal is blocked"
+        )
+    else:
+        detail = f"checked out at {worktree}, whose removal is blocked"
+    return CleanupBlocker(kind="checked-out", detail=detail)
+
+
 class IntegrationFact(PublishedModel):
     """How one concrete ref stands against the Integration Branch."""
 

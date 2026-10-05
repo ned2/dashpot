@@ -33,8 +33,8 @@ Worktree [creation](../src/dashpot/repository/worktrees/create.py) and the
 separate so removal checks never load creation; the report runs the Cleanup
 preview's own Worktree assessment
 ([ADR 0129](adr/0129-disclose-what-a-cleanup-gates-on-and-share-one-removability-verdict.md)).
-Every command Dashpot shows a person is built from an argument vector by
-[`core/shell.py`](../src/dashpot/core/shell.py).
+Every command a Cleanup or `worktree check` shows a person is built from an
+argument vector by [`core/shell.py`](../src/dashpot/core/shell.py).
 
 Observation is scheduled per key rather than as one refresh: the Project's
 Issue Source, Pull Request source and Repository State are observed

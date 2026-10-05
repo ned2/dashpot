@@ -403,7 +403,7 @@ class CleanupScreen(ModalScreen[CleanupConfirmation | None]):
         fetched_at: str | None = None,
         previous: CleanupScreen | None = None,
     ) -> None:
-        """``previous`` is the preview this one revises, whose subject it keeps fixed."""
+        """Show a preview, keeping the subject of the ``previous`` one it revises."""
         super().__init__()
         self.request = request
         self.preview = preview
