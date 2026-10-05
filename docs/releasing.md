@@ -38,7 +38,7 @@ attestations using the same OIDC identity. Only its top-level publish jobs have
 - Confirm the release scope, supported environments, and all outstanding
   acceptance evidence in [#5](https://github.com/ned2/dashpot/issues/5).
 - Keep `pyproject.toml`'s version, `BUNDLED_SKILL_VERSION` in
-  [integrate.py](../src/dashpot/sessions/integrate.py), and the two version occurrences in
+  [registry.py](../src/dashpot/sessions/integrate/registry.py), and the two version occurrences in
   [the bundled skill](../src/dashpot/skills/dashpot-issue-work/SKILL.md) aligned.
   Relock after a version or dependency change as
   [AGENTS.md](../AGENTS.md#code-conventions) describes.

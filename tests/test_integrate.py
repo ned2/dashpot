@@ -17,24 +17,19 @@ import pytest
 from dashpot.core.model import Harness
 from dashpot.repository.cleanup import DESPITE_SUBAGENTS_FLAG
 from dashpot.repository.cleanup.obstacles import session_exit
-from dashpot.sessions.harnesses import HarnessError
+from dashpot.sessions.harnesses import OPENCODE_ACCEPTED_VERSION, HarnessError
 from dashpot.sessions.hook_records import HookRecordStore
 from dashpot.sessions.integrate import (
     BUNDLED_SKILL_VERSION,
     BUNDLED_SKILLS,
-    CLAUDE_CODE_HOOK_EVENTS,
-    CODEX_HOOK_EVENTS,
     ISSUE_WORK_SKILL,
-    OPENCODE_ACCEPTED_VERSION,
     BundledSkill,
     CombinedStatus,
     ConfigurationDirectory,
     HarnessReport,
     IncompleteRemovalError,
     IntegrationError,
-    codex_integration_status,
     configuration_directory,
-    install_codex_integration,
     install_integration,
     install_integrations,
     integration,
@@ -42,7 +37,6 @@ from dashpot.sessions.integrate import (
     integration_status,
     integrations_status,
     refresh_integrations,
-    remove_codex_integration,
     remove_integration,
     resolve_hook_command,
     skill_directory,
@@ -95,11 +89,11 @@ def test_fresh_install_registers_every_lifecycle_event(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     command = publisher(tmp_path)
 
-    messages = install_codex_integration(home, command_path=command)
+    messages = install_integration("codex", home, command_path=command)
 
     document = read_hooks(home)
-    assert set(document["hooks"]) == set(CODEX_HOOK_EVENTS)
-    for event in CODEX_HOOK_EVENTS:
+    assert set(document["hooks"]) == set(integration("codex").events)
+    for event in integration("codex").events:
         assert document["hooks"][event] == [
             {
                 "hooks": [
@@ -118,10 +112,10 @@ def test_fresh_install_registers_every_lifecycle_event(tmp_path: Path) -> None:
 def test_install_is_idempotent(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     command = publisher(tmp_path)
-    install_codex_integration(home, command_path=command)
+    install_integration("codex", home, command_path=command)
     before = (home / "hooks.json").read_text()
 
-    messages = install_codex_integration(home, command_path=command)
+    messages = install_integration("codex", home, command_path=command)
 
     assert (home / "hooks.json").read_text() == before
     assert any("already installed" in message for message in messages)
@@ -130,7 +124,7 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
 def test_install_distributes_the_versioned_issue_work_skill(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
 
-    messages = install_codex_integration(home, command_path=publisher(tmp_path))
+    messages = install_integration("codex", home, command_path=publisher(tmp_path))
 
     skill = installed_skill(home)
     text = (skill / "SKILL.md").read_text()
@@ -150,7 +144,7 @@ def test_install_distributes_the_versioned_issue_work_skill(tmp_path: Path) -> N
 
 def test_install_repairs_a_managed_issue_work_skill(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
     skill = installed_skill(home)
     dispatch = skill / "references" / "dispatch.md"
     dispatch.write_text("stale\n")
@@ -158,7 +152,7 @@ def test_install_repairs_a_managed_issue_work_skill(tmp_path: Path) -> None:
     status = integration_status(
         "codex", home, state_dir=tmp_path / "state", current=tmp_path
     )
-    messages = install_codex_integration(home, command_path=publisher(tmp_path))
+    messages = install_integration("codex", home, command_path=publisher(tmp_path))
 
     assert any("skill update available" in message for message in status)
     assert dispatch.read_text() != "stale\n"
@@ -172,7 +166,7 @@ def test_install_refuses_to_overwrite_an_unmanaged_skill(tmp_path: Path) -> None
     (skill / "SKILL.md").write_text("---\nname: dashpot-issue-work\n---\nMine.\n")
 
     with pytest.raises(IntegrationError, match="not managed by Dashpot"):
-        install_codex_integration(home, command_path=publisher(tmp_path))
+        install_integration("codex", home, command_path=publisher(tmp_path))
 
     assert not (home / "hooks.json").exists()
     assert (skill / "SKILL.md").read_text().endswith("Mine.\n")
@@ -229,7 +223,7 @@ def test_a_command_line_with_arguments_is_recognised_by_its_executable(
         json.dumps({"hooks": {"Stop": [{"hooks": [handler]}]}})
     )
 
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
 
     stop_groups = read_hooks(home)["hooks"]["Stop"]
     assert len(stop_groups) == 1
@@ -258,7 +252,7 @@ def test_install_preserves_foreign_hooks_and_unknown_keys(
         )
     )
 
-    install_codex_integration(home, command_path=command)
+    install_integration("codex", home, command_path=command)
 
     document = read_hooks(home)
     assert document["description"] == "user config"
@@ -282,7 +276,7 @@ def test_install_replaces_a_stale_publisher_path(tmp_path: Path) -> None:
     )
     command = publisher(tmp_path)
 
-    install_codex_integration(home, command_path=command)
+    install_integration("codex", home, command_path=command)
 
     stop_groups = read_hooks(home)["hooks"]["Stop"]
     assert len(stop_groups) == 1
@@ -291,7 +285,9 @@ def test_install_replaces_a_stale_publisher_path(tmp_path: Path) -> None:
 
 def test_install_requires_an_existing_codex_home(tmp_path: Path) -> None:
     with pytest.raises(IntegrationError, match="no Codex configuration directory"):
-        install_codex_integration(tmp_path / ".codex", command_path=publisher(tmp_path))
+        install_integration(
+            "codex", tmp_path / ".codex", command_path=publisher(tmp_path)
+        )
 
 
 def test_malformed_hooks_file_is_an_error_and_left_untouched(
@@ -301,7 +297,7 @@ def test_malformed_hooks_file_is_an_error_and_left_untouched(
     (home / "hooks.json").write_text("{not json")
 
     with pytest.raises(IntegrationError, match="fix or move the file"):
-        install_codex_integration(home, command_path=publisher(tmp_path))
+        install_integration("codex", home, command_path=publisher(tmp_path))
 
     assert (home / "hooks.json").read_text() == "{not json"
 
@@ -310,7 +306,7 @@ def test_config_toml_hooks_coexistence_is_noted(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     (home / "config.toml").write_text('[hooks]\nStop = "something"\n')
 
-    messages = install_codex_integration(home, command_path=publisher(tmp_path))
+    messages = install_integration("codex", home, command_path=publisher(tmp_path))
 
     assert any("config.toml also defines hooks" in message for message in messages)
 
@@ -325,13 +321,13 @@ def test_config_toml_hook_trust_ledger_is_not_a_hook_definition(
         'trusted_hash = "sha256:abc"\nenabled = true\n'
     )
 
-    messages = install_codex_integration(home, command_path=publisher(tmp_path))
+    messages = install_integration("codex", home, command_path=publisher(tmp_path))
 
     assert not any("also defines hooks" in message for message in messages)
 
     (home / "config.toml").write_text('[[hooks.Stop]]\ncommand = "x"\n')
-    messages = codex_integration_status(
-        home, state_dir=tmp_path / "state", current=tmp_path
+    messages = integration_status(
+        "codex", home, state_dir=tmp_path / "state", current=tmp_path
     )
     assert any("also defines hooks" in message for message in messages)
 
@@ -342,9 +338,9 @@ def test_remove_strips_only_the_dashpot_hooks(tmp_path: Path) -> None:
     (home / "hooks.json").write_text(
         json.dumps({"hooks": {"Stop": [{"hooks": [theirs]}]}})
     )
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
 
-    messages = remove_codex_integration(home)
+    messages = remove_integration("codex", home)
 
     document = read_hooks(home)
     assert document == {"hooks": {"Stop": [{"hooks": [theirs]}]}}
@@ -355,9 +351,9 @@ def test_remove_deletes_a_file_that_only_held_dashpot_hooks(
     tmp_path: Path,
 ) -> None:
     home = codex_home(tmp_path)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
 
-    messages = remove_codex_integration(home)
+    messages = remove_integration("codex", home)
 
     assert not (home / "hooks.json").exists()
     assert not installed_skill(home).exists()
@@ -368,12 +364,12 @@ def test_remove_preserves_foreign_files_in_the_managed_skill_directory(
     tmp_path: Path,
 ) -> None:
     home = codex_home(tmp_path)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
     skill = installed_skill(home)
     foreign = skill / "notes.txt"
     foreign.write_text("keep me\n")
 
-    messages = remove_codex_integration(home)
+    messages = remove_integration("codex", home)
 
     assert foreign.read_text() == "keep me\n"
     assert not (skill / "SKILL.md").exists()
@@ -383,10 +379,10 @@ def test_remove_preserves_foreign_files_in_the_managed_skill_directory(
 def test_remove_without_installation_is_a_calm_message(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
 
-    assert "not installed" in remove_codex_integration(home)[0]
+    assert "not installed" in remove_integration("codex", home)[0]
 
     (home / "hooks.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": []}]}}))
-    assert "no Dashpot hooks" in remove_codex_integration(home)[0]
+    assert "no Dashpot hooks" in remove_integration("codex", home)[0]
 
 
 @pytest.mark.parametrize(
@@ -402,7 +398,7 @@ def test_remove_leaves_a_hooks_file_without_dashpot_hooks_unchanged(
     home = codex_home(tmp_path)
     (home / "hooks.json").write_text(json.dumps(document))
 
-    messages = remove_codex_integration(home)
+    messages = remove_integration("codex", home)
 
     assert messages[0] == (
         f"Codex integration is not installed: {said} {home / 'hooks.json'}"
@@ -414,10 +410,10 @@ def test_remove_cleans_the_managed_skill_when_hooks_are_already_absent(
     tmp_path: Path,
 ) -> None:
     home = codex_home(tmp_path)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
     (home / "hooks.json").unlink()
 
-    messages = remove_codex_integration(home)
+    messages = remove_integration("codex", home)
 
     assert not installed_skill(home).exists()
     assert "integration is not installed" in messages[0]
@@ -432,8 +428,8 @@ def test_install_then_remove_round_trips_a_user_file(tmp_path: Path) -> None:
     }
     (home / "hooks.json").write_text(json.dumps(original))
 
-    install_codex_integration(home, command_path=publisher(tmp_path))
-    remove_codex_integration(home)
+    install_integration("codex", home, command_path=publisher(tmp_path))
+    remove_integration("codex", home)
 
     assert read_hooks(home) == original
 
@@ -441,12 +437,12 @@ def test_install_then_remove_round_trips_a_user_file(tmp_path: Path) -> None:
 def test_status_reports_installed_state_and_records(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     command = publisher(tmp_path)
-    install_codex_integration(home, command_path=command)
+    install_integration("codex", home, command_path=command)
     state = tmp_path / "state"
     state.mkdir()
     (state / "session.json").write_text("{}")
 
-    messages = codex_integration_status(home, state_dir=state, current=tmp_path)
+    messages = integration_status("codex", home, state_dir=state, current=tmp_path)
 
     joined = "\n".join(messages)
     assert f"installed in {home / 'hooks.json'}" in joined
@@ -460,13 +456,13 @@ def test_status_reports_installed_state_and_records(tmp_path: Path) -> None:
 
 def test_status_lists_stale_session_records_without_pruning(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
     state = tmp_path / "state"
     HookRecordStore(state).write(session_record("0199-stale"))
     HookRecordStore(state).write(session_record("0199-live"))
 
-    messages = codex_integration_status(
-        home, state_dir=state, current=tmp_path, lookup=absent()
+    messages = integration_status(
+        "codex", home, state_dir=state, current=tmp_path, lookup=absent()
     )
 
     joined = "\n".join(messages)
@@ -480,8 +476,8 @@ def test_status_lists_stale_session_records_without_pruning(tmp_path: Path) -> N
     ) in joined
     assert (state / "0199-stale.json").exists()
 
-    messages = codex_integration_status(
-        home, state_dir=state, current=tmp_path, lookup=present(CODEX)
+    messages = integration_status(
+        "codex", home, state_dir=state, current=tmp_path, lookup=present(CODEX)
     )
     assert "(2 live, 0 unknown, 0 stale, 0 unreadable)" in "\n".join(messages)
 
@@ -490,7 +486,7 @@ def test_status_names_the_sub_agents_that_keep_an_ended_record(
     tmp_path: Path,
 ) -> None:
     home = codex_home(tmp_path)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
     state = tmp_path / "state"
     state.mkdir()
     HookRecordStore(state).replace(
@@ -502,8 +498,8 @@ def test_status_names_the_sub_agents_that_keep_an_ended_record(
         },
     )
 
-    messages = codex_integration_status(
-        home, state_dir=state, current=tmp_path, lookup=present(CODEX)
+    messages = integration_status(
+        "codex", home, state_dir=state, current=tmp_path, lookup=present(CODEX)
     )
 
     assert (
@@ -515,11 +511,12 @@ def test_status_names_the_sub_agents_that_keep_an_ended_record(
 
 def test_status_shows_unknown_liveness_reasons(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
     state = tmp_path / "state"
     HookRecordStore(state).write(session_record("sandboxed"))
 
-    messages = codex_integration_status(
+    messages = integration_status(
+        "codex",
         home,
         state_dir=state,
         current=tmp_path,
@@ -554,8 +551,8 @@ def test_status_flags_missing_events_and_publisher(tmp_path: Path) -> None:
         )
     )
 
-    messages = codex_integration_status(
-        home, state_dir=tmp_path / "no-state", current=tmp_path
+    messages = integration_status(
+        "codex", home, state_dir=tmp_path / "no-state", current=tmp_path
     )
 
     joined = "\n".join(messages)
@@ -572,7 +569,7 @@ def test_an_install_without_sub_agent_events_is_reported_and_upgraded(
     # lacks the boundaries (ADR 0067); status names them and a rerun adds them.
     home = codex_home(tmp_path)
     command = publisher(tmp_path)
-    install_codex_integration(home, command_path=command)
+    install_integration("codex", home, command_path=command)
     document = read_hooks(home)
     for event in ("SubagentStart", "SubagentStop"):
         del document["hooks"][event]
@@ -580,14 +577,14 @@ def test_an_install_without_sub_agent_events_is_reported_and_upgraded(
 
     missing = [
         message
-        for message in codex_integration_status(
-            home, state_dir=tmp_path / "no-state", current=tmp_path
+        for message in integration_status(
+            "codex", home, state_dir=tmp_path / "no-state", current=tmp_path
         )
         if "missing hook events" in message
     ]
     assert missing and "SubagentStart" in missing[0] and "SubagentStop" in missing[0]
 
-    install_codex_integration(home, command_path=command)
+    install_integration("codex", home, command_path=command)
 
     assert {"SubagentStart", "SubagentStop"} <= set(read_hooks(home)["hooks"])
 
@@ -595,20 +592,22 @@ def test_an_install_without_sub_agent_events_is_reported_and_upgraded(
 def test_the_codex_example_subscribes_every_lifecycle_event() -> None:
     example = Path(__file__).parents[1] / "examples" / "codex-hooks.json"
 
-    assert set(json.loads(example.read_text())["hooks"]) == set(CODEX_HOOK_EVENTS)
+    assert set(json.loads(example.read_text())["hooks"]) == set(
+        integration("codex").events
+    )
 
 
 def test_status_when_nothing_is_installed(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
 
-    messages = codex_integration_status(
-        home, state_dir=tmp_path / "state", current=tmp_path
+    messages = integration_status(
+        "codex", home, state_dir=tmp_path / "state", current=tmp_path
     )
 
     assert "not installed" in messages[0]
 
-    messages = codex_integration_status(
-        tmp_path / "absent", state_dir=tmp_path / "state", current=tmp_path
+    messages = integration_status(
+        "codex", tmp_path / "absent", state_dir=tmp_path / "state", current=tmp_path
     )
     assert "configuration directory not found" in messages[0]
 
@@ -625,8 +624,8 @@ def test_status_reports_the_current_projects_session_store(
     sessions.mkdir(parents=True)
     (sessions / "one.json").write_text("{}")
 
-    messages = codex_integration_status(
-        home, state_dir=tmp_path / "state", current=repo
+    messages = integration_status(
+        "codex", home, state_dir=tmp_path / "state", current=repo
     )
 
     joined = "\n".join(messages)
@@ -672,7 +671,7 @@ def test_claude_code_install_merges_into_settings(tmp_path: Path) -> None:
     document = json.loads((home / "settings.json").read_text())
     assert document["model"] == "opus"
     assert document["permissions"] == {"allow": ["Bash(ls:*)"]}
-    assert set(document["hooks"]) >= set(CLAUDE_CODE_HOOK_EVENTS)
+    assert set(document["hooks"]) >= set(integration("claude-code").events)
     assert "Interrupt" not in document["hooks"]
     assert document["hooks"]["Stop"][0]["hooks"][0]["command"] == "notify-send x"
     assert document["hooks"]["Stop"][1]["hooks"][0]["command"] == str(command)
@@ -877,7 +876,7 @@ def test_each_harness_removal_only_touches_its_own_file(tmp_path: Path) -> None:
 
     assert not (codex / "hooks.json").exists()
     document = json.loads((claude / "settings.json").read_text())
-    assert set(document["hooks"]) == {*CLAUDE_CODE_HOOK_EVENTS, "PostToolUse"}
+    assert set(document["hooks"]) == {*integration("claude-code").events, "PostToolUse"}
 
 
 def test_unsupported_harness_is_an_error(tmp_path: Path) -> None:
@@ -898,8 +897,8 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     write_config_marker(root)
     state = tmp_path / "state"
 
-    none = codex_integration_status(
-        home, state_dir=state, current=root, lookup=present(CODEX), environ={}
+    none = integration_status(
+        "codex", home, state_dir=state, current=root, lookup=present(CODEX), environ={}
     )
     assert any(
         "Agent Session identity claimed here: none for Codex" in message
@@ -908,8 +907,13 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     )
 
     claimed = {"CODEX_THREAD_ID": "thread-9"}
-    missing = codex_integration_status(
-        home, state_dir=state, current=root, lookup=present(CODEX), environ=claimed
+    missing = integration_status(
+        "codex",
+        home,
+        state_dir=state,
+        current=root,
+        lookup=present(CODEX),
+        environ=claimed,
     )
     assert any(
         "Codex session thread-9 (from Codex environment), rejected: no "
@@ -920,8 +924,13 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     project_session_store(root).write(
         {**session_record("thread-9", "running"), "repositoryRoot": str(root)}
     )
-    confirmed = codex_integration_status(
-        home, state_dir=state, current=root, lookup=present(CODEX), environ=claimed
+    confirmed = integration_status(
+        "codex",
+        home,
+        state_dir=state,
+        current=root,
+        lookup=present(CODEX),
+        environ=claimed,
     )
     assert any(
         "Codex session thread-9 (from Codex environment), confirmed by its "
@@ -929,7 +938,8 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
         for message in confirmed
     )
 
-    explicit = codex_integration_status(
+    explicit = integration_status(
+        "codex",
         home,
         state_dir=state,
         current=root,
@@ -958,7 +968,8 @@ def test_status_confirms_an_identity_only_where_its_freshest_record_places_it(
     )
 
     def status(current: Path) -> list[str]:
-        return codex_integration_status(
+        return integration_status(
+            "codex",
             home,
             state_dir=tmp_path / "state",
             current=current,
@@ -1081,7 +1092,7 @@ def test_an_install_that_predates_exit_worktree_is_flagged_and_upgraded(
 def test_codex_subscribes_no_matched_events(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
 
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
 
     assert "PostToolUse" not in read_hooks(home)
 
@@ -1870,9 +1881,9 @@ def test_remove_keeps_a_linked_hooks_file_that_held_only_dashpot_hooks(
     managed.parent.mkdir()
     managed.write_text("{}\n")
     (home / "hooks.json").symlink_to(managed)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
 
-    messages = remove_codex_integration(home)
+    messages = remove_integration("codex", home)
 
     assert f"removed the Dashpot hooks from {home / 'hooks.json'}" in messages
     assert (home / "hooks.json").is_symlink()
@@ -1885,7 +1896,7 @@ def test_a_replaced_hooks_file_keeps_its_mode(tmp_path: Path) -> None:
     hooks.write_text("{}\n")
     hooks.chmod(0o640)
 
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
 
     assert stat.S_IMODE(hooks.stat().st_mode) == 0o640
     assert not hooks.is_symlink()
@@ -1949,17 +1960,17 @@ def test_a_hooks_file_that_is_not_utf8_is_refused_by_install_status_and_remove(
     tmp_path: Path,
 ) -> None:
     home = codex_home(tmp_path)
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
     hooks = home / "hooks.json"
     hooks.write_bytes(b"\xff{}")
 
     with pytest.raises(IntegrationError) as install_refused:
-        install_codex_integration(home, command_path=publisher(tmp_path))
-    report = codex_integration_status(
-        home, state_dir=tmp_path / "state", current=tmp_path
+        install_integration("codex", home, command_path=publisher(tmp_path))
+    report = integration_status(
+        "codex", home, state_dir=tmp_path / "state", current=tmp_path
     )
     with pytest.raises(IncompleteRemovalError) as remove_incomplete:
-        remove_codex_integration(home)
+        remove_integration("codex", home)
 
     refusal = f"cannot read Codex hooks at {hooks}: "
     assert str(install_refused.value).startswith(refusal)
@@ -1982,12 +1993,12 @@ def test_remove_carries_on_past_a_hooks_file_it_cannot_change(
         (home / "hooks.json").write_text(
             json.dumps({"hooks": {"Stop": [{"hooks": [theirs]}]}})
         )
-    install_codex_integration(home, command_path=publisher(tmp_path))
+    install_integration("codex", home, command_path=publisher(tmp_path))
     hooks = (home / "hooks.json").read_bytes()
     home.chmod(0o555)
     try:
         with pytest.raises(IncompleteRemovalError) as incomplete:
-            remove_codex_integration(home)
+            remove_integration("codex", home)
     finally:
         home.chmod(0o755)
 

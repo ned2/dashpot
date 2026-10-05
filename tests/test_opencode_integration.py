@@ -15,19 +15,19 @@ from pathlib import Path
 
 import pytest
 
+from dashpot.sessions.harnesses import OPENCODE_ACCEPTED_VERSION
 from dashpot.sessions.integrate import (
     BUNDLED_SKILL_VERSION,
     ISSUE_WORK_SKILL,
-    OPENCODE,
-    OPENCODE_ACCEPTED_VERSION,
     IncompleteRemovalError,
     IntegrationError,
     install_integration,
+    integration,
     integration_status,
     remove_integration,
-    render_plugin,
     skill_directory,
 )
+from dashpot.sessions.integrate.opencode_plugin import render_plugin
 from dashpot.sessions.processes import (
     ProcessAbsent,
     ProcessIdentity,
@@ -105,14 +105,17 @@ def status(
 def test_the_default_home_is_opencodes_global_configuration_directory(
     _home: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    assert OPENCODE.default_home == _home / ".config" / "opencode"
+    assert integration("opencode").default_home == _home / ".config" / "opencode"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
-    assert OPENCODE.default_home == tmp_path / "xdg" / "opencode"
-    assert OPENCODE.default_skills_home == tmp_path / "xdg" / "opencode" / "skills"
-    assert skill_directory(OPENCODE, OPENCODE.default_home, ISSUE_WORK_SKILL) == (
-        tmp_path / "xdg" / "opencode" / "skills" / "dashpot-issue-work"
+    assert integration("opencode").default_home == tmp_path / "xdg" / "opencode"
+    assert (
+        integration("opencode").default_skills_home
+        == tmp_path / "xdg" / "opencode" / "skills"
     )
+    assert skill_directory(
+        integration("opencode"), integration("opencode").default_home, ISSUE_WORK_SKILL
+    ) == (tmp_path / "xdg" / "opencode" / "skills" / "dashpot-issue-work")
 
 
 def test_install_writes_the_plugin_bound_to_the_helper_and_the_skill(
@@ -346,7 +349,7 @@ def test_remove_carries_on_past_a_plugin_it_cannot_unlink(tmp_path: Path) -> Non
     assert str(incomplete.value).startswith(
         f"could not remove the OpenCode plugin {plugin_file(home)}: [Errno 13] "
     )
-    skill = skill_directory(OPENCODE, home, ISSUE_WORK_SKILL)
+    skill = skill_directory(integration("opencode"), home, ISSUE_WORK_SKILL)
     assert f"removed the Dashpot Issue work skill from {skill}" in (
         incomplete.value.messages
     )

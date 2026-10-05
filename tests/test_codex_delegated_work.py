@@ -22,7 +22,7 @@ from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
-from dashpot.sessions.integrate import codex_integration_status
+from dashpot.sessions.integrate import integration_status
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work import (
     IssueWorkError,
@@ -636,7 +636,8 @@ def test_a_childs_integrate_status_reports_its_root_sessions_identity(
     home = tmp_path / "codex-home"
     home.mkdir()
 
-    messages = codex_integration_status(
+    messages = integration_status(
+        "codex",
         home,
         state_dir=tmp_path / "global-state",
         current=a,

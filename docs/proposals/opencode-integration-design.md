@@ -538,7 +538,7 @@ proposed. The following separates the completed correction from that future work
 | [record_store.py](../../src/dashpot/core/record_store.py): `LockedRecordStore.replace`, `locked` | One-file durable replacement is reusable; repository coordination and deadline-aware acquisition remain additional requirements |
 | [liveness.py](../../src/dashpot/sessions/liveness.py): `session_liveness`, `LivenessProbe` | Reuse PID/start-time proof and per-pass memoization; unknown never authorizes takeover or orphan recovery |
 | [harnesses.py](../../src/dashpot/sessions/harnesses.py) | Reuse native-identity requirements without treating backend recognition as session identification |
-| [integrate.py](../../src/dashpot/sessions/integrate.py) | Add managed OpenCode plugin installation/status/removal without assuming every harness uses hook JSON |
+| [integrate](../../src/dashpot/sessions/integrate/) | Add managed OpenCode plugin installation/status/removal without assuming every harness uses hook JSON |
 
 Use Pydantic models on the shared base for new publication and persisted shapes;
 normalize to frozen, slotted dataclasses internally. Decide versioning and
@@ -714,7 +714,7 @@ recommendations to resolve before implementing support:
   ownership checks, repair and version diagnostics. Test roundtrips with
   unrelated files, shared skills, stale paths and unsupported runtime modes.
 - Registration is repeated in [harnesses.py](../../src/dashpot/sessions/harnesses.py),
-  [integrate.py](../../src/dashpot/sessions/integrate.py), the
+  [integrate](../../src/dashpot/sessions/integrate/), the
   [CLI harness union](../../src/dashpot/cli.py), and
   [session labels](../../src/dashpot/observation/session_list.py). A registry could connect
   narrow identity, publisher, installer and display concerns; evaluate that

@@ -16,13 +16,12 @@ from pathlib import Path
 import pytest
 
 from dashpot.core.model import Harness
+from dashpot.sessions.harnesses import OPENCODE_ACCEPTED_VERSION
 from dashpot.sessions.integrate import (
     BUNDLED_SKILL_VERSION,
     BUNDLED_SKILLS,
     BUNDLED_SKILLS_ROOT,
     ISSUE_WORK_SKILL,
-    OPENCODE_ACCEPTED_VERSION,
-    SKILL_MANIFEST,
     BundledSkill,
     HarnessIntegration,
     IncompleteIntegrationError,
@@ -35,6 +34,7 @@ from dashpot.sessions.integrate import (
     remove_integration,
     skill_directory,
 )
+from dashpot.sessions.integrate.skill_copies import SKILL_MANIFEST
 
 HARNESSES: tuple[Harness, ...] = ("codex", "claude-code", "opencode")
 

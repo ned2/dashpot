@@ -27,7 +27,6 @@ from dashpot.core.event_log import EventLogDestination
 from dashpot.core.model import Diagnostic
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
-from dashpot.sessions import integrate
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import (
     project_session_store,
@@ -38,7 +37,7 @@ from dashpot.sessions.hook_scan import (
     reachable_hook_stores,
     sessions_with_live_subagents,
 )
-from dashpot.sessions.integrate import integration_status
+from dashpot.sessions.integrate import diagnostics, integration_status
 from dashpot.sessions.opencode_publish import (
     OpenCodeOutcome,
     parse_request,
@@ -1325,7 +1324,7 @@ def test_status_reads_a_server_that_exits_after_confirming_as_unknown(
 ) -> None:
     server.turn(project)
     confirmed = False
-    validate = integrate.validate_session_claim
+    validate = diagnostics.validate_session_claim
 
     def confirm(*args: Any, **kwargs: Any) -> Any:
         nonlocal confirmed
@@ -1336,7 +1335,7 @@ def test_status_reads_a_server_that_exits_after_confirming_as_unknown(
     def lookup(pid: int) -> ProcessObservation:
         return ProcessAbsent(pid) if confirmed else server.lookup(pid)
 
-    monkeypatch.setattr(integrate, "validate_session_claim", confirm)
+    monkeypatch.setattr(diagnostics, "validate_session_claim", confirm)
 
     lines = claimed_here(tmp_path, project, lookup, server.claim())
 

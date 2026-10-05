@@ -25,7 +25,7 @@ from dashpot.sessions.harnesses import (
     OPENCODE_V1_REFUSAL,
     opencode_shell_refusal,
 )
-from dashpot.sessions.integrate import render_plugin
+from dashpot.sessions.integrate.opencode_plugin import render_plugin
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
 
