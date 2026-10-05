@@ -393,7 +393,7 @@ async def test_enter_on_a_session_does_not_open_or_select_an_issue() -> None:
         await pilot.press("down")
         await pilot.press("enter")
         await pilot.pause()
-        assert app.query_screen.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table_controller.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
         assert selected_title(app) == "#1: First"
@@ -403,7 +403,7 @@ async def test_enter_on_a_session_does_not_open_or_select_an_issue() -> None:
         await pilot.press("enter")
         await pilot.pause()
         assert app.screen is app.dashboard
-        assert app.query_screen.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table_controller.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
 
@@ -524,7 +524,7 @@ async def test_worktrees_pane_lists_observed_targets_and_follows_the_topology() 
         assert selected_title(app) == "#1: First"
         await pilot.press("enter")
         await pilot.pause()
-        assert app.query_screen.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table_controller.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
         assert not isinstance(app.screen, IssueScreen)

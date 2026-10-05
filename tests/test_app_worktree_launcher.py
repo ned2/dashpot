@@ -102,7 +102,7 @@ async def test_pending_request_keeps_captured_path_and_refuses_duplicates(tmp_pa
             await wait_until(lambda: len(captured) == 1)
             await pilot.press("enter", "enter")
             assert captured == [first] and table.opening
-            app.query_screen.queue_table().focus()
+            app.query_screen.issue_table().focus()
             release.set()
             await wait_until(lambda: not table.opening)
     finally:

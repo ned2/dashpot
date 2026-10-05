@@ -385,7 +385,7 @@ def test_cells_carry_typed_values() -> None:
         assert IssueStateCell(kind, dark=True).state_kind == kind
 
 
-def test_correlated_run_state_is_visible_in_queue_and_detail() -> None:
+def test_correlated_run_state_is_visible_in_issues_and_detail() -> None:
     selected_issue = issue(
         "test/repo#1",
         "First",

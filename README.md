@@ -816,7 +816,7 @@ The owned file grammar is documented in
 [`conformance/issue/local-markdown.md`](conformance/issue/local-markdown.md).
 Both adapters collect the complete source inventory, including open and
 closed Issues; source collection does not apply a lifecycle filter. The TUI
-defaults its Work list to open Issues. Both adapters are currently read-only.
+defaults its Issues pane to open Issues. Both adapters are currently read-only.
 
 ## Agent session observation
 

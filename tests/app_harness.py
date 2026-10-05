@@ -736,7 +736,7 @@ async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     """
     if app.screen is not app.query_screen:
         await show_query_peer(app, pilot)
-    app.query_screen.queue_table().focus()
+    app.query_screen.issue_table().focus()
     await pilot.press("enter")
     await wait_until(
         lambda: isinstance(app.screen, IssueScreen) and not app.queries.busy
@@ -760,19 +760,19 @@ async def await_resolved_identities(app: DashpotApp, *issue_ids: str) -> None:
     )
 
 
-def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
+def assert_panes_stack_above_full_width_issues_pane(app: DashpotApp) -> None:
     """The Pull Requests pane stacks above the full-width Issue table."""
     body = app.query_screen.query_one("#query-body")
     list_row = app.query_screen.query_one("#query-list-row")
     pull_requests = app.query_screen.query_one("#pull-requests-pane")
-    queue_pane = app.query_screen.query_one("#queue-pane")
+    issues_pane = app.query_screen.query_one("#issues-pane")
 
     assert pull_requests.region.y - list_row.region.y == PANE_MARGIN
-    assert queue_pane.region.y - pull_requests.region.bottom == PANE_MARGIN
-    for pane in (pull_requests, queue_pane):
+    assert issues_pane.region.y - pull_requests.region.bottom == PANE_MARGIN
+    for pane in (pull_requests, issues_pane):
         assert pane.region.x == body.region.x
         assert pane.region.width == body.region.width
-    assert queue_pane.region.height >= 6
+    assert issues_pane.region.height >= 6
     assert not app.query("#detail-row")
     assert not app.query("#project-pane")
     assert not app.query("#selection-pane")
@@ -780,10 +780,10 @@ def assert_panes_stack_above_full_width_queue(app: DashpotApp) -> None:
 
 def selected_title(app: DashpotApp) -> str:
     """The compact label of the Issue the table cursor is on."""
-    assert app.query_screen.issue_table.selected_row_key is not None
+    assert app.query_screen.issue_table_controller.selected_row_key is not None
     return selection_title(
-        app.query_screen.issue_table.rows_by_key[
-            app.query_screen.issue_table.selected_row_key
+        app.query_screen.issue_table_controller.rows_by_key[
+            app.query_screen.issue_table_controller.selected_row_key
         ]
     )
 

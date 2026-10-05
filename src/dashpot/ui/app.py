@@ -465,7 +465,7 @@ class IssuesPullRequestsScreen(Screen[None]):
 
     def __init__(self) -> None:
         super().__init__()
-        self.issue_table = IssueTableController(self)
+        self.issue_table_controller = IssueTableController(self)
         # The app is looked up when a page is submitted, not held from here.
         self.list_queries = ListQueries(
             lambda kind, **updates: self.dashpot.submit_page(kind, **updates)
@@ -536,16 +536,18 @@ class IssuesPullRequestsScreen(Screen[None]):
                         controls_height=spec.controls_height,
                         visible_row_limit=spec.visible_row_limit,
                     )
-                with Vertical(id="queue-pane"):
+                with Vertical(id="issues-pane"):
                     yield self.issue_filter_bar
-                    yield IssueTable(id="queue", cursor_type="row", zebra_stripes=False)
+                    yield IssueTable(
+                        id="issues", cursor_type="row", zebra_stripes=False
+                    )
             yield Static("", id="alert")
         yield Static("", id="diagnostics")
         yield Footer()
 
-    def queue_table(self) -> IssueTable:
+    def issue_table(self) -> IssueTable:
         """The Issue table; `query_one` cannot name the cell type itself."""
-        return self.query_one("#queue", IssueTable)
+        return self.query_one("#issues", IssueTable)
 
     def status_bar(self) -> PeerStatusBar:
         """The persistent peer navigation chrome on this screen."""
@@ -596,7 +598,7 @@ class IssuesPullRequestsScreen(Screen[None]):
         return peer_surfaces_mounted(
             self,
             tuple(spec.pane_id for spec in QUERY_PANE_SPECS),
-            extra_selectors=("#queue",),
+            extra_selectors=("#issues",),
         )
 
     def action_focus_search(self) -> None:
@@ -624,9 +626,9 @@ class IssuesPullRequestsScreen(Screen[None]):
         self.refresh_bindings()
 
     def on_mount(self) -> None:
-        self.query_one("#queue-pane").border_title = Content(ISSUE_PANE_LABEL)
-        self.issue_table.show_table_columns(
-            shown_columns(self.issue_table.issue_view.columns, ())
+        self.query_one("#issues-pane").border_title = Content(ISSUE_PANE_LABEL)
+        self.issue_table_controller.show_table_columns(
+            shown_columns(self.issue_table_controller.issue_view.columns, ())
         )
         self.pull_requests_pane().table.focus()
         self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
@@ -635,19 +637,19 @@ class IssuesPullRequestsScreen(Screen[None]):
         self.update_status()
         self.call_after_refresh(self.update_status)
         if self.dashpot.store.pages:
-            self.queue_table().loading = False
-            self.issue_table.reconcile_rows()
+            self.issue_table().loading = False
+            self.issue_table_controller.reconcile_rows()
             self.update_issue_inventory()
             self.reconcile_list_panes()
             self.update_diagnostics()
         else:
-            self.queue_table().loading = True
+            self.issue_table().loading = True
 
     def on_theme_changed(self, _theme: Theme) -> None:
         """Re-render semantic table colors for the new theme brightness."""
 
         if self.dashpot.store.has_observations:
-            self.issue_table.reconcile_rows()
+            self.issue_table_controller.reconcile_rows()
             # The list panes render their glyphs in explicit colours chosen
             # for the theme's brightness, so they repaint with the table.
             self.reconcile_list_panes()
@@ -656,8 +658,8 @@ class IssuesPullRequestsScreen(Screen[None]):
         if self.page_kind() != "issues":
             return
         self.app.push_screen(
-            IssueColumnEditor(self.issue_table.issue_view.columns),
-            self.issue_table.apply_issue_columns,
+            IssueColumnEditor(self.issue_table_controller.issue_view.columns),
+            self.issue_table_controller.apply_issue_columns,
         )
 
     @override
@@ -668,16 +670,16 @@ class IssuesPullRequestsScreen(Screen[None]):
         if action in {"columns", "open_issue"} and not self.surfaces_mounted():
             return None
         if action == "columns":
-            return True if self.query_one("#queue-pane").has_focus_within else None
+            return True if self.query_one("#issues-pane").has_focus_within else None
         if action == "open_issue":
             available = (
-                self.queue_table().has_focus
-                and self.issue_table.selected_row_key is not None
+                self.issue_table().has_focus
+                and self.issue_table_controller.selected_row_key is not None
             )
             return True if available else None
         return True
 
-    @on(DataTable.HeaderSelected, "#queue")
+    @on(DataTable.HeaderSelected, "#issues")
     def submit_column_ordering(self, event: DataTable.HeaderSelected) -> None:
         """Order the Issue table by the selected column."""
         self.order_issues_by(str(event.column_key.value))
@@ -719,7 +721,7 @@ class IssuesPullRequestsScreen(Screen[None]):
 
     def update_issue_inventory(self) -> None:
         """Title the Issue pane with the Project's totals, never the page's length."""
-        self.query_one("#queue-pane").border_title = Content(
+        self.query_one("#issues-pane").border_title = Content(
             f"{ISSUE_PANE_LABEL} · {totals_text(self.dashpot.store.totals.get('issues'))}"
         )
 
@@ -729,7 +731,7 @@ class IssuesPullRequestsScreen(Screen[None]):
         if not self.is_mounted or not self.surfaces_mounted():
             return
         self.fit_list_panes(message.size)
-        self.issue_table.update_page_summary()
+        self.issue_table_controller.update_page_summary()
 
     def on_list_pane_rows_changed(self, _message: ListPane.RowsChanged) -> None:
         # A pane's share depends on what every pane wants, so any change of
@@ -750,8 +752,8 @@ class IssuesPullRequestsScreen(Screen[None]):
         otherwise stay focusable out of sight. The arithmetic is `pane_layout`'s;
         this method only gathers the widget facts and applies the result.
         """
-        queue_pane = self.query_one("#queue-pane")
-        fixed_height = ISSUE_PANE_MINIMUM + queue_pane.styles.margin.top
+        issues_pane = self.query_one("#issues-pane")
+        fixed_height = ISSUE_PANE_MINIMUM + issues_pane.styles.margin.top
         panes = self.list_panes()
         caps = fit_panes(
             body.height,
@@ -763,7 +765,7 @@ class IssuesPullRequestsScreen(Screen[None]):
             pane.fit_rows(content_height_cap)
         issue_pane_fits = keeps_minimum(body.height, fixed_height, len(panes))
         self.issue_filter_bar.display = issue_pane_fits
-        self.queue_table().display = issue_pane_fits
+        self.issue_table().display = issue_pane_fits
 
     def reconcile_list_panes(self) -> None:
         """Re-list every observed record from the store."""
@@ -785,19 +787,19 @@ class IssuesPullRequestsScreen(Screen[None]):
                 records=view.records,
             )
 
-    @on(DataTable.RowSelected, "#queue")
+    @on(DataTable.RowSelected, "#issues")
     def open_selected_issue(self, event: DataTable.RowSelected) -> None:
         """Open the Issue a person selected in the Issue table."""
         self.open_issue(str(event.row_key.value))
 
     def action_open_issue(self) -> None:
-        selected = self.issue_table.selected_row_key
-        if self.queue_table().has_focus and selected is not None:
+        selected = self.issue_table_controller.selected_row_key
+        if self.issue_table().has_focus and selected is not None:
             self.open_issue(selected)
 
     def open_issue(self, key: str) -> None:
         """Read the Issue full-screen; nothing happens without an Issue row."""
-        row = self.issue_table.rows_by_key.get(key)
+        row = self.issue_table_controller.rows_by_key.get(key)
         if row is None:
             return
         context = self.dashpot.store.detail_for(row)
@@ -808,13 +810,13 @@ class IssuesPullRequestsScreen(Screen[None]):
         self.dashpot.selected_identity = row.issue.id
         self.dashpot.request_identities()
 
-    @on(DataTable.RowHighlighted, "#queue")
+    @on(DataTable.RowHighlighted, "#issues")
     def select_highlighted_issue(self, event: DataTable.RowHighlighted) -> None:
         """Select the Issue under the cursor; other tables' cursors select nothing."""
         # Only the Issue table drives the Issue selection; a session or worktree
         # cursor is for scrolling, copying and refresh scope alone.
         if self.is_mounted:
-            self.issue_table.show_row(str(event.row_key.value))
+            self.issue_table_controller.show_row(str(event.row_key.value))
 
     def update_status(self) -> None:
         """Render current location and the shared Project Totals summary."""
@@ -1582,8 +1584,8 @@ class DashpotApp(App[None]):
             dashboard.reconcile_list_panes()
         query_screen = self.query_screen
         if query_screen.is_mounted and query_screen.surfaces_mounted():
-            query_screen.queue_table().loading = False
-            query_screen.issue_table.reconcile_rows()
+            query_screen.issue_table().loading = False
+            query_screen.issue_table_controller.reconcile_rows()
             query_screen.update_issue_inventory()
             query_screen.reconcile_list_panes()
         self.update_diagnostics()
@@ -1656,8 +1658,8 @@ class DashpotApp(App[None]):
                 self.dashboard.reconcile_list_panes()
             query_screen = self.query_screen
             if query_screen.is_mounted and query_screen.surfaces_mounted():
-                query_screen.queue_table().loading = False
-                query_screen.issue_table.reconcile_rows()
+                query_screen.issue_table().loading = False
+                query_screen.issue_table_controller.reconcile_rows()
                 query_screen.update_issue_inventory()
                 query_screen.reconcile_list_panes()
         for peer in self.peer_screens():

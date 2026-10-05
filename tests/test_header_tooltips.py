@@ -495,8 +495,8 @@ async def test_every_pull_requests_header_shows_its_help() -> None:
 
 def issue_columns(app: DashpotApp) -> tuple[ColumnKey, ...]:
     """The Issue table's columns as shown, conditional ones included."""
-    return app.query_screen.issue_table.table_columns(
-        app.query_screen.query_one("#queue", DataTable)
+    return app.query_screen.issue_table_controller.table_columns(
+        app.query_screen.query_one("#issues", DataTable)
     )
 
 
@@ -523,7 +523,7 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
     async with app.run_test(size=(160, 40), tooltips=True) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         tooltip = app.screen.query_one(Tooltip)
         # No listed Issue carries a priority or waits on a blocker, so
         # neither PRIORITY nor WAITING ON is shown yet.
@@ -531,7 +531,7 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
             key for key in DEFAULT_COLUMNS if key not in {"priority", "waiting_on"}
         )
         await assert_every_header_shows_its_help(
-            pilot, tooltip, "#queue", table, column_specs(issue_columns(app))
+            pilot, tooltip, "#issues", table, column_specs(issue_columns(app))
         )
 
         # Selecting a header orders the page and marks the header, and the
@@ -547,43 +547,45 @@ async def test_every_issues_header_shows_its_help_through_sorting_and_columns() 
             )
         )
         await wait_until(lambda: table_labels(table)[2] == "# ↑")
-        await hover_header(pilot, tooltip, "#queue", 2)
+        await hover_header(pilot, tooltip, "#issues", 2)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(COLUMNS_BY_KEY["number"]))
-        await move_to_header(pilot, tooltip, "#queue", 3)
+        await move_to_header(pilot, tooltip, "#issues", 3)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(COLUMNS_BY_KEY["title"]))
         # A body cell clears it: one at the right edge, clear of the box the
         # TITLE header opened beneath itself.
-        await move_within(pilot, tooltip, "#queue", table.size.width - 3, 1)
+        await move_within(pilot, tooltip, "#issues", table.size.width - 3, 1)
         assert not tooltip.display
         assert table.tooltip is None
         assert app.queries.navigation["issues"].request.ordering == "number:asc"
 
         # Choosing and reordering columns rebuilds the table; each header
         # explains the column now under it.
-        app.query_screen.issue_table.apply_issue_columns(("title", "number", "author"))
+        app.query_screen.issue_table_controller.apply_issue_columns(
+            ("title", "number", "author")
+        )
         await pilot.pause()
         assert issue_columns(app) == ("agent_state", "title", "number", "author")
         await assert_every_header_shows_its_help(
-            pilot, tooltip, "#queue", table, column_specs(issue_columns(app))
+            pilot, tooltip, "#issues", table, column_specs(issue_columns(app))
         )
 
         # A prioritised Issue that waits on Alpha arrives, and the
         # conditional PRIORITY and WAITING ON columns with it, explained like
         # the rest.
-        app.query_screen.issue_table.apply_issue_columns(DEFAULT_COLUMNS)
+        app.query_screen.issue_table_controller.apply_issue_columns(DEFAULT_COLUMNS)
         serve_snapshot(app, second)
         await app.run_action("refresh")
         await wait_until(lambda: observation_landed(app, 2))
         await wait_until(lambda: "PRIORITY ↕" in table_labels(table))
         await pilot.pause()
         assert issue_columns(app) == DEFAULT_COLUMNS
-        await hover_header(pilot, tooltip, "#queue", DEFAULT_COLUMNS.index("priority"))
+        await hover_header(pilot, tooltip, "#issues", DEFAULT_COLUMNS.index("priority"))
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(column_help(COLUMNS_BY_KEY["priority"]))
         await move_to_header(
-            pilot, tooltip, "#queue", DEFAULT_COLUMNS.index("waiting_on")
+            pilot, tooltip, "#issues", DEFAULT_COLUMNS.index("waiting_on")
         )
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(
@@ -612,18 +614,18 @@ async def test_issues_headers_explain_themselves_over_an_empty_page_and_scrolled
     async with app.run_test(size=(100, 30), tooltips=True) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         tooltip = app.screen.query_one(Tooltip)
         assert table.row_count == 0
         assert table.show_header
-        await hover_afresh(pilot, tooltip, "#queue", 0, 0)
+        await hover_afresh(pilot, tooltip, "#issues", 0, 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(
             column_help(COLUMNS_BY_KEY["agent_state"])
         )
 
         # Every column but PRIORITY, which no listed Issue gives a value.
-        app.query_screen.issue_table.apply_issue_columns(COLUMN_KEYS)
+        app.query_screen.issue_table_controller.apply_issue_columns(COLUMN_KEYS)
         assert issue_columns(app) == shown_columns(COLUMN_KEYS, ())
         assert "priority" not in issue_columns(app)
         # The redeclared table measures its columns while idle.
@@ -633,7 +635,7 @@ async def test_issues_headers_explain_themselves_over_an_empty_page_and_scrolled
             "the Issue table's width",
         )
         assert virtual > visible
-        await hover_afresh(pilot, tooltip, "#queue", 0, 0)
+        await hover_afresh(pilot, tooltip, "#issues", 0, 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(
             column_help(COLUMNS_BY_KEY["agent_state"])
@@ -644,12 +646,12 @@ async def test_issues_headers_explain_themselves_over_an_empty_page_and_scrolled
         table.scroll_to(x=table.virtual_size.width, animate=False, force=True)
         # The scroll is applied after the next refresh, even unanimated.
         await wait_until(lambda: table.scroll_x == table.max_scroll_x > 0)
-        await hover_afresh(pilot, tooltip, "#queue", table.size.width - 2, 0)
+        await hover_afresh(pilot, tooltip, "#issues", table.size.width - 2, 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(
             column_help(COLUMNS_BY_KEY[COLUMN_KEYS[-1]])
         )
-        await hover_afresh(pilot, tooltip, "#queue", 0, 0)
+        await hover_afresh(pilot, tooltip, "#issues", 0, 0)
         await wait_until(lambda: tooltip.display)
         assert str(tooltip.content) == required(
             column_help(COLUMNS_BY_KEY["agent_state"])

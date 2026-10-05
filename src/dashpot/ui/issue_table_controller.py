@@ -64,7 +64,7 @@ class IssueTableController:
     @property
     def table(self) -> IssueTable:
         """The Issue table the controller drives."""
-        return self.screen.queue_table()
+        return self.screen.issue_table()
 
     @staticmethod
     def table_columns(table: DataTable[TableCell]) -> tuple[ColumnKey, ...]:

@@ -547,7 +547,7 @@ async def test_the_issue_list_shows_a_worker_running_until_it_stops() -> None:
     async with app.run_test(size=(150, 55)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.queue_table()
+        table = app.query_screen.issue_table()
 
         def glyph(issue_id: str) -> str:
             cell = table.get_cell(row_key("issue", issue_id), "agent_state")
