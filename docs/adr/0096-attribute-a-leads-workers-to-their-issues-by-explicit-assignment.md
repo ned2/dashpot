@@ -12,13 +12,12 @@ observes held only in the snapshot Issue list, which is retired; the Issue
 list is one Project's Query Page.
 
 Amended in place for [#593](https://github.com/ned2/dashpot/issues/593):
-the check that left an Agent Run bound to an Issue Identity more than one
-Project observes unbound, and reported the Identity as an
-`agent-issue-identity-conflict`, is retired from headless `observe`.
-Dashpot observes one Project per run
+headless `observe` retires the check that left unbound an Agent Run whose
+Issue Identity more than one Project observes, and reported that Identity as
+an `agent-issue-identity-conflict`. Dashpot observes one Project at a time
 ([ADR 0004](0004-observe-one-project-per-run.md)), so no such Identity
-occurs; a multi-Project run would need its own ADR, which decides the rule
-afresh.
+occurs; observing several Projects together would need its own ADR, which
+decides the rule afresh.
 
 [ADR 0092](0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)
 ships the Lead/Worker workflow: a Lead holds the Arc's single Agent Run and
@@ -156,10 +155,10 @@ copied to its Workers' Issues. So when Worker B finishes, Issue B loses B's
 C keeps Issue C running and the Lead may still be running on the Arc. An
 assignment alone shows nothing. A Sub-agent no Lead assigned holds only its
 own session's run running (ADR 0016) and gives no Issue of its own any
-activity. An Issue Identity names one Issue of the one observed Project
-([ADR 0004](0004-observe-one-project-per-run.md)), so bound runs and
-assigned Workers count toward it alike; no rule refuses either for an
-Identity more than one Project observes.
+activity. The one observed Project holds at most one Issue for any Issue
+Identity ([ADR 0004](0004-observe-one-project-per-run.md)), so bound runs
+and assigned Workers count toward an Issue alike; no rule refuses either for
+an Identity more than one Project observes.
 
 Each assigned Worker keeps its Lead's run identity, so a later Sessions-pane
 design ([#444](https://github.com/ned2/dashpot/issues/444)) can show assigned

@@ -23,8 +23,8 @@ def bind_issue_runs(
 ) -> IssueBindingResult:
     """Validate Work Store Issue Bindings against the observed Issue universe.
 
-    Dashpot observes one Project per run (ADR 0004), so an Issue Identity
-    names at most one observed Issue.
+    Dashpot observes one Project at a time (ADR 0004), so the observed
+    Issues hold each Issue Identity at most once; duplicates are not checked.
     """
     issues_by_id: dict[str, IssueProfile] = {}
     status_by_project: dict[str, str] = {}

@@ -215,8 +215,8 @@ the registry stays closed, and a confirmed mutation opts out and finishes
 
 Encode the row kind and opaque stable identities into every Textual row key.
 An Issue row uses globally unique Issue Identity so selection survives a
-Project transfer. Only Issues are rows, like an Issue tracker's feed; Projects and
-Agent Runs are facts shown in the Issue view rather than rows. Add explicit
+Project transfer. Only Issues are rows, like an Issue tracker's feed; Projects
+and Agent Runs are facts shown in the Issue view rather than rows. Add explicit
 stable column keys as well. Textual row keys remain valid when rows move because
 of deletion or sorting; coordinates do not.
 [DataTable keys](https://textual.textualize.io/widgets/data_table/#keys)
