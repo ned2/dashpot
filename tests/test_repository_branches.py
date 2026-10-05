@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -266,17 +265,7 @@ def test_a_failing_commit_count_is_a_diagnostic_not_an_absence() -> None:
 def _commit(root: Path, path: str, text: str, message: str) -> None:
     (root / path).write_text(text)
     git(root, "add", path)
-    git(
-        root,
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "user.name=Test",
-        "commit",
-        "-q",
-        "-m",
-        message,
-    )
+    git(root, "commit", "-q", "-m", message)
 
 
 def squash_repository(tmp_path: Path) -> Path:
@@ -290,10 +279,6 @@ def squash_repository(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     root.mkdir()
     git(root, "init", "-q", "-b", "main")
-    # Rebase and non-fast-forward squash also need a committer identity;
-    # command-local commit flags alone accidentally depend on the host's config.
-    git(root, "config", "user.email", "test@example.com")
-    git(root, "config", "user.name", "Test")
     _commit(root, "app.py", "one\n", "seed")
     git(root, "branch", "done")
     git(root, "branch", "kept")
@@ -306,10 +291,6 @@ def squash_repository(tmp_path: Path) -> Path:
     git(root, "merge", "--squash", "-q", "done")
     git(
         root,
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "user.name=Test",
         "commit",
         "-q",
         "-m",
@@ -322,10 +303,6 @@ def squash_repository(tmp_path: Path) -> Path:
     git(root, "merge", "--squash", "-q", "pending")
     git(
         root,
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "user.name=Test",
         "commit",
         "-q",
         "-m",
@@ -395,11 +372,7 @@ def test_content_integration_never_fetches_or_mutates(tmp_path: Path) -> None:
     assert git(root, "status", "--porcelain") == status
 
 
-def test_cached_observation_tracks_squash_rebase_and_force_push(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+def test_cached_observation_tracks_squash_rebase_and_force_push(tmp_path: Path) -> None:
     root = squash_repository(tmp_path)
     cache = IntegrationCache()
     calls: list[list[str]] = []
@@ -660,11 +633,7 @@ def test_failed_squash_candidate_tree_is_diagnosed_and_retried() -> None:
     assert len(runner.calls) - before == 3
 
 
-def test_a_new_squash_replaces_a_cached_unintegrated_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+def test_a_new_squash_replaces_a_cached_unintegrated_answer(tmp_path: Path) -> None:
     root = squash_repository(tmp_path)
     cache = IntegrationCache()
     before = {
@@ -672,16 +641,7 @@ def test_a_new_squash_replaces_a_cached_unintegrated_answer(
     }
     assert before["kept"].content_integrated is False
     git(root, "merge", "--squash", "-q", "kept")
-    git(
-        root,
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "user.name=Test",
-        "commit",
-        "-qm",
-        "squash kept",
-    )
+    git(root, "commit", "-qm", "squash kept")
     observation = observe_branches([root], cache=cache)
     after = {branch.name: branch for branch in observation.branches}
     assert not observation.diagnostics

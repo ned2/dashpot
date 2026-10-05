@@ -20,18 +20,7 @@ def test_a_detached_head_still_records_the_repository_root(tmp_path: Path) -> No
     root = tmp_path / "repo"
     root.mkdir()
     git(root, "init", "-q", "-b", "main")
-    git(
-        root,
-        "-c",
-        "user.email=t@example.com",
-        "-c",
-        "user.name=t",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "first",
-    )
+    git(root, "commit", "-q", "--allow-empty", "-m", "first")
     git(root, "checkout", "-q", "--detach")
     event = {"session_id": "s1", "hook_event_name": "Stop", "cwd": str(root)}
 

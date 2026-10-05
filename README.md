@@ -521,6 +521,12 @@ for serial execution. CI explicitly uses two workers. Higher counts require
 measurement: sixteen failed locally despite eight passing repeatedly; see
 [CI and test performance](docs/ci-performance.md).
 
+Every Git command a test starts reads the suite's own global configuration
+(`GIT_CONFIG_GLOBAL`, with `GIT_CONFIG_NOSYSTEM`): a committer identity, no
+signing, `main` as the initial branch, and no hooks. Your own Git settings
+never reach a test repository, so a test that commits needs no per-call
+`-c` overrides.
+
 ### Quality gates
 
 [`.pre-commit-config.yaml`](.pre-commit-config.yaml) is the shared quality
@@ -530,7 +536,9 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   TOML and JSON syntax, merge-conflict markers, stray debug statements, private
   keys, large files), then [Ruff](https://docs.astral.sh/ruff/) lint with safe
   fixes, then `ruff-format`, then [ty](https://docs.astral.sh/ty/) static type
-  checking. Ruff's rule selection and ty's rule levels live in
+  checking. Ruff and ty run through `uv run --locked`, so the hooks use the
+  versions [`uv.lock`](uv.lock) pins, as the pre-push gate and every other
+  `uv run` do. Ruff's rule selection and ty's rule levels live in
   [`pyproject.toml`](pyproject.toml). Then
   [`scripts/maintain_docs.py`](scripts/maintain_docs.py) resolves every in-repo
   Markdown link (its path, heading anchor, or `#L` line fragment), requires
@@ -648,17 +656,18 @@ uv run --locked python scripts/check_quality.py --skip-tests
 ```
 
 Ruff fixes and formatting are idempotent: a second `--all-files` run after the
-first has fixed something is clean. Hook revisions are pinned to frozen commit
-SHAs; refresh them with
+first has fixed something is clean. The hygiene hooks' revision is pinned to a
+frozen commit SHA; refresh it with
 
 ```bash
 uv run pre-commit autoupdate --freeze
 ```
 
-and bump the matching `ruff` and `ty` versions in `uv.lock` (`uv lock
---upgrade-package ruff --upgrade-package ty`) so the hooks and `uv run` agree.
-First-time hook setup downloads the pinned hook environments, so it needs
-network access.
+Ruff and ty have no hook revision of their own: `uv.lock` is their single
+version source, so upgrading them (`uv lock --upgrade-package ruff
+--upgrade-package ty`) moves the hooks, CI's quality job, and the pre-push gate
+together. First-time hook setup downloads the pinned hygiene hook environment,
+so it needs network access.
 
 ### Continuous integration
 
@@ -688,7 +697,12 @@ The quality job publishes the verified head, base, and run identity in the
 A PR changing only root Markdown or Markdown under `docs/` or
 `conformance/` runs the documentation lane: quality and revision-artifact
 checks still run, while tests, build, installation, and minimum-Git jobs are
-skipped. The complete diff (including both sides of renames) is classified by
+skipped. The root Markdown the build reads is not documentation to the lane:
+[`README-pypi.md`](README-pypi.md), the package description that
+`check_distributions.py` and `twine check --strict` inspect, and
+[`CHANGELOG.md`](CHANGELOG.md), whose entry for the current version
+`check_release.py` requires, both select full verification. The complete diff
+(including both sides of renames) is classified by
 [`scripts/ci_lane.py`](scripts/ci_lane.py). Mixed, empty, unavailable, or
 non-Markdown diffs run full verification; manual and reusable invocations do too.
 `CI required` accepts only successful jobs and the exact skips authorized by a

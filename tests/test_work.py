@@ -793,21 +793,7 @@ def test_claim_without_a_worktree_cannot_be_validated() -> None:
 def linked_worktree(root: Path, path: Path, branch: str) -> Path:
     """Commit the Project's configuration and Issues, then link a Worktree."""
     subprocess.run(["git", "add", ".dashpot", "issues"], cwd=root, check=True)
-    subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.email=test@example.com",
-            "-c",
-            "user.name=Test",
-            "commit",
-            "-q",
-            "-m",
-            "seed",
-        ],
-        cwd=root,
-        check=True,
-    )
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=root, check=True)
     subprocess.run(
         ["git", "worktree", "add", "-q", "-b", branch, str(path)],
         cwd=root,

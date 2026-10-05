@@ -1131,8 +1131,6 @@ HARNESS_HOMES = [
 def linked_worktree(root: Path) -> tuple[Path, Path]:
     """A committed Repository at ``root/repo`` and one linked Worktree beside it."""
     main = init_repository(root / "repo")
-    git(main, "config", "user.email", "sim@example.invalid")
-    git(main, "config", "user.name", "Sim")
     (main / "README.md").write_text("Sim\n")
     git(main, "add", "-A")
     git(main, "commit", "-q", "-m", "first")

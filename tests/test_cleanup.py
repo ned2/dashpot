@@ -83,8 +83,6 @@ def repo(tmp_path: Path, *, origin: bool = True, ignore_state: bool = True) -> P
     root = tmp_path / "repo"
     root.mkdir()
     git(root, "init", "-q", "-b", "main")
-    git(root, "config", "user.email", "sim@example.invalid")
-    git(root, "config", "user.name", "Sim")
     (root / "README.md").write_text("Sim\n")
     (root / ".gitignore").write_text(
         ".venv/\n.dashpot/state/\n" if ignore_state else ".venv/\n"
@@ -1959,8 +1957,6 @@ def test_a_remote_that_moved_refuses_the_lease_and_halts_the_local(
     root, bare, tip = served_feature(tmp_path)
     other = tmp_path / "other"
     git(tmp_path, "clone", "-q", str(bare), str(other))
-    git(other, "config", "user.email", "sim@example.invalid")
-    git(other, "config", "user.name", "Sim")
     git(other, "checkout", "-q", "feat")
     commit(other, "elsewhere", path="elsewhere.txt")
     git(other, "push", "-q", "origin", "feat")

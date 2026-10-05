@@ -40,28 +40,10 @@ def test_release_guard_requires_the_commit_to_belong_to_main(
     tmp_path, monkeypatch, on_main
 ):
     git(tmp_path, "init", "-b", "main")
-    git(tmp_path, "config", "user.name", "Release test")
-    git(tmp_path, "config", "user.email", "release@example.invalid")
-    git(
-        tmp_path,
-        "-c",
-        "core.hooksPath=/dev/null",
-        "commit",
-        "--allow-empty",
-        "-m",
-        "Main",
-    )
+    git(tmp_path, "commit", "--allow-empty", "-m", "Main")
     if not on_main:
         git(tmp_path, "checkout", "-b", "candidate")
-        git(
-            tmp_path,
-            "-c",
-            "core.hooksPath=/dev/null",
-            "commit",
-            "--allow-empty",
-            "-m",
-            "Candidate",
-        )
+        git(tmp_path, "commit", "--allow-empty", "-m", "Candidate")
     (tmp_path / "pyproject.toml").write_text('[project]\nversion = "0.1.0"\n')
     (tmp_path / "CHANGELOG.md").write_text("## 0.1.0\n\nInitial.\n")
     notes = tmp_path / "notes.md"

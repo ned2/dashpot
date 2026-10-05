@@ -28,8 +28,6 @@ def global_hook_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def committed_project(root: Path) -> Path:
     """A configured Project whose own ``.gitignore`` has no rule for Dashpot state."""
     dashpot_project(root)
-    git(root, "config", "user.email", "sim@example.invalid")
-    git(root, "config", "user.name", "Sim")
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "configure")
     assert not (root / ".gitignore").exists()

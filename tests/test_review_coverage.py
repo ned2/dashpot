@@ -14,23 +14,7 @@ sys.path.pop(0)
 
 
 def commit_checkout(root, message):
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(root),
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "-qm",
-            message,
-        ],
-        check=True,
-    )
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", message], check=True)
 
 
 @pytest.fixture

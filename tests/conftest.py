@@ -60,6 +60,46 @@ def bounded_checkout_search(
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path_factory.getbasetemp()))
 
 
+@pytest.fixture(scope="session")
+def suite_git_config(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The suite's own global Git configuration, in place of whoever runs it."""
+    root = tmp_path_factory.mktemp("git-config")
+    hooks = root / "hooks"
+    hooks.mkdir()
+    config = root / "gitconfig"
+    config.write_text(
+        "[user]\n"
+        "\tname = Dashpot Tests\n"
+        "\temail = tests@example.invalid\n"
+        "[commit]\n"
+        "\tgpgsign = false\n"
+        "[tag]\n"
+        "\tgpgsign = false\n"
+        "[init]\n"
+        "\tdefaultBranch = main\n"
+        "[core]\n"
+        f"\thooksPath = {hooks}\n"
+    )
+    return config
+
+
+@pytest.fixture(autouse=True)
+def isolated_git_config(
+    suite_git_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run every Git command a test starts under the suite's configuration alone.
+
+    A developer's global or system configuration would otherwise reach each
+    test repository: ``commit.gpgsign`` makes every commit need a reachable
+    signing agent, and ``core.hooksPath`` runs that developer's own hooks.
+    The hooks path names an empty directory, so no hook runs in a test
+    repository either. The environment reaches every process a test starts,
+    the CLI's included.
+    """
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(suite_git_config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
 @pytest.fixture
 def git_repository(tmp_path: Path) -> Path:
     """An empty Git repository at ``tmp_path / "repo"``."""
