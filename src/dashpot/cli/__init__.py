@@ -1,4 +1,4 @@
-"""Define the ``dashpot`` command line and state every refusal on one line.
+"""Define the ``dashpot`` command line, one module per command group.
 
 Each command group is a module of its own: ``observe`` (the default
 command), ``init``, ``work``, ``events``, ``sources`` (``issue`` and

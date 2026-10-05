@@ -152,7 +152,7 @@ def observe(
         # checkpoints, so headless output stays a single complete snapshot.
         print(render_json(snapshot_document(collector.refresh()), compact=compact_json))
         return 0
-    # Only the dashboard loads Textual; every other command stays headless.
+    # Imported here because importing it loads Textual.
     from ..ui.launch import run_dashboard
 
     # Runtime Stats shows the reading the Query Sources share.

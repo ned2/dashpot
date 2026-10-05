@@ -2459,3 +2459,14 @@ def test_python_dash_m_dashpot_exits_with_the_cli_result(
         runpy.run_module("dashpot", run_name="__main__")
 
     assert excinfo.value.code == 3
+
+
+def test_python_dash_m_dashpot_cli_exits_with_the_cli_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("dashpot.cli.main", lambda: 4)
+
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module("dashpot.cli", run_name="__main__")
+
+    assert excinfo.value.code == 4
