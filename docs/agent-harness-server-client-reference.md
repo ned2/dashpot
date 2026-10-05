@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-05
+date: 2026-10-06
 ---
 
 # Agent harness server and client reference
@@ -24,12 +24,12 @@ below where their meanings differ.
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
 | Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt, and rerun on `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375) with the fixture daemon's updater off, for [#374](https://github.com/ned2/dashpot/issues/374) with a child interrupted while its sibling works and the parent's own turn interrupted, and for [#356](https://github.com/ned2/dashpot/issues/356) with the managed daemon's `SessionEnd` deferred to a settler and the daemon's hooks inheriting a terminal's `COLUMNS`; the [#356 acceptance run](#managed-daemon-restart-and-stop-at-01600) on `0.160.0` (2026-10-02): the managed daemon's unload, `daemon restart` and `daemon stop` with a turn running, the `SessionEnd` hook clamp, a detached process outliving the hook and the daemon, and threads reloaded into the replacement; the [#479 run](#codex-exec-signals-at-01600) on `0.160.0` (2026-10-05): SIGINT, SIGTERM and SIGKILL to detached `codex exec` processes; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, Remote Control pairing, the Code Mode remote host, stdio transport, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction, repeated on `2.1.287` (2026-10-02); a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, and `--setting-sources` forwarding to spawned sessions unmeasured |
+| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction, repeated on `2.1.287` (2026-10-02); a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; the [#479 run](#background-session-environment-at-21287-and-21289) on `2.1.287` and `2.1.289` (2026-10-05): `--bg` sessions dispatched from headless sessions' shells, the environment they get, a `--settings` `env`, and the dispatching session's `cd`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, `--setting-sources` forwarding to spawned sessions, and when a supervisor takes a new environment unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path (2026-09-12), with that release's source and the official docs; the [#393 experiments](spikes/opencode-v2-spike.md) on `2.0.22` (2026-10-02 and 2026-10-03): the shared service and its plugin instances, shell identity, Sub-agents, moves, `--standalone`, idle eviction, and the plugin API Dashpot's plugin uses; the [#407 acceptance run](#the-shared-service-through-dashpot-at-2022) on `2.0.22` (2026-10-03), through Dashpot's real plugin and helper: the TUI, `opencode run` and the API against the shared service, `--standalone` clients, the npm layout, foreground and background Sub-agents, forks, moves, plugin edits, repairs, reloads and removal, deletion, and the service replaced by 2.0.21 and back, stopped and killed | `opencode web`, ACP, the SDK's own server, `--server <url>`, remote servers, the desktop app, editor extensions and other operating systems unmeasured; OpenCode 1.x is refused, so its measurements describe no supported mode |
 
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
 2026-09-12, 2026-10-02 and 2026-10-03, Claude Code measurements on 2026-09-18, 2026-09-19,
-2026-09-30, 2026-10-01 and 2026-10-02, and Codex measurements on 2026-09-19,
+2026-09-30, 2026-10-01, 2026-10-02 and 2026-10-05, and Codex measurements on 2026-09-19,
 2026-09-20, 2026-10-01, 2026-10-02 and 2026-10-05. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
@@ -892,7 +892,9 @@ an hour and later resume its retained conversation. Supervisor replacement with
 `claude agents --json` distinguishes conversation `sessionId`, short job `id`,
 and live `pid`; job state is separate from process activity. Private files are
 not the stable interface. Workers receive credentials from the supervisor;
-reattaching from a new shell does not replace that supervisor environment.
+reattaching from a new shell does not replace that supervisor environment,
+and neither does dispatching from one
+([measured at 2.1.287 and 2.1.289](#background-session-environment-at-21287-and-21289)).
 [Session listing and settings](https://code.claude.com/docs/en/agent-view#list-sessions-as-json)
 
 Background sessions normally move into a Worktree before editing, with documented
@@ -976,6 +978,76 @@ a crash, a respawn, or a supervisor replacement, none of which end the
 conversation. Idle eviction of an unattached worker, documented at about an
 hour, publishes no hook either: it was measured at `2.1.286` and `2.1.287`
 ([idle eviction](#clients-and-supervised-workers-through-dashpot-at-21286)).
+
+#### Background session environment at 2.1.287 and 2.1.289
+
+The [root-session Workers experiment](spikes/root-session-workers-spike.md#claude-code-21289)
+for [Issue #479](https://github.com/ned2/dashpot/issues/479) measured on
+Linux on 2026-10-05, at 2.1.287 and 2.1.289, where a `claude --bg` session's
+environment comes from. Its fixture had an isolated configuration directory,
+and so its own supervisor, a loopback model, the updater off, and every hook
+sent to Dashpot's real publisher. Two headless `claude -p` sessions in the
+main checkout, one under bypass and one under `dontAsk`, dispatched `--bg`
+sessions into linked Worktrees from their Bash tool. The bypass session's
+first three dispatches each exported their own synthetic stamps and
+credential-named variables. Every measured claim below held on both
+releases, and the [verifier](../scripts/experiments/claude-479/verify.mjs)
+checks it against both traces. Receipt numbers are the
+[2.1.287 trace's](spikes/measurements/issue-479-claude-2.1.287-trace.jsonl.gz);
+the [2.1.289 trace's](spikes/measurements/issue-479-claude-2.1.289-trace.jsonl.gz)
+are within a few records.
+
+- **The supervisor's environment, not the dispatching shell's.** A `--bg`
+  session does not get the environment of the shell that dispatched it. It
+  gets the environment of the shell that first started the configuration
+  directory's supervisor, and so does every later `--bg` session under that
+  supervisor, whichever session dispatches it. The first dispatch started
+  the supervisor, and its session's shell carried that dispatch's stamps
+  (receipt 53). Every later session's shell carried the first dispatch's
+  stamps (receipts 87, 88, 362 and 364), and the two later dispatches that
+  exported stamps of their own found none of them in their sessions'
+  shells (receipts 87 and 88). A session dispatched by the second `-p`
+  session carried the first `-p` session's process environment, not its
+  own dispatcher's (receipt 515). The session's identity variables,
+  `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` among them, are its own all the
+  same.
+- **Credentials.** A variable named like a token passes like any other
+  (receipts 87 and 88), so a credential such as a `gh` token reaches a
+  `--bg` session through the dispatching shell's environment only if that
+  shell started the supervisor; otherwise it needs a `--settings` `env`
+  (below). When a supervisor takes a new environment was not measured, so
+  under a long-lived supervisor the credentials a session inherits are, by
+  inference rather than measurement, whatever the supervisor's first shell
+  had.
+- **A `--settings` `env` is per session.** An `env` given with
+  `--settings '{"env":{...}}'` reaches only its own session, in its shells
+  and its hooks. One session's shell carried its own `env` (receipt 87) and
+  its hooks did from its `SessionStart` on (receipt 76). A sibling given a
+  different `env` carried only its own (receipt 88), and one given none
+  carried none (receipt 362). After a SIGTERM to a session's process, the
+  supervisor resumed the same session in a new process (receipt 610). The
+  resumed process's `SessionStart` (receipt 608) and its shell (receipt 629)
+  still carried its `--settings` `env`, the shell beside the supervisor's
+  environment. This is the route for a per-session credential or stamp.
+- **Dispatching from a session's own shell.** The bypass session's
+  `cd <worktree> && claude --bg …`, into a Worktree outside its Claude Code
+  project directory, left its shell at the main checkout (receipt 75), as a
+  `cd` outside that directory is
+  [reset](#sub-agent-hooks-and-location-at-21285). The `dontAsk` session
+  was refused the same dispatch until the Worktrees were in its
+  `permissions.additionalDirectories`, which an earlier run found (the
+  [runner](../scripts/experiments/claude-479/run.mjs) records it, the trace
+  does not); its settings also allowed `Bash(cd:*)` and `Bash(claude:*)`.
+  With them, the `cd` persisted: the session's own hooks and shell moved
+  to the Worktree of its last dispatch (receipts 469 and 520), and Dashpot
+  warned `work-session-elsewhere`, its Agent Run recorded at the main
+  checkout while the session executed in that Worktree (receipt 595). The
+  two sessions differ in permission mode, added directories and allow
+  rules, so the trace does not separate which made the `cd` persist. The
+  subshell form, `(cd <worktree> && claude --bg …)`, keeps the `cd` out of
+  the session's shell and so avoids the move; the trace has no `dontAsk`
+  dispatch in that form, so this follows from the shell rather than from a
+  measurement.
 
 ### Channels and worktree tools at 2.1.278
 
