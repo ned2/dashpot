@@ -48,13 +48,17 @@ def _process_variables() -> Mapping[str, str]:
     return os.environ
 
 
-@dataclass(frozen=True, slots=True)
+# Compared by identity: the process's own variables are a live mapping,
+# which can be neither hashed nor usefully compared.
+@dataclass(frozen=True, slots=True, eq=False)
 class IntegrationEnvironment:
     """What one ``integrate`` command installs, and what it asks of its host.
 
-    Nothing in ``integrate`` reads these from anywhere else, so one value
-    decides every directory a command resolves and everything it observes
-    of the host beyond the configuration directory it is given.
+    Nothing in ``integrate`` reads these from anywhere else: each harness's
+    configuration directory and skill home, the Agent Session Identity
+    claimed here, and OpenCode's settings come from ``environ``. The home
+    directory (``Path.home()``) and the ``PATH`` searched for ``opencode``
+    and the hook publishers stay the process's own.
     """
 
     skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS
@@ -65,7 +69,7 @@ class IntegrationEnvironment:
     lookup: ProcessLookup = host_process_lookup
     # The variables each harness's configuration directory and skill home
     # are resolved from (ADR 0130), and the Agent Session Identity and
-    # OpenCode settings ``--status`` reports.
+    # OpenCode settings ``--status`` reports; not ``HOME`` or ``PATH``.
     environ: Mapping[str, str] = field(default_factory=_process_variables)
 
 

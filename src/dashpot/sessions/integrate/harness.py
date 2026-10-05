@@ -59,6 +59,13 @@ def hook_installer(spec: HarnessIntegration) -> HookInstaller:
     return _INSTALLERS[spec.installer]
 
 
+def _skill_copies(
+    spec: HarnessIntegration, home: Path, environment: IntegrationEnvironment
+) -> list[tuple[BundledSkill, Path]]:
+    """Each of the environment's bundled skills, paired with this harness's copy."""
+    return skill_copies(spec, home, environment.skills, environment.environ)
+
+
 def install_integration(
     harness: Harness,
     home: Path | None = None,
@@ -86,7 +93,7 @@ def install_integration(
             f"no {spec.display} configuration directory at {configuration}; "
             f"install and run {spec.display} once before integrating"
         )
-    destinations = skill_copies(spec, home, environment.skills, environment.environ)
+    destinations = _skill_copies(spec, home, environment)
     agent_destinations = agent_copies(spec, home, environment.agents)
     _validate_destinations(destinations, agent_destinations)
     command = command_path or resolve_hook_command(spec)
@@ -138,7 +145,7 @@ def remove_integration(
     """
     spec = integration(harness)
     home = configuration_in_use(spec, home, environment.environ).path
-    skills = skill_copies(spec, home, environment.skills, environment.environ)
+    skills = _skill_copies(spec, home, environment)
     agents = agent_copies(spec, home, environment.agents)
     steps: list[Callable[[], str]] = [
         partial(hook_installer(spec).remove, spec, home),
@@ -187,7 +194,7 @@ def integration_status(
             messages.extend(hooks.status_lines(spec, home))
         except IntegrationError as exc:
             return [*messages, str(exc)]
-    destinations = skill_copies(spec, home, environment.skills, environment.environ)
+    destinations = _skill_copies(spec, home, environment)
     messages.extend(
         skill_status(skill, target, harness=spec.harness)
         for skill, target in destinations
@@ -259,9 +266,7 @@ def integration_presence(
     left = [
         *(
             f"the Dashpot {skill.label} at {target}"
-            for skill, target in skill_copies(
-                spec, home, environment.skills, environment.environ
-            )
+            for skill, target in _skill_copies(spec, home, environment)
             if is_managed(skill, target)
         ),
         *(
@@ -296,9 +301,7 @@ def has_update(
     return (
         any(
             skill_has_update(skill, target)
-            for skill, target in skill_copies(
-                spec, home, environment.skills, environment.environ
-            )
+            for skill, target in _skill_copies(spec, home, environment)
         )
         or any(
             agent_has_update(agent, target)

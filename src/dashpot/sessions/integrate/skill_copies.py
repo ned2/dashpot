@@ -55,8 +55,9 @@ def skill_directory(
     """Locate this harness's user-wide copy of one bundled skill.
 
     A harness that reads skills outside its configuration directory, as
-    Codex does, reads them from the home directory's when ``home`` is the
-    directory ``environ`` names, and beside ``home`` otherwise.
+    Codex does, reads them under the user's home directory when ``home`` is
+    the configuration directory ``environ`` names, and beside ``home``
+    otherwise.
     """
     if spec.skills_in_configuration:
         return home / spec.skills_home / skill.name
