@@ -331,6 +331,9 @@ Preserve the last accepted snapshot during refresh. Do not replace a useful stal
 queue with a spinner on every interval. On the cold first load only, setting the
 table's `loading` reactive temporarily replaces it with Textual's loading
 indicator. [Widget loading state](https://textual.textualize.io/guide/widgets/#loading-indicator)
+The Issue table sets `loading` from
+[`PageQueryState.loading`](../src/dashpot/queries/page_navigation.py) alone:
+true while its first page is in flight, with none shown and none failed.
 
 Treat collection problems as observer data:
 

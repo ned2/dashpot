@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from ..core.ages import relative_age
-from ..core.model import ProjectObservation
+from ..core.model import ProjectObservation, SourceStatus
 from ..observation.keys import ObservationKey
 from ..observation.observation_store import (
     ObservedDiagnostic,
@@ -143,6 +143,13 @@ def summarize_alerts(
     labels = _labels(projects)
     current = (now or _utc_now)()
     pending_observations = frozenset(first_observations_in_flight)
+    # A Query Page spans the Workspace, so its state speaks for every Project.
+    issue_state = page_states.get("issues") if page_states is not None else None
+    pull_state = page_states.get("pull-requests") if page_states is not None else None
+    pull_page = pull_state.page if pull_state is not None else None
+    local_pull_requests = (
+        pull_page is not None and pull_page.context.source == "local-markdown"
+    )
 
     failed_scopes = _ordered_scopes(failures or {}, labels)
     if failed_scopes:
@@ -162,50 +169,29 @@ def summarize_alerts(
         if snapshot is None:
             unavailable_projects.append(label)
             continue
-        issue_state = page_states.get("issues") if page_states is not None else None
-        pull_state = (
-            page_states.get("pull-requests") if page_states is not None else None
-        )
-        issue_page = issue_state.page if issue_state else None
-        pull_page = pull_state.page if pull_state else None
-        issue_status = (
-            issue_state.status
-            if page_states is not None and issue_state is not None
-            else snapshot.issue_source_status
-        )
-        pull_status = (
-            pull_state.status
-            if page_states is not None and pull_state is not None
-            else snapshot.pull_request_status
+        issue_status, issue_last_good_at = _source_status(
+            issue_state,
+            snapshot.issue_source_status,
+            snapshot.issue_source_last_good_at,
         )
         if issue_status == "unavailable":
             unavailable_issues.append(label)
         elif issue_status == "stale":
-            stale_issues.append(
-                (
-                    label,
-                    issue_page.last_good_at
-                    if issue_page
-                    else snapshot.issue_source_last_good_at,
-                )
-            )
-        pull_requests_configured = not any(
+            stale_issues.append((label, issue_last_good_at))
+        pull_requests_configured = not local_pull_requests and not any(
             diagnostic.code == "pull-requests-not-configured"
             for diagnostic in snapshot.diagnostics
         )
-        if pull_page is not None and pull_page.context.source == "local-markdown":
-            pull_requests_configured = False
-        if pull_requests_configured and pull_status == "unavailable":
-            unavailable_pull_requests.append(label)
-        elif pull_requests_configured and pull_status == "stale":
-            stale_pull_requests.append(
-                (
-                    label,
-                    pull_page.last_good_at
-                    if pull_page
-                    else snapshot.pull_request_last_good_at,
-                )
+        if pull_requests_configured:
+            pull_status, pull_last_good_at = _source_status(
+                pull_state,
+                snapshot.pull_request_status,
+                snapshot.pull_request_last_good_at,
             )
+            if pull_status == "unavailable":
+                unavailable_pull_requests.append(label)
+            elif pull_status == "stale":
+                stale_pull_requests.append((label, pull_last_good_at))
         targets_pending = (
             ObservationKey("targets", project.project_id) in pending_observations
         )
@@ -220,82 +206,25 @@ def summarize_alerts(
                 if target.availability == "unavailable"
             )
 
-    if unavailable_projects:
-        items.append(
+    readouts = (
+        _named_item("error", "Unavailable", unavailable_projects),
+        _named_item("error", "Unavailable Issues", unavailable_issues),
+        _named_item("error", "Unavailable Pull Requests", unavailable_pull_requests),
+        *(
             AlertItem(
-                "error",
-                f"Unavailable: {_join(unavailable_projects, 'Projects')}",
+                "error" if diagnostic.severity == "error" else "warning",
+                diagnostic.message,
             )
-        )
-    if unavailable_issues:
-        items.append(
-            AlertItem(
-                "error",
-                f"Unavailable Issues: {_join(unavailable_issues, 'Projects')}",
-            )
-        )
-    if unavailable_pull_requests:
-        items.append(
-            AlertItem(
-                "error",
-                "Unavailable Pull Requests: "
-                f"{_join(unavailable_pull_requests, 'Projects')}",
-            )
-        )
-    for diagnostic in workspace_diagnostics:
-        if diagnostic.code in INTEGRATION_FAILURE_CODES:
-            severity: AlertSeverity = (
-                "error" if diagnostic.severity == "error" else "warning"
-            )
-            items.append(AlertItem(severity, diagnostic.message))
-    if unavailable_scans:
-        items.append(
-            AlertItem(
-                "warning",
-                "Unavailable worktrees and branches: "
-                f"{_join(unavailable_scans, 'Projects')}",
-            )
-        )
-    if unavailable_targets:
-        items.append(
-            AlertItem(
-                "warning",
-                f"Unavailable worktrees: {_join(unavailable_targets, 'targets')}",
-            )
-        )
-    if stale_issues:
-        if len(stale_issues) == 1:
-            label, last_good_at = stale_issues[0]
-            age = relative_age(last_good_at, current)
-            detail = f" (last good {age})" if age else ""
-            items.append(AlertItem("warning", f"Stale Issues: {label}{detail}"))
-        else:
-            items.append(
-                AlertItem(
-                    "warning",
-                    f"Stale Issues: {len(stale_issues)} Projects",
-                )
-            )
-    if stale_pull_requests:
-        if len(stale_pull_requests) == 1:
-            label, last_good_at = stale_pull_requests[0]
-            age = relative_age(last_good_at, current)
-            detail = f" (last good {age})" if age else ""
-            items.append(AlertItem("warning", f"Stale Pull Requests: {label}{detail}"))
-        else:
-            items.append(
-                AlertItem(
-                    "warning",
-                    f"Stale Pull Requests: {len(stale_pull_requests)} Projects",
-                )
-            )
-    if stale_scans:
-        items.append(
-            AlertItem(
-                "warning",
-                f"Stale worktrees and branches: {_join(stale_scans, 'Projects')}",
-            )
-        )
+            for diagnostic in workspace_diagnostics
+            if diagnostic.code in INTEGRATION_FAILURE_CODES
+        ),
+        _named_item("warning", "Unavailable worktrees and branches", unavailable_scans),
+        _named_item("warning", "Unavailable worktrees", unavailable_targets, "targets"),
+        _stale_item("Issues", stale_issues, current),
+        _stale_item("Pull Requests", stale_pull_requests, current),
+        _named_item("warning", "Stale worktrees and branches", stale_scans),
+    )
+    items.extend(item for item in readouts if item is not None)
 
     # An explicit fetch is shown from the moment it starts: the person asked
     # for it and is waiting on it, unlike a background observation.
@@ -313,6 +242,47 @@ def summarize_alerts(
         return None
     items.sort(key=lambda item: SEVERITY_RANK[item.severity])
     return Alert(tuple(items))
+
+
+def _source_status(
+    state: PageQueryState | None,
+    observed_status: SourceStatus,
+    observed_last_good_at: str | None,
+) -> tuple[SourceStatus | None, str | None]:
+    """A source's status and when it last read well, from its Query Page where one is queried.
+
+    Without a page state the Project's own observation speaks for the source.
+    """
+    if state is None:
+        return observed_status, observed_last_good_at
+    page = state.page
+    return state.status, page.last_good_at if page else observed_last_good_at
+
+
+def _named_item(
+    severity: AlertSeverity,
+    heading: str,
+    names: Sequence[str],
+    plural: str = "Projects",
+) -> AlertItem | None:
+    """Name what ``heading`` reports on, or count it past two; nothing when none."""
+    if not names:
+        return None
+    return AlertItem(severity, f"{heading}: {_join(names, plural)}")
+
+
+def _stale_item(
+    noun: str, entries: Sequence[tuple[str, str | None]], current: datetime
+) -> AlertItem | None:
+    """Name the one Project whose ``noun`` are stale with their age, or count them."""
+    if not entries:
+        return None
+    if len(entries) > 1:
+        return AlertItem("warning", f"Stale {noun}: {len(entries)} Projects")
+    label, last_good_at = entries[0]
+    age = relative_age(last_good_at, current)
+    detail = f" (last good {age})" if age else ""
+    return AlertItem("warning", f"Stale {noun}: {label}{detail}")
 
 
 def _labels(projects: Sequence[ProjectObservation]) -> dict[str, str]:

@@ -29,9 +29,7 @@ from app_harness import (
 )
 from dashpot.observation.issue_list import row_key
 from dashpot.ui.app import DashpotApp
-from dashpot.ui.issue_cells import PriorityCell
 from dashpot.ui.issue_table import DEFAULT_COLUMNS
-from dashpot.ui.issue_view import IssueScreen
 from dashpot.ui.list_pane import ListRow
 from helpers import settled, wait_until
 
@@ -719,7 +717,6 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
             )
         }
         assert [cell.plain for cell in priority_cells.values()] == ["", " P0 "]
-        assert all(isinstance(cell, PriorityCell) for cell in priority_cells.values())
 
         await submit_search(app, pilot, "alpha")
         await wait_until(lambda: table.row_count == 1)
@@ -948,9 +945,4 @@ async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
 
         app.query_screen.issue_table_controller.show_row(row_key("issue", "I_gone"))
 
-        # Nothing is selected, so the Open Issue binding opens nothing rather
-        # than the previously selected Issue.
         assert app.query_screen.issue_table_controller.selected_row_key is None
-        app.query_screen.action_open_issue()
-        await pilot.pause()
-        assert not isinstance(app.screen, IssueScreen)

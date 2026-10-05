@@ -364,13 +364,9 @@ IssueColumnEditor {
     color: $text;
 }
 
-#column-editor-error {
-    height: 1;
-    color: $error;
-}
-
 #column-editor-actions {
     height: 3;
+    margin-top: 1;
     align-horizontal: right;
 }
 

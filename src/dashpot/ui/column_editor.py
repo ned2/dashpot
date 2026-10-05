@@ -48,7 +48,6 @@ class IssueColumnEditor(ModalScreen[tuple[ColumnKey, ...] | None]):
                 *self.selection_options(self.initially_visible),
                 id="column-editor-list",
             )
-            yield Static("", id="column-editor-error")
             with Horizontal(id="column-editor-actions"):
                 yield Button("Up", id="column-up")
                 yield Button("Down", id="column-down")

@@ -92,7 +92,12 @@ def test_every_rendered_glyph_map_is_in_the_legend() -> None:
         alerts.SEVERITY_GLYPH,
     ):
         assert {glyph.symbol for glyph in mapping.values()} <= symbols
-    assert {glyph.symbol for glyph in branch_cells.LEGEND} <= symbols
+    for glyphs_of_column in (
+        branch_cells.PRESENCE_LEGEND,
+        branch_cells.UPSTREAM_LEGEND,
+        branch_cells.INTEGRATION_LEGEND,
+    ):
+        assert {glyph.symbol for glyph in glyphs_of_column} <= symbols
     assert issue_cells.ISSUE_STATE_COLUMN_GLYPH.symbol in symbols
     assert glyphs.ACTIVITY_COLUMN_GLYPH.symbol in symbols
 
@@ -464,3 +469,15 @@ def test_the_legend_lists_every_shipped_key_and_the_focus_cycle() -> None:
     for group in legend_keys():
         keys = [binding.key for binding in Binding.make_bindings(group.bindings)]
         assert len(set(keys)) == len(keys), group.label
+
+
+def test_the_legend_lists_one_enter_binding_for_opening_an_issue() -> None:
+    """Enter opens an Issue through the Issue table, listed under that pane alone."""
+    opening = [
+        group.label
+        for group in legend_keys()
+        for binding in Binding.make_bindings(group.bindings)
+        if binding.description == "Open Issue"
+    ]
+
+    assert opening == ["Issues pane"]

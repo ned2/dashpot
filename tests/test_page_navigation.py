@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from dashpot.queries.page_navigation import (
     ContinuationRefused,
     PageNavigation,
+    PageQueryState,
     page_text,
 )
 from dashpot.queries.pages import QueryRequest
@@ -165,3 +166,16 @@ def test_a_refused_continuation_restarts_but_page_one_cannot_be_refused_one(
     assert navigation.refuse_continuation(restarted, refused) is None
     assert navigation.error == refused.message
     assert navigation.generation == restarted.generation
+
+
+def test_only_a_first_page_still_in_flight_is_loading(tmp_path):
+    source = markdown(tmp_path)
+    navigation = PageNavigation(QueryRequest(page_size=1))
+    page = source.query_page(navigation.refresh().request).page
+
+    assert PageQueryState(None, in_flight=True).loading
+    # Before the first query starts, after it failed, and once a page is
+    # shown, the table is drawn rather than the loading indicator.
+    assert not PageQueryState(None).loading
+    assert not PageQueryState(None, in_flight=True, failed_without_page=True).loading
+    assert not PageQueryState(page, in_flight=True).loading

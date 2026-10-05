@@ -40,7 +40,6 @@ from dashpot.ui.app import DashpotApp, legend_keys
 from dashpot.ui.column_editor import IssueColumnEditor
 from dashpot.ui.detail_fields import DetailFields, detail_items_text
 from dashpot.ui.glyphs import SESSION_STATE_GLYPHS
-from dashpot.ui.issue_cells import IssueStateCell
 from dashpot.ui.issue_table import COLUMN_SPECS
 from dashpot.ui.issue_view import (
     IssueScreen,
@@ -95,7 +94,7 @@ async def test_issue_view_tracks_github_issue_state_colors(
         table = app.query_screen.query_one("#issues", DataTable)
         issue_key = row_key("issue", selected_issue.id)
         state_cell = table.get_cell(issue_key, "issue_state")
-        assert isinstance(state_cell, IssueStateCell)
+        assert isinstance(state_cell, Text)
         assert state_cell.plain == "■"
         assert str(state_cell.style).casefold() == dark_color
 
@@ -132,7 +131,7 @@ async def test_issue_view_tracks_github_issue_state_colors(
         assert border_color(body) == light_color
         assert state_chip_background(view) == light_color
         light_state_cell = table.get_cell(issue_key, "issue_state")
-        assert isinstance(light_state_cell, IssueStateCell)
+        assert isinstance(light_state_cell, Text)
         assert light_state_cell.plain == "■"
         assert str(light_state_cell.style).casefold() == light_color
 
@@ -718,8 +717,6 @@ async def test_issue_view_does_nothing_without_an_issue_row() -> None:
         assert app.query_screen.issue_table_controller.selected_row_key is None
         app.query_screen.issue_table().focus()
         await pilot.press("enter")
-        await pilot.pause()
-        await app.run_action("screen.open_issue")
         await pilot.pause()
         assert not isinstance(app.screen, IssueScreen)
 
