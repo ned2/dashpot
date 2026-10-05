@@ -62,9 +62,10 @@ names, through every link, and the link stays. The check before writing
 is of that file's directory, not the link's, and a refusal names both
 ("the Claude Code lifecycle hooks in …/settings.json, a link to …"), so a
 link into a read-only directory, as home-manager's into the Nix store, is
-refused before anything is written. A link that names nothing is refused
-too, naming what it names, rather than creating a file there. A replaced hooks file keeps its mode,
-and its JSON is written with text outside ASCII as itself. `--remove`
+refused before anything is written. A link that leads to nothing is
+refused too, naming its target, rather than creating a file there. A
+replaced hooks file keeps its mode, and its JSON is written with text
+outside ASCII as itself. `--remove`
 never unlinks a linked hooks file, even one left holding no hooks: it
 rewrites the file the link names without Dashpot's hooks. Dashpot's own
 files, the skill copies, the plugin and the agent, are unchanged by this:

@@ -1926,8 +1926,10 @@ def test_a_dangling_hooks_link_is_refused_naming_what_it_names(
 ) -> None:
     home = claude_home(tmp_path)
     gone = tmp_path / "dotfiles" / "settings.json"
+    hop = tmp_path / "hop.json"
+    hop.symlink_to(gone)
     link = home / "settings.json"
-    link.symlink_to(gone)
+    link.symlink_to(hop)
 
     with pytest.raises(IntegrationError) as refused:
         install_integration(
@@ -1936,7 +1938,7 @@ def test_a_dangling_hooks_link_is_refused_naming_what_it_names(
 
     assert str(refused.value) == (
         f"cannot install the Claude Code lifecycle hooks in {link}: the link leads "
-        f"to nothing at {gone}; restore what it names or move it, and retry"
+        f"to nothing at {gone.resolve()}; restore what it names or move it, and retry"
     )
     assert link.is_symlink()
     assert not gone.exists()
@@ -2053,6 +2055,15 @@ def test_claude_code_is_integrated_where_claude_config_dir_names(
     )
     assert report[1].startswith(f"installed in {settings} for: ")
     assert integration_presence("claude-code").state == "integrated"
+    hooks = settings.read_text()
+    settings.unlink()
+    partial = integration_presence("claude-code")
+    assert partial.state == "partial"
+    assert partial.detail.startswith(
+        f"no Dashpot hooks at {settings} (CLAUDE_CONFIG_DIR names {configured}), "
+        "but the Dashpot "
+    )
+    settings.write_text(hooks)
 
     removed = remove_integration("claude-code")
 

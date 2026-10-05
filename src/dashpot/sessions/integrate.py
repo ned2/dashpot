@@ -599,7 +599,7 @@ def _plan_hooks(
     if path.is_symlink() and not path.exists():
         raise IntegrationError(
             f"cannot install the {spec.display} lifecycle hooks in {path}: the "
-            f"link leads to nothing at {os.readlink(path)}; restore what it names "
+            f"link leads to nothing at {path.resolve()}; restore what it names "
             "or move it, and retry"
         )
     if os.path.lexists(path) and not path.is_file():
@@ -777,9 +777,9 @@ def _remove_hooks(spec: HarnessIntegration, home: Path) -> str:
         return (
             f"{spec.display} integration is not installed: no Dashpot hooks in {path}"
         )
-    # A link is the user's, so its file is rewritten rather than unlinked.
     keep_file = bool(hooks or set(document) - {"description", "hooks"})
     try:
+        # A link is the user's, so its file is rewritten rather than unlinked.
         if keep_file or path.is_symlink():
             if not hooks:
                 del document["hooks"]
