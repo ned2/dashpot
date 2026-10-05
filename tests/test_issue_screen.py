@@ -558,6 +558,7 @@ async def test_a_refresh_keeps_the_place_a_person_is_reading(
         body.scroll_to(y=20, animate=False, immediate=True)
         metadata.scroll_to(y=5, animate=False, immediate=True)
         await wait_until(lambda: body.scroll_y == 20 and metadata.scroll_y == 5)
+        blocks = list(markdown.children)
 
         serve_snapshot(app, after)
         await app.run_action("refresh")
@@ -569,8 +570,15 @@ async def test_a_refresh_keeps_the_place_a_person_is_reading(
             lambda: view.context.project.elapsed_ms == 34 and not app.queries.busy
         )
         if body_changes:
-            await wait_until(lambda: "Revised ending." in markdown.source)
+            await wait_until(
+                lambda: any(
+                    "Revised ending." in str(block.render())
+                    for block in markdown.query("MarkdownParagraph").results(Static)
+                )
+            )
         await settle_screen(app, pilot, "the refreshed Issue view")
+        # The body is parsed again only when it changed.
+        assert (list(markdown.children) == blocks) is not body_changes
 
         assert app.screen is view
         assert view.query_one("#issue-view-body") is body

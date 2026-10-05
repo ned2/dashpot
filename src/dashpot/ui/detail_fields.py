@@ -68,8 +68,8 @@ class DetailFields(VerticalScroll):
     def update(self, *items: DetailItem, keep_scroll: bool = False) -> None:
         """Replace displayed items while reusing already mounted rows.
 
-        New items scroll back to the top unless ``keep_scroll`` holds, as it
-        does for a newer rendering of the same item.
+        The fields scroll back to the top unless ``keep_scroll`` holds, as it
+        does when the same subject is rendered again.
         """
 
         self.items = tuple(items)

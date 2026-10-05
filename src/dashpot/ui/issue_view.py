@@ -55,12 +55,14 @@ class IssueScreen(Screen[None]):
         self.context = context
         self.issue: IssueProfile = context.issue
         self.now = now
+        # What the mounted panes show; until they are mounted, nothing.
         self.rendering: IssueRendering | None = None
+        self.composed: IssueRendering | None = None
 
     @override
     def compose(self) -> ComposeResult:
-        rendering = self.render_context()
-        self.rendering = rendering
+        rendering = self.current_rendering()
+        self.composed = rendering
         with (
             Vertical(id="issue-view", classes=rendering.state_class),
             Horizontal(id="issue-view-panes"),
@@ -94,10 +96,13 @@ class IssueScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.app.theme_changed_signal.subscribe(self, self.on_theme_changed)
+        self.rendering = self.composed
         self.dress_panes()
         self.query_one("#issue-view-body").focus()
+        # A projection that landed while the panes were mounting shows now.
+        self.update_panes()
 
-    def render_context(self) -> IssueRendering:
+    def current_rendering(self) -> IssueRendering:
         """What the view renders of its current projection, in the current theme."""
         return issue_rendering(
             self.context, now=self.now, dark=self.app.current_theme.dark
@@ -141,11 +146,11 @@ class IssueScreen(Screen[None]):
     def update_panes(self) -> None:
         """Bring each pane up to the current projection, changing only what differs."""
         shown = self.rendering
-        # Until the view is composed, compose renders the newest projection
-        # itself; once it is detached there is nothing left to update.
-        if shown is None or not (self.is_mounted and self.is_attached):
+        # Until the panes are mounted, mounting brings them up to date; once
+        # the view is detached there is nothing left to update.
+        if shown is None or not self.is_attached:
             return
-        rendering = self.render_context()
+        rendering = self.current_rendering()
         self.rendering = rendering
         if rendering.state_class != shown.state_class:
             view = self.query_one("#issue-view")
@@ -182,7 +187,8 @@ class IssueRendering:
     The view compares one rendering with the next field by field, so a
     projection that differs only in facts the view never shows leaves it as
     a person left it. Its metadata is compared with ``details_match``, since
-    Rich's own equality overlooks a chip's colour.
+    Rich's own equality overlooks a chip's colour; that is why a rendering
+    has no ``==`` of its own.
     """
 
     state_class: str
@@ -194,7 +200,7 @@ class IssueRendering:
 
 
 def issue_rendering(
-    context: IssueListRow, *, now: datetime | None = None, dark: bool = True
+    context: IssueListRow, *, now: datetime | None, dark: bool
 ) -> IssueRendering:
     """Render one projection of an Issue as the Issue view shows it."""
     issue = context.issue
