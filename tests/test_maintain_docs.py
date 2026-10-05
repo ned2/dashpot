@@ -866,7 +866,7 @@ def test_an_out_of_date_index_fails(
 
     assert [problem.render() for problem in problems] == [
         "docs/adr/README.md:1: the ADR index is out of date; "
-        "regenerate it with --write-adr-index"
+        "regenerate it with --write-indexes"
     ]
 
 
@@ -879,7 +879,7 @@ def test_a_missing_index_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 
     assert [problem.render() for problem in problems] == [
         "docs/adr/README.md:1: the ADR index is missing; "
-        "regenerate it with --write-adr-index"
+        "regenerate it with --write-indexes"
     ]
 
 
@@ -933,10 +933,14 @@ def test_an_adr_without_a_heading_is_reported_not_rendered(
     ]
 
 
+@pytest.mark.parametrize("flag", ["--write-indexes", "--write-adr-index"])
 def test_writing_the_index_satisfies_the_gate(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, flag: str
 ) -> None:
-    """The write path is the remedy both failures name, so it has to produce a pass."""
+    """The write path is the remedy both failures name, so it has to produce a pass.
+
+    The older flag is kept for the instructions that still name it.
+    """
     first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
     second = write_adr(tmp_path, "docs/adr/0002-second.md", "Do the second thing")
     monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
@@ -945,7 +949,7 @@ def test_writing_the_index_satisfies_the_gate(
     )
     monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
 
-    assert maintain_docs.main(["--write-adr-index"]) == 0
+    assert maintain_docs.main([flag]) == 0
     assert maintain_docs.check_adr_index([first, second]) == []
 
 
@@ -958,7 +962,397 @@ def test_writing_the_index_still_rejects_an_untracked_path(
     monkeypatch.setattr(maintain_docs, "tracked_markdown_files", lambda: [first])
     monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
 
-    assert maintain_docs.main(["--write-adr-index", "docs/does-not-exist.md"]) == 1
+    assert maintain_docs.main(["--write-indexes", "docs/does-not-exist.md"]) == 1
+    assert not (tmp_path / maintain_docs.ADR_INDEX_PATH).exists()
+
+
+KIND = "docs/research"
+
+
+def write_kind_document(root: Path, name: str, title: str, **fields: str) -> Path:
+    """Write a document of the research kind with the frontmatter its index reads."""
+    declared = {"status": "research", "date": "2026-08-26"} | fields
+    frontmatter = "".join(f"{key}: {value}\n" for key, value in declared.items())
+    heading = f"# {title}\n" if title else ""
+    return write_document(root, f"{KIND}/{name}", f"---\n{frontmatter}---\n\n{heading}")
+
+
+def write_kind_index(
+    root: Path, introduction: str = "# Research\n\nNotes.\n\n", after: str = "\n"
+) -> Path:
+    """Write a research index whose generated parts are still empty."""
+    return write_document(
+        root,
+        f"{KIND}/README.md",
+        "---\nstatus: living\ndate: 2026-01-01\n---\n\n"
+        + introduction
+        + f"{maintain_docs.KIND_TABLE_START}\n\n{maintain_docs.KIND_TABLE_END}"
+        + after,
+    )
+
+
+def kind_index_after_writing(
+    monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path
+) -> str:
+    """Rewrite the indexes of a disposable tree and read back the research index."""
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", root)
+    # Every index is rewritten, the ADR index among them.
+    (root / maintain_docs.ADR_DIRECTORY).mkdir(parents=True, exist_ok=True)
+    assert maintain_docs.write_indexes(paths) == []
+    return (root / KIND / "README.md").read_text(encoding="utf-8")
+
+
+def check_kinds(monkeypatch: pytest.MonkeyPatch, root: Path, *paths: Path) -> list[str]:
+    """Run the kind index gate against a disposable tree."""
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", root)
+    return [problem.render() for problem in maintain_docs.check_kind_indexes(paths)]
+
+
+def test_a_kind_index_lists_its_documents_newest_first(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One date is listed by filename, so the order is a function of the documents."""
+    older = write_kind_document(
+        tmp_path, "older.md", "An older note", date="2026-08-01"
+    )
+    later = write_kind_document(tmp_path, "b-later.md", "Later, B", date="2026-09-01")
+    same_day = write_kind_document(
+        tmp_path, "a-later.md", "Later, A", date="2026-09-01"
+    )
+    index = write_kind_index(tmp_path)
+
+    rendered = kind_index_after_writing(
+        monkeypatch, tmp_path, older, later, same_day, index
+    )
+
+    assert rendered.endswith(
+        f"{maintain_docs.KIND_TABLE_START}\n\n"
+        "| Document | Status | Date |\n"
+        "| --- | --- | --- |\n"
+        "| [Later, A](a-later.md) | research | 2026-09-01 |\n"
+        "| [Later, B](b-later.md) | research | 2026-09-01 |\n"
+        "| [An older note](older.md) | research | 2026-08-01 |\n"
+        f"\n{maintain_docs.KIND_TABLE_END}\n"
+    )
+
+
+def test_a_kind_index_lists_only_the_documents_beside_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A subdirectory's documents, such as the spikes' traces, keep their own index."""
+    note = write_kind_document(tmp_path, "note.md", "A note")
+    nested = write_kind_document(tmp_path, "traces/README.md", "Traces")
+    elsewhere = write_document(
+        tmp_path,
+        "docs/elsewhere.md",
+        "---\nstatus: living\ndate: 2026-08-26\n---\n\n# Elsewhere\n",
+    )
+    index = write_kind_index(tmp_path)
+
+    rendered = kind_index_after_writing(
+        monkeypatch, tmp_path, note, nested, elsewhere, index
+    )
+
+    assert "| [A note](note.md) |" in rendered
+    assert "Traces" not in rendered
+    assert "Elsewhere" not in rendered
+    assert "](README.md)" not in rendered
+
+
+def test_a_kind_index_keeps_its_introduction_and_dates_itself_by_its_newest_document(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Only the frontmatter and the table are generated; the prose around them is kept."""
+    first = write_kind_document(tmp_path, "first.md", "First", date="2026-08-26")
+    second = write_kind_document(tmp_path, "second.md", "Second", date="2026-09-12")
+    write_kind_index(
+        tmp_path,
+        introduction="# Research\n\nA hand-written introduction.\n\n",
+        after="\n\nA closing remark.\n",
+    )
+
+    rendered = kind_index_after_writing(monkeypatch, tmp_path, first, second)
+
+    assert rendered.startswith(
+        "---\nstatus: living\ndate: 2026-09-12\n---\n\n"
+        "# Research\n\nA hand-written introduction.\n\n"
+        f"{maintain_docs.KIND_TABLE_START}\n"
+    )
+    assert rendered.endswith(f"{maintain_docs.KIND_TABLE_END}\n\nA closing remark.\n")
+
+
+def test_a_pipe_in_a_document_title_does_not_break_the_kind_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An unescaped pipe would split the row and kill the link."""
+    note = write_kind_document(tmp_path, "note.md", "TOML | JSON")
+    write_kind_index(tmp_path)
+
+    rendered = kind_index_after_writing(monkeypatch, tmp_path, note)
+
+    assert "| [TOML \\| JSON](note.md) | research | 2026-08-26 |" in rendered
+
+
+def test_a_current_kind_index_passes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The gate reports nothing once the generated parts are what the script writes."""
+    note = write_kind_document(tmp_path, "note.md", "A note")
+    write_kind_index(tmp_path)
+    kind_index_after_writing(monkeypatch, tmp_path, note)
+
+    assert check_kinds(monkeypatch, tmp_path, note) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "title", "fields", "row"),
+    [
+        pytest.param(
+            "added.md",
+            "Added",
+            {},
+            "| [Added](added.md) | research | 2026-08-26 |",
+            id="a document missing from the table",
+        ),
+        pytest.param(
+            "note.md",
+            "A retitled note",
+            {},
+            "| [A retitled note](note.md) | research | 2026-08-26 |",
+            id="a changed title",
+        ),
+        pytest.param(
+            "note.md",
+            "A note",
+            {"status": "superseded"},
+            "| [A note](note.md) | superseded | 2026-08-26 |",
+            id="a changed status",
+        ),
+        pytest.param(
+            "note.md",
+            "A note",
+            {"date": "2026-09-30"},
+            "| [A note](note.md) | research | 2026-09-30 |",
+            id="a changed date",
+        ),
+    ],
+)
+def test_a_kind_index_that_disagrees_with_its_documents_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    name: str,
+    title: str,
+    fields: dict[str, str],
+    row: str,
+) -> None:
+    """A new document, or a document whose row has changed, leaves the table stale."""
+    note = write_kind_document(tmp_path, "note.md", "A note")
+    write_kind_index(tmp_path)
+    kind_index_after_writing(monkeypatch, tmp_path, note)
+    changed = write_kind_document(tmp_path, name, title, **fields)
+    # A rewritten document is still one document, listed once.
+    documents = list(dict.fromkeys([note, changed]))
+
+    assert check_kinds(monkeypatch, tmp_path, *documents) == [
+        "docs/research/README.md:1: the kind index is out of date; "
+        "regenerate it with --write-indexes"
+    ]
+    assert row in kind_index_after_writing(monkeypatch, tmp_path, *documents)
+    assert check_kinds(monkeypatch, tmp_path, *documents) == []
+
+
+def test_a_kind_index_that_lists_a_removed_document_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A row for a document that no longer exists is as stale as a missing one."""
+    kept = write_kind_document(tmp_path, "kept.md", "Kept")
+    removed = write_kind_document(tmp_path, "removed.md", "Removed")
+    write_kind_index(tmp_path)
+    kind_index_after_writing(monkeypatch, tmp_path, kept, removed)
+    removed.unlink()
+
+    assert check_kinds(monkeypatch, tmp_path, kept) == [
+        "docs/research/README.md:1: the kind index is out of date; "
+        "regenerate it with --write-indexes"
+    ]
+
+
+def test_a_missing_kind_index_fails_only_where_there_is_something_to_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The introduction is hand-written, so the gate cannot write a missing index."""
+    assert check_kinds(monkeypatch, tmp_path) == []
+
+    note = write_kind_document(tmp_path, "note.md", "A note")
+
+    assert check_kinds(monkeypatch, tmp_path, note) == [
+        "docs/research/README.md:1: the kind index is missing; write its "
+        "introduction above the generated table's marker comments, then "
+        "regenerate it with --write-indexes"
+    ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("# Research\n\n| Document | Status | Date |\n", id="no markers"),
+        pytest.param(
+            f"{maintain_docs.KIND_TABLE_END}\n{maintain_docs.KIND_TABLE_START}\n",
+            id="markers reversed",
+        ),
+        pytest.param(
+            f"{maintain_docs.KIND_TABLE_START}\n{maintain_docs.KIND_TABLE_END}\n"
+            f"{maintain_docs.KIND_TABLE_START}\n{maintain_docs.KIND_TABLE_END}\n",
+            id="two tables",
+        ),
+        pytest.param(
+            f"Prose {maintain_docs.KIND_TABLE_START}\n{maintain_docs.KIND_TABLE_END}\n",
+            id="a marker inside a line",
+        ),
+    ],
+)
+def test_a_kind_index_without_one_marked_table_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: str
+) -> None:
+    """Without one bounded table there is no telling which text is generated."""
+    note = write_kind_document(tmp_path, "note.md", "A note")
+    write_document(
+        tmp_path,
+        f"{KIND}/README.md",
+        f"---\nstatus: living\ndate: 2026-08-26\n---\n{body}",
+    )
+
+    assert check_kinds(monkeypatch, tmp_path, note) == [
+        "docs/research/README.md:1: marks no generated table; put the opening "
+        "and closing marker comments every kind index carries on lines of their "
+        "own below the introduction, then regenerate it with --write-indexes"
+    ]
+
+
+def test_a_kind_document_without_a_heading_is_reported_not_rendered(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An empty link would satisfy the comparison while telling a reader nothing."""
+    note = write_kind_document(tmp_path, "note.md", "")
+    write_kind_index(tmp_path)
+
+    assert check_kinds(monkeypatch, tmp_path, note) == [
+        "docs/research/note.md:1: declares no level-one heading, "
+        "so its kind index cannot title it"
+    ]
+
+
+def test_a_rebase_conflict_in_the_generated_parts_is_resolved_by_writing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two branches that each add a document conflict in the table and the date.
+
+    Rewriting the generated parts resolves both, which is what lets such a
+    rebase stay content-preserving.
+    """
+    ours = write_kind_document(tmp_path, "ours.md", "Ours", date="2026-09-01")
+    theirs = write_kind_document(tmp_path, "theirs.md", "Theirs", date="2026-09-02")
+    write_document(
+        tmp_path,
+        f"{KIND}/README.md",
+        "---\nstatus: living\n<<<<<<< HEAD\ndate: 2026-09-01\n=======\n"
+        "date: 2026-09-02\n>>>>>>> theirs\n---\n\n# Research\n\nNotes.\n\n"
+        f"{maintain_docs.KIND_TABLE_START}\n\n"
+        "| Document | Status | Date |\n| --- | --- | --- |\n"
+        "<<<<<<< HEAD\n| [Ours](ours.md) | research | 2026-09-01 |\n=======\n"
+        "| [Theirs](theirs.md) | research | 2026-09-02 |\n>>>>>>> theirs\n"
+        f"\n{maintain_docs.KIND_TABLE_END}\n",
+    )
+
+    rendered = kind_index_after_writing(monkeypatch, tmp_path, ours, theirs)
+
+    assert "<<<<<<<" not in rendered
+    assert "=======" not in rendered
+    assert rendered.startswith(
+        "---\nstatus: living\ndate: 2026-09-02\n---\n\n# Research"
+    )
+    assert check_kinds(monkeypatch, tmp_path, ours, theirs) == []
+
+
+def test_writing_the_indexes_satisfies_the_kind_index_gate(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The flag the failure names is the remedy, so it has to produce a pass."""
+    note = write_kind_document(tmp_path, "note.md", "A note")
+    index = write_kind_index(tmp_path)
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(maintain_docs, "tracked_markdown_files", lambda: [note, index])
+    (tmp_path / maintain_docs.ADR_DIRECTORY).mkdir(parents=True)
+    monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
+
+    assert maintain_docs.main(["--write-indexes"]) == 0
+    assert maintain_docs.check_kind_indexes([note, index]) == []
+
+
+def test_writing_reports_a_kind_index_it_cannot_write_and_writes_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An index without markers is left alone and fails the run, without stopping the others."""
+    note = write_kind_document(tmp_path, "note.md", "A note")
+    unmarked = write_document(
+        tmp_path, f"{KIND}/README.md", "---\nstatus: living\ndate: 2026-08-26\n---\n"
+    )
+    review = write_document(
+        tmp_path,
+        "docs/reviews/audit.md",
+        "---\nstatus: research\ndate: 2026-08-26\n---\n\n# An audit\n",
+    )
+    write_document(
+        tmp_path,
+        "docs/reviews/README.md",
+        f"# Reviews\n\n{maintain_docs.KIND_TABLE_START}\n{maintain_docs.KIND_TABLE_END}\n",
+    )
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        maintain_docs, "tracked_markdown_files", lambda: [note, unmarked, review]
+    )
+    (tmp_path / maintain_docs.ADR_DIRECTORY).mkdir(parents=True)
+    monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
+
+    assert maintain_docs.main(["--write-indexes"]) == 1
+    assert "docs/research/README.md:1: marks no generated table" in (
+        capsys.readouterr().err
+    )
+    assert unmarked.read_text(encoding="utf-8") == (
+        "---\nstatus: living\ndate: 2026-08-26\n---\n"
+    )
+    assert "| [An audit](audit.md) |" in (
+        tmp_path / "docs/reviews/README.md"
+    ).read_text(encoding="utf-8")
+    assert (tmp_path / maintain_docs.ADR_INDEX_PATH).is_file()
+
+
+def test_writing_leaves_an_index_it_cannot_title_and_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty link would only trade the write's success for the gate's failure."""
+    note = write_kind_document(tmp_path, "note.md", "")
+    index = write_kind_index(tmp_path)
+    committed = index.read_text(encoding="utf-8")
+    adr = write_adr(tmp_path, "docs/adr/0001-first.md", "")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        maintain_docs, "tracked_markdown_files", lambda: [note, index, adr]
+    )
+    monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
+
+    assert maintain_docs.main(["--write-indexes"]) == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "docs/adr/0001-first.md:1: declares no level-one heading, "
+        "so the ADR index cannot title it",
+        "docs/research/note.md:1: declares no level-one heading, "
+        "so its kind index cannot title it",
+    ]
+    assert index.read_text(encoding="utf-8") == committed
     assert not (tmp_path / maintain_docs.ADR_INDEX_PATH).exists()
 
 
