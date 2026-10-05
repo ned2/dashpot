@@ -206,6 +206,7 @@ REMOVABILITY_KEYS = {
     "obstacles",
     "removeCommands",
     "uncheckedProcesses",
+    "ignored",
 }
 REMOVAL_OBSTACLE_KEYS = {"kind", "detail", "command", "sessionId", "harness", "agents"}
 LIST_PAGE_KEYS = {"page", "totals"}

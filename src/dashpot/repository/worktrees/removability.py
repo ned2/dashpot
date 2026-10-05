@@ -2,33 +2,32 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git
 from ...core.pydantic import LaxSequence, PublishedModel
+from ...core.shell import shell_command
 from ...core.worktree_paths import worktree_paths, worktree_root
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.working_directories import ProcessScan
 from ..cleanup.obstacles import (
     assess_branch_preservation,
-    assess_detached_head_preservation,
-    assess_nested_worktrees,
-    assess_processes_inside,
-    assess_worktree_occupancy,
-    assess_worktree_safety,
+    assess_worktree,
     locate_worktree,
 )
-from ..cleanup.preview import SUB_AGENT_SCOPE
+from ..cleanup.preview import SUB_AGENT_SCOPE, ignored_consequence
 from ..cleanup.targets import CleanupBlocker
-from ..repository import LockHolderProbe
 
 
 class WorktreeRemovability(PublishedModel):
     """A read-only report of whether a Worktree can be removed, and why not.
 
     ``unchecked_processes`` says why the processes inside the Worktree could
-    not all be checked, when they could not (ADR 0104).
+    not all be checked, when they could not (ADR 0104). ``ignored`` lists
+    the ignored paths an unforced removal deletes with it, as the Cleanup
+    preview does.
     """
 
     path: str
@@ -39,6 +38,7 @@ class WorktreeRemovability(PublishedModel):
     obstacles: LaxSequence[CleanupBlocker] = ()
     remove_commands: LaxSequence[str] = ()
     unchecked_processes: str | None = None
+    ignored: LaxSequence[str] = ()
 
 
 def linked_worktrees(current: Path, *, timeout: float = 10) -> list[Path]:
@@ -57,41 +57,37 @@ def check_worktree(
     target: Path,
     *,
     lookup: ProcessLookup = host_process_lookup,
-    lock_probe: LockHolderProbe | None = None,
+    protected: Sequence[Path] = (),
     timeout: float = 10,
     scan: ProcessScan | None = None,
 ) -> WorktreeRemovability:
     """Report whether a Worktree could be removed, and each reason it cannot.
 
-    Everything here is observed: Git's dirty state and locks, the Agent
-    Sessions whose hooks place them at the Worktree, the Agent Runs recorded
-    there, the processes running inside it, the Worktrees registered inside
-    it, and commits its Branch has that no upstream or Integration Branch has.
+    The Worktree is assessed by the sequence the Cleanup preview applies,
+    so ``protected`` names the checkouts a Cleanup never removes, and a
+    Worktree reported removable is one a Cleanup would offer. Its Branch is
+    then held to more: commits it has that no upstream or Integration
+    Branch has are obstacles too, since the remove commands delete it.
     Dashpot removes nothing; each obstacle names the command that acts on it.
     """
     located = locate_worktree(current, target, timeout=timeout)
     git, path = located.git, located.path
     branch = located.branch
-    obstacles = assess_worktree_safety(located, lock_probe)
-    obstacles.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
-    found, unchecked = assess_processes_inside(located, scan)
-    obstacles.extend(found)
-    obstacles.extend(assess_nested_worktrees(located))
+    assessment = assess_worktree(located, lookup=lookup, protected=protected, scan=scan)
+    obstacles = list(assessment.blockers)
     content_integrated = False
     if branch is not None:
         branch_obstacles, content_integrated = assess_branch_preservation(
             git, path, branch
         )
         obstacles.extend(branch_obstacles)
-    elif located.detached:
-        obstacles.extend(assess_detached_head_preservation(git, located.head))
     remove_commands: tuple[str, ...] = ()
     if located.role == "linked":
         # ``branch -d`` refuses a squash-merged Branch, whose commits are not
         # reachable; the forced form is the command that acts on it.
         delete = "-D" if content_integrated else "-d"
-        remove_commands = (f"git worktree remove {path}",) + (
-            (f"git branch {delete} {branch}",) if branch else ()
+        remove_commands = (shell_command("git", "worktree", "remove", path),) + (
+            (shell_command("git", "branch", delete, branch),) if branch else ()
         )
     return WorktreeRemovability(
         path=str(path),
@@ -101,7 +97,8 @@ def check_worktree(
         removable=not obstacles,
         obstacles=tuple(obstacles),
         remove_commands=remove_commands,
-        unchecked_processes=unchecked,
+        unchecked_processes=assessment.unchecked_processes,
+        ignored=assessment.ignored,
     )
 
 
@@ -133,4 +130,6 @@ def describe_removability(report: WorktreeRemovability) -> list[str]:
     if report.removable and report.remove_commands:
         lines.append("Remove with")
         lines.extend(f"  $ {command}" for command in report.remove_commands)
+        if report.ignored:
+            lines.append(f"  which {ignored_consequence(len(report.ignored))}")
     return lines

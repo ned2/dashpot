@@ -40,6 +40,7 @@ class FlowHost(OffLoopHost, Protocol):
         *,
         title: str = "",
         severity: SeverityLevel = "information",
+        markup: bool = True,
     ) -> None: ...
 
     def update_alert(self) -> None: ...
@@ -131,6 +132,7 @@ class RemoteFetchFlow:
                     f"Cleaning up {self.label(project_id)}; fetch after it finishes",
                     severity="warning",
                     title="Dashpot fetch",
+                    markup=False,
                 )
                 continue
             if project_id in self.fetching:
@@ -138,6 +140,7 @@ class RemoteFetchFlow:
                     f"Already fetching {self.label(project_id)}",
                     severity="warning",
                     title="Dashpot fetch",
+                    markup=False,
                 )
                 continue
             path = Path(anchor)
@@ -164,8 +167,12 @@ class RemoteFetchFlow:
             detail = message.error if report is None else report.summary()
             # The Diagnostics box names the Project before the message.
             self.errors[message.project_id] = f"Fetch failed: {detail}"
+            # Git's own words and the Project's label are text, never markup.
             self.host.notify(
-                f"{label}: {detail}", severity="error", title="Dashpot fetch"
+                f"{label}: {detail}",
+                severity="error",
+                title="Dashpot fetch",
+                markup=False,
             )
         else:
             self.errors.pop(message.project_id, None)
@@ -173,6 +180,7 @@ class RemoteFetchFlow:
                 f"{label}: {report.summary()}",
                 severity="information",
                 title="Dashpot fetch",
+                markup=False,
             )
         self.host.update_diagnostics()
         # Whatever a remote changed is observed the passive way: the Git state

@@ -26,10 +26,15 @@ arguments and renders results. Cleanup has separate
 [execution](../src/dashpot/repository/cleanup/perform.py), and
 [dashboard adapter](../src/dashpot/repository/cleanup/adapter.py) modules over
 shared [target values](../src/dashpot/repository/cleanup/targets.py) and
-[obstacle assessments](../src/dashpot/repository/cleanup/obstacles.py). Worktree
-[creation](../src/dashpot/repository/worktrees/create.py) and the
+[obstacle assessments](../src/dashpot/repository/cleanup/obstacles.py), with
+one owner for the [protected checkouts](../src/dashpot/repository/cleanup/protection.py).
+Worktree [creation](../src/dashpot/repository/worktrees/create.py) and the
 [removability report](../src/dashpot/repository/worktrees/removability.py) are
-separate so removal checks never load creation.
+separate so removal checks never load creation; the report runs the Cleanup
+preview's own Worktree assessment
+([ADR 0129](adr/0129-disclose-what-a-cleanup-gates-on-and-share-one-removability-verdict.md)).
+Every command a Cleanup or `worktree check` shows a person is built from an
+argument vector by [`core/shell.py`](../src/dashpot/core/shell.py).
 
 Observation is scheduled per key rather than as one refresh: the Project's
 Issue Source, Pull Request source and Repository State are observed

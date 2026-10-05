@@ -38,6 +38,7 @@ from .repository.cleanup import (
     inspect_cleanup,
     listed_in,
     perform_cleanup,
+    protected_checkouts,
 )
 
 DEFAULT_REFRESH_SECONDS = 15.0
@@ -158,21 +159,15 @@ def run_cleanup(
 
 
 def cleanup_protection() -> list[Path]:
-    """The checkouts a Cleanup never removes: this one and every configured Repository Anchor.
+    """The checkouts a Cleanup command never removes, by the rule the dashboard applies.
 
-    The anchors are the ones a dashboard run from here would observe: the
-    checkout's own root when it carries a Project configuration, and each
-    anchor of the Workspace config, taken at its Worktree root. An inventory
-    that cannot be read refuses the Cleanup rather than proceeding unaware.
+    A command observes no Project, so the Repository Anchors it protects
+    are every anchor of the Workspace inventory, beside this checkout and
+    its Worktree root, which a configured checkout's own anchor is
+    (``protected_checkouts``). An inventory that cannot be read refuses the
+    Cleanup rather than proceeding unaware.
     """
-    current = current_directory()
-    protected = [current]
-    try:
-        root = worktree_root(current)
-    except GitError:
-        root = None
-    if root is not None and is_configured_checkout(root):
-        protected.append(root)
+    anchors: list[Path] = []
     inventory = default_workspace_config()
     if inventory.is_file():
         try:
@@ -181,16 +176,12 @@ def cleanup_protection() -> list[Path]:
             raise CleanupError(
                 f"cannot tell which Repository Anchors to protect: {exc}"
             ) from exc
-        for workspace in workspaces:
-            for anchor in workspace.anchors:
-                path = Path(anchor.path)
-                # An anchor that is gone or not a repository still names a
-                # path no Cleanup should touch.
-                try:
-                    protected.append(worktree_root(path))
-                except (OSError, GitError):
-                    protected.append(path)
-    return list(dict.fromkeys(protected))
+        anchors = [
+            Path(anchor.path)
+            for workspace in workspaces
+            for anchor in workspace.anchors
+        ]
+    return protected_checkouts(anchors)
 
 
 def create_collector(

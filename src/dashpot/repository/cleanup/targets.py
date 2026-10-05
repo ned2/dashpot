@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import computed_field
 
@@ -60,6 +62,23 @@ class CleanupBlocker(PublishedModel):
     session_id: str | None = None
     harness: Harness | None = None
     agents: LaxSequence[str] = ()
+
+
+def held_by_blocked_worktree(worktree: str | Path, *, remote: bool) -> CleanupBlocker:
+    """The blocker of a Branch a Worktree preview offers while that Worktree cannot go.
+
+    It is the only ``checked-out`` blocker a Sub-agent Override lifts with
+    the Worktree, so one function builds it for the preview and for the
+    override's comparison: a Branch also in use in another Worktree carries
+    another blocker and stays unavailable (ADR 0112, ADR 0129).
+    """
+    if remote:
+        detail = (
+            f"its local Branch is checked out at {worktree}, whose removal is blocked"
+        )
+    else:
+        detail = f"checked out at {worktree}, whose removal is blocked"
+    return CleanupBlocker(kind="checked-out", detail=detail)
 
 
 class IntegrationFact(PublishedModel):
@@ -133,6 +152,47 @@ class CleanupPreview(PublishedModel):
             if target.identity == identity:
                 return target
         return None
+
+
+def disclosed_facts(target: CleanupTarget) -> dict[str, Any]:
+    """Every fact a preview discloses about a target, as a confirmation compares it.
+
+    Everything the target carries counts, a field added later included,
+    save three exclusions. ``observed_at`` is the Repository's last fetch
+    time, which proves nothing about any one remote; what a fetch changed
+    shows in ``expected``. A blocker's ``detail`` and ``command`` narrate
+    the current evidence of a gate whose ``kind`` counts: a blocked target
+    is never performed, so a count, a timestamp, or a pid in that
+    narration changing cannot make a confirmation reach anything the
+    person did not see, while the gate appearing or going does. The
+    sub-agents a ``sub-agent`` blocker lists (its ``session_id``,
+    ``harness``, and ``agents``) are the one gate a confirmation can lift,
+    and the acknowledgement it lifts them with is compared with them
+    instead, by a refusal that names both sets (ADR 0112).
+    """
+    facts = target.model_dump(mode="json", exclude={"observed_at"})
+    facts["blockers"] = [
+        blocker.model_dump(
+            mode="json",
+            exclude={"detail", "command", "session_id", "harness", "agents"},
+        )
+        for blocker in target.blockers
+    ]
+    return facts
+
+
+def fingerprint(preview: CleanupPreview) -> str:
+    """Summarise what a preview discloses, which a confirmation must observe again.
+
+    Every preview field counts — its targets by ``disclosed_facts``, its
+    ignored paths, refusals, and whether the processes inside were all
+    checked — so a confirmation and a retained choice agree on what
+    changed (ADR 0019).
+    """
+    facts = preview.model_dump(mode="json", exclude={"fingerprint", "targets"})
+    facts["targets"] = [disclosed_facts(target) for target in preview.targets]
+    encoded = json.dumps(facts, sort_keys=True).encode()
+    return hashlib.sha256(encoded).hexdigest()[:16]
 
 
 @dataclass(frozen=True, slots=True)

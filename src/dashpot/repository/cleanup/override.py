@@ -15,7 +15,13 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from ...core.runtime_events import fitting_identities
-from .targets import CleanupBlocker, CleanupError, CleanupPreview, CleanupTarget
+from .targets import (
+    CleanupBlocker,
+    CleanupError,
+    CleanupPreview,
+    CleanupTarget,
+    held_by_blocked_worktree,
+)
 
 # The command line's spelling of one session's acknowledged sub-agents.
 DESPITE_SUBAGENTS_FLAG = "--despite-subagents"
@@ -140,7 +146,9 @@ def lifted(preview: CleanupPreview, acknowledged: Acknowledgement) -> frozenset[
     """The targets an acknowledgement makes available: none unless it is exact.
 
     The Worktree, when its acknowledged sub-agents are exactly those listed,
-    and each Branch blocked only because it is checked out there.
+    and each Branch blocked only because it is checked out there: a Branch
+    also in use in another Worktree, as one being rebased there, stays
+    blocked.
     """
     worktree = worktree_target(preview)
     if worktree is None or not acknowledged or acknowledged != override_offer(preview):
@@ -151,8 +159,13 @@ def lifted(preview: CleanupPreview, acknowledged: Acknowledgement) -> frozenset[
             target.identity
             for target in preview.targets
             if target.requires == worktree.identity
+            and worktree.path is not None
             and target.blockers
-            and all(blocker.kind == "checked-out" for blocker in target.blockers)
+            == (
+                held_by_blocked_worktree(
+                    worktree.path, remote=target.kind == "remote-branch"
+                ),
+            )
         }
     )
 

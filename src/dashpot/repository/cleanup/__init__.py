@@ -36,6 +36,7 @@ from .preview import (
 from .preview import inspect_cleanup as inspect_cleanup
 from .preview import sub_agent_scope as sub_agent_scope
 from .preview import unchecked_processes_note as unchecked_processes_note
+from .protection import protected_checkouts as protected_checkouts
 from .selection import default_choices as default_choices
 from .selection import primary_target as primary_target
 from .selection import retained_choices as retained_choices

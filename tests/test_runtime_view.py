@@ -26,6 +26,7 @@ from app_harness import (
     open_issue_view,
     settle_screen,
     show_query_peer,
+    with_first_project,
     workspace_snapshot,
 )
 from dashpot.core.event_log import EventLog
@@ -680,6 +681,43 @@ async def test_events_the_buffer_lets_go_of_leave_the_table(tmp_path: Path) -> N
         assert str(table.get_row_at(table.cursor_row)[6]) == "gh status"
         # The header says the buffer let go of events by count.
         assert ", buffer full · 3 events" in header(app)
+
+
+@pytest.mark.asyncio
+async def test_a_label_that_reads_as_markup_is_shown_as_written(
+    tmp_path: Path,
+) -> None:
+    clock = Clock()
+    log = stats_log(tmp_path, clock)
+    started = refresh(log, "manual")
+    observed = key(
+        log,
+        started,
+        ObservationAttributes(kind="worktrees", project_id=PROJECT_ID),
+    )
+    end_after(observed, clock, 0.5)
+    label = "repo [wip] [b]x[/b]"
+    snapshot = with_first_project(
+        workspace_snapshot(issue("test/repo#1", "First")), display_label=label
+    )
+    app = dashboard_app(
+        SequenceCollector(snapshot), event_log=log, runtime_stats_seconds=3600
+    )
+
+    async with app.run_test(size=(160, 40)) as pilot:
+        await open_runtime(app, pilot)
+        # A Project's label is text a person wrote, never markup.
+        table = event_table(app)
+
+        def shown() -> list[str]:
+            return [table.render_line(y).text for y in range(table.size.height)]
+
+        await settled(
+            pilot,
+            lambda: any("repo" in line for line in shown()),
+            "the observation rows",
+        )
+        assert any(label in line for line in shown())
 
 
 @pytest.mark.asyncio

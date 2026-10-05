@@ -930,14 +930,20 @@ JSON fields such as `worktreeRoot` retain their existing meanings.
 
 `worktree check [path]` is read-only. With no path it reports every linked
 Worktree of the Repository, one after another (`--json` gives a list). It
-reports the Worktree removable, or
+assesses a Worktree by the sequence a Cleanup preview applies, protecting the
+same checkouts, so a Worktree it reports removable is one `worktree remove`
+would offer
+([ADR 0129](docs/adr/0129-disclose-what-a-cleanup-gates-on-and-share-one-removability-verdict.md)).
+It reports the Worktree removable, or
 each reason it is not with the command that acts on it: dirty state, a lock
 with its reason and whether the holding process is alive (`initializing`
 names the forced removal), Agent Sessions whose hooks place them there
 (each named as live there or of unknown liveness, with how to free the
 Worktree from it: [Agent Sessions and Worktree Cleanup](docs/agent-sessions.md#agent-sessions-and-worktree-cleanup)),
 Agent Runs recorded there (an Orphaned Agent Run, whose session is gone,
-names its `dashpot work stop --session` command), a `sub-agent` that an Agent
+names its `dashpot work stop --session` command, while a run whose
+relocation is pending is named as moving, with the resume that carries it),
+a `sub-agent` that an Agent
 Session elsewhere in the Repository still lists as working, which may be
 working here because Dashpot cannot tell which Worktree a sub-agent works in
 (it names how to end that session if none is still working, or for a session
@@ -948,11 +954,18 @@ a `process` whose working directory is inside the Worktree, named by pid,
 command and directory
 ([processes inside a Worktree](docs/agent-sessions.md#processes-inside-a-worktree)),
 another linked Worktree registered inside it, named with the
-`dashpot worktree remove` that removes it first
+`dashpot worktree remove` that removes it first, or a stale record of one,
+named with the `git worktree prune` that drops it (preceded by
+`git worktree unlock` for a locked record, which prune leaves alone)
 ([ADR 0125](docs/adr/0125-block-removing-a-worktree-that-holds-another-worktree.md)),
-and commits not on the upstream or the Integration Branch. A removable
-Worktree's text report adds that sub-agents of Agent Sessions outside the
-Repository are not checked. When the host's processes could not all be
+the checkout the command runs from or a configured Repository Anchor
+(`protected`), and commits not on the upstream or the Integration Branch.
+Every command it names is quoted for a POSIX shell. Like the Cleanup
+commands, it refuses when the Workspace config cannot be read, since it
+could not tell which Repository Anchors to protect. A removable
+Worktree's text report says that its remove commands also delete the ignored
+paths inside it, which `--json` lists as `ignored`, and adds that sub-agents
+of Agent Sessions outside the Repository are not checked. When the host's processes could not all be
 read, as inside a sandbox, it says so beneath that, and `--json` carries
 the sentence as `uncheckedProcesses`; `removable` stays true, so a caller
 that reads only `removable` should read `uncheckedProcesses` too. `check`
@@ -998,15 +1011,17 @@ is already gone there, so that rejection is followed by one read-only
 `git ls-remote` to report `refused` (press `f`, or `git fetch --prune`, then
 confirm again) or `already-absent` (the stale Remote-Tracking Branch is pruned
 the same way); a successful delete push drops the Remote-Tracking Branch itself.
-Neither command deletes the Integration Branch, a checked-out Branch, a
+Neither command deletes the Integration Branch, a Branch checked out, being
+rebased (including one `rebase --update-refs` moves), or being bisected in
+any Worktree, as Git tells it, a
 Branch with commits the Integration Branch does not reach, or a Worktree that
 is the main one, dirty, locked, occupied by an Agent Session or Agent Run,
 possibly occupied by a live Claude Code sub-agent of a session in the
 Repository, one a process is running inside, one that holds another
 registered Worktree, one whose ignored content Git could not list, the
-checkout the command runs from, or a configured Repository
-Anchor (the checkout's own root when it carries a Project configuration, and
-every anchor of the Workspace config). Every target reports its own outcome —
+checkout the command runs from or its Worktree root, or a configured
+Repository Anchor (every anchor of the Workspace config; the dashboard
+protects its Project's anchors by the same rule). Every target reports its own outcome —
 `deleted`, `already-absent`, `refused`, or `unknown` when Git did not answer —
 with the command that recreates a deleted one, and after a refused or unknown
 outcome the remaining targets are not attempted. `--dry-run` validates the

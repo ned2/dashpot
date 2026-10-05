@@ -11,7 +11,7 @@ rebuild its evidence without confirming anything
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -31,6 +31,7 @@ from ..repository.cleanup import (
     CleanupRequest,
     TargetResult,
     WorktreeCleanupRequest,
+    protected_checkouts,
 )
 from .cleanup_view import CleanupReportScreen, CleanupScreen
 from .fetch_flow import FlowHost, RemoteFetchFlow
@@ -86,6 +87,20 @@ class CleanupPreviewHold:
 
     screen: CleanupScreen
     anchor: Path | None
+
+
+def protected_inspection(
+    cleaner: CleanupAdapter, request: CleanupRequest, anchors: Sequence[Path]
+) -> CleanupPreview:
+    """Inspect a Cleanup off the event loop, protecting the checkouts it never removes."""
+    return cleaner.inspect(request, protected=protected_checkouts(anchors))
+
+
+def protected_performance(
+    cleaner: CleanupAdapter, confirmation: CleanupConfirmation, anchors: Sequence[Path]
+) -> CleanupReport:
+    """Perform a confirmed Cleanup off the event loop, under the same protection."""
+    return cleaner.perform(confirmation, protected=protected_checkouts(anchors))
 
 
 def cleanup_subject(request: CleanupRequest) -> str:
@@ -180,6 +195,7 @@ class CleanupFlow:
                 f"Fetching {label}; delete after it finishes",
                 severity="warning",
                 title="Dashpot cleanup",
+                markup=False,
             )
             return
         if project_id in self.cleaning:
@@ -187,13 +203,14 @@ class CleanupFlow:
                 f"Already cleaning up {label}",
                 severity="warning",
                 title="Dashpot cleanup",
+                markup=False,
             )
             return
         self.cleaning[project_id] = cleanup_subject(request)
         self.host.run_off_loop(
             f"inspect cleanup {project_id}",
             f"cleanup:{project_id}",
-            partial(cleaner.inspect, request, protected=self.protection(project_id)),
+            partial(protected_inspection, cleaner, request, self.anchors(project_id)),
             partial(CleanupInspected, project_id, request),
         )
 
@@ -221,11 +238,14 @@ class CleanupFlow:
                 )
         return None
 
-    def protection(self, project_id: str) -> tuple[Path, ...]:
-        """The checkouts a Cleanup never removes: Dashpot's own and the anchors."""
+    def anchors(self, project_id: str) -> tuple[Path, ...]:
+        """The Project's Repository Anchors, which a Cleanup of it never removes.
+
+        ``protected_checkouts`` adds Dashpot's own checkout and its Worktree
+        root, off the event loop, as it does for a Cleanup command.
+        """
         project = self.store.project(project_id)
-        anchors = tuple(Path(anchor) for anchor in project.anchors) if project else ()
-        return (Path.cwd().resolve(), *anchors)
+        return tuple(Path(anchor) for anchor in project.anchors) if project else ()
 
     def release(self, project_id: str) -> None:
         """Let the Project go: no preview is open and no Cleanup is in progress."""
@@ -247,6 +267,7 @@ class CleanupFlow:
                 f"{self.fetches.label(message.project_id)}: {message.error}",
                 severity="error",
                 title="Dashpot cleanup",
+                markup=False,
             )
             return
         self.show_preview(message.project_id, message.request, message.preview)
@@ -261,6 +282,7 @@ class CleanupFlow:
     ) -> None:
         """Capture the preview's Project and Remote Fetch anchor once."""
         project = self.store.project(project_id)
+        previous = self.previews.get(project_id) if changed else None
         screen = CleanupScreen(
             request,
             preview,
@@ -268,14 +290,13 @@ class CleanupFlow:
             fetched_at=project.snapshot.fetched_at
             if project and project.snapshot
             else None,
+            previous=previous.screen if previous is not None else None,
         )
         anchor = (
             project.snapshot.branch_anchor if project and project.snapshot else None
         )
         captured_anchor = Path(anchor) if anchor else None
-        previous = self.previews.get(project_id)
-        if changed and previous is not None:
-            screen.primary_identity = previous.screen.primary_identity
+        if previous is not None:
             captured_anchor = previous.anchor
         self.previews[project_id] = CleanupPreviewHold(screen, captured_anchor)
         self.host.push_screen(screen, partial(self.confirm, project_id))
@@ -325,6 +346,7 @@ class CleanupFlow:
         preview = None
         report = None
         error = None
+        fetched_at = screen.fetched_at
         try:
             try:
                 report = await self.host.off_loop(partial(fetcher, anchor))
@@ -336,21 +358,17 @@ class CleanupFlow:
             status = (
                 report.summary() if report is not None else f"Fetch failed: {error}"
             )
-            screen.verified_remotes = frozenset(
-                report.fetched if report is not None else ()
-            )
+            verified = frozenset(report.fetched if report is not None else ())
             self.fetches.record(
                 FetchFinished(project_id, report=report, error=error),
                 release=False,
                 observe=False,
             )
-            screen.fetch_status = (
-                status + "\nRefreshing Git facts and Cleanup evidence…"
-            )
+            screen.refreshing(status)
             try:
                 await self.observe_fetch(project_id)
                 project = self.store.project(project_id)
-                screen.fetched_at = (
+                fetched_at = (
                     project.snapshot.fetched_at
                     if project and project.snapshot
                     else None
@@ -358,9 +376,10 @@ class CleanupFlow:
                 if self.holds(project_id, screen):
                     preview = await self.host.off_loop(
                         partial(
-                            cleaner.inspect,
+                            protected_inspection,
+                            cleaner,
                             screen.request,
-                            protected=self.protection(project_id),
+                            self.anchors(project_id),
                         )
                     )
             except TimeoutError:
@@ -375,7 +394,9 @@ class CleanupFlow:
                 reason = failure_text(exc)
                 status += f"\nCould not refresh the preview: {reason}"
             if self.holds(project_id, screen) and screen in self.host.screen_stack:
-                await screen.replace_preview(preview, status)
+                await screen.finish_fetch(
+                    preview, status, verified_remotes=verified, fetched_at=fetched_at
+                )
         finally:
             self.fetches.release(project_id)
             self.host.update_alert()
@@ -446,9 +467,7 @@ class CleanupFlow:
             f"perform cleanup {project_id}",
             f"cleanup:{project_id}",
             partial(
-                cleaner.perform,
-                confirmation,
-                protected=self.protection(project_id),
+                protected_performance, cleaner, confirmation, self.anchors(project_id)
             ),
             partial(CleanupFinished, project_id, confirmation),
         )
@@ -462,7 +481,10 @@ class CleanupFlow:
         if report is None:
             self.release(message.project_id)
             self.host.notify(
-                f"{label}: {message.error}", severity="error", title="Dashpot cleanup"
+                f"{label}: {message.error}",
+                severity="error",
+                title="Dashpot cleanup",
+                markup=False,
             )
             # The adapter may have mutated before failing: re-observe anyway.
             self.reobserve(message.project_id)
@@ -474,6 +496,7 @@ class CleanupFlow:
                 f"{label}: {report.refusals[0]}",
                 severity="warning",
                 title="Dashpot cleanup",
+                markup=False,
             )
             self.show_preview(
                 message.project_id,
@@ -487,6 +510,7 @@ class CleanupFlow:
             cleanup_summary(report),
             severity="information" if report.succeeded else "error",
             title=f"{label} cleanup",
+            markup=False,
         )
         if not report.succeeded:
             # A successful report is already complete in the toast. Keep the

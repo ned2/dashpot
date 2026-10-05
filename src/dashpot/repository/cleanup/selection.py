@@ -1,6 +1,6 @@
 """Retain explicit Cleanup choices against refreshed evidence."""
 
-from .targets import CleanupPreview, CleanupTarget
+from .targets import CleanupPreview, CleanupTarget, disclosed_facts
 
 
 def primary_target(preview: CleanupPreview) -> CleanupTarget | None:
@@ -55,7 +55,11 @@ def default_choices(preview: CleanupPreview) -> tuple[str, ...]:
 def retained_choices(
     previous: CleanupPreview, refreshed: CleanupPreview, selected: tuple[str, ...]
 ) -> tuple[str, ...]:
-    """Keep only optional choices whose identity and disclosed facts still agree."""
+    """Keep only optional choices whose identity and disclosed facts still agree.
+
+    The facts are the ones a confirmation's fingerprint rests on, so a
+    choice kept here is one a confirmation would not refuse as changed.
+    """
     retained = []
     for identity in selected:
         old, new = previous.target(identity), refreshed.target(identity)
@@ -63,10 +67,7 @@ def retained_choices(
             old is not None
             and new is not None
             and new.available
-            and (
-                old.model_dump(exclude={"observed_at"})
-                == new.model_dump(exclude={"observed_at"})
-            )
+            and disclosed_facts(old) == disclosed_facts(new)
         ):
             retained.append(identity)
     return tuple(retained)

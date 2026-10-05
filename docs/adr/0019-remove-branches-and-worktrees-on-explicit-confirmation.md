@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md, 0066-block-worktree-removal-while-a-sub-agent-is-working.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md, 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md, 0125-block-removing-a-worktree-that-holds-another-worktree.md
+amended-by: 0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md, 0054-finish-a-worktree-with-its-branch-by-default.md, 0066-block-worktree-removal-while-a-sub-agent-is-working.md, 0104-block-worktree-removal-while-a-process-runs-inside-it.md, 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md, 0125-block-removing-a-worktree-that-holds-another-worktree.md, 0129-disclose-what-a-cleanup-gates-on-and-share-one-removability-verdict.md
 ---
 
 # Remove Branches and Worktrees on explicit confirmation
@@ -46,6 +46,13 @@ Amended in place for [#539](https://github.com/ned2/dashpot/issues/539):
 a named mutation's Git commands get a bound of their own, the Git timeout
 raised to at least five minutes, and a command that outlasts its bound is
 asked to stop with its whole process group before it is killed.
+
+Amended by [ADR 0129](0129-disclose-what-a-cleanup-gates-on-and-share-one-removability-verdict.md):
+the fingerprint covers every fact the preview discloses but named
+exclusions, a Branch being rebased or bisected in another Worktree is in
+use as Git derives it, every command a preview names is shell-quoted, and
+`dashpot worktree check` assesses a Worktree by the preview's own sequence
+and protection.
 
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),

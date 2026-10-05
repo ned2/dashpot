@@ -42,6 +42,7 @@ from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupBlocker,
     CleanupConfirmation,
+    CleanupError,
     CleanupPreview,
     CleanupReport,
     CleanupRequest,
@@ -433,6 +434,79 @@ async def test_a_refused_cleanup_keeps_its_detailed_report() -> None:
         assert "Local Branch moved after the preview" in report_text
         assert toasts(app) == ["Refused Local Branch"]
         assert toast_titles(app) == ["Test Repository cleanup"]
+
+
+# Git's own words and paths a person chose, each of which reads as markup.
+REJECTED = "! [remote rejected] feat -> feat (pre-receive hook declined)"
+BRACKETED = "/src/proj[/old]/wt-[wip]"
+
+
+@pytest.mark.asyncio
+async def test_a_report_carrying_git_text_and_bracketed_paths_shows_them_verbatim() -> (
+    None
+):
+    rejected = refused(LOCAL).model_copy(
+        update={"detail": f"{REJECTED} at {BRACKETED}"}
+    )
+    cleaner = FakeCleaner(BRANCH_PREVIEW, reports=[report(BRANCH_PREVIEW, rejected)])
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
+
+    async with app.run_test(size=(140, 50)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
+        await pilot.press("x")
+        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await pilot.press("space")
+        await pilot.click("#cleanup-confirm")
+        await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
+
+        report_text = str(app.screen.query_one("#cleanup-report", Static).render())
+        assert f"{REJECTED} at {BRACKETED}" in report_text
+
+
+@pytest.mark.asyncio
+async def test_a_preview_naming_bracketed_paths_shows_them_verbatim() -> None:
+    worktree = TREE.model_copy(
+        update={
+            "path": BRACKETED,
+            "blockers": (
+                CleanupBlocker(
+                    kind="nested-worktree",
+                    detail=f"the Worktree {BRACKETED}/[inner] is inside this one",
+                    command=f"dashpot worktree remove '{BRACKETED}/[inner]'",
+                ),
+            ),
+        }
+    )
+    shown = preview("worktree", BRACKETED, worktree)
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await app.push_screen(CleanupScreen(WORKTREE_REQUEST, shown))
+        await settle_screen(app, pilot, "the Cleanup preview")
+        screen = cleanup_screen(app)
+        subject = screen.query_one("#cleanup-subject", Static)
+        assert str(subject.render()) == "wt-[wip]"
+        assert str(subject.tooltip) == BRACKETED
+        reasons = [str(one.render()) for one in screen.query(".cleanup-blocker")]
+        assert f"the Worktree {BRACKETED}/[inner] is inside this one" in reasons
+        await pilot.press("shift+tab", "enter")
+        assert f"dashpot worktree remove '{BRACKETED}/[inner]'" in details(app)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_inspection_is_notified_as_written() -> None:
+    cleaner = FakeCleaner(CleanupError(f"cannot read {BRACKETED}: {REJECTED}"))
+    app = dashboard_app(SequenceCollector(BEFORE), refresh_seconds=0, cleaner=cleaner)
+
+    async with app.run_test(size=(140, 50)) as pilot:
+        await wait_until(lambda: first_load_landed(app))
+        await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
+        await pilot.press("x")
+        await wait_until(lambda: bool(toasts(app)))
+
+        (notification,) = app._notifications
+        assert notification.message.endswith(f"cannot read {BRACKETED}: {REJECTED}")
+        assert notification.markup is False
 
 
 @pytest.mark.asyncio
@@ -1284,7 +1358,10 @@ async def test_blocked_choices_keep_all_reasons_and_keyboard_access_to_full_evid
         await pilot.pause()
         screen = cleanup_screen(app)
         reasons = [str(one.render()) for one in screen.query(".cleanup-blocker")]
-        assert "Checked out in a Worktree; remove that Worktree first." in reasons
+        # The detail is the reason, shortened to fit; the full path is in the
+        # evidence below.
+        assert reasons[1].startswith("checked out at /projects/nested/")
+        assert reasons[1].endswith("release-candidate")
         # Judged against a Remote-Tracking Branch, the block may only be stale.
         assert (
             "3 commits not reachable from origin/main. "
@@ -1424,16 +1501,23 @@ def test_only_an_integration_block_against_a_remote_tracking_branch_hints_at_fet
     assert blocker_summary(blocker, blocked).endswith(FETCH_HINT) is hinted
 
 
-def test_a_branch_held_by_a_blocked_worktree_says_only_that():
-    blocker = CleanupBlocker(kind="checked-out", detail="held")
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "checked out at /w/tree, whose removal is blocked",
+        "checked out at /w/other; remove that Worktree first",
+        "being rebased at /w/other; finish or abort that rebase first",
+        "being bisected at /w/other; end that bisect first",
+    ],
+)
+def test_a_checked_out_branch_is_shown_by_its_detail(detail):
+    # The detail names how the Branch is in use and where, which no fixed
+    # summary could.
+    blocker = CleanupBlocker(kind="checked-out", detail=detail)
     local = LOCAL.model_copy(update={"requires": TREE.identity, "blockers": (blocker,)})
     remote = PUSHED.model_copy(update={"blockers": (blocker,)})
-    assert blocker_summary(blocker, local) == "Worktree removal is blocked."
-    assert blocker_summary(blocker, remote) == "Worktree removal is blocked."
-    # From the Branches pane the reason names the step that frees the Branch.
-    assert blocker_summary(
-        blocker, LOCAL.model_copy(update={"blockers": (blocker,)})
-    ) == ("Checked out in a Worktree; remove that Worktree first.")
+    assert blocker_summary(blocker, local) == detail
+    assert blocker_summary(blocker, remote) == detail
 
 
 @pytest.mark.parametrize("kind", ["nested-worktree", "ignored-content"])

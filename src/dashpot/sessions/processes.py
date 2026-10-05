@@ -151,9 +151,15 @@ def process_liveness(
     return "live", None
 
 
-def lock_holder_probe(pid: int) -> ProcessLiveness:
-    """Answer a Worktree lock's question about its holder with the host probe."""
-    return process_liveness(host_process_lookup(pid))[0]
+def lock_holder_probe(pid: int, lookup: ProcessLookup | None = None) -> ProcessLiveness:
+    """Answer a Worktree lock's question about its holder, by default with the host probe.
+
+    Observation's Worktrees pane, a Cleanup preview, and ``worktree check``
+    each ask it, the last two with the process lookup they were given, so
+    all three agree about one lock.
+    """
+    liveness, _reason = process_liveness((lookup or host_process_lookup)(pid))
+    return liveness
 
 
 def host_process_lookup(pid: int) -> ProcessObservation:

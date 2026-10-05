@@ -30,6 +30,7 @@ from .hook_scan import (
     session_record_named,
 )
 from .liveness import LivenessObservation, LivenessProbe
+from .orphaned_runs import orphaned_process
 from .processes import (
     ProcessKey,
     ProcessLookup,
@@ -438,16 +439,11 @@ def observe_work_runs(
                     )
                 )
             # The gone process, when this run is an Orphaned Agent Run.
-            gone = (
-                work.session_process
-                if work.relocation is None
-                and work.session_process is not None
-                and probe.observe(
-                    work.session_process.key,
-                    namespace=work.session_process.pid_namespace,
-                ).liveness
-                == "gone"
-                else None
+            gone = orphaned_process(
+                work,
+                lambda process: probe.observe(
+                    process.key, namespace=process.pid_namespace
+                ),
             )
             identities = run_identities(work)
             if identities & sessions_seen:

@@ -17,6 +17,7 @@ from cyclopts import App, CycloptsError, Group, Parameter, Token, validators
 
 from .composition import (
     ObservationOptions,
+    cleanup_protection,
     create_collector,
     create_query_sources,
     reads_github,
@@ -1021,15 +1022,17 @@ def worktree_check(
 ) -> int:
     """Report whether a Worktree is removable, and each reason it is not."""
     current = current_directory()
+    # The checkouts a Cleanup never removes are never reported removable.
+    protected = cleanup_protection()
     if path is not None:
-        report = check_worktree(current, path, timeout=timeout)
+        report = check_worktree(current, path, protected=protected, timeout=timeout)
         if json_output:
             print(render_json(removability_document(report)))
         else:
             _report(describe_removability(report))
         return 0
     reports = [
-        check_worktree(current, worktree, timeout=timeout)
+        check_worktree(current, worktree, protected=protected, timeout=timeout)
         for worktree in linked_worktrees(current, timeout=timeout)
     ]
     if json_output:

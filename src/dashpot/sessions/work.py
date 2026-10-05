@@ -49,6 +49,7 @@ from .hook_scan import (
     stored_session_records,
 )
 from .liveness import session_liveness
+from .orphaned_runs import orphaned_process
 from .processes import ProcessLookup, host_process_lookup
 from .session_exits import (
     ended_session_subagent_stop,
@@ -520,14 +521,13 @@ def forget_session_subagents(
 def _orphaned(work: ActiveWork, lookup: ProcessLookup) -> bool:
     """Whether observation reports the run as an Orphaned Agent Run."""
     return (
-        work.relocation is None
-        and work.session_process is not None
-        and session_liveness(
-            work.session_process.key,
-            lookup,
-            namespace=work.session_process.pid_namespace,
-        ).liveness
-        == "gone"
+        orphaned_process(
+            work,
+            lambda process: session_liveness(
+                process.key, lookup, namespace=process.pid_namespace
+            ),
+        )
+        is not None
     )
 
 

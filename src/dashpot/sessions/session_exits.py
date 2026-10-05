@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from ..core.model import HARNESS_DISPLAY, Harness
+from ..core.shell import shell_command
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +111,9 @@ def forget_subagents_command(harness: Harness, session_id: str) -> str:
 
     It names the harness, so a session id two harnesses share is not refused.
     """
-    return f"dashpot work forget-subagents {session_id} --harness {harness}"
+    return shell_command(
+        "dashpot", "work", "forget-subagents", session_id, "--harness", harness
+    )
 
 
 def ended_session_subagent_stop(harness: Harness, session_id: str) -> str:
