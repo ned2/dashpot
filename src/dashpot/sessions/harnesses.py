@@ -267,8 +267,10 @@ def _codex_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
 def _claude_code_claim(environ: Mapping[str, str]) -> SessionIdentityClaim | None:
     # Claude Code's Bash tool exports its session identifier, which is the
     # ``session_id`` its hooks publish, beside the harness's own host PID.
-    # Both are undocumented; the PID must agree with the hook record, and the
-    # claim is only ever accepted when a Claude Code hook record confirms it.
+    # Claude Code documents both in its environment variable reference, but
+    # every process the shell starts inherits them, so the PID must agree
+    # with the hook record, and the claim is only ever accepted when a Claude
+    # Code hook record confirms it.
     session_id = _identity(environ.get("CLAUDE_CODE_SESSION_ID"))
     if session_id is None:
         return None
