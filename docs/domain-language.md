@@ -334,7 +334,8 @@ which names the person rather than the dashboard
 A `git` or `gh` child an observation or query runs, which the dashboard's
 exit may stop rather than wait for: it is held in the registry the thread
 running it adopted, and an exit closes that registry and sends every held
-child a termination request. An interrupted command is a failed command,
+child a termination request, to its whole process group when it runs in a
+session of its own. An interrupted command is a failed command,
 never an answer, so its observation is discarded whole. Every observation
 and query command is interruptible; the named mutations — a Remote Fetch, a
 Cleanup — opt out and run to completion

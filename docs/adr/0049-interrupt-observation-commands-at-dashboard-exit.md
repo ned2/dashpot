@@ -5,6 +5,11 @@ date: 2026-09-18
 
 # Interrupt observation commands at dashboard exit
 
+Amended in place for [#599](https://github.com/ned2/dashpot/issues/599):
+the termination request goes through the path a timed-out command's stop
+takes, so a command in its own session — a Cleanup preview's Git — is
+signalled as its whole process group, helpers and all.
+
 Quitting the dashboard sometimes returned the shell prompt a second or more
 after the screen was torn down, and up to the command timeout on a slow
 GitHub ([#255](https://github.com/ned2/dashpot/issues/255)). Measured in a
@@ -97,9 +102,16 @@ by a named mutation's bound of at least five minutes
 ([ADR 0014](0014-fetch-remotes-on-explicit-key-press.md)), which is the
 price of never abandoning a mutation someone asked for; interrupting a
 Remote Fetch too would be safe for Git and is the first thing to revisit
-if that wait is noticed. The termination request reaches the child alone: a helper the child started that kept the
+if that wait is noticed. A command in its own session, as a Cleanup
+preview's Git is, leads its own process group, and the termination request
+reaches the whole group while the command runs, so the helpers it started
+are asked to stop with it. A command sharing Dashpot's group is signalled
+alone, since that group is Dashpot's own: a helper it started that kept the
 output pipe open would hold the thread until the command timeout, which no
-observation command of Dashpot's does. Textual's 0.2
+observation command of Dashpot's does. A command whose own process has
+already exited has answered and is not reported interrupted; in its own
+session its group is still asked to stop, since a helper that holds its
+output open holds the thread too. Textual's 0.2
 seconds of input-thread teardown remain: its key thread polls at a hundred
 milliseconds and `disable_input` joins it before one final poll. The
 exit path is covered by `tests/test_app_exit.py`, which runs the shipped
