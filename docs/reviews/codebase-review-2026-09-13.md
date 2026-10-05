@@ -24,7 +24,7 @@ in parallel sub-agents. A whole-codebase review has neither a diff nor an
 originating spec, so the skill was adapted:
 
 - **Standards** kept its brief: conformance with the documented standards
-  ([AGENTS.md](../../AGENTS.md#quality-and-code-conventions),
+  ([AGENTS.md](../../AGENTS.md#code-conventions),
   [domain language](../domain-language.md), [design](../design.md),
   [ADR 0013](../adr/0013-adopt-pydantic-models-by-seam.md),
   [Textual implementation notes](../textual-implementation-notes.md)) plus the

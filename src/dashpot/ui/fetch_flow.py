@@ -3,7 +3,7 @@
 The flow fetches only the Repository Anchor whose refs supplied a Project's
 Branch observation, holds the Project while the fetch runs, and reports the
 outcome; what the fetch changed is then observed the passive way rather
-than inferred ([ADR 0014](../../docs/adr/0014-fetch-remotes-on-explicit-key-press.md)).
+than inferred ([ADR 0014](../../../docs/adr/0014-fetch-remotes-on-explicit-key-press.md)).
 """
 
 from __future__ import annotations

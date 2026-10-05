@@ -1,8 +1,9 @@
 """Fetch the remotes of one Repository Anchor on explicit invocation.
 
-Observation never fetches ([ADR 0005]); this module is the one named mutation
-the dashboard performs, on the ``f`` key, and only against the Repository
-Anchor whose refs supplied the current Branch observation ([ADR 0014]).
+Observation never fetches ([ADR 0005]); this module is one of the dashboard's
+named mutations, beside Cleanup on ``x`` ([ADR 0019]). It runs on the ``f``
+key, and only against the Repository Anchor whose refs supplied the current
+Branch observation ([ADR 0014]).
 
 The Git invocation is ``git fetch --prune -- <remote>`` once per configured
 remote, in ``git remote`` order, rather than a single ``git fetch --all``:

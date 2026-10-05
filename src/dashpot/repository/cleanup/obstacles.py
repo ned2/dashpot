@@ -423,7 +423,7 @@ def assess_branch_preservation(
 
     Retained commits whose content the Integration Branch already holds — a
     squash merge — obstruct nothing: neither unmerged nor unpushed, since the
-    work is where it was meant to land ([ADR 0017](../../docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
+    work is where it was meant to land ([ADR 0017](../../../../docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
     """
     obstacles: list[CleanupBlocker] = []
     refname = f"refs/heads/{branch}"

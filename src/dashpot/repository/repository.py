@@ -481,7 +481,7 @@ def choose_integration_ref(
     """Choose origin/HEAD, else the unique available local main or master ref.
 
     This is the one Integration Branch rule
-    ([ADR 0012](../../docs/adr/0012-observe-branch-integration-by-reachability.md)):
+    ([ADR 0012](../../../docs/adr/0012-observe-branch-integration-by-reachability.md)):
     Branch observation applies it to its own ref listing, while the Cleanup
     preview and Worktree removability apply it through ``RefIndex``.
     """
@@ -620,7 +620,7 @@ def _observe_integration(
             )
         )
         # Reachability answers the common case exactly; only retained commits
-        # raise the content question ([ADR 0017](../../docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
+        # raise the content question ([ADR 0017](../../../docs/adr/0017-observe-branch-integration-by-content-when-commits-are-unreachable.md)).
         content: bool | None = None
         if count:
             try:

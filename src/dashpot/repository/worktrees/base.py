@@ -35,7 +35,7 @@ def resolve_base(git: Git, option: str | None) -> BaseResolution:
         ref = git.maybe("rev-parse", "--symbolic-full-name", option) or option
         return BaseResolution(ref, "--base", commit)
     # The Integration Branch rule chooses a new Worktree's base
-    # ([ADR 0012](../../docs/adr/0012-observe-branch-integration-by-reachability.md)),
+    # ([ADR 0012](../../../../docs/adr/0012-observe-branch-integration-by-reachability.md)),
     # read through the same ref index the Cleanup preview inspects.
     refs = RefIndex.read(git)
     ref = refs.integration_ref()

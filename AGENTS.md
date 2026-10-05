@@ -8,7 +8,7 @@ Dashpot is a passive terminal view of declared Issues, repository state, and
 active coding-agent runs. Observation never mutates; the named management
 commands (`init`, `integrate`, `work start` / `work relocate` / `work stop` /
 `work forget-subagents` / `work assign` / `work unassign`, `branch delete`,
-`worktree remove`, `events remove`)
+`worktree create`, `worktree remove`, `events remove`)
 and the dashboard's
 mutating keys (`f`, a Remote Fetch;
 `x`, a Cleanup) mutate only what they name, on explicit invocation, and a
@@ -43,7 +43,8 @@ Issue. It owns the resolve, opt-in, Worktree dispatch, handoff, recovery, and
 finish sequence while this file supplies this Repository's commands and gates.
 `dashpot integrate <harness>` installs or updates the skill beside the
 lifecycle hooks; if the skill is unavailable, ask the user to run
-`uv run dashpot integrate codex` or `uv run dashpot integrate claude-code`.
+`uv run dashpot integrate codex`, `uv run dashpot integrate claude-code`, or
+`uv run dashpot integrate opencode`.
 
 For this Repository, invoke Dashpot through `uv run dashpot` in the Worktree
 where work happens. Hold the Issue Binding through the whole engagement,
@@ -55,6 +56,11 @@ continue it; an active run declares its target with `work relocate`
 before exit, and the resumed turn verifies the preserved run with `work show`
 before using `work start`. Claude Code uses `EnterWorktree`, which carries an
 active run along, so it too checks `work show` before using `work start`.
+A root OpenCode session moves itself with OpenCode's own session move, and
+only on the user's shared OpenCode service; an active run moves with it, so
+it too checks `work show` before using `work start`
+([ADR 0094](docs/adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md),
+[ADR 0108](docs/adr/0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md)).
 Leave the Worktree in place unless the user explicitly requests Cleanup.
 
 The lifecycle hooks `dashpot integrate <harness>` installs observe a session in
@@ -75,7 +81,7 @@ session is not
 ([ADR 0009](docs/adr/0009-hold-one-agent-run-per-session-across-worktrees.md)),
 while `stop` is not refused, so the rule still matters. The `start` / `stop`
 calls belong to the main session only, as do `work assign` / `work unassign`,
-with which a Lead attributes each Worker to its own Issue
+with which a Lead attributes each sub-agent Worker to its own Issue
 ([ADR 0096](docs/adr/0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)).
 
 ## Vocabulary
@@ -88,7 +94,7 @@ messages, and follow every _Avoid_ note. Update the domain language in the same
 change that introduces or clarifies a shared term; record a qualifying design
 decision as a new ADR in `docs/adr/`.
 
-## Quality and code conventions
+## Quality gates and integration
 
 Before every commit, run the README's [local review gate](README.md#local-review-gate):
 all-files pre-commit checks and the full suite with coverage, both clean.
@@ -126,12 +132,14 @@ Address findings, refresh validation for changed sources, and request focused
 follow-up review of the fixes. Changed tests, conflict resolutions, or
 CI-driven fixes can invalidate approval too. Verify the coverage source digest
 after hooks and before push, except for a documentation-only change, which has
-no evidence, and a content-preserving rebase, below, whose evidence stays that
+no evidence, and a [content-preserving rebase](#integration-and-rebase), whose evidence stays that
 of the head it rebased; a commit that leaves the digest unchanged does not
 invalidate review. Changes to the reviewed diff/base need appropriate follow-up review.
 Green CI on unchanged reviewed code finishes verification without another
 routine review. Follow the README's [integration sequence](README.md#contributing)
 and keep the Issue Binding through all delegated work and green PR CI.
+
+### Integration and rebase
 
 Pull requests integrate by squash merge on GitHub once the PR's own CI is
 green ([ADR 0045](docs/adr/0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md)),
@@ -165,6 +173,8 @@ against the new base and request focused follow-up review. Record the old and
 new heads, the new base, and for a content-preserving rebase the range-diff
 result, in the PR's validation section.
 
+### Running the gates under Codex
+
 Under Codex on Linux, use the per-command sandbox-escalation mechanism for a
 full gate only when its matching condition applies:
 
@@ -185,6 +195,8 @@ run the gate. Keep the checkout's Python version unchanged and treat an
 artificial timer or executor-shutdown patch as masking the environment fault
 rather than fixing a test.
 
+## Code conventions
+
 The conventions the tooling enforces or the code assumes:
 
 - Full type annotations on everything in `src/` (Ruff `ANN`), and ty clean
@@ -197,13 +209,20 @@ The conventions the tooling enforces or the code assumes:
   stays a `TypeGuard` otherwise
   ([ADR 0105](docs/adr/0105-raise-the-python-floor-to-3-13.md)).
 - Values at validating seams — untrusted input, persisted state, published
-  wire shapes — are Pydantic models on the shared base in
-  `src/dashpot/core/pydantic.py`
-  ([ADR 0013](docs/adr/0013-adopt-pydantic-models-by-seam.md)). GitHub response
-  models use `WireModel`; published query values use `ObservationModel` with
-  their closed key contracts
-  ([ADR 0041](docs/adr/0041-distinguish-github-wire-models-from-configuration.md)); trusted
-  internal values stay frozen, slotted dataclasses
+  wire shapes — are Pydantic models on the shared, frozen `PublishedModel`
+  base in `src/dashpot/core/pydantic.py`
+  ([ADR 0013](docs/adr/0013-adopt-pydantic-models-by-seam.md)). Each seam
+  has its own base, and the base sets what an unknown field does
+  ([ADR 0041](docs/adr/0041-distinguish-github-wire-models-from-configuration.md)):
+
+  | Base | Seam | Unknown fields |
+  | --- | --- | --- |
+  | `WireModel` | A selected GitHub response | Forbidden: the response's field contract is closed |
+  | `ObservationModel` (`src/dashpot/core/model.py`) | A published observation or query value | Set per model: query requests, contexts and continuations forbid them, keeping their closed key contracts |
+  | `PersistedRecord` | State Dashpot persists: a hook record, a Work Store record, a skill manifest | Kept (`extra="allow"`), for a record a newer Dashpot may have written |
+  | `ConfigModel` | A configuration file whose key set is a closed contract | Forbidden, so a misspelt key is refused rather than ignored |
+
+  Trusted internal values stay frozen, slotted dataclasses
   (`@dataclass(frozen=True, slots=True)`) and `Literal` unions. Identity is
   opaque and never derived from labels or paths.
 - A boolean toggle in the dashboard shows its state by the presence of its
@@ -217,8 +236,9 @@ The conventions the tooling enforces or the code assumes:
   handler thin and delegate to a plain method, as
   `DashpotApp.on_observation_finished` delegates to `_accept_observation`, so
   work that must follow the handler has a method to override.
-- Every module has a docstring, a package's empty `__init__.py` aside. A
-  docstring is written in the voice of the
+- Every module in `src/` and `scripts/` has a docstring, a package's empty
+  `__init__.py` aside; test modules are exempt. No gate checks this rule,
+  so review does. A docstring is written in the voice of the
   shared domain language and opens with one summary line: imperative for a
   function that acts (`"""Identify the supported Agent Session enclosing
   this command."""`), while a class, a property, or a function that only
@@ -297,7 +317,7 @@ In this Repository:
   document before `--write-adr-index`, and regenerate the index after
   every rebase, since sibling Workers add ADRs too. A rebase whose only
   conflict is that index stays content-preserving
-  ([independent review](#independent-review-before-integration)).
+  ([integration and rebase](#integration-and-rebase)).
 - Give each Worker a share of the cores with `review_coverage.py --workers
   N`; [development setup](README.md#development-setup) records sixteen
   pytest workers failing where eight passed. Live Arcs split the machine's

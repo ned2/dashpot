@@ -12,13 +12,16 @@ here, and this document explains the commands behind them.
 
 ## Agent session observation
 
-Installing Dashpot provides the no-stdout `dashpot-codex-hook` and
-`dashpot-claude-code-hook` publishers. Nothing is installed into a harness
+Installing Dashpot provides the no-stdout `dashpot-codex-hook`,
+`dashpot-claude-code-hook`, and `dashpot-opencode-hook` publishers; OpenCode
+reaches its helper through a managed plugin rather than command hooks
+([OpenCode hosting modes](#opencode-hosting-modes)). Nothing is installed into a harness
 automatically; register the lifecycle hooks once per user with:
 
 ```bash
 dashpot integrate codex                 # hooks plus the bundled skills in ~/.agents/skills/
 dashpot integrate claude-code           # hooks plus the bundled skills in ~/.claude/skills/
+dashpot integrate opencode              # the managed plugin, worker agent and skills in OpenCode's config
 dashpot integrate --installed           # refresh every harness already integrated
 dashpot integrate <harness> --status    # diagnose hooks, skills, records, identity
 dashpot integrate <harness> --remove    # remove Dashpot's hooks and managed skills
@@ -941,10 +944,12 @@ places the session elsewhere, the command is running where the session is
 not — a tool call that changed directory, or a sub-agent's shell — and
 `start` refuses, names that Worktree, and writes nothing. `stop` ends the
 session's run wherever in the Repository it is recorded. A session with no
-hook record anywhere starts where it runs, as before, so the invariant is
-enforced only once the harness hooks are installed; runs recorded by an older
-Dashpot, or across independent clones, keep the `work-session-conflict`
-warning. Once recorded, the binding survives
+hook record anywhere is refused, and nothing is written: Issue work needs the
+harness hooks installed and a hook record that confirms the session
+([How the session is identified](#how-the-session-is-identified)), and the
+refusal names the `dashpot integrate <harness> --status` check to run. Runs
+recorded by an older Dashpot, or across independent clones, keep the
+`work-session-conflict` warning. Once recorded, the binding survives
 repository renames, Issue Reference edits, Local Issue moves, and transfers
 between configured Projects.
 The ordinary TUI continues to show current References; raw identities remain in

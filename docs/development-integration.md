@@ -72,7 +72,7 @@ The implementing agent and the operator share this procedure, and the
 handover falls between steps 2 and 3. The agent performs steps 1 and 2 from
 the Issue Worktree while it holds the Issue Binding. Its work ends there, with
 the PR open, its validation section recorded, and CI green, as the
-[agent instructions](../AGENTS.md#independent-review-before-integration)
+[agent instructions](../AGENTS.md#integration-and-rebase)
 set out: it finishes Issue work and leaves the merge to the operator. An agent
 never merges the PR or enables auto-merge. The operator reviews the PR, checks
 the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
@@ -94,13 +94,13 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
    requires, the operator makes it or returns the PR to an agent that takes
    up the Issue work again; either way the new head needs the validation,
    review, and CI the
-   [agent instructions](../AGENTS.md#independent-review-before-integration)
+   [agent instructions](../AGENTS.md#integration-and-rebase)
    require for that rebase before it merges. The branch need not contain
    the current `main`: CI verified the branch head, and no run exercises
    `main` itself. A semantic conflict between two PRs that each passed on
    their own therefore surfaces on the first later run that contains both,
    which is the next PR branched from the new `main` or a manual dispatch;
-   the [agent instructions](../AGENTS.md#independent-review-before-integration)
+   the [agent instructions](../AGENTS.md#integration-and-rebase)
    say who diagnoses it.
 4. The operator verifies the PR is merged and remote `main` carries its
    squash commit. There is no ordinary main-push CI run to wait for. Update
@@ -108,7 +108,7 @@ the evidence recorded in steps 1 and 2, and performs steps 3 and 4.
    and leave Worktree cleanup separate.
 
 A textual conflict with `main` blocks merging. Resolve it by the rebase the
-[agent instructions](../AGENTS.md#independent-review-before-integration)
+[agent instructions](../AGENTS.md#integration-and-rebase)
 authorize, which also say when a conflict resolution needs follow-up review.
 Release verification still checks out the release revision through reusable CI.
 
