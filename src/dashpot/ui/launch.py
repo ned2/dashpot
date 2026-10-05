@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from ..core.event_log import EventLog
 from ..github.github import LatestRateLimit
 from ..observation.collect import ObservationScheduler
-from ..queries.source_queries import QuerySource
+from ..queries.pages import QuerySource
 from ..repository.cleanup import GitCleanupAdapter
 from ..repository.fetch import remote_fetcher
 from ..repository.worktree_launcher import configure_worktree_launcher

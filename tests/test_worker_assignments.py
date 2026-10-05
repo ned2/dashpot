@@ -33,7 +33,7 @@ from dashpot.core.model import AgentRun, AssignedWorker, WorkerState, WorkspaceS
 from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.observation.issue_list import IssueListRow, row_key
 from dashpot.observation.paged_store import PagedObservationStore
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.pages import QueryRequest
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory

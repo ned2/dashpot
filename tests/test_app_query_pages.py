@@ -30,14 +30,14 @@ from dashpot.core.model import Diagnostic, RepositoryStateInventory, WorkspaceSn
 from dashpot.observation.collect import ObservationCoordinator
 from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.project.workspace import ResolvedProject
+from dashpot.queries.cached_source import UnresolvedQuerySource
 from dashpot.queries.page_navigation import PageNavigation, page_text, totals_text
-from dashpot.queries.query_source import UnresolvedQuerySource
-from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
+from dashpot.queries.pages import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.legend import LegendScreen
 from factories import agent_run
 from helpers import wait_until
-from test_source_queries import markdown
+from test_query_pages import markdown
 
 
 class LocalOnlyCollector:

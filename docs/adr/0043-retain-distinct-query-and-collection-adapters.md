@@ -23,8 +23,8 @@ express directly. This decision changes documentation only.
 | `issue show`, Issue work, and Worktree creation | `issue_resolution.resolve_issue` builds an Issue Source and calls `find` with a parsed Issue Hint. | Resolve exactly one fresh Issue by number/reference; a hint is not an opaque identity, and a failed lookup is not usable stale evidence for an Issue Binding. |
 | Explicit `--json` Workspace Snapshot export | Non-recurring coordinator → configured `ProjectCollector` → Query Source `enumerate_source` → retaining collection source; collector shapes the result into snapshot source halves. | Complete collection coverage, original snapshot output, collection diagnostics, and last-good behavior; GitHub export uses repository connections rather than capped search results. |
 
-The owners are [query contracts](../../src/dashpot/queries/source_queries.py),
-[query retention](../../src/dashpot/queries/query_source.py),
+The owners are [query contracts](../../src/dashpot/queries/pages.py),
+[query retention](../../src/dashpot/queries/cached_source.py),
 [GitHub queries](../../src/dashpot/queries/github_queries.py),
 [Markdown queries](../../src/dashpot/queries/markdown_queries.py),
 [Issue resolution](../../src/dashpot/issues/issue_resolution.py), and
@@ -100,7 +100,7 @@ stay as chosen above.
 
 Existing public-seam tests make these differences observable:
 
-- [Source query tests](../../tests/test_source_queries.py) assert that the same
+- [Source query tests](../../tests/test_query_pages.py) assert that the same
   verified page can become stale but a new query cannot inherit it; principal,
   configuration, and Markdown revision changes invalidate continuation; identity
   siblings survive attributable failures; auxiliary failure does not invalidate

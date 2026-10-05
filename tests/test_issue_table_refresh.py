@@ -22,7 +22,7 @@ from app_harness import (
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import WorkspaceSnapshot
 from dashpot.observation.issue_list import row_key
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.pages import QueryRequest
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.issue_table import COLUMN_KEYS, IssueTable
 from helpers import settled, wait_until

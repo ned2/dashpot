@@ -49,7 +49,7 @@ from ..observation.related_rows import FocusedSource, query_related_rows
 from ..observation.session_list import SessionListRow, resume_command
 from ..observation.worktree_list import WorktreeListRow
 from ..queries.page_navigation import totals_text
-from ..queries.source_queries import QuerySource, ResourceKind
+from ..queries.pages import QuerySource, ResourceKind
 from ..repository.cleanup import CleanupAdapter
 from ..repository.fetch import RemoteFetcher
 from ..repository.worktree_launcher import LauncherConfiguration, WorktreeLaunchError

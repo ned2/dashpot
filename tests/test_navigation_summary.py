@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from dashpot.core.model import SourceStatus
-from dashpot.queries.source_queries import ProjectTotals, ResourceKind, SourceContext
+from dashpot.queries.pages import ProjectTotals, ResourceKind, SourceContext
 from dashpot.ui.navigation_summary import NavigationSummary, navigation_summary
 
 NOW = "2026-09-20T00:00:00Z"

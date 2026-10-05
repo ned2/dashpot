@@ -45,7 +45,7 @@ from dashpot.observation.keys import (
     ObservationOutcome,
     ObservationTicket,
 )
-from dashpot.queries.source_queries import PageObservation, QueryRequest
+from dashpot.queries.pages import PageObservation, QueryRequest
 from dashpot.ui.app import DashboardScreen, DashpotApp
 from dashpot.ui.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
 from dashpot.ui.issue_view import selection_title

@@ -24,8 +24,8 @@ from .project.workspace import (
     merge_workspaces,
     resolve_workspace_projects,
 )
-from .queries.query_source import UnresolvedQuerySource, configured_query_source
-from .queries.source_queries import QUERY_SOURCE_KEYS, QuerySource
+from .queries.cached_source import UnresolvedQuerySource, configured_query_source
+from .queries.pages import QUERY_SOURCE_KEYS, QuerySource
 from .repository.cleanup import (
     NO_ACKNOWLEDGEMENT,
     Acknowledgement,

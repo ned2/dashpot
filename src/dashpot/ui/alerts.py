@@ -21,7 +21,7 @@ from ..observation.observation_store import (
     WorkspaceObservationStore,
 )
 from ..queries.page_navigation import PageQueryState
-from ..queries.source_queries import ResourceKind
+from ..queries.pages import ResourceKind
 from .glyphs import Glyph
 
 AlertSeverity = Literal["error", "warning", "info"]

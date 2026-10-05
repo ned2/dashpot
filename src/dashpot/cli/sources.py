@@ -9,7 +9,7 @@ from cyclopts import App, Parameter, validators
 from ..composition import command_query_source
 from ..core.working_directory import current_directory
 from ..issues.issue_resolution import describe_issue, show_issue
-from ..queries.source_queries import Lifecycle, PageObservation, QueryRequest
+from ..queries.pages import Lifecycle, PageObservation, QueryRequest
 from ..serialization import issue_document, list_page_document, render_json
 from .shared import IssueHint, JsonOutput, Timeout, print_lines
 

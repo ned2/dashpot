@@ -46,8 +46,8 @@ from ..issues.github_pull_requests import (
     normalize_github_pull_request,
 )
 from ..project.project_config import ProjectConfig, load_project_config
-from .query_source import CachedQuerySource
-from .source_queries import (
+from .cached_source import CachedQuerySource
+from .pages import (
     PAGED_KINDS,
     AuxiliaryObservation,
     Continuation,

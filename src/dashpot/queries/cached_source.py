@@ -12,7 +12,7 @@ from ..core.errors import DashpotError, failure_text
 from ..core.model import Diagnostic
 from ..core.observation_errors import QUERY_OBSERVATION_FAILURES
 from ..core.timestamps import utc_now
-from .source_queries import (
+from .pages import (
     Continuation,
     InvalidContinuation,
     PageObservation,

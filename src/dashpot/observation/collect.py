@@ -36,8 +36,8 @@ from ..issues.pull_request_sources import PullRequestSourceObservation
 from ..issues.source_factories import check_issue_source
 from ..project.project_config import load_project_config
 from ..project.workspace import ResolvedProject
-from ..queries.query_source import configured_query_source
-from ..queries.source_queries import QuerySource
+from ..queries.cached_source import configured_query_source
+from ..queries.pages import QuerySource
 from ..repository.repository import (
     BranchObservation,
     IntegrationCache,

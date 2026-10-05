@@ -18,8 +18,8 @@ from ..project.project_config import (
     ProjectConfig,
     load_project_config,
 )
-from .query_source import CachedQuerySource
-from .source_queries import (
+from .cached_source import CachedQuerySource
+from .pages import (
     AuxiliaryObservation,
     Continuation,
     InvalidContinuation,

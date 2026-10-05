@@ -19,7 +19,7 @@ from .core.event_log_files import EventLogRemoval, published_event_fields
 from .core.issue_profile import IssueProfile
 from .core.model import WorkspaceSnapshot
 from .core.runtime_events import RuntimeEvent
-from .queries.source_queries import PageObservation
+from .queries.pages import PageObservation
 from .repository.cleanup import CleanupPreview, CleanupReport
 from .repository.worktrees.create import WorktreePlan
 from .repository.worktrees.removability import WorktreeRemovability

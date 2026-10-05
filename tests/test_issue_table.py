@@ -25,7 +25,7 @@ from dashpot.core.model import (
 from dashpot.issues.local_markdown_issues import parse_local_markdown_issue
 from dashpot.observation.issue_list import IssueListQuery, IssueListSummary, row_key
 from dashpot.observation.list_result import ListResult
-from dashpot.queries.source_queries import AuxiliaryObservation
+from dashpot.queries.pages import AuxiliaryObservation
 from dashpot.ui.glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_LEGEND, MUTED_COLORS
 from dashpot.ui.issue_cells import (
     ISSUE_STATE_COLUMN_GLYPH,

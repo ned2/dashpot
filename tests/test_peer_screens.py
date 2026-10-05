@@ -19,7 +19,7 @@ from app_harness import (
     show_issue_states,
     workspace_snapshot,
 )
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.pages import QueryRequest
 from dashpot.ui.app import DashboardScreen, IssuesPullRequestsScreen
 from dashpot.ui.issue_table import COLUMN_KEYS
 from dashpot.ui.issue_view import IssueScreen

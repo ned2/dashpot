@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-from ..queries.source_queries import ProjectTotals, ResourceKind
+from ..queries.pages import ProjectTotals, ResourceKind
 
 SummaryFreshness = Literal["fresh", "stale"]
 

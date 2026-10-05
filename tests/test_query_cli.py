@@ -10,8 +10,7 @@ import pytest
 from dashpot import cli, composition
 from test_github_issues import REPOSITORY_ID
 from test_github_pull_requests import pull_request_node
-from test_runtime_spans import executable
-from test_source_queries import (
+from test_query_pages import (
     batch,
     context,
     github,
@@ -22,6 +21,7 @@ from test_source_queries import (
     reading,
     search,
 )
+from test_runtime_spans import executable
 
 
 @pytest.fixture(autouse=True)

@@ -1,4 +1,4 @@
-"""Publish scoped Query Pages independently of complete Workspace exports."""
+"""Define Query Pages, their requests and the Query Source contract."""
 
 from __future__ import annotations
 

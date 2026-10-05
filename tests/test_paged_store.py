@@ -14,7 +14,7 @@ from app_harness import (
 from dashpot.core.model import Diagnostic
 from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.markdown_queries import PULL_REQUESTS_NOT_CONFIGURED
-from dashpot.queries.source_queries import (
+from dashpot.queries.pages import (
     ProjectTotals,
     QueryPage,
     QueryRequest,
