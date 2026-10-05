@@ -1,6 +1,6 @@
 """Maintain the repository's Markdown documents: check them, and build the ADR index.
 
-Four gates run over the tracked Markdown files. The link gate resolves every
+Five gates run over the tracked Markdown files. The link gate resolves every
 in-repo link — relative paths, heading anchors, and `#L<n>` / `#L<n>-L<m>` line
 fragments — and fails on a target that does not exist, so a rename, a moved
 section, or an edit that shortens a file cannot silently rot a pointer.
@@ -11,11 +11,16 @@ finished research note without reading it. The ADR numbering gate requires
 every ADR to carry a number no other ADR claims, so a bare "ADR NNNN" in
 prose or in a code comment still identifies one document. The ADR index gate
 requires the committed index to be the one this script generates, so a new
-decision cannot be left out of it.
+decision cannot be left out of it. The code map gate requires the code map to
+link every module and asset the package ships, and nothing it does not ship,
+so a new module cannot be left off the map and a removed one cannot linger
+on it.
 
 The index is generated rather than hand-maintained, because a hand-maintained
 table of every ADR goes stale the moment someone adds one without touching it.
 `--write-adr-index` rewrites it; the gate only reports that it needs rewriting.
+The code map is checked rather than generated: the concept each module serves
+and its role are prose no script can write.
 
 The gate errs towards silence: code is masked before anything is read out of a
 document, because a false failure on a legitimate document is worse than a
@@ -30,7 +35,7 @@ import subprocess
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +49,10 @@ ADR_INDEX_PATH = f"{ADR_DIRECTORY}/{ADR_INDEX_NAME}"
 ADR_NUMBER_PATTERN = re.compile(r"\A(?P<number>\d{4})-")
 
 ADR_INDEX_REGENERATE = "regenerate it with --write-adr-index"
+
+CODE_MAP_PATH = "docs/code-map.md"
+# Everything Git tracks here is in the wheel, so this is what the map covers.
+PACKAGE_DIRECTORY = "src/dashpot"
 
 # What a `status:` may say. ADRs track a decision's standing; every other
 # document declares how it should be read.
@@ -598,6 +607,108 @@ def check_adr_index(paths: Sequence[Path]) -> list[Problem]:
     return []
 
 
+def tracked_package_files() -> list[str]:
+    """List the files the package ships, as repository-relative paths."""
+    completed = subprocess.run(
+        ["git", "ls-files", "-z", "--", PACKAGE_DIRECTORY],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return [name for name in completed.stdout.split("\0") if name]
+
+
+def code_map_links(text: str, path: Path) -> dict[str, int]:
+    """Map each package path the code map links, relative to the package, to its first line."""
+    package = PROJECT_ROOT / PACKAGE_DIRECTORY
+    linked: dict[str, int] = {}
+    for target, offset in iter_link_targets(mask_code(text)):
+        if target.startswith(EXTERNAL_SCHEMES) or target.startswith("//"):
+            continue
+        location = unquote(target.partition("#")[0].partition("?")[0])
+        if not location:
+            continue
+        resolved = resolve_in_repository(path, location)
+        if resolved is None or package not in resolved.parents:
+            continue
+        linked.setdefault(
+            resolved.relative_to(package).as_posix(), line_of(text, offset)
+        )
+    return linked
+
+
+def needs_listing(name: str) -> bool:
+    """Report whether the code map must list a shipped file at all.
+
+    A package initializer with nothing in it holds no code to find, so only
+    one that exports a seam, or runs anything, is listed.
+    """
+    if PurePosixPath(name).name != "__init__.py":
+        return True
+    module = PROJECT_ROOT / PACKAGE_DIRECTORY / name
+    return not module.is_file() or bool(module.read_text(encoding="utf-8").strip())
+
+
+def is_listed(name: str, linked: Iterable[str]) -> bool:
+    """Report whether the code map's links cover one shipped file.
+
+    A Python module is listed only by its own path, so a link to its package
+    never stands in for it. An asset may be listed by a directory holding it,
+    as a bundled skill is by its own directory.
+    """
+    links = set(linked)
+    if name in links:
+        return True
+    if PurePosixPath(name).suffix == ".py":
+        return False
+    return any(parent.as_posix() in links for parent in PurePosixPath(name).parents)
+
+
+def check_code_map(shipped: Sequence[str]) -> list[Problem]:
+    """Require the code map to list every shipped module and asset, and nothing else.
+
+    `shipped` holds repository-relative paths, as `git ls-files` prints them.
+    A link to a file or directory the package does not ship is reported at
+    its line; a shipped file the map leaves out is reported against the map.
+    """
+    path = PROJECT_ROOT / CODE_MAP_PATH
+    if not path.is_file():
+        return [Problem(CODE_MAP_PATH, 1, "the code map is missing")]
+    text = path.read_text(encoding="utf-8")
+    linked = code_map_links(text, path)
+    files = {
+        PurePosixPath(name).relative_to(PACKAGE_DIRECTORY).as_posix()
+        for name in shipped
+    }
+    directories = {
+        parent.as_posix()
+        for name in files
+        for parent in PurePosixPath(name).parents
+        if parent != PurePosixPath(".")
+    }
+    problems = [
+        Problem(
+            CODE_MAP_PATH,
+            line,
+            f"links {PACKAGE_DIRECTORY}/{name}, which the package does not ship",
+        )
+        for name, line in sorted(linked.items())
+        if name not in files and name not in directories
+    ]
+    problems.extend(
+        Problem(
+            CODE_MAP_PATH,
+            1,
+            f"does not list {PACKAGE_DIRECTORY}/{name}; "
+            "add it under the concept it serves",
+        )
+        for name in sorted(files)
+        if needs_listing(name) and not is_listed(name, linked)
+    )
+    return problems
+
+
 def select(
     tracked: Sequence[Path], names: Sequence[str]
 ) -> tuple[list[Path], list[str]]:
@@ -646,13 +757,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"wrote {ADR_INDEX_PATH}")
         return 0
 
-    # The numbering and index gates read every ADR: a selection can show
-    # neither a collision nor an omission from a file the caller did not name.
+    # The numbering, index and code map gates read the whole tree: a selection
+    # can show neither a collision nor an omission from a file the caller did
+    # not name.
     problems = (
         check_frontmatter(paths)
         + check_links(paths)
         + check_adr_numbers(tracked)
         + check_adr_index(tracked)
+        + check_code_map(tracked_package_files())
     )
     for problem in sorted(
         problems, key=lambda item: (item.path, item.line, item.message)

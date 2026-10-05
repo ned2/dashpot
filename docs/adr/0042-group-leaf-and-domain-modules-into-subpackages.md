@@ -11,6 +11,10 @@ a `ListResult` no longer carries the store revision, and the Pull Request
 list, its summary and `issues/pull_request_search.py` are gone with the
 store's local query engine.
 
+The module ownership table this ADR carried is now the living
+[code map](../code-map.md), which is kept complete by a gate; see
+[Completed layout](#completed-layout).
+
 The [codebase review](../reviews/codebase-review-2026-09-13.md#proposed-subpackage-layout)
 derives a package layout from the import graph and shared domain language.
 [Issue #188](https://github.com/ned2/dashpot/issues/188) implements its first
@@ -140,25 +144,19 @@ requiring query adapters to import the coordinator. The stylesheet remains at
 the root and `ui/app.py` resolves it through `../dashpot.tcss`, including in
 installed distributions.
 
-The ownership map below accounts for every shipped Python module. Package
-initializers belong to their package; they are empty except the documented
-Cleanup facade and the `cli` package's, which re-exports `main`. Root
-`__init__.py` retains its existing public exports. Root `__main__.py`, the
-`cli` package, and `hook.py` are entry points, `composition.py` wires
-the application, and `serialization.py` owns published output. The only root
-assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
+Package initializers belong to their package; they are empty unless they
+export a documented seam, as the Cleanup and integration packages do, or
+re-export `main`, as the `cli` package does.
+Root `__init__.py` retains its existing public exports. Root `__main__.py`,
+the `cli` package, and `hook.py` are entry points, `composition.py` wires
+the application, and `serialization.py` owns published output.
 
-| Package | Owned modules (excluding initializers) |
-| --- | --- |
-| `core` | `ages`, `commands`, `errors`, `file_locks`, `git`, `issue_profile`, `json_records`, `model`, `observation_errors`, `pydantic`, `record_store`, `timestamps`, `worktree_paths` |
-| `github` | `github`, `github_repository`, `github_wire` |
-| `issues` | `github_issues`, `github_pull_requests`, `issue_resolution`, `issue_sources`, `local_markdown_issues`, `ordering`, `pull_request_search`, `pull_request_sources`, `retaining_source`, `search`, `source_factories` |
-| `observation` | `branch_list`, `collect`, `issue_list`, `keys`, `list_result`, `observation_store`, `paged_store`, `pull_request_list`, `related_rows`, `session_list`, `worktree_list` |
-| `project` | `init`, `project_config`, `settings`, `workspace` |
-| `queries` | `github_queries`, `markdown_queries`, `page_navigation`, `query_source`, `source_queries` |
-| `repository` | `cleanup/adapter`, `cleanup/obstacles`, `cleanup/perform`, `cleanup/preview`, `cleanup/selection`, `cleanup/targets`, `fetch`, `repository`, `worktree_launcher`, `worktrees/base`, `worktrees/create`, `worktrees/records`, `worktrees/removability` |
-| `sessions` | `agent_bindings`, `agents`, `harnesses`, `hook_claims`, `hook_publish`, `hook_records`, `hook_scan`, `integrate`, `liveness`, `processes`, `session_labels`, `session_matching`, `work`, `work_reconciliation`, `work_store` |
-| `ui` | `alerts`, `app`, `branch_cells`, `cleanup_flow`, `cleanup_view`, `column_editor`, `detail_fields`, `fetch_flow`, `focus_table`, `glyphs`, `issue_cells`, `issue_table`, `issue_table_controller`, `issue_view`, `item_filter`, `keyed_table`, `launch`, `legend`, `list_pane`, `list_queries`, `list_rows`, `marked_widgets`, `messages`, `observation_runner`, `page_runner`, `pane_layout`, `panes`, `pull_request_cells`, `session_cells`, `spread_table`, `worktree_cells`, `worktree_table` |
+This ADR's module ownership table, which listed each package's modules, has
+been replaced by the living
+[code map](../code-map.md). The map places every shipped module and asset
+under the domain concept it serves, and `scripts/maintain_docs.py` fails while
+it leaves one out ([#560](https://github.com/ned2/dashpot/issues/560)); the
+table had drifted 23 modules behind the code with nothing to notice it.
 
 ## Package layering
 

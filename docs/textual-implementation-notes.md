@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-01
+date: 2026-10-05
 ---
 
 # Textual implementation notes for Dashpot
@@ -10,9 +10,9 @@ the interface they describe: they target Textual 8.2.8, the pinned version, and
 are updated when the dashboard's shape changes. They are implementation
 guidance, not a claim that Textual is permanently locked in.
 
-The final [module map](adr/0042-group-leaf-and-domain-modules-into-subpackages.md#completed-layout)
-places all Textual rendering and runners under `ui/`. Query read models and
-stores live under `observation/`; scheduling values live in `observation/keys.py`.
+The [code map](code-map.md) places all Textual rendering and runners under
+`ui/`. Query read models and stores live under `observation/`; scheduling
+values live in `observation/keys.py`.
 The UI consumes these modules, never the reverse. `ui/app.py` loads the package
 root stylesheet via `../dashpot.tcss`.
 

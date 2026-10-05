@@ -326,6 +326,29 @@ same in a file and in the command's output.
 
 ## Implementation
 
+- **Where it lives.** Three modules with near-identical names divide the
+  Event Log. [`event_logs.py`](../src/dashpot/event_logs.py), at the
+  package root, opens one process's Event Log: it picks the checkout or the
+  machine-local fallback and the Event Level, reading the settings `core`
+  may not import. [`core/event_log.py`](../src/dashpot/core/event_log.py)
+  is the `EventLog` writer it returns, which appends events and times spans.
+  [`core/event_log_files.py`](../src/dashpot/core/event_log_files.py) finds,
+  reads, measures and removes the files afterwards.
+  [`core/runtime_events.py`](../src/dashpot/core/runtime_events.py) holds
+  the closed event models and the tolerant line reader, and
+  [`core/command_outcomes.py`](../src/dashpot/core/command_outcomes.py) a
+  management command's `command.outcome`. In the dashboard,
+  [`ui/refresh_spans.py`](../src/dashpot/ui/refresh_spans.py) times
+  refreshes and their keys,
+  [`ui/change_events.py`](../src/dashpot/ui/change_events.py) records Agent
+  Session and Diagnostic changes,
+  [`core/runtime_stats.py`](../src/dashpot/core/runtime_stats.py) aggregates
+  the buffer into Runtime Stats, and the Runtime screen is
+  [`ui/runtime_view.py`](../src/dashpot/ui/runtime_view.py) with its
+  [Events](../src/dashpot/ui/runtime_events_view.py) and
+  [Stats](../src/dashpot/ui/runtime_stats_view.py) tabs. `dashpot events` is
+  [`cli/events.py`](../src/dashpot/cli/events.py). The
+  [code map](code-map.md#runtime) lists them beside every other module.
 - **No logging library.** Events are closed Pydantic models rendered to one
   line, so a small appender in Dashpot's own code writes them: no new
   dependency, no process-global configuration, and no import cost in hooks

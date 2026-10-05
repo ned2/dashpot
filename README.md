@@ -547,10 +547,12 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   Markdown link (its path, heading anchor, or `#L` line fragment), requires
   the frontmatter described in the
   [documentation map](#documentation-map), requires each ADR's number to
-  be its own, and requires the [ADR index](docs/adr/README.md) to be the file
-  the script generates; it always reads the whole document set, because a link
-  resolves against files the commit need not touch, and neither an ADR's number
-  nor the index's completeness is a property of one document.
+  be its own, requires the [ADR index](docs/adr/README.md) to be the file
+  the script generates, and requires the [code map](docs/code-map.md) to link
+  every module and asset the package ships; it always reads the whole
+  document set, because a link resolves against files the commit need not
+  touch, and neither an ADR's number nor the index's or the map's
+  completeness is a property of one document.
 - **On push**: the pushed-revision gate in
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
   lockfile, Ruff lint and formatting, ty, the documents, and the distribution
@@ -1127,6 +1129,9 @@ These `living` documents carry the detail this README points at:
   identity, and lifecycle, with source and experiment boundaries.
 - [`docs/design.md`](docs/design.md) describes how the pieces fit — the
   observation pipeline, the read model, and the seams beneath the interface.
+- [`docs/code-map.md`](docs/code-map.md) names the module that owns each
+  domain concept, with a line on each module's role, and lists every module
+  and asset the package ships.
 - [`docs/observability-design.md`](docs/observability-design.md) records how
   Dashpot records its own behaviour as Runtime Events in a local Event Log:
   levels, content, the on-disk fields, and the measurements behind them.
@@ -1227,8 +1232,9 @@ and lets the gate compare it whole. Run
 changing an ADR.
 
 `uv run python scripts/maintain_docs.py` enforces the frontmatter, every
-in-repo Markdown link, ADR numbering, and the index's freshness, and runs as
-part of the [quality gates](#quality-gates).
+in-repo Markdown link, ADR numbering, the index's freshness, and the
+[code map](docs/code-map.md)'s coverage of every shipped module and asset,
+and runs as part of the [quality gates](#quality-gates).
 
 ## License
 
