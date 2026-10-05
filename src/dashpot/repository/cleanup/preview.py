@@ -12,12 +12,12 @@ from ...core.shell import shell_command
 from ...core.worktree_paths import worktree_root
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.working_directories import ProcessScan
-from ..repository import (
+from ..observe import last_fetched_at
+from ..refs import (
     LOCAL_REF_PREFIX,
     REMOTE_REF_PREFIX,
     RefIndex,
     branch_name,
-    last_fetched_at,
     short_ref,
 )
 from ..worktrees.records import BranchInUse, branch_in_use

@@ -43,7 +43,7 @@ from ..repository.cleanup import (
     unchecked_processes_note,
     worktree_target,
 )
-from ..repository.repository import short_ref as ref_name
+from ..repository.refs import short_ref as ref_name
 from .branch_cells import fetch_age_text
 from .marked_widgets import MarkedCheckbox
 

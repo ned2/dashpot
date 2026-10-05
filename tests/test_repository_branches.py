@@ -9,7 +9,7 @@ from dashpot.core.commands import CommandResult, run_command
 from dashpot.core.git import Git
 from dashpot.observation.collect import create_project_collector
 from dashpot.project.workspace import ResolvedProject
-from dashpot.repository.repository import IntegrationCache, observe_branches
+from dashpot.repository.observe import IntegrationCache, observe_branches
 from factories import SequenceRunner, completed, git, ref_stream, write_project_config
 
 

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ...core.git import Git
-from ..repository import DEFAULT_BRANCHES, RefIndex
+from ..refs import DEFAULT_BRANCHES, RefIndex
 
 BaseSource = Literal["--base", "origin/HEAD", "local-branch"]
 

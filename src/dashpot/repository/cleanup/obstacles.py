@@ -37,12 +37,8 @@ from ...sessions.session_exits import (
 )
 from ...sessions.work_store import ActiveWork, WorkStore
 from ...sessions.working_directories import ProcessScan, ScanGap, processes_inside
-from ..repository import (
-    RefIndex,
-    assess_content_integration,
-    lock_holder,
-    short_ref,
-)
+from ..observe import assess_content_integration, lock_holder
+from ..refs import RefIndex, short_ref
 from ..worktrees.records import INITIALIZING_LOCK, registered_at, short_branch
 from .targets import CleanupBlocker, CleanupError, IntegrationFact
 

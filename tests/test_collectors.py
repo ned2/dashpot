@@ -44,7 +44,7 @@ from dashpot.queries.pages import (
     ResourceKind,
     SourceEnumeration,
 )
-from dashpot.repository.repository import BranchObservation
+from dashpot.repository.observe import BranchObservation
 from factories import dashpot_project, observation_target
 from helpers import jsonable, snapshot_of
 

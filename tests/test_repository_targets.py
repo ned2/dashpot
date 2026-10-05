@@ -13,7 +13,7 @@ from dashpot.core.commands import CommandError
 from dashpot.core.git import Git
 from dashpot.core.model import Diagnostic
 from dashpot.core.worktree_paths import same_path
-from dashpot.repository.repository import observe_observation_targets
+from dashpot.repository.observe import observe_observation_targets
 from dashpot.sessions.processes import ProcessLiveness
 from factories import SequenceRunner, completed, git, init_repository
 

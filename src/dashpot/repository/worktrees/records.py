@@ -9,7 +9,7 @@ from typing import Literal
 
 from ...core.git import Git
 from ...core.worktree_paths import same_path
-from ..repository import LOCAL_REF_PREFIX, branch_name
+from ..refs import LOCAL_REF_PREFIX, branch_name
 
 INITIALIZING_LOCK = "initializing"
 

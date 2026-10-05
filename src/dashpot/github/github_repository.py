@@ -2,8 +2,8 @@
 
 The mutable ``owner/name`` reference an origin remote names and the durable
 identity GitHub answers for a reference are both facts about GitHub, not
-about the Git observation ``repository.py`` performs, so they live beside the
-gateway rather than in the module every Git-observing path imports.
+about the Git observation ``repository/observe.py`` performs, so they live
+beside the gateway rather than in the module every Git-observing path imports.
 """
 
 from __future__ import annotations

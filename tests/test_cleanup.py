@@ -46,7 +46,7 @@ from dashpot.repository.cleanup.obstacles import (
     assess_worktree_occupancy,
     counted,
 )
-from dashpot.repository.repository import short_ref
+from dashpot.repository.refs import short_ref
 from dashpot.repository.worktrees.removability import (
     check_worktree,
     describe_removability,

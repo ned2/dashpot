@@ -38,7 +38,7 @@ from ..project.project_config import load_project_config
 from ..project.workspace import ResolvedProject
 from ..queries.cached_source import configured_query_source
 from ..queries.pages import QuerySource
-from ..repository.repository import (
+from ..repository.observe import (
     BranchObservation,
     IntegrationCache,
     observe_branches,
