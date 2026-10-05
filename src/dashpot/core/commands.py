@@ -21,7 +21,6 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path, PurePath
 from typing import Literal
 
@@ -77,7 +76,9 @@ class RunningCommands:
     exit joins every pool thread, so the dashboard's exit would otherwise
     wait for whatever ``git`` or ``gh`` was mid-flight. Interrupting the
     command releases the thread; the command's caller sees a
-    :class:`CommandError`, never a result. An observation that runs several
+    :class:`CommandError`, never a result. A command in its own session is
+    interrupted as its whole process group, as a timed-out one is stopped,
+    so a helper it started stops with it. An observation that runs several
     commands in turn would start its next one as soon as the current one
     stopped, so an interruption also closes the registry for good: every
     later command on an adopted thread is refused before it starts. The
@@ -88,7 +89,9 @@ class RunningCommands:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._running: set[subprocess.Popen[bytes]] = set()
+        # Each running command, and whether it leads a process group of
+        # its own, which an interruption then signals as a whole.
+        self._running: dict[subprocess.Popen[bytes], bool] = {}
         self._interrupted: set[subprocess.Popen[bytes]] = set()
         self._closed = False
 
@@ -115,25 +118,29 @@ class RunningCommands:
         )
 
     @contextmanager
-    def holding(self, process: subprocess.Popen[bytes]) -> Iterator[None]:
+    def holding(
+        self, process: subprocess.Popen[bytes], *, group: bool
+    ) -> Iterator[None]:
         """Hold ``process`` as running for the block, whatever ends it.
 
-        A process that registers after the registry closed — started
-        between its caller's check and the interruption — is stopped here,
-        so no command slips past an interruption unsignalled.
+        ``group`` says the command runs in its own session, so it leads a
+        process group of its own that an interruption signals whole. A
+        process that registers after the registry closed — started between
+        its caller's check and the interruption — is stopped here, so no
+        command slips past an interruption unsignalled.
         """
         with self._lock:
-            self._running.add(process)
+            self._running[process] = group
             late = self._closed
             if late:
                 self._interrupted.add(process)
         if late:
-            process.terminate()
+            _signal(process, signal.SIGTERM, group=group)
         try:
             yield
         finally:
             with self._lock:
-                self._running.discard(process)
+                self._running.pop(process, None)
                 self._interrupted.discard(process)
 
     def interrupted(self, process: subprocess.Popen[bytes]) -> bool:
@@ -145,23 +152,29 @@ class RunningCommands:
         """Close the registry and tell every running command to stop, without waiting.
 
         The signal is a termination request rather than a kill so Git can
-        remove its lock files on the way out. The count is of the commands
-        signalled; one that finished on its own in the meantime is not
-        counted.
+        remove its lock files on the way out. It goes through the path a
+        timeout's stop takes: a command in its own session is signalled as
+        its whole process group, so the helpers it started — an SSH
+        transport, ``index-pack``, a hook — are asked to stop too, while a
+        command sharing Dashpot's group is signalled alone. The count is of
+        the commands signalled; one that finished on its own in the meantime
+        is not counted.
         """
         with self._lock:
             self._closed = True
-            processes = list(self._running)
+            processes = list(self._running.items())
         signalled = 0
-        for process in processes:
-            if process.poll() is not None:
+        for process, group in processes:
+            # Not reaped here: the runner reaps its own command, and until
+            # then the command's pid, and with it its group's id, names it.
+            if _exited(process):
                 continue
             with self._lock:
                 # Let go by its runner since the snapshot: ended, not stopped.
                 if process not in self._running:
                     continue
                 self._interrupted.add(process)
-            process.terminate()
+            _signal(process, signal.SIGTERM, group=group)
             signalled += 1
         return signalled
 
@@ -341,10 +354,10 @@ def run_command(
     and take over the screen; it fails or times out instead. An
     ``interruptible`` command — every observation and query — is held by
     the registry the calling thread adopted, when it adopted one, so the
-    dashboard's exit can stop it; a mutation opts out and runs to
+    dashboard's exit can ask it to stop; a mutation opts out and runs to
     completion. A command that outlives ``timeout`` is stopped — asked
-    first, then killed — and with it, for a command in its own session,
-    every helper it started.
+    first, then killed. Either way a command in its own session is
+    signalled with every helper it started.
     """
     with recording_command(args) as record:
         result = _run_command(
@@ -393,7 +406,11 @@ def _run_command(
         raise CommandError(
             f"command not found: {args[0]}", code="command-not-found"
         ) from exc
-    held = registry.holding(process) if registry is not None else nullcontext()
+    held = (
+        registry.holding(process, group=non_interactive)
+        if registry is not None
+        else nullcontext()
+    )
     with process, held:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
@@ -412,20 +429,6 @@ def _run_command(
             raise CommandError(interrupted, code="command-interrupted")
     return CommandResult(
         list(args), process.returncode, _decoded(stdout), _decoded(stderr)
-    )
-
-
-def non_interactive_runner(
-    environment: Mapping[str, str] | None = None,
-    *,
-    interruptible: bool = True,
-) -> CommandRunner:
-    """A runner whose every command is non-interactive, with ``environment`` added."""
-    return partial(
-        run_command,
-        environment=environment,
-        non_interactive=True,
-        interruptible=interruptible,
     )
 
 
@@ -472,16 +475,21 @@ def _await_exit_unreaped(process: subprocess.Popen[bytes], grace: float) -> None
     """Wait up to ``grace`` for ``process`` to exit, without reaping it."""
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline:
-        try:
-            exited = os.waitid(
-                os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
-            )
-        except ChildProcessError:
-            # Reaped elsewhere — a registry's ``poll`` — so it has exited.
-            return
-        if exited is not None:
+        if _exited(process):
             return
         time.sleep(0.01)
+
+
+def _exited(process: subprocess.Popen[bytes]) -> bool:
+    """Whether ``process`` has exited, answered without reaping it."""
+    if process.returncode is not None:
+        return True
+    try:
+        exited = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError:
+        # Reaped elsewhere since the check above, so it has exited.
+        return True
+    return exited is not None
 
 
 def _signal(

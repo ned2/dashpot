@@ -18,10 +18,9 @@ from dashpot.core.commands import (
     CommandError,
     CommandResult,
     RunningCommands,
-    non_interactive_runner,
     run_command,
 )
-from dashpot.core.git import Git, GitError
+from dashpot.core.git import Git, GitError, git_runner
 from dashpot.core.state_paths import ensure_state_directory
 from dashpot.core.text import counted
 from dashpot.repository.cleanup import (
@@ -1459,7 +1458,7 @@ def test_only_the_confirmed_cleanup_runs_through_a_dashboard_exit(
         running.adopt()
         with pytest.raises(GitError, match="interrupted at shutdown"):
             adapter.inspect(request, protected=())
-        finishing = Git(root, 5, non_interactive_runner(interruptible=False))
+        finishing = Git(root, 5, git_runner(non_interactive=True, interruptible=False))
         preview = inspect_cleanup(request, git=finishing)
         (local,) = preview.targets
         return adapter.perform(confirm(request, preview, local.identity), protected=())

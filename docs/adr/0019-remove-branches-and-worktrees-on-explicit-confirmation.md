@@ -47,6 +47,11 @@ a named mutation's Git commands get a bound of their own, the Git timeout
 raised to at least five minutes, and a command that outlasts its bound is
 asked to stop with its whole process group before it is killed.
 
+Amended in place for [#599](https://github.com/ned2/dashpot/issues/599):
+`dashpot worktree create`'s `git worktree add` keeps Dashpot's session and
+terminal, so on a timeout only `git` is signalled; see
+[the add stays interactive](#the-add-of-worktree-create-stays-interactive--2026-10-06).
+
 Amended by [ADR 0129](0129-disclose-what-a-cleanup-gates-on-and-share-one-removability-verdict.md):
 the fingerprint covers every fact the preview discloses but named
 exclusions, a Branch being rebased or bisected in another Worktree is in
@@ -241,3 +246,30 @@ retains an unchanged target's selection across a refreshed preview, and
 acknowledgement and selects a Worktree's Branches by default on a first
 preview.) These presentation changes preserve the Cleanup
 inspection and execution contract above ([#142](https://github.com/ned2/dashpot/issues/142)).
+
+## The add of `worktree create` stays interactive — 2026-10-06
+
+The #539 amendment stops a named mutation's command that outlasts its bound
+with its whole process group, which only a command in a session of its own
+has: a Cleanup's and a Remote Fetch's Git run non-interactively, with no
+stdin and a session each. `dashpot worktree create`
+([ADR 0011](0011-prepare-issue-worktrees-by-convention.md)) runs its one
+mutating command, `git worktree add`, under the same bound but on the default
+runner, in Dashpot's session and process group, so a post-checkout hook, Git
+LFS, or a credential helper that `git` starts can still prompt on the
+terminal. The operator decided on
+[#599](https://github.com/ned2/dashpot/issues/599) to keep it so.
+
+The accepted tradeoff: when the add outlasts its bound, at least five
+minutes, only `git` is asked to stop and then killed. Dashpot's own process
+group is never signalled, so a helper `git` started may run on, orphaned.
+That is accepted as rare. A session of its own would let the timeout stop
+the helper, but it has no terminal, so a hook or helper that prompts could
+never be answered: the add would fail, or wait out the bound, every time
+such a prompt came, rather than once in a while leaving a helper behind.
+
+Considered and rejected: running the add in its own session, group-stopped
+on a timeout, for that reason; and giving it a process group of its own
+while keeping the terminal, which makes it a background job there, so a
+helper that reads the terminal is stopped by `SIGTTIN` and waits out the
+bound just the same.

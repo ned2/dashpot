@@ -385,6 +385,9 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
     # invocation's to delete.
     branch_existed = commit_of(git, f"refs/heads/{plan.branch}") is not None
     created_directories = _make_directories(path.parent)
+    # The add keeps the default runner and with it Dashpot's session, so a
+    # hook, Git LFS or a credential helper can prompt on the terminal; a
+    # timeout then stops ``git`` alone, and a helper may run on (ADR 0019).
     mutating_git = git.at(git.root, timeout=mutation_timeout(git.timeout))
     failure: str | None = None
     error: GitError | None = None
