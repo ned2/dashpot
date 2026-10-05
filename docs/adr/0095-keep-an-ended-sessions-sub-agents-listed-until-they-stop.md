@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-04
-amended-by: 0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md, 0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md
+amended-by: 0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md, 0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md, 0132-refuse-a-session-end-only-on-another-named-host-process.md
 ---
 
 # Keep an ended session's sub-agents listed until they stop
@@ -211,3 +211,10 @@ anything for long:
   it, and `codex --no-daemon resume` publishes nothing while the daemon
   holds the thread, so Codex 0.160.0 has no second Host Process in that
   case.
+- Amended by [ADR 0132](0132-refuse-a-session-end-only-on-another-named-host-process.md)
+  ([#543](https://github.com/ned2/dashpot/issues/543)): a `SessionEnd` that
+  names no Host Process beside a previous record that names one is accepted
+  as that process's end, and keeps the sub-agents that process runs; one
+  beside a record that names none keeps nothing. An end that names a Host
+  Process keeps, beside its own process's sub-agents, those the store's
+  previous record lists when that record names none.
