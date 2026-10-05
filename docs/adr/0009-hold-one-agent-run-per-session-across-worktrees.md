@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-05
-amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md
+amended-by: 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0134-place-a-session-by-its-freshest-current-hook-record.md
 ---
 
 # Hold one active Agent Run per Agent Session across a Repository's Worktrees
@@ -167,3 +167,8 @@ carrying its run.
   location on the first resumed turn.
 - The `work-session-conflict` diagnostic remains for records written before
   this decision, by an older Dashpot, or across independent clones.
+- Amended by
+  [ADR 0134](0134-place-a-session-by-its-freshest-current-hook-record.md):
+  the current location is the session's freshest *current* record, one live
+  or unknown that no fresher ended or gone record superseded, rather than its
+  freshest record whatever its outcome.

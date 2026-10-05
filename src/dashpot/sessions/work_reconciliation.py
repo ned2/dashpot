@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
 from ..core.git import GitError
-from ..core.json_records import optional_string, require_harness, require_string
 from ..core.record_store import RecordKeyError
 from ..core.timestamps import observed_instant
 from ..core.worktree_paths import repository_worktrees, same_path
 from .harnesses import HookEvent, adapter, locates_session
-from .hook_records import HookRecordStore, session_directory
+from .hook_records import HookRecord, HookRecordStore, session_directory
 from .hook_scan import (
     StoredSessionRecord,
     freshest_stored_record,
+    group_histories,
     reachable_hook_stores,
     scan_hook_stores,
     session_record_named,
@@ -40,13 +39,13 @@ from .work_store import (
 )
 
 
-def event_worktrees(record: Mapping[str, Any]) -> list[Path]:
+def event_worktrees(record: HookRecord) -> list[Path]:
     """Every Worktree of the Repository a hook record places its session in.
 
     A record outside any Repository, or one whose Repository Git cannot list
     now, has none: the hook is never failed for it.
     """
-    root = optional_string(record.get("repositoryRoot"))
+    root = record.repository_root
     if root is None:
         return []
     try:
@@ -95,7 +94,7 @@ def locked_session_stores(
 
 
 def end_session_work(
-    record: Mapping[str, Any],
+    record: HookRecord,
     process: ProcessIdentity | None,
     *,
     worktrees: Sequence[Path],
@@ -114,15 +113,15 @@ def end_session_work(
         return []
     return end_session_runs(
         worktrees,
-        require_harness(record.get("harness")),
-        require_string(record.get("sessionId"), "sessionId"),
+        record.harness,
+        record.session_id,
         process.key if process else None,
-        ended_at=optional_string(record.get("lastActivityAt")),
+        ended_at=record.last_activity_at,
     )
 
 
 def continue_session_work(
-    record: Mapping[str, Any],
+    record: HookRecord,
     process: ProcessIdentity | None,
     lookup: ProcessLookup = host_process_lookup,
 ) -> ActiveWork | None:
@@ -138,10 +137,10 @@ def continue_session_work(
     clients resuming together only the first continues the run. Returns the
     continued run, or ``None`` when nothing was carried over.
     """
-    harness = require_harness(record.get("harness"))
+    harness = record.harness
     if process is None or not adapter(harness).exclusive_session_process:
         return None
-    root = optional_string(record.get("repositoryRoot"))
+    root = record.repository_root
     if root is None:
         return None
     store = WorkStore(Path(root))
@@ -153,7 +152,7 @@ def continue_session_work(
         active, _diagnostics = store.active()
     except OSError:
         return None
-    session_id = require_string(record.get("sessionId"), "sessionId")
+    session_id = record.session_id
     identity = SessionEvidence(harness, session_id)
     for work in active:
         if identity.match(work.evidence) != "same" or work.relocation is not None:
@@ -182,7 +181,7 @@ def continue_session_work(
 
 
 def complete_session_work_relocation(
-    record: Mapping[str, Any],
+    record: HookRecord,
     process: ProcessIdentity | None,
     lookup: ProcessLookup = host_process_lookup,
     *,
@@ -200,9 +199,9 @@ def complete_session_work_relocation(
     refreshed from this hook, and removes the origin's copy (ADR 0029).
     Returns the relocated Agent Run, or ``None`` when nothing moved.
     """
-    if record.get("harness") != "codex":
+    if record.harness != "codex":
         return None
-    root = optional_string(record.get("repositoryRoot"))
+    root = record.repository_root
     if root is None:
         return None
     try:
@@ -214,7 +213,7 @@ def complete_session_work_relocation(
             worktrees = repository_worktrees(target, timeout=2)
         except (GitError, OSError):
             return None
-    session_id = require_string(record.get("sessionId"), "sessionId")
+    session_id = record.session_id
     # Almost every hook comes from a session with no intent naming this
     # Worktree; it stops at this read rather than locking every hook store
     # of the Repository. Everything is read again under the locks.
@@ -280,8 +279,8 @@ def complete_session_work_relocation(
                 "codex", session_id, pid=process.pid if process is not None else None
             ),
             session_process=session_process,
-            working_directory=require_string(record.get("cwd"), "cwd"),
-            branch=optional_string(record.get("branch")),
+            working_directory=record.cwd,
+            branch=record.branch,
             relocation=None,
         )
         try:
@@ -328,7 +327,11 @@ def _sequential_target_is_confirmed(
     target: Path,
     lookup: ProcessLookup,
 ) -> bool:
-    """Whether no live or unknown same-identity client remains elsewhere."""
+    """Whether no same-identity client may still run elsewhere.
+
+    That is, no current record of the session's ``SessionHistory`` places it
+    anywhere but ``target``, and every record of the identity was readable.
+    """
     unreadable = False
 
     def named(path: Path) -> bool:
@@ -338,26 +341,28 @@ def _sequential_target_is_confirmed(
         nonlocal unreadable
         unreadable = True
 
-    probe = LivenessProbe(lookup)
-    for scanned in scan_hook_stores(
-        stores, probe, select=named, on_unreadable=reject_unreadable
+    identity = SessionEvidence("codex", session_id)
+    histories = group_histories(
+        scanned
+        for scanned in scan_hook_stores(
+            stores,
+            LivenessProbe(lookup),
+            select=named,
+            on_unreadable=reject_unreadable,
+        )
+        if identity.match(scanned.record.evidence) == "same"
+    )
+    if any(
+        not same_path(scanned.record.worktree, target)
+        for history in histories
+        for scanned in history.current
     ):
-        if (
-            SessionEvidence("codex", session_id).match(scanned.record.evidence)
-            != "same"
-        ):
-            continue
-        location = scanned.record.worktree
-        if not same_path(location, target) and scanned.record.outcome not in {
-            "ended",
-            "gone",
-        }:
-            return False
+        return False
     return not unreadable
 
 
 def carry_live_session_work(
-    record: Mapping[str, Any],
+    record: HookRecord,
     event: HookEvent,
     process: ProcessIdentity | None,
     *,
@@ -393,10 +398,10 @@ def carry_live_session_work(
     carry finds that pair and removes A's copy. Returns the carried run, or
     ``None`` when nothing moved.
     """
-    harness = require_harness(record.get("harness"))
+    harness = record.harness
     if process is None or not locates_session(harness, event):
         return None
-    root = optional_string(record.get("repositoryRoot"))
+    root = record.repository_root
     if root is None:
         return None
     target = next(
@@ -412,7 +417,7 @@ def carry_live_session_work(
         if worktree != target
     ):
         return None
-    session_id = require_string(record.get("sessionId"), "sessionId")
+    session_id = record.session_id
     # The store H was written to is one of these: the publisher routes only to
     # a reachable store.
     stores = [
@@ -428,21 +433,21 @@ def carry_live_session_work(
 
 
 def _live_origin(
-    record: Mapping[str, Any],
+    record: HookRecord,
     process: ProcessIdentity,
     stores: Sequence[Path],
     written: Path,
     target: Path,
 ) -> StoredSessionRecord | None:
     """The record at A that H follows in the same incarnation (conditions 5 and 6)."""
-    harness = require_harness(record.get("harness"))
-    session_id = require_string(record.get("sessionId"), "sessionId")
+    harness = record.harness
+    session_id = record.session_id
     records, unreadable = stored_session_records(stores, harness, session_id)
     # A record that cannot be read may be the freshest; nothing moves on it
     # (ADR 0070).
     if unreadable:
         return None
-    stamp = observed_instant(optional_string(record.get("lastActivityAt")))
+    stamp = observed_instant(record.last_activity_at)
     here = next((item for item in records if same_path(item.store, written)), None)
     # H must still be what the store holds: a later event decides for itself.
     if here is None or here.last_activity != stamp:
@@ -465,7 +470,7 @@ def _live_origin(
 
 
 def _carry_run(
-    record: Mapping[str, Any],
+    record: HookRecord,
     process: ProcessIdentity,
     worktrees: Sequence[Path],
     target: Path,
@@ -473,8 +478,8 @@ def _carry_run(
 ) -> ActiveWork | None:
     """Move the session's run from the origin's Worktree to ``target`` (conditions 1, 2, 7, 8)."""
     identity = SessionEvidence(
-        require_harness(record.get("harness")),
-        require_string(record.get("sessionId"), "sessionId"),
+        record.harness,
+        record.session_id,
     )
     at_target: list[ActiveWork] = []
     elsewhere: list[tuple[Path, WorkStore, ActiveWork]] = []
@@ -516,8 +521,8 @@ def _carry_run(
         return None
     relocated = replace(
         work,
-        working_directory=require_string(record.get("cwd"), "cwd"),
-        branch=optional_string(record.get("branch")),
+        working_directory=record.cwd,
+        branch=record.branch,
         relocation=None,
     )
     # The crash window of an earlier carry left this run at both; finishing
@@ -536,7 +541,7 @@ def _carry_run(
 
 
 def remove_ended_session_records(
-    record: Mapping[str, Any],
+    record: HookRecord,
     process: ProcessIdentity | None,
     *,
     worktrees: Sequence[Path],
@@ -560,9 +565,9 @@ def remove_ended_session_records(
     """
     if process is None or not worktrees:
         return
-    harness = require_harness(record.get("harness"))
-    session_id = require_string(record.get("sessionId"), "sessionId")
-    ended_at = observed_instant(optional_string(record.get("lastActivityAt")))
+    harness = record.harness
+    session_id = record.session_id
+    ended_at = observed_instant(record.last_activity_at)
     stores = [
         store
         for store in reachable_hook_stores(worktrees, global_store)

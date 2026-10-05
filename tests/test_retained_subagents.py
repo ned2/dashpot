@@ -26,6 +26,7 @@ from dashpot.sessions.hook_records import (
     build_hook_record,
     session_directory,
     state_directory,
+    stored_document,
 )
 from dashpot.sessions.hook_scan import summarize_session_records
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup
@@ -437,7 +438,7 @@ def test_forget_refuses_an_id_two_harnesses_ended_with(tmp_path: Path) -> None:
         )
         store.replace(
             session_storage_key(harness, CODEX_SESSION),
-            {**record, "liveSubagents": [WORKER]},
+            stored_document(record.model_copy(update={"live_subagents": [WORKER]})),
         )
 
     with pytest.raises(IssueWorkError, match="choose one with --harness"):

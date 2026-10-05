@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-05
+amended-by: 0134-place-a-session-by-its-freshest-current-hook-record.md
 ---
 
 # Refuse a session's end only on another named Host Process
@@ -105,3 +106,8 @@ The rule is the store's, so it applies to every harness.
   In #466's pinned Claude Code `2.1.289` trace, a `claude -p` session that
   exits invokes no `SessionEnd` hook at all, so the store never sees an end
   to refuse.
+- Amended by
+  [ADR 0134](0134-place-a-session-by-its-freshest-current-hook-record.md):
+  the store reads its previous record as a scan does, so a recorded Host
+  Process it cannot parse names none. Two unreadable process records no
+  longer match only when identical: a newer end beside either is accepted.

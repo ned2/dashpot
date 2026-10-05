@@ -18,7 +18,7 @@ from dashpot.core.model import Harness
 from dashpot.repository.cleanup import DESPITE_SUBAGENTS_FLAG
 from dashpot.repository.cleanup.obstacles import session_exit
 from dashpot.sessions.harnesses import OPENCODE_ACCEPTED_VERSION, HarnessError
-from dashpot.sessions.hook_records import HookRecordStore
+from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.integrate import (
     BUNDLED_SKILL_VERSION,
     BUNDLED_SKILLS,
@@ -458,8 +458,10 @@ def test_status_lists_stale_session_records_without_pruning(tmp_path: Path) -> N
     home = codex_home(tmp_path)
     install_integration("codex", home, command_path=publisher(tmp_path))
     state = tmp_path / "state"
-    HookRecordStore(state).write(session_record("0199-stale"))
-    HookRecordStore(state).write(session_record("0199-live"))
+    HookRecordStore(state).write(
+        HookRecord.model_validate(session_record("0199-stale"))
+    )
+    HookRecordStore(state).write(HookRecord.model_validate(session_record("0199-live")))
 
     messages = integration_status(
         "codex", home, state_dir=state, current=tmp_path, lookup=absent()
@@ -513,7 +515,7 @@ def test_status_shows_unknown_liveness_reasons(tmp_path: Path) -> None:
     home = codex_home(tmp_path)
     install_integration("codex", home, command_path=publisher(tmp_path))
     state = tmp_path / "state"
-    HookRecordStore(state).write(session_record("sandboxed"))
+    HookRecordStore(state).write(HookRecord.model_validate(session_record("sandboxed")))
 
     messages = integration_status(
         "codex",
@@ -853,7 +855,7 @@ def test_claude_code_status_and_missing_home(tmp_path: Path) -> None:
 
     state = tmp_path / "state"
     stale = {**session_record("claude-stale"), "harness": "claude-code"}
-    HookRecordStore(state).write(stale)
+    HookRecordStore(state).write(HookRecord.model_validate(stale))
     messages = integration_status(
         "claude-code", home, state_dir=state, current=tmp_path, lookup=absent()
     )
@@ -922,7 +924,9 @@ def test_status_reports_the_identity_a_sandboxed_command_would_claim(
     )
 
     project_session_store(root).write(
-        {**session_record("thread-9", "running"), "repositoryRoot": str(root)}
+        HookRecord.model_validate(
+            {**session_record("thread-9", "running"), "repositoryRoot": str(root)}
+        )
     )
     confirmed = integration_status(
         "codex",
@@ -964,7 +968,9 @@ def test_status_confirms_an_identity_only_where_its_freshest_record_places_it(
     write_config_marker(main)
     write_config_marker(linked)
     project_session_store(main).write(
-        {**session_record("thread-9", "running"), "repositoryRoot": str(main)}
+        HookRecord.model_validate(
+            {**session_record("thread-9", "running"), "repositoryRoot": str(main)}
+        )
     )
 
     def status(current: Path) -> list[str]:

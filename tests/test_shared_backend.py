@@ -10,7 +10,7 @@ import pytest
 import dashpot.sessions.session_identity as identity_module
 import dashpot.sessions.work as work_module
 from dashpot.sessions.agents import observe_agent_runs
-from dashpot.sessions.hook_records import HookRecordStore, session_directory
+from dashpot.sessions.hook_records import HookRecord, HookRecordStore, session_directory
 from dashpot.sessions.hook_scan import (
     locate_agent_session,
     read_hook_record,
@@ -442,7 +442,9 @@ def test_hook_end_preserves_a_replacement_runtime_record(tmp_path):
     store = HookRecordStore(session_directory(tmp_path))
     before = read_hook_record(store.record_path(A))
     store.write(
-        hook_record_document(tmp_path, A, "codex", CODEX, state="ended", at=EARLIER)
+        HookRecord.model_validate(
+            hook_record_document(tmp_path, A, "codex", CODEX, state="ended", at=EARLIER)
+        )
     )
     assert read_hook_record(store.record_path(A)) == before
 
@@ -491,8 +493,10 @@ def test_equal_native_ids_from_two_harnesses_coexist_in_one_hook_store(tmp_path)
         assert found.record.harness == harness
     store = HookRecordStore(stores[0])
     store.write(
-        hook_record_document(
-            tmp_path, A, "codex", CODEX, state="ended", at="2026-08-31T00:00:00Z"
+        HookRecord.model_validate(
+            hook_record_document(
+                tmp_path, A, "codex", CODEX, state="ended", at="2026-08-31T00:00:00Z"
+            )
         )
     )
     assert [
@@ -518,10 +522,12 @@ def test_relocation_requires_an_unoccupied_session_destination(
         WorkStore(b).start(existing)
     # A same-label Claude hook must not prevent a valid Codex continuation.
     HookRecordStore(session_directory(b)).write(
-        hook_record_document(b, A, "claude-code", CLAUDE, at=EARLIER)
+        HookRecord.model_validate(
+            hook_record_document(b, A, "claude-code", CLAUDE, at=EARLIER)
+        )
     )
     document = hook_record_document(b, A, "codex", resumed, at=LATER)
-    HookRecordStore(session_directory(b)).write(document)
+    HookRecordStore(session_directory(b)).write(HookRecord.model_validate(document))
     monkeypatch.setattr(hooks, "repository_worktrees", lambda *args, **kwargs: [a, b])
     monkeypatch.setattr(
         hooks,
@@ -529,7 +535,9 @@ def test_relocation_requires_an_unoccupied_session_destination(
         lambda roots, directory=None: [session_directory(a), session_directory(b)],
     )
     moved = hooks.complete_session_work_relocation(
-        document, resumed, table_lookup({resumed.pid: resumed, CLAUDE.pid: CLAUDE})
+        HookRecord.model_validate(document),
+        resumed,
+        table_lookup({resumed.pid: resumed, CLAUDE.pid: CLAUDE}),
     )
     if competing == "none":
         assert moved
@@ -542,6 +550,49 @@ def test_relocation_requires_an_unoccupied_session_destination(
         assert not moved
         assert WorkStore(a).active()[0] == [pending]
         assert WorkStore(b).active()[0] == [existing]
+
+
+def test_a_record_superseded_by_its_own_process_end_holds_no_relocation(
+    roots, monkeypatch, tmp_path
+):
+    # The old client's record at A is live, but a fresher end of that same
+    # Host Process, kept elsewhere, ended it (ADR 0134). It neither holds
+    # the sequential resume's confirmation nor reads as a concurrent client.
+    import dashpot.sessions.work_reconciliation as hooks
+    from dashpot.sessions.agents import relocation_diagnostic
+    from dashpot.sessions.liveness import LivenessProbe
+    from dashpot.sessions.session_matching import session_storage_key
+    from dashpot.sessions.work_store import RelocationIntent
+
+    a, b = roots
+    resumed = replace(CODEX, pid=5252)
+    both_live = table_lookup({CODEX.pid: CODEX, resumed.pid: resumed})
+    pending = replace(recorded(a), relocation=RelocationIntent(str(b), EARLIER))
+    WorkStore(a).start(pending)
+    elsewhere = tmp_path / "global-store"
+    elsewhere.mkdir()
+    ended = hook_record_document(
+        a, A, "codex", CODEX, state="ended", at="2026-08-30T03:36:00.000000Z"
+    )
+    HookRecordStore(elsewhere).replace(session_storage_key("codex", A), ended)
+    document = hook_record_document(b, A, "codex", resumed, at=LATER)
+    HookRecordStore(session_directory(b)).write(HookRecord.model_validate(document))
+    stores = [session_directory(a), session_directory(b), elsewhere]
+
+    diagnostic = relocation_diagnostic(
+        pending, target(a), [target(a), target(b)], elsewhere, LivenessProbe(both_live)
+    )
+    assert diagnostic.code == "work-relocation-pending"
+
+    monkeypatch.setattr(hooks, "repository_worktrees", lambda *args, **kwargs: [a, b])
+    monkeypatch.setattr(
+        hooks, "reachable_hook_stores", lambda roots, directory=None: stores
+    )
+    assert hooks.complete_session_work_relocation(
+        HookRecord.model_validate(document), resumed, both_live
+    )
+    (continued,) = WorkStore(b).active()[0]
+    assert continued.run_id == pending.run_id
 
 
 def test_stop_preflights_legacy_ownership_before_deleting_any_run(roots):

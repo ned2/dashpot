@@ -18,6 +18,7 @@ from dashpot.core.timestamps import utc_now, utc_stamp
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
+    HookRecord,
     HookRecordStore,
     build_hook_record,
     project_session_store,
@@ -175,15 +176,17 @@ class HookRecordStoreTests(unittest.TestCase):
         repository_root: str = "/repo",
     ) -> None:
         HookRecordStore(self.state_dir).write(
-            hook_record_document(
-                repository_root,
-                session_id,
-                "codex",
-                process,
-                state=state,
-                at="2026-08-24T15:00:00Z",
-                cwd=cwd,
-                event="Stop" if state == "waiting" else "PreToolUse",
+            HookRecord.model_validate(
+                hook_record_document(
+                    repository_root,
+                    session_id,
+                    "codex",
+                    process,
+                    state=state,
+                    at="2026-08-24T15:00:00Z",
+                    cwd=cwd,
+                    event="Stop" if state == "waiting" else "PreToolUse",
+                )
             )
         )
 
@@ -203,9 +206,11 @@ class HookRecordStoreTests(unittest.TestCase):
             "lastActivityAt": "2026-08-24T15:00:00Z",
             "sessionProcess": self.process.as_record(),
         }
-        HookRecordStore(self.state_dir).write(record)
+        HookRecordStore(self.state_dir).write(HookRecord.model_validate(record))
         project_session_store(worktree).write(
-            {**record, "lastActivityAt": "2026-08-24T15:00:00.500000Z"}
+            HookRecord.model_validate(
+                {**record, "lastActivityAt": "2026-08-24T15:00:00.500000Z"}
+            )
         )
 
         runs, _diagnostics = observe_agent_runs(
@@ -239,25 +244,25 @@ class HookRecordStoreTests(unittest.TestCase):
             return cast("dict[str, object]", json.loads(path.read_text()))
 
         HookRecordStore(self.state_dir).write(
-            record("running", "2026-08-24T15:00:00.000000Z")
+            HookRecord.model_validate(record("running", "2026-08-24T15:00:00.000000Z"))
         )
         self.assertEqual("2026-08-24T15:00:00.000000Z", stored()["turnStartedAt"])
 
         # Later events in the same turn do not restart its clock.
         HookRecordStore(self.state_dir).write(
-            record("running", "2026-08-24T15:04:00.000000Z")
+            HookRecord.model_validate(record("running", "2026-08-24T15:04:00.000000Z"))
         )
         self.assertEqual("2026-08-24T15:00:00.000000Z", stored()["turnStartedAt"])
 
         # The turn ends, and a waiting session has no turn in flight.
         HookRecordStore(self.state_dir).write(
-            record("waiting", "2026-08-24T15:05:00.000000Z")
+            HookRecord.model_validate(record("waiting", "2026-08-24T15:05:00.000000Z"))
         )
         self.assertIsNone(stored()["turnStartedAt"])
 
         # The next turn starts its own clock.
         HookRecordStore(self.state_dir).write(
-            record("running", "2026-08-24T15:09:00.000000Z")
+            HookRecord.model_validate(record("running", "2026-08-24T15:09:00.000000Z"))
         )
         self.assertEqual("2026-08-24T15:09:00.000000Z", stored()["turnStartedAt"])
 
@@ -321,35 +326,36 @@ class HookRecordStoreTests(unittest.TestCase):
             json.loads((self.state_dir / "reused.json").read_text())["state"],
         )
 
-    def test_session_end_matches_an_unreadable_process_only_as_recorded(
+    def test_session_end_reads_an_unreadable_process_as_naming_none(
         self,
     ) -> None:
-        # A process record that cannot be read has no pid and start time to
-        # compare, so only the identical record names the same Host Process.
+        # The store reads the previous record as a scan reads it: a process
+        # record that cannot be read degrades to naming no Host Process, which
+        # is no evidence of another process (ADR 0132), so the newer end ends
+        # the session whatever process it names.
         unreadable = {"pid": "unreadable", "command": "codex"}
-        readable = self.process.as_record()
-        for previous, ending, removed in (
-            (unreadable, unreadable, True),
-            (unreadable, {**unreadable, "command": "other"}, False),
-            (unreadable, readable, False),
-            (readable, unreadable, False),
-        ):
-            with self.subTest(previous=previous, ending=ending):
-                base = {
-                    "version": 2,
-                    "sessionId": "opaque",
-                    "harness": "codex",
-                    "lastActivityAt": "2026-08-25T16:00:00Z",
+        for ending in (self.process, None):
+            with self.subTest(ending=ending):
+                stored = {
+                    **hook_record_document("/repo", "opaque", "codex", state="waiting"),
+                    "sessionProcess": unreadable,
                 }
-                HookRecordStore(self.state_dir).write(
-                    {**base, "sessionProcess": previous, "state": "waiting"}
-                )
+                (self.state_dir / "opaque.json").write_text(json.dumps(stored))
 
                 HookRecordStore(self.state_dir).write(
-                    {**base, "sessionProcess": ending, "state": "ended"}
+                    HookRecord.model_validate(
+                        hook_record_document(
+                            "/repo",
+                            "opaque",
+                            "codex",
+                            ending,
+                            state="ended",
+                            at="2026-09-01T00:00:00Z",
+                        )
+                    )
                 )
 
-                self.assertEqual(not removed, (self.state_dir / "opaque.json").exists())
+                self.assertFalse((self.state_dir / "opaque.json").exists())
 
     def test_a_session_end_beside_a_record_naming_no_process_ends_the_session(
         self,
@@ -370,23 +376,27 @@ class HookRecordStoreTests(unittest.TestCase):
                 store = HookRecordStore(self.state_dir)
                 base = hook_record_document("/repo", session_id, "codex")
                 store.write(
-                    {
-                        **base,
-                        **previous,
-                        "state": "waiting",
-                        "event": "Stop",
-                        "lastActivityAt": "2026-08-25T16:00:00.000000Z",
-                    }
+                    HookRecord.model_validate(
+                        {
+                            **base,
+                            **previous,
+                            "state": "waiting",
+                            "event": "Stop",
+                            "lastActivityAt": "2026-08-25T16:00:00.000000Z",
+                        }
+                    )
                 )
 
                 written = store.write(
-                    {
-                        **base,
-                        **ending,
-                        "state": "ended",
-                        "event": "SessionEnd",
-                        "lastActivityAt": "2026-08-25T16:01:00.000000Z",
-                    }
+                    HookRecord.model_validate(
+                        {
+                            **base,
+                            **ending,
+                            "state": "ended",
+                            "event": "SessionEnd",
+                            "lastActivityAt": "2026-08-25T16:01:00.000000Z",
+                        }
+                    )
                 )
 
                 self.assertEqual("ended", written.state)
@@ -403,24 +413,28 @@ class HookRecordStoreTests(unittest.TestCase):
         store = HookRecordStore(self.state_dir)
         base = hook_record_document("/repo", "late-end", "codex")
         store.write(
-            {
-                **base,
-                "sessionProcess": None,
-                "sessionProcessUnobservable": "ps-timeout",
-                "state": "waiting",
-                "event": "Stop",
-                "lastActivityAt": "2026-08-25T16:01:00.000000Z",
-            }
+            HookRecord.model_validate(
+                {
+                    **base,
+                    "sessionProcess": None,
+                    "sessionProcessUnobservable": "ps-timeout",
+                    "state": "waiting",
+                    "event": "Stop",
+                    "lastActivityAt": "2026-08-25T16:01:00.000000Z",
+                }
+            )
         )
 
         written = store.write(
-            {
-                **base,
-                "sessionProcess": self.process.as_record(),
-                "state": "ended",
-                "event": "SessionEnd",
-                "lastActivityAt": "2026-08-25T16:00:00.000000Z",
-            }
+            HookRecord.model_validate(
+                {
+                    **base,
+                    "sessionProcess": self.process.as_record(),
+                    "state": "ended",
+                    "event": "SessionEnd",
+                    "lastActivityAt": "2026-08-25T16:00:00.000000Z",
+                }
+            )
         )
 
         self.assertIsNone(written.state)
@@ -452,24 +466,30 @@ class HookRecordStoreTests(unittest.TestCase):
                 base = hook_record_document("/repo", session_id, "codex")
                 for event, state in (("Stop", "waiting"), ("SubagentStart", "running")):
                     store.write(
-                        {
-                            **base,
-                            **previous,
-                            "state": state,
-                            "event": event,
-                            "agentId": "worker" if event == "SubagentStart" else None,
-                            "lastActivityAt": "2026-08-25T16:00:00.000000Z",
-                        }
+                        HookRecord.model_validate(
+                            {
+                                **base,
+                                **previous,
+                                "state": state,
+                                "event": event,
+                                "agentId": "worker"
+                                if event == "SubagentStart"
+                                else None,
+                                "lastActivityAt": "2026-08-25T16:00:00.000000Z",
+                            }
+                        )
                     )
 
                 written = store.write(
-                    {
-                        **base,
-                        **ending,
-                        "state": "ended",
-                        "event": "SessionEnd",
-                        "lastActivityAt": "2026-08-25T16:01:00.000000Z",
-                    }
+                    HookRecord.model_validate(
+                        {
+                            **base,
+                            **ending,
+                            "state": "ended",
+                            "event": "SessionEnd",
+                            "lastActivityAt": "2026-08-25T16:01:00.000000Z",
+                        }
+                    )
                 )
 
                 self.assertEqual("ended", written.state)
@@ -492,21 +512,71 @@ class HookRecordStoreTests(unittest.TestCase):
                     ),
                 )
 
+    def test_a_previous_record_it_cannot_read_is_no_evidence(self) -> None:
+        # The store reads its previous record as a scan does; one a scan
+        # refuses, here for want of a cwd, carries nothing into the next
+        # record and refuses no end.
+        unreadable = {
+            "version": 2,
+            "sessionId": "damaged",
+            "harness": "codex",
+            "state": "running",
+            "turnStartedAt": "2026-08-24T15:00:00Z",
+            "liveSubagents": ["worker"],
+            "sessionProcess": CODEX.as_record(),
+        }
+        path = self.state_dir / "damaged.json"
+        for event, state, kept in (
+            ("Stop", "waiting", True),
+            ("SessionEnd", "ended", False),
+        ):
+            with self.subTest(event=event):
+                path.write_text(json.dumps(unreadable))
+
+                HookRecordStore(self.state_dir).write(
+                    HookRecord.model_validate(
+                        hook_record_document(
+                            "/repo",
+                            "damaged",
+                            "codex",
+                            self.process,
+                            state=state,
+                            event=event,
+                        )
+                    )
+                )
+
+                self.assertEqual(kept, path.exists())
+                if kept:
+                    stored = json.loads(path.read_text())
+                    self.assertEqual(
+                        ("/repo", "waiting", None, []),
+                        (
+                            stored["cwd"],
+                            stored["state"],
+                            stored["turnStartedAt"],
+                            stored["liveSubagents"],
+                        ),
+                    )
+
     def test_session_end_with_a_malformed_binding_still_removes_the_record(
         self,
     ) -> None:
         self.write("ending", "waiting", self.process)
 
         HookRecordStore(self.state_dir).write(
-            {
-                "version": 2,
-                "sessionId": "ending",
-                "harness": "codex",
-                "sessionProcess": self.process.as_record(),
-                "lastActivityAt": "2026-08-25T16:00:00Z",
-                "state": "ended",
-                "issueId": "not an id",
-            }
+            HookRecord.model_validate(
+                {
+                    "version": 2,
+                    "sessionId": "ending",
+                    "harness": "codex",
+                    "cwd": "/repo",
+                    "sessionProcess": self.process.as_record(),
+                    "lastActivityAt": "2026-08-25T16:00:00Z",
+                    "state": "ended",
+                    "issueId": "not an id",
+                }
+            )
         )
 
         self.assertFalse((self.state_dir / "ending.json").exists())
@@ -563,17 +633,21 @@ class HookRecordStoreTests(unittest.TestCase):
         self.assertIn("unsupported record", diagnostics[0].message)
 
     def test_unsupported_harness_record_becomes_a_diagnostic(self) -> None:
-        HookRecordStore(self.state_dir).write(
-            {
-                "version": 2,
-                "sessionId": "mystery",
-                "harness": "cursor",
-                "state": "running",
-                "cwd": "/repo",
-                "repositoryRoot": "/repo",
-                "event": "UserPromptSubmit",
-                "sessionProcess": None,
-            }
+        # No publisher builds a record naming an unsupported harness; one on
+        # disk is the read model's to refuse.
+        (self.state_dir / "mystery.json").write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "sessionId": "mystery",
+                    "harness": "cursor",
+                    "state": "running",
+                    "cwd": "/repo",
+                    "repositoryRoot": "/repo",
+                    "event": "UserPromptSubmit",
+                    "sessionProcess": None,
+                }
+            )
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -695,7 +769,7 @@ class HookRoutingTests(unittest.TestCase):
 
     def test_project_local_records_are_observed(self) -> None:
         project_session_store(self.worktree).write(
-            self.record("waiting", "2026-08-24T15:00:00Z")
+            HookRecord.model_validate(self.record("waiting", "2026-08-24T15:00:00Z"))
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -712,10 +786,10 @@ class HookRoutingTests(unittest.TestCase):
         self,
     ) -> None:
         HookRecordStore(self.state_dir).write(
-            self.record("running", "2026-08-24T14:00:00Z")
+            HookRecord.model_validate(self.record("running", "2026-08-24T14:00:00Z"))
         )
         project_session_store(self.worktree).write(
-            self.record("waiting", "2026-08-24T15:00:00Z")
+            HookRecord.model_validate(self.record("waiting", "2026-08-24T15:00:00Z"))
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -1424,7 +1498,7 @@ def test_a_measured_auto_compaction_runs_until_its_turn_stops(tmp_path: Path) ->
 
 def claude_event(
     event_name: str, process: ProcessIdentity | None = CLAUDE, **fields: str
-) -> dict[str, Any]:
+) -> HookRecord:
     """The record a Claude Code hook event of the session ``compacting`` builds."""
     return build_hook_record(
         {
@@ -1487,7 +1561,7 @@ def test_a_session_start_other_than_a_compaction_begins_no_turn(
         else claude_event("SessionStart", source=source)
     )
 
-    started = store.write(event)
+    started = store.write(HookRecord.model_validate(event))
 
     record = json.loads((tmp_path / "compacting.json").read_text())
     assert started.state == "waiting"
@@ -1584,7 +1658,10 @@ def test_a_compaction_after_an_ended_record_keeps_a_fresher_records_turn(
     elsewhere.write(claude_event("UserPromptSubmit"))
     fresher = json.loads(elsewhere.write(claude_event("Stop")).path.read_text())
 
-    written = here.write(claude_event("SessionStart", source="compact"), seed=fresher)
+    written = here.write(
+        claude_event("SessionStart", source="compact"),
+        seed=HookRecord.model_validate(fresher),
+    )
 
     record = json.loads(written.path.read_text())
     # Waiting, as the fresher record is; the kept sub-agent holds it running.
@@ -1593,7 +1670,7 @@ def test_a_compaction_after_an_ended_record_keeps_a_fresher_records_turn(
     assert record["turnStartedAt"] is None
 
 
-def codex_event(event_name: str, **fields: str) -> dict[str, Any]:
+def codex_event(event_name: str, **fields: str) -> HookRecord:
     """The record a Codex hook event of the session ``compacting`` builds."""
     return build_hook_record(
         {
@@ -2266,7 +2343,7 @@ def test_an_unreadable_record_is_skipped_by_a_switch_and_left_by_a_release(
     )
 
     assert not HookRecordStore(tmp_path).release_subagents(
-        "broken", ["agent-1"], by, session_id="broken"
+        "broken", ["agent-1"], HookRecord.model_validate(by), session_id="broken"
     )
 
     publish_switch(tmp_path, "entered", "SessionStart", source="clear")
@@ -2311,21 +2388,35 @@ def test_releasing_sub_agents_changes_only_an_ended_record_of_the_same_process(
             switch_event("left", "SessionEnd", reason="clear"), CLAUDE, "claude-code"
         )
     )
-    codex_by = {**by, "harness": "codex"}
+    codex_by = by.model_copy(update={"harness": "codex"})
     other_by = build_hook_record(
         switch_event("entered", "SessionStart", source="clear"),
         process=OTHER_CLAUDE,
         harness="claude-code",
     )
 
-    assert not store.release_subagents("live", ["agent-1"], by, session_id="live")
-    assert not store.release_subagents("missing", ["agent-1"], by, session_id="missing")
-    assert not store.release_subagents("left", ["agent-1"], codex_by, session_id="left")
-    assert not store.release_subagents("left", ["agent-1"], other_by, session_id="left")
-    assert not store.release_subagents("left", ["agent-3"], by, session_id="left")
-    assert store.release_subagents("left", ["agent-1"], by, session_id="left")
+    assert not store.release_subagents(
+        "live", ["agent-1"], HookRecord.model_validate(by), session_id="live"
+    )
+    assert not store.release_subagents(
+        "missing", ["agent-1"], HookRecord.model_validate(by), session_id="missing"
+    )
+    assert not store.release_subagents(
+        "left", ["agent-1"], HookRecord.model_validate(codex_by), session_id="left"
+    )
+    assert not store.release_subagents(
+        "left", ["agent-1"], HookRecord.model_validate(other_by), session_id="left"
+    )
+    assert not store.release_subagents(
+        "left", ["agent-3"], HookRecord.model_validate(by), session_id="left"
+    )
+    assert store.release_subagents(
+        "left", ["agent-1"], HookRecord.model_validate(by), session_id="left"
+    )
     assert stored_records(tmp_path)["left"]["liveSubagents"] == ["agent-2"]
-    assert store.release_subagents("left", ["agent-2"], by, session_id="left")
+    assert store.release_subagents(
+        "left", ["agent-2"], HookRecord.model_validate(by), session_id="left"
+    )
 
     records = stored_records(tmp_path)
     assert records.keys() == {"live"}
@@ -2355,22 +2446,36 @@ def test_releasing_a_left_behind_sub_agent_changes_only_the_sessions_own_live_re
         )
 
     by = stop("moved")
-    assert not store.release_left_behind("left", ["agent-1"], stop("left"))
-    assert not store.release_left_behind("missing", ["agent-1"], by)
-    assert not store.release_left_behind("moved", ["agent-1"], stop("other"))
     assert not store.release_left_behind(
-        "moved", ["agent-1"], {**by, "harness": "codex"}
+        "left", ["agent-1"], HookRecord.model_validate(stop("left"))
     )
     assert not store.release_left_behind(
-        "moved", ["agent-1"], stop("moved", OTHER_CLAUDE)
+        "missing", ["agent-1"], HookRecord.model_validate(by)
     )
-    assert not store.release_left_behind("moved", ["agent-1"], stop("moved", None))
-    assert not store.release_left_behind("moved", ["agent-3"], by)
+    assert not store.release_left_behind(
+        "moved", ["agent-1"], HookRecord.model_validate(stop("other"))
+    )
+    assert not store.release_left_behind(
+        "moved", ["agent-1"], by.model_copy(update={"harness": "codex"})
+    )
+    assert not store.release_left_behind(
+        "moved", ["agent-1"], HookRecord.model_validate(stop("moved", OTHER_CLAUDE))
+    )
+    assert not store.release_left_behind(
+        "moved", ["agent-1"], HookRecord.model_validate(stop("moved", None))
+    )
+    assert not store.release_left_behind(
+        "moved", ["agent-3"], HookRecord.model_validate(by)
+    )
     assert stored_records(tmp_path)["moved"] == before
 
-    assert store.release_left_behind("moved", ["agent-1"], by)
+    assert store.release_left_behind(
+        "moved", ["agent-1"], HookRecord.model_validate(by)
+    )
     assert stored_records(tmp_path)["moved"] == {**before, "liveSubagents": ["agent-2"]}
-    assert store.release_left_behind("moved", ["agent-2"], by)
+    assert store.release_left_behind(
+        "moved", ["agent-2"], HookRecord.model_validate(by)
+    )
 
     # A live record listing none stays: only its session's end or a prune
     # removes it.

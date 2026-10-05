@@ -29,6 +29,7 @@ from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_records import (
+    HookRecord,
     project_session_store,
     session_directory,
     state_directory,
@@ -817,7 +818,11 @@ def test_the_mark_finds_its_record_beside_another_harness_of_the_same_id(
     server.turn(project)
     if claude_ended:
         project_session_store(project).write(
-            hook_record_document(project, ROOT, "claude-code", CLAUDE, state="ended")
+            HookRecord.model_validate(
+                hook_record_document(
+                    project, ROOT, "claude-code", CLAUDE, state="ended"
+                )
+            )
         )
 
     server.unobserved(project)

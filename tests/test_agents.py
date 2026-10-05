@@ -11,7 +11,7 @@ from unittest import mock
 
 from dashpot.core.model import Harness, ObservationTarget
 from dashpot.sessions.agents import observe_agent_runs
-from dashpot.sessions.hook_records import HookRecordStore
+from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.processes import (
     ProcessIdentity,
     ProcessPresent,
@@ -43,15 +43,17 @@ class HookObserverTests(unittest.TestCase):
         repository_root: str = "/repo",
     ) -> None:
         HookRecordStore(self.state_dir).write(
-            hook_record_document(
-                repository_root,
-                session_id,
-                "codex",
-                process,
-                state=state,
-                at="2026-08-24T15:00:00Z",
-                cwd=cwd,
-                event="Stop" if state == "waiting" else "PreToolUse",
+            HookRecord.model_validate(
+                hook_record_document(
+                    repository_root,
+                    session_id,
+                    "codex",
+                    process,
+                    state=state,
+                    at="2026-08-24T15:00:00Z",
+                    cwd=cwd,
+                    event="Stop" if state == "waiting" else "PreToolUse",
+                )
             )
         )
 
@@ -278,18 +280,20 @@ class HookObserverTests(unittest.TestCase):
     def test_claude_code_record_is_observed_with_its_own_identity(self) -> None:
         claude = ProcessIdentity(77, 1, "claude", "Tue Aug 25 02:00:00 2026")
         HookRecordStore(self.state_dir).write(
-            {
-                "version": 2,
-                "sessionId": "claude-live",
-                "harness": "claude-code",
-                "state": "running",
-                "cwd": "/repo",
-                "repositoryRoot": "/repo",
-                "branch": "main",
-                "event": "UserPromptSubmit",
-                "lastActivityAt": "2026-08-24T15:00:00Z",
-                "sessionProcess": claude.as_record(),
-            }
+            HookRecord.model_validate(
+                {
+                    "version": 2,
+                    "sessionId": "claude-live",
+                    "harness": "claude-code",
+                    "state": "running",
+                    "cwd": "/repo",
+                    "repositoryRoot": "/repo",
+                    "branch": "main",
+                    "event": "UserPromptSubmit",
+                    "lastActivityAt": "2026-08-24T15:00:00Z",
+                    "sessionProcess": claude.as_record(),
+                }
+            )
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -311,18 +315,20 @@ class HookObserverTests(unittest.TestCase):
         lookup = {42: self.process, 77: claude}
         self.write("codex-live", "waiting", self.process)
         HookRecordStore(self.state_dir).write(
-            {
-                "version": 2,
-                "sessionId": "claude-live",
-                "harness": "claude-code",
-                "state": "running",
-                "cwd": "/repo",
-                "repositoryRoot": "/repo",
-                "branch": "main",
-                "event": "UserPromptSubmit",
-                "lastActivityAt": "2026-08-24T15:00:00Z",
-                "sessionProcess": claude.as_record(),
-            }
+            HookRecord.model_validate(
+                {
+                    "version": 2,
+                    "sessionId": "claude-live",
+                    "harness": "claude-code",
+                    "state": "running",
+                    "cwd": "/repo",
+                    "repositoryRoot": "/repo",
+                    "branch": "main",
+                    "event": "UserPromptSubmit",
+                    "lastActivityAt": "2026-08-24T15:00:00Z",
+                    "sessionProcess": claude.as_record(),
+                }
+            )
         )
 
         runs, diagnostics = observe_agent_runs(
@@ -382,14 +388,16 @@ class WorkObserverTests(unittest.TestCase):
 
     def write_hook(self, session_id: str, state: str, cwd: str) -> None:
         HookRecordStore(self.state_dir).write(
-            hook_record_document(
-                cwd,
-                session_id,
-                "codex",
-                self.process,
-                state=state,
-                at="2026-08-24T15:00:00Z",
-                event="Stop" if state == "waiting" else "PreToolUse",
+            HookRecord.model_validate(
+                hook_record_document(
+                    cwd,
+                    session_id,
+                    "codex",
+                    self.process,
+                    state=state,
+                    at="2026-08-24T15:00:00Z",
+                    event="Stop" if state == "waiting" else "PreToolUse",
+                )
             )
         )
 
@@ -655,13 +663,15 @@ class SessionIdentityCorrelationTests(unittest.TestCase):
         at: str = "2026-08-24T15:00:00Z",
     ) -> None:
         HookRecordStore(self.state_dir).write(
-            hook_record_document(
-                self.worktree,
-                session_id,
-                harness,
-                process,
-                state=state,
-                at=at,
+            HookRecord.model_validate(
+                hook_record_document(
+                    self.worktree,
+                    session_id,
+                    harness,
+                    process,
+                    state=state,
+                    at=at,
+                )
             )
         )
 

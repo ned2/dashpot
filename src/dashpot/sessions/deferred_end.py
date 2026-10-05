@@ -14,13 +14,12 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
 
-from ..core.json_records import optional_string, require_harness, require_string
 from ..core.pydantic import NonEmptyString, PublishedModel
 from .harnesses import HarnessName, HookSessionIdentity, adapter
+from .hook_records import HookRecord
 from .liveness import session_liveness
 from .processes import ProcessIdentity, ProcessLookup, host_process_lookup
 from .work_store import (
@@ -71,17 +70,17 @@ class DeferredEnd(PublishedModel):
 Settler = Callable[[DeferredEnd], None]
 
 
-def defers_session_end(record: Mapping[str, Any], process: ProcessIdentity) -> bool:
+def defers_session_end(record: HookRecord, process: ProcessIdentity) -> bool:
     """Whether this ``SessionEnd``'s Host Process defers its runs' end.
 
     Only a Host Process its Harness Adapter names does; every other end is
     the session's own and ends its run at once (ADR 0015).
     """
-    return adapter(require_harness(record.get("harness"))).defers_session_end(process)
+    return adapter(record.harness).defers_session_end(process)
 
 
 def pending_session_end(
-    record: Mapping[str, Any],
+    record: HookRecord,
     process: ProcessIdentity,
     *,
     worktrees: Sequence[Path],
@@ -94,9 +93,9 @@ def pending_session_end(
     """
     if not worktrees:
         return None
-    harness = require_harness(record.get("harness"))
-    session_id = require_string(record.get("sessionId"), "sessionId")
-    ended_at = optional_string(record.get("lastActivityAt"))
+    harness = record.harness
+    session_id = record.session_id
+    ended_at = record.last_activity_at
     pending = session_runs_to_end(
         worktrees, harness, session_id, process.key, ended_at=ended_at
     )
@@ -108,7 +107,7 @@ def pending_session_end(
         host=SessionProcess.of(process),
         ended_at=ended_at,
         worktrees=tuple(str(worktree) for worktree in worktrees),
-        cwd=require_string(record.get("cwd"), "cwd"),
+        cwd=record.cwd,
     )
     return deferred, pending
 

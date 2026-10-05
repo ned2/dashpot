@@ -20,6 +20,7 @@ from .hook_records import (
     HOOK_RECORD_VERSION,
     ActiveState,
     HookRecord,
+    names_another_process,
     session_directory,
     state_directory,
 )
@@ -39,43 +40,98 @@ from .session_matching import SessionEvidence
 # A hook record's outcome is its Session Liveness, plus the one fact liveness
 # cannot express: a graceful SessionEnd, which is a record state, not a probe.
 HookRecordOutcome = SessionLiveness | Literal["ended"]
+# The outcomes of a record whose session is over where it places it.
+SESSION_OVER: frozenset[HookRecordOutcome] = frozenset({"ended", "gone"})
 
 
 @dataclass(frozen=True, slots=True)
 class HookRecordClassification:
-    """One validated hook Agent Session record and its reconciled outcome."""
+    """One validated hook Agent Session record and its reconciled outcome.
 
-    session_id: str
-    harness: Harness
-    state: ActiveState
-    cwd: str
-    repository_root: str | None
-    branch: str | None
-    event: str | None
-    last_activity_at: str | None
-    turn_started_at: str | None
-    process: ProcessIdentity | None
+    ``published`` is the record as its harness's hook published it; the
+    rest is what this pass's process evidence makes of it.
+    """
+
+    published: HookRecord
     outcome: HookRecordOutcome
+    # The record's state once its sub-agents' Host Processes are accounted
+    # for: running only while a main turn or a living sub-agent holds it.
+    state: ActiveState
     reason: str | None = None
     # Malformed non-fatal fields the record was read without, by wire path.
     degraded: tuple[str, ...] = ()
-    has_global_binding: bool = False
     # The ``agent_id`` of each sub-agent the store holds started and not yet
     # stopped (ADR 0016), from Claude Code or Codex (ADR 0067), save one
     # whose Host Process is proved gone (ADR 0107).
     live_subagents: tuple[str, ...] = ()
-    # Whether an ended record still holds sub-agents its session left
-    # working: it lists some whose Host Process is not proved gone (ADR
-    # 0095). The session is over; those sub-agents may not be.
-    retains_subagents: bool = False
-    # Whether a gone record still lists sub-agents another Host Process runs
-    # that is not proved gone: a second process that resumed the session
-    # exited while the first one's sub-agent works on (ADR 0107).
-    retains_other_host_subagents: bool = False
+
+    @property
+    def session_id(self) -> str:
+        return self.published.session_id
+
+    @property
+    def harness(self) -> Harness:
+        return self.published.harness
+
+    @property
+    def cwd(self) -> str:
+        return self.published.cwd
+
+    @property
+    def repository_root(self) -> str | None:
+        return self.published.repository_root
+
+    @property
+    def branch(self) -> str | None:
+        return self.published.branch
+
+    @property
+    def event(self) -> str | None:
+        return self.published.event
+
+    @property
+    def last_activity_at(self) -> str | None:
+        return self.published.last_activity_at
+
+    @property
+    def turn_started_at(self) -> str | None:
+        return self.published.turn_started_at
+
+    @property
+    def has_global_binding(self) -> bool:
+        return self.published.has_global_binding
+
+    @property
+    def process(self) -> ProcessIdentity | None:
+        process = self.published.session_process
+        return None if process is None else process.identity
 
     @property
     def process_key(self) -> ProcessKey | None:
-        return self.process.key if self.process else None
+        return self.published.process_key
+
+    @property
+    def over(self) -> bool:
+        """Whether the record says its session is over here: ended, or gone."""
+        return self.outcome in SESSION_OVER
+
+    @property
+    def retains_subagents(self) -> bool:
+        """Whether an ended record still holds sub-agents its session left working.
+
+        It lists some whose Host Process is not proved gone (ADR 0095). The
+        session is over; those sub-agents may not be.
+        """
+        return self.outcome == "ended" and bool(self.live_subagents)
+
+    @property
+    def retains_other_host_subagents(self) -> bool:
+        """Whether a gone record still lists sub-agents another Host Process runs.
+
+        That process is not proved gone: a second process that resumed the
+        session exited while the first one's sub-agent works on (ADR 0107).
+        """
+        return self.outcome == "gone" and bool(self.live_subagents)
 
     @property
     def evidence(self) -> SessionEvidence:
@@ -85,7 +141,7 @@ class HookRecordClassification:
     @property
     def worktree(self) -> Path:
         """The Worktree the harness last published from: its root, else its cwd."""
-        return Path(self.repository_root or self.cwd)
+        return self.published.worktree
 
     @property
     def display(self) -> str:
@@ -128,11 +184,12 @@ class SessionRecordSummary:
 
 @dataclass(frozen=True, slots=True)
 class SessionLocation:
-    """Where an Agent Session's freshest hook record places it.
+    """Where one hook record places its Agent Session.
 
-    The record's ``repositoryRoot`` (else its ``cwd``) is the Worktree the
-    harness itself last published from, which is the session's current
-    location whatever directory a command inside it runs in.
+    ``SessionHistory`` decides which record places a session. The record's
+    ``repositoryRoot`` (else its ``cwd``) is the Worktree the harness itself
+    published it from, which is where it places the session whatever
+    directory a command inside it runs in.
     """
 
     record: HookRecordClassification
@@ -266,23 +323,12 @@ def _classify_validated_record(
         # running ran in a Host Process since gone (ADR 0107).
         state = "waiting"
     return HookRecordClassification(
-        session_id=record.session_id,
-        harness=record.harness,
-        state=state,
-        cwd=record.cwd,
-        repository_root=record.repository_root,
-        branch=record.branch,
-        event=record.event,
-        last_activity_at=record.last_activity_at,
-        turn_started_at=record.turn_started_at,
-        process=process,
+        published=record,
         outcome=outcome,
+        state=state,
         reason=liveness.reason,
         degraded=degraded,
-        has_global_binding=record.has_global_binding,
         live_subagents=living,
-        retains_subagents=outcome == "ended" and bool(living),
-        retains_other_host_subagents=outcome == "gone" and bool(living),
     )
 
 
@@ -313,6 +359,11 @@ class ScannedRecord:
     path: Path
     raw: dict[str, Any]
     record: HookRecordClassification
+
+    @property
+    def location(self) -> SessionLocation:
+        """Where this record places its session, and the store holding it."""
+        return SessionLocation(self.record, self.store)
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,12 +463,11 @@ class StoredSessionRecord:
     @property
     def worktree(self) -> Path:
         """The Worktree the record places its session at: its root, else its cwd."""
-        return Path(self.record.repository_root or self.record.cwd)
+        return self.record.worktree
 
     @property
     def process_key(self) -> ProcessKey | None:
-        process = self.record.session_process
-        return None if process is None else (process.pid, process.started_at)
+        return self.record.process_key
 
     @property
     def last_activity(self) -> datetime:
@@ -487,15 +537,177 @@ def stored_process_records(
     return found
 
 
+def freshest_first[T](
+    records: Iterable[T], stamp: Callable[[T], str | None]
+) -> list[T]:
+    """``records`` by their ``lastActivityAt`` ``stamp``, freshest first: the one tie-break.
+
+    Of two stamped alike, the first read leads, since the sort is stable.
+    A caller reads stores in the order ``reachable_hook_stores`` gives them,
+    each Worktree's own store before the global one, and a store's records
+    in path order. The scan's ``SessionHistory`` and the publisher's
+    unprobed reads order a session's records this one way.
+    """
+    return sorted(
+        records, key=lambda record: observed_instant(stamp(record)), reverse=True
+    )
+
+
 def freshest_stored_record(
     records: Iterable[StoredSessionRecord],
 ) -> StoredSessionRecord | None:
     """The record stamped latest; of two stamped alike, the first read."""
-    freshest: StoredSessionRecord | None = None
-    for candidate in records:
-        if freshest is None or candidate.last_activity > freshest.last_activity:
-            freshest = candidate
-    return freshest
+    ordered = freshest_first(records, lambda item: item.record.last_activity_at)
+    return ordered[0] if ordered else None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionHistory:
+    """One Agent Session Identity's readable hook records across stores, freshest first.
+
+    Each checkout keeps its own store, so a session that moved between
+    Worktrees has a record in each. This is the one place that decides which
+    record places the session, and every reader of placement asks it:
+    observation, Cleanup occupancy, ``work start``/``show``/``assign``,
+    claim validation and a pending relocation's diagnosis.
+
+    The rule: records are ordered by ``lastActivityAt`` with one tie-break
+    (``freshest_first``). A live or unknown record is *current*, saying the
+    session may run where it places it, unless a fresher record that is
+    over (ended, or gone) ends it. An over record speaks for its own Host
+    Process only, so it ends an older record of that process, or of none
+    named, which is no evidence of another (ADR 0132), and never an older
+    record another named process still holds: a Codex client whose resumed
+    successor exited, or a Host Process still running after another one's
+    ``SessionEnd`` (ADR 0107). The session is placed by its freshest current
+    record, and is over when it has none.
+    """
+
+    records: tuple[ScannedRecord, ...]
+
+    @classmethod
+    def of(cls, records: Iterable[ScannedRecord]) -> SessionHistory:
+        """The history of one identity's scanned records, in the order they were read."""
+        return cls(
+            tuple(freshest_first(records, lambda item: item.record.last_activity_at))
+        )
+
+    @property
+    def identity(self) -> tuple[Harness, str]:
+        """The harness and native session id every record here shares."""
+        record = self.records[0].record
+        return record.harness, record.session_id
+
+    @property
+    def freshest(self) -> ScannedRecord:
+        """The record stamped latest, whatever its outcome."""
+        return self.records[0]
+
+    @property
+    def current(self) -> tuple[ScannedRecord, ...]:
+        """Every record that says the session may run where it places it, freshest first.
+
+        More than one is current when the session's records at several
+        Worktrees are live or unknown: a move leaves the record it left
+        behind (ADR 0102), and two clients may hold one Codex session.
+        """
+        over: list[HookRecordClassification] = []
+        found: list[ScannedRecord] = []
+        for scanned in self.records:
+            record = scanned.record
+            if record.over:
+                over.append(record)
+            elif all(
+                names_another_process(ended.published, record.published)
+                for ended in over
+            ):
+                found.append(scanned)
+        return tuple(found)
+
+    @property
+    def superseded(self) -> tuple[ScannedRecord, ...]:
+        """The live or unknown records a fresher ended or gone record superseded, freshest first.
+
+        None of them places the session or lists its sub-agents any more.
+        """
+        current = {scanned.path for scanned in self.current}
+        return tuple(
+            scanned
+            for scanned in self.records
+            if not scanned.record.over and scanned.path not in current
+        )
+
+    @property
+    def freshest_current(self) -> ScannedRecord | None:
+        """The record that places the session while it runs; None once it is over."""
+        current = self.current
+        return current[0] if current else None
+
+    @property
+    def placing(self) -> ScannedRecord:
+        """The record that says where the session is, or why it is over.
+
+        That is its freshest current record, else its freshest record, whose
+        outcome says how the session ended.
+        """
+        current = self.freshest_current
+        return self.freshest if current is None else current
+
+    @property
+    def retained_subagents(self) -> frozenset[str]:
+        """The sub-agents the session's ended records keep listed (ADR 0095).
+
+        An ended record keeps those its session left working while their
+        Host Process is not proved gone. This assumes, as ADR 0066 does, that
+        no hook places a sub-agent itself: which of the session's records
+        lists it, not where it works, is what is known (#474 re-measures it).
+        """
+        return frozenset(
+            agent
+            for scanned in self.records
+            if scanned.record.retains_subagents
+            for agent in scanned.record.live_subagents
+        )
+
+    @property
+    def subagent_listings(self) -> tuple[ScannedRecord, ...]:
+        """The records whose listed sub-agents may still be working, freshest first.
+
+        Those are the current records, each ended record that keeps the
+        sub-agents its session left working (ADR 0095), and each gone record
+        that lists a sub-agent another Host Process runs (ADR 0107). A
+        current record its session moved on from counts: a sub-agent's hooks
+        carry its session's location, never its own, and the record left
+        behind may be the only one to list it (ADR 0102).
+        """
+        current = {scanned.path for scanned in self.current}
+        return tuple(
+            scanned
+            for scanned in self.records
+            if scanned.path in current
+            or scanned.record.retains_subagents
+            or scanned.record.retains_other_host_subagents
+        )
+
+
+def group_histories(scanned: Iterable[ScannedRecord]) -> list[SessionHistory]:
+    """Each Agent Session Identity's ``SessionHistory``, in the order first read."""
+    grouped: dict[tuple[Harness, str], list[ScannedRecord]] = {}
+    for item in scanned:
+        identity = (item.record.harness, item.record.session_id)
+        grouped.setdefault(identity, []).append(item)
+    return [SessionHistory.of(records) for records in grouped.values()]
+
+
+def session_histories(
+    stores: Sequence[Path], lookup: ProcessLookup
+) -> list[SessionHistory]:
+    """Each Agent Session's ``SessionHistory`` across ``stores``, by identity.
+
+    A record that cannot be read is not evidence and is skipped.
+    """
+    histories = group_histories(scan_hook_stores(stores, LivenessProbe(lookup)))
+    return sorted(histories, key=lambda history: history.identity)
 
 
 def locate_agent_session(
@@ -505,7 +717,13 @@ def locate_agent_session(
     session_id: str,
     harness: Harness,
 ) -> SessionLocation | None:
-    """Place a scoped native identity by its freshest validated hook record."""
+    """Place a scoped native identity by its ``SessionHistory``.
+
+    The location is the session's freshest current record, else, once the
+    session is over, its freshest record, whose outcome says why: a caller
+    refuses a session that is over. An unreadable record of the identity
+    raises ``ValueError``.
+    """
 
     def named(path: Path) -> bool:
         return session_record_named(path, session_id, harness)
@@ -515,64 +733,15 @@ def locate_agent_session(
             raise ValueError(str(exc)) from exc
 
     identity = SessionEvidence(harness, session_id)
-    probe = LivenessProbe(lookup)
-    freshest: SessionLocation | None = None
-    for scanned in scan_hook_stores(
-        stores, probe, select=named, on_unreadable=refuse_named
-    ):
-        record = scanned.record
-        if identity.match(record.evidence) != "same":
-            continue
-        if freshest is None or observed_instant(
-            scanned.record.last_activity_at
-        ) > observed_instant(freshest.record.last_activity_at):
-            freshest = SessionLocation(scanned.record, scanned.store)
-    return freshest
-
-
-SESSION_OVER: frozenset[HookRecordOutcome] = frozenset({"ended", "gone"})
-
-
-def session_histories(
-    stores: Sequence[Path], lookup: ProcessLookup
-) -> list[list[SessionLocation]]:
-    """Each Agent Session's readable records across ``stores``, freshest first.
-
-    Each checkout keeps its own store, so a session that moved between
-    Worktrees has a record in each; a record that cannot be read is not
-    evidence and is skipped.
-    """
-    probe = LivenessProbe(lookup)
-    grouped: dict[tuple[str, str], list[SessionLocation]] = {}
-    for scanned in scan_hook_stores(stores, probe):
-        identity = (scanned.record.harness, scanned.record.session_id)
-        grouped.setdefault(identity, []).append(
-            SessionLocation(scanned.record, scanned.store)
+    # Every record the identity matches is of that one harness and session.
+    histories = group_histories(
+        scanned
+        for scanned in scan_hook_stores(
+            stores, LivenessProbe(lookup), select=named, on_unreadable=refuse_named
         )
-    # The sort is stable: of two records stamped alike, the first read leads.
-    return [
-        sorted(
-            history,
-            key=lambda location: observed_instant(location.record.last_activity_at),
-            reverse=True,
-        )
-        for _identity, history in sorted(grouped.items())
-    ]
-
-
-def _freshest_sessions(
-    stores: Sequence[Path], lookup: ProcessLookup
-) -> list[SessionLocation]:
-    """Each live or unknown Agent Session placed by its freshest readable record.
-
-    Ended and gone records describe sessions that are over and are not
-    reported.
-    """
-    return [
-        history[0]
-        for history in session_histories(stores, lookup)
-        if history[0].record.outcome not in SESSION_OVER
-    ]
+        if identity.match(scanned.record.evidence) == "same"
+    )
+    return histories[0].placing.location if histories else None
 
 
 def sessions_at_worktree(
@@ -580,12 +749,13 @@ def sessions_at_worktree(
     stores: Sequence[Path],
     lookup: ProcessLookup = host_process_lookup,
 ) -> list[SessionLocation]:
-    """Every live or unknown Agent Session whose hooks last placed it at ``worktree``."""
+    """Every Agent Session whose freshest current record places it at ``worktree``."""
     target = worktree.resolve()
     return [
-        location
-        for location in _freshest_sessions(stores, lookup)
-        if same_path(location.worktree, target)
+        current.location
+        for history in session_histories(stores, lookup)
+        if (current := history.freshest_current) is not None
+        and same_path(current.record.worktree, target)
     ]
 
 
@@ -597,37 +767,24 @@ def sessions_with_live_subagents(
     """Every Agent Session in ``worktrees`` with a sub-agent listed as working.
 
     A sub-agent's hooks carry its session's location, never its own, so where
-    it works is unknown: it may be in any Worktree of the Repository. A
-    session that moved on from the Worktree it dispatched them from may
-    list them only in the record it left there, as when its move named no
-    Host Process to carry them by: every record of the session counts, and
-    the location reported is the freshest one's. A sub-agent's stop clears
-    it from each of those records (ADR 0102). A session is counted while it is
-    live or unknown, and once it has ended while an ended record still holds
-    the sub-agents it left working (ADR 0095); that record is the one
-    reported when it is the freshest. So is a session whose record is gone
-    while it lists a sub-agent another Host Process runs that is not gone
-    (ADR 0107).
+    it works is unknown: it may be in any Worktree of the Repository. Every
+    record of ``SessionHistory.subagent_listings`` counts, and the location
+    reported is the freshest one's: an ended record is the one reported when
+    it is the freshest (ADR 0095). A sub-agent's stop clears it from each of
+    those records (ADR 0102).
     """
     found: list[SessionLocation] = []
     for history in session_histories(stores, lookup):
-        running = history[0].record.outcome not in SESSION_OVER
-        current = [
-            location
-            for location in history
-            if location.record.retains_subagents
-            or location.record.retains_other_host_subagents
-            or (running and location.record.outcome not in SESSION_OVER)
-        ]
-        if not current:
+        listings = history.subagent_listings
+        if not listings:
             continue
-        freshest = current[0]
+        freshest = listings[0]
         working = sorted(
-            {agent for location in current for agent in location.record.live_subagents}
+            {agent for scanned in listings for agent in scanned.record.live_subagents}
         )
         placed = any(
-            same_path(location.worktree, one)
-            for location in current
+            same_path(scanned.record.worktree, one)
+            for scanned in listings
             for one in worktrees
         )
         if working and placed:

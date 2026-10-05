@@ -279,10 +279,13 @@ compare-and-replace, so a concurrent hook or command loses cleanly rather
 than duplicating a run.
 
 Observation ([`agents.py`](../src/dashpot/sessions/agents.py)) reads the same
-records and never writes beyond pruning: the freshest live or unknown record
-of a session places it, a run left at another Worktree is reported as
-`work-session-elsewhere`, and a pending Relocation Intent is diagnosed from the
-freshest record first. Liveness that cannot be observed stays unknown and never
+records and never writes beyond pruning. One `SessionHistory` per Agent
+Session Identity decides which record places a session, for observation,
+Cleanup, the `work` commands and claim validation alike: its freshest current
+record, one live or unknown that no fresher ended or gone record superseded,
+as one does unless the two name different Host Processes ([ADR 0134](adr/0134-place-a-session-by-its-freshest-current-hook-record.md)).
+A run left at another Worktree is reported as `work-session-elsewhere`, and a
+pending Relocation Intent is diagnosed from that record first. Liveness that cannot be observed stays unknown and never
 becomes gone. Classification
 ([`hook_scan.py`](../src/dashpot/sessions/hook_scan.py)) reads a record by its
 Host Process, with one shared rule beside it: a record whose process is live

@@ -18,6 +18,7 @@ from dashpot.sessions import hook_records, work_reconciliation
 from dashpot.sessions.agents import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import (
+    HookRecord,
     HookRecordStore,
     HookRecordWrite,
     session_directory,
@@ -359,7 +360,7 @@ def test_a_record_replaced_before_the_carry_locks_decides_for_itself(
     write = HookRecordStore.write
 
     def write_then_lose(
-        store: HookRecordStore, record: dict[str, Any], **options: Any
+        store: HookRecordStore, record: HookRecord, **options: Any
     ) -> HookRecordWrite:
         written = write(store, record, **options)
         written.path.unlink()
@@ -1168,6 +1169,57 @@ def test_a_sub_agent_dispatched_before_a_move_blocks_until_its_stop_clears_both_
     assert assess_worktree_occupancy(a, [a, b], mover.lookup) == []
 
 
+def test_the_running_record_a_claude_code_move_leaves_behind_places_nothing(
+    tmp_path: Path,
+) -> None:
+    # #519: #466's measured `mv` order (Claude Code 2.1.289, one Host
+    # Process). The turn that enters B began at A, so A's store keeps its
+    # `UserPromptSubmit` running; the session's `SessionEnd` carries A's cwd.
+    a, b = two_worktrees(tmp_path)
+    mover = MOVERS[1]
+    stores = reachable_hook_stores([a, b])
+    mover.publish(a, "SessionStart", source="startup")
+    mover.publish(a, "UserPromptSubmit")
+    mover.publish(a, "Stop")
+    mover.publish(a, "UserPromptSubmit")
+    mover.move(b)
+    mover.publish(b, "Stop")
+
+    def placed_at_b_alone() -> None:
+        # A's record is current but never the freshest current one, so
+        # nothing places the session by it or reads its state: the
+        # dashboard, Cleanup and placement see the session waiting at B.
+        runs, diagnostics = observe(a, b, lookup=mover.lookup)
+        assert [(run.observation_target, run.state) for run in runs] == [
+            (str(b), "waiting")
+        ]
+        assert diagnostics == []
+        assert sessions_at_worktree(a, stores, mover.lookup) == []
+        assert assess_worktree_occupancy(a, [a, b], mover.lookup) == []
+        location = locate_agent_session(
+            stores, mover.lookup, session_id=mover.session, harness=mover.harness
+        )
+        assert location is not None
+        assert (location.worktree, location.record.state) == (b, "waiting")
+
+    left = recorded(session_directory(a), mover.session)
+    assert (left["event"], left["state"]) == ("UserPromptSubmit", "running")
+    placed_at_b_alone()
+
+    mover.publish(b, "UserPromptSubmit")
+    mover.publish(b, "Stop")
+    assert recorded(session_directory(a), mover.session) == left
+    placed_at_b_alone()
+
+    mover.publish(a, "SessionEnd", reason="prompt_input_exit")
+
+    # The end at A removes the record there and the session's record at B.
+    assert stored(session_directory(a), mover.session) is None
+    assert stored(session_directory(b), mover.session) is None
+    assert observe(a, b, lookup=mover.lookup) == ([], [])
+    assert assess_worktree_occupancy(b, [a, b], mover.lookup) == []
+
+
 @movers
 def test_a_stop_clears_only_its_own_sub_agent_from_the_record_left_behind(
     tmp_path: Path, mover: Mover
@@ -1251,11 +1303,16 @@ def test_a_start_listed_again_after_a_stop_stays_where_the_stop_was_written(
     write = HookRecordStore.write
 
     def restarted(
-        store: HookRecordStore, record: dict[str, Any], **options: Any
+        store: HookRecordStore, record: HookRecord, **options: Any
     ) -> HookRecordWrite:
         written = write(store, record, **options)
-        if record.get("event") == "SubagentStop":
-            write(store, {**record, "event": "SubagentStart", "state": "running"})
+        if record.event == "SubagentStop":
+            write(
+                store,
+                record.model_copy(
+                    update={"event": "SubagentStart", "state": "running"}
+                ),
+            )
         return written
 
     monkeypatch.setattr(HookRecordStore, "write", restarted)
