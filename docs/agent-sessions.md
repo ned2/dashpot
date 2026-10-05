@@ -125,8 +125,9 @@ harness wording for ending its session.
 Cleanup never moves or ends a session itself; moving it as part of a confirmed
 removal is [#148](https://github.com/ned2/dashpot/issues/148). Each harness's
 way out is one entry in `SESSION_EXITS` in
-`src/dashpot/sessions/session_exits.py`. A harness without an entry is
-told to move the session out with its harness's own tool or end it.
+`src/dashpot/sessions/session_exits.py`, beside its resume command. A
+harness without an entry is told to move the session out with its harness's
+own tool or end it, and is offered no resume command.
 
 ### Sub-agents and Worktree Cleanup
 

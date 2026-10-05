@@ -525,9 +525,9 @@ def test_a_harness_without_a_resume_template_has_no_resume_command(
     orphaned = session("work:one", harness="codex", target_path="/w/it").model_copy(
         update={"session_id": "thread-1", "orphaned": True}
     )
+    assert session_exits.ANY_SESSION_EXIT.resume is None
     monkeypatch.delitem(session_exits.SESSION_EXITS, "codex")
 
-    assert session_exits.resume_template("codex") is None
     assert resume_command(orphaned) is None
 
 
