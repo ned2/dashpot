@@ -108,10 +108,11 @@ rules are in [AGENTS.md](../AGENTS.md#code-conventions).
 
 ## Repository mutations
 
-What changes a Repository runs only on explicit invocation and changes only
-what it names: a Remote Fetch, an Issue Worktree's creation, a Cleanup.
-Observation never calls these modules. The `work` commands, which change the
-Work Store, are under [Agent Sessions](#agent-sessions).
+The modules that change a Repository — a Remote Fetch, an Issue Worktree's
+creation, a Cleanup — and the checks a Cleanup runs before it. Each change runs
+only on explicit invocation and touches only what it names; observation never
+calls them. The `work` commands, which change the Work Store, are under
+[Agent Sessions](#agent-sessions).
 
 | Concept | Module | Role |
 | --- | --- | --- |
