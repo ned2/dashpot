@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-11
-amended-by: 0055-verify-the-query-context-in-the-response-that-carries-it.md, 0057-observe-project-totals-in-the-query-page-request.md
+amended-by: 0055-verify-the-query-context-in-the-response-that-carries-it.md, 0057-observe-project-totals-in-the-query-page-request.md, 0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md
 ---
 
 # Query pages and independent Issue resolution
@@ -14,6 +14,12 @@ response.
 Amended by [ADR 0057](0057-observe-project-totals-in-the-query-page-request.md):
 Project Totals are counted by the Query Page request rather than a count
 request of their own.
+
+Amended by [ADR 0139](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md)
+([#550](https://github.com/ned2/dashpot/issues/550)): a complete Issue
+collection completes Linked Pull Requests after its required pages, on the
+collection's Refresh Budget, and a failure degrades only that Issue's listed Linked
+Pull Requests rather than the collection.
 
 ## Context
 

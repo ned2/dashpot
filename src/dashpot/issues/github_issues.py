@@ -12,7 +12,7 @@ from typing import Any, override
 
 from ..core.commands import CommandRunner, run_command
 from ..core.issue_profile import IssueProfile, IssueProfileError, conform_issue
-from ..core.model import IssueActivity, LinkedPullRequest, OpenBlocker
+from ..core.model import Diagnostic, IssueActivity, LinkedPullRequest, OpenBlocker
 from ..github.github import (
     DEFAULT_REFRESH_BUDGET,
     MALFORMED_RESPONSE,
@@ -132,11 +132,15 @@ _PROFILE_CODE = "github-profile"
 
 @dataclass(frozen=True, slots=True)
 class _ObservedIssue:
-    """One Issue as last observed, with what is presented beside it."""
+    """One Issue as last observed, with what is presented beside it.
+
+    ``record`` is the GraphQL node with its required connections complete;
+    its Linked Pull Requests are still only the first page.
+    """
 
     issue: IssueProfile
     updated_at: str
-    activity: IssueActivity
+    record: dict[str, Any]
     label_colors: Mapping[str, str]
 
 
@@ -248,8 +252,12 @@ class GitHubIssuesSource(IssueSource):
     def _observe_record(
         self, record: Mapping[str, Any], meter: RefreshMeter
     ) -> _ObservedIssue:
+        """Observe one Issue, completing only the connections its profile needs.
+
+        Linked Pull Requests are presentation only, so they are left to
+        ``_display_activity``, which a resolution never pays for.
+        """
         complete = self.complete_nested_connections(record, meter)
-        complete = self.complete_linked_pull_requests(complete, meter)
         issue = normalize_github_issue(
             complete, project_id=self.project_id, repository_id=self.repository_id
         )
@@ -258,9 +266,34 @@ class GitHubIssuesSource(IssueSource):
             updated_at=_fetched_string(
                 complete, "updatedAt", "issue", MALFORMED_RESPONSE
             ),
-            activity=issue_activity(complete),
+            record=complete,
             label_colors=label_colors(complete),
         )
+
+    def _display_activity(
+        self, entry: _ObservedIssue, meter: RefreshMeter
+    ) -> tuple[IssueActivity, str | None]:
+        """Read one Issue's engagement, and why its Linked Pull Requests are unlisted.
+
+        A completion that fails degrades only this Issue (ADR 0033): its
+        comment count stays, and every Linked Pull Request is counted as
+        unlisted, since the first page cannot say which are the declared
+        lowest-numbered twenty.
+        """
+        try:
+            complete = self.complete_linked_pull_requests(entry.record, meter)
+        except (GitHubRequestError, IssueSourceRefreshError) as exc:
+            first_page = graphql_issue_activity(entry.record)
+            return first_page.model_copy(
+                update={
+                    "linked_pull_requests": (),
+                    "unlisted_pull_request_count": (
+                        len(first_page.linked_pull_requests)
+                        + first_page.unlisted_pull_request_count
+                    ),
+                }
+            ), str(exc)
+        return graphql_issue_activity(complete), None
 
     def complete_nested_connections(
         self, record: Mapping[str, Any], meter: RefreshMeter
@@ -291,7 +324,12 @@ class GitHubIssuesSource(IssueSource):
     def complete_linked_pull_requests(
         self, record: Mapping[str, Any], meter: RefreshMeter
     ) -> dict[str, Any]:
-        """Complete Linked Pull Requests while keeping engagement best-effort."""
+        """Complete an Issue node's Linked Pull Requests for display.
+
+        A first page too malformed to continue is returned as it is, since
+        engagement is read leniently; a continuation that fails raises, and
+        the caller decides what that failure degrades.
+        """
         complete = copy.deepcopy(dict(record))
         issue_id = _fetched_string(complete, "id", "issue", MALFORMED_RESPONSE)
         connection = complete.get("closedByPullRequestsReferences")
@@ -394,7 +432,12 @@ class GitHubIssuesSource(IssueSource):
 
     @override
     def _collect(self) -> CollectedIssues:
-        """Enumerate one complete Issue collection under a single Refresh Budget."""
+        """Enumerate one complete Issue collection under a single Refresh Budget.
+
+        Linked Pull Requests are completed after every Issue is observed, so
+        their display work cannot spend the budget the collection needs, and
+        a failure to complete one Issue's degrades only that Issue.
+        """
         meter = self._start_meter()
         cursor: str | None = None
         trail = CursorTrail("Issue collection")
@@ -421,14 +464,47 @@ class GitHubIssuesSource(IssueSource):
         except GitHubRequestError as exc:
             raise IssueSourceRefreshError(exc.code, str(exc)) from exc
         entries.sort(key=lambda entry: entry.issue.number)
+        activity: dict[str, IssueActivity] = {}
+        unlisted: list[tuple[int, str]] = []
+        for entry in entries:
+            activity[entry.issue.id], failure = self._display_activity(entry, meter)
+            if failure is not None:
+                unlisted.append((entry.issue.number, failure))
         colors: dict[str, str] = {}
         for entry in sorted(entries, key=lambda entry: entry.updated_at):
             colors.update(entry.label_colors)
         return CollectedIssues(
             issues=tuple(entry.issue for entry in entries),
             label_colors=colors,
-            issue_activity={entry.issue.id: entry.activity for entry in entries},
-            diagnostics=rate_limit_diagnostics(self.gateway.rate_limit, self.name),
+            issue_activity=activity,
+            diagnostics=(
+                *self._unlisted_diagnostics(unlisted),
+                *rate_limit_diagnostics(self.gateway.rate_limit, self.name),
+            ),
+        )
+
+    def _unlisted_diagnostics(
+        self, unlisted: Sequence[tuple[int, str]]
+    ) -> tuple[Diagnostic, ...]:
+        """Warn once for the Issues whose Linked Pull Requests went unlisted."""
+        if not unlisted:
+            return ()
+        number, failure = unlisted[0]
+        issues = (
+            f"Issue #{number}"
+            if len(unlisted) == 1
+            else f"{len(unlisted)} Issues, first #{number}"
+        )
+        return (
+            Diagnostic(
+                source=self.name,
+                severity="warning",
+                code="github-linked-pull-requests",
+                message=(
+                    f"Linked Pull Requests are counted but not listed for "
+                    f"{issues}: {failure}"
+                ),
+            ),
         )
 
 
@@ -613,7 +689,7 @@ def open_blockers(record: Mapping[str, Any]) -> tuple[OpenBlocker, ...]:
     return tuple(blockers)
 
 
-def issue_activity(record: Mapping[str, Any]) -> IssueActivity:
+def graphql_issue_activity(record: Mapping[str, Any]) -> IssueActivity:
     """Read comment count and linked pull requests from a GraphQL Issue node.
 
     Engagement is presentation only, so anything missing or malformed reads

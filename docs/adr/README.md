@@ -48,7 +48,7 @@ of date.
 | 0030 | [Combine startup evidence with mandatory reads](0030-combine-startup-evidence-with-mandatory-reads.md) | superseded | [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0031 | [Observe complete Pull Request lifecycle history](0031-observe-complete-pull-request-lifecycle-history.md) | amended | [0032](0032-submit-pull-request-queries-to-github-advanced-search.md), [0033](0033-query-pages-and-independent-issue-resolution.md) |
 | 0032 | [Submit Pull Request queries to GitHub advanced search](0032-submit-pull-request-queries-to-github-advanced-search.md) | amended | [0033](0033-query-pages-and-independent-issue-resolution.md) |
-| 0033 | [Query pages and independent Issue resolution](0033-query-pages-and-independent-issue-resolution.md) | amended | [0055](0055-verify-the-query-context-in-the-response-that-carries-it.md), [0057](0057-observe-project-totals-in-the-query-page-request.md) |
+| 0033 | [Query pages and independent Issue resolution](0033-query-pages-and-independent-issue-resolution.md) | amended | [0055](0055-verify-the-query-context-in-the-response-that-carries-it.md), [0057](0057-observe-project-totals-in-the-query-page-request.md), [0139](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md) |
 | 0034 | [Publish an alpha with patch-compatible interfaces](0034-publish-an-alpha-with-patch-compatible-interfaces.md) | amended | [0105](0105-raise-the-python-floor-to-3-13.md) |
 | 0035 | [Open Worktrees on explicit key press](0035-open-worktrees-on-explicit-key-press.md) | accepted | — |
 | 0036 | [Keep Cleanup subjects fixed and fetch inside their previews](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md) | amended | [0054](0054-finish-a-worktree-with-its-branch-by-default.md) |
@@ -58,7 +58,7 @@ of date.
 | 0040 | [Summarize integration across a Branch row's refs](0040-summarize-integration-across-a-branch-rows-refs.md) | amended | [0050](0050-describe-every-pane-column-once-for-the-tooltip-and-the-legend.md) |
 | 0041 | [Distinguish GitHub wire models from configuration](0041-distinguish-github-wire-models-from-configuration.md) | accepted | — |
 | 0042 | [Group leaf and domain modules into subpackages](0042-group-leaf-and-domain-modules-into-subpackages.md) | accepted | — |
-| 0043 | [Retain distinct query and collection adapters](0043-retain-distinct-query-and-collection-adapters.md) | accepted | — |
+| 0043 | [Retain distinct query and collection adapters](0043-retain-distinct-query-and-collection-adapters.md) | amended | [0139](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md) |
 | 0044 | [Integrate pull requests through a merge queue](0044-integrate-pull-requests-through-a-merge-queue.md) | amended | [0045](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md), [0089](0089-leave-the-pr-merge-to-the-operator.md) |
 | 0045 | [Drop the up-to-date rule where a merge queue is unavailable](0045-drop-the-up-to-date-rule-where-a-merge-queue-is-unavailable.md) | amended | [0089](0089-leave-the-pr-merge-to-the-operator.md) |
 | 0046 | [Raise every refusal as a DashpotError subclass](0046-raise-every-refusal-as-a-dashpoterror-subclass.md) | accepted | — |
@@ -122,3 +122,4 @@ of date.
 | 0130 | [Write integrate's configuration where each harness reads it, and finish `--remove` past a failed step](0130-write-integrates-configuration-where-each-harness-reads-it.md) | accepted | — |
 | 0131 | [Judge Session Liveness in the recorded PID namespace](0131-judge-session-liveness-in-the-recorded-pid-namespace.md) | accepted | — |
 | 0132 | [Refuse a session's end only on another named Host Process](0132-refuse-a-session-end-only-on-another-named-host-process.md) | accepted | — |
+| 0139 | [Share the Local Issue reader and contain Linked Pull Request completion](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md) | accepted | — |

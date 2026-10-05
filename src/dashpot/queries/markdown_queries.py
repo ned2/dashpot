@@ -10,10 +10,7 @@ from typing import override
 from ..core.issue_profile import IssueProfile
 from ..core.model import Diagnostic, ProjectObservation
 from ..issues.lifecycle import collection_open_blockers, in_lifecycle
-from ..issues.local_markdown_issues import (
-    LocalMarkdownIssuesSource,
-    parse_local_markdown_issue,
-)
+from ..issues.local_markdown_issues import LocalMarkdownIssuesSource
 from ..issues.ordering import is_issue_sort_column, sort_issues
 from ..issues.search import IssueSearchField, matches_issue_search, parse_search
 from ..project.project_config import (
@@ -55,7 +52,7 @@ class MarkdownQuerySource(CachedQuerySource):
         self.config = config
         self.path = (self.root / config.issue_source.path).resolve()
         self.records: tuple[IssueProfile, ...] = ()
-        self.export_source = LocalMarkdownIssuesSource(
+        self.issue_source = LocalMarkdownIssuesSource(
             self.root,
             project_id=config.project_id,
             issues_path=Path(config.issue_source.path),
@@ -118,38 +115,18 @@ class MarkdownQuerySource(CachedQuerySource):
 
     @override
     def request_context(self) -> SourceContext:
-        """Read paths and contents once for both revision and complete Profiles."""
-        if not self.path.is_relative_to(self.root) or not self.path.exists():
-            raise ValueError(
-                "Configured Local Issue path is unavailable or outside the Repository Anchor"
-            )
-        paths = (
-            sorted(self.path.rglob("*.md"), key=lambda path: path.as_posix())
-            if self.path.is_dir()
-            else [self.path]
-        )
+        """Read the documents once for both the revision and complete Profiles.
+
+        The Issue Source reads them, so a refused collection fails here
+        with the same Diagnostic code an export reports for it.
+        """
+        documents = self.issue_source.read_documents()
         digest = hashlib.sha256()
-        records: list[IssueProfile] = []
-        for path in paths:
-            if not path.resolve().is_relative_to(self.root):
-                raise ValueError("Local Issue path is outside the Repository Anchor")
-            relative = path.relative_to(self.root).as_posix()
-            content = path.read_bytes()
-            for part in (relative.encode(), content):
+        for document in documents:
+            for part in (document.path.encode(), document.content):
                 digest.update(len(part).to_bytes(8, "big"))
                 digest.update(part)
-            records.append(
-                parse_local_markdown_issue(
-                    content.decode("utf-8"),
-                    project_id=self.config.project_id,
-                    path=relative,
-                )
-            )
-        if len({issue.id for issue in records}) != len(records) or len(
-            {issue.number for issue in records}
-        ) != len(records):
-            raise ValueError("Local Issue collection repeats an identity or number")
-        self.records = tuple(records)
+        self.records = tuple(document.issue for document in documents)
         return self.context.model_copy(
             update={
                 "revision": digest.hexdigest(),
@@ -300,7 +277,7 @@ class MarkdownQuerySource(CachedQuerySource):
                 last_good_at=None,
                 diagnostics=(PULL_REQUESTS_NOT_CONFIGURED,),
             )
-        observation = self.export_source.refresh()
+        observation = self.issue_source.refresh()
         return SourceEnumeration(
             context=self.context,
             kind=kind,

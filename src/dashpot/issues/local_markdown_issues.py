@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, override
 
@@ -91,7 +92,7 @@ class LocalMarkdownIssuesSource(IssueSource):
             if not resolved.is_relative_to(directory) or not candidate.is_file():
                 return super().find(hint)
             relative_path = resolved.relative_to(root).as_posix()
-            text = candidate.read_text(encoding="utf-8")
+            text = candidate.read_bytes().decode("utf-8")
         except (OSError, ValueError):
             return super().find(hint)
         try:
@@ -104,60 +105,108 @@ class LocalMarkdownIssuesSource(IssueSource):
             return super().find(hint)
         return issue
 
+    def read_documents(self) -> tuple[LocalIssueDocument, ...]:
+        """Read the complete collection's documents, refusing what a refresh refuses.
+
+        A consumer that needs the documents themselves, such as a revision
+        digest over their bytes, reads them here, under the same rules and
+        Diagnostic codes as ``refresh``.
+        """
+        documents = read_local_issue_documents(
+            self.root, self.issues_path, project_id=self.project_id
+        )
+        self._check_collection_invariants(_collected(documents))
+        return documents
+
     @override
     def _collect(self) -> CollectedIssues:
-        try:
-            root = self.root.resolve()
-            path = (root / self.issues_path).resolve()
-            if not path.is_relative_to(root):
+        return _collected(
+            read_local_issue_documents(
+                self.root, self.issues_path, project_id=self.project_id
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LocalIssueDocument:
+    """One Local Issue document as read: its path, its bytes, and its Issue.
+
+    ``path`` is repository-relative POSIX text, and ``content`` is exactly
+    the bytes the Issue was parsed from.
+    """
+
+    path: str
+    content: bytes
+    issue: IssueProfile
+
+
+def read_local_issue_documents(
+    root: Path, issues_path: Path, *, project_id: str
+) -> tuple[LocalIssueDocument, ...]:
+    """Read and parse every Local Issue document a configured path names.
+
+    The configured path and every discovered document must resolve inside
+    the Repository Anchor ``root``; a directory's ``*.md`` documents are read
+    in repository-relative POSIX path order. Every failure is an
+    ``IssueSourceRefreshError`` with its ``markdown-*`` code. The collection
+    invariants are the caller's: ``LocalMarkdownIssuesSource`` checks them.
+    """
+    try:
+        anchor = root.resolve()
+        path = (anchor / issues_path).resolve()
+        if not path.is_relative_to(anchor):
+            raise IssueSourceRefreshError(
+                "markdown-path",
+                "Configured Local Issue path must stay inside the Repository Anchor",
+            )
+        if not path.exists():
+            raise IssueSourceRefreshError(
+                "markdown-not-found",
+                f"Configured Local Issue path does not exist: {issues_path}",
+            )
+        # The contract orders documents by repository-relative POSIX path;
+        # sorting Paths compares their parts, which puts "a/b.md" before
+        # "a-b.md" though "/" sorts after "-" as text.
+        paths = (
+            sorted(path.rglob("*.md"), key=lambda found: found.as_posix())
+            if path.is_dir()
+            else [path]
+        )
+        documents: list[LocalIssueDocument] = []
+        for document_path in paths:
+            if not document_path.resolve().is_relative_to(anchor):
                 raise IssueSourceRefreshError(
                     "markdown-path",
-                    "Configured Local Issue path must stay inside the "
-                    "Repository Anchor",
+                    "Local Issue files must stay inside the Repository Anchor",
                 )
-            if not path.exists():
-                raise IssueSourceRefreshError(
-                    "markdown-not-found",
-                    f"Configured Local Issue path does not exist: {self.issues_path}",
+            relative_path = document_path.relative_to(anchor).as_posix()
+            content = document_path.read_bytes()
+            try:
+                issue = parse_local_markdown_issue(
+                    content.decode("utf-8"),
+                    project_id=project_id,
+                    path=relative_path,
                 )
-            # The contract orders documents by repository-relative POSIX path;
-            # sorting Paths compares their parts, which puts "a/b.md" before
-            # "a-b.md" though "/" sorts after "-" as text.
-            paths = (
-                sorted(path.rglob("*.md"), key=lambda found: found.as_posix())
-                if path.is_dir()
-                else [path]
-            )
-            issues: list[IssueProfile] = []
-            for issue_path in paths:
-                if not issue_path.resolve().is_relative_to(root):
-                    raise IssueSourceRefreshError(
-                        "markdown-path",
-                        "Local Issue files must stay inside the Repository Anchor",
-                    )
-                relative_path = issue_path.relative_to(root).as_posix()
-                try:
-                    issue = parse_local_markdown_issue(
-                        issue_path.read_text(encoding="utf-8"),
-                        project_id=self.project_id,
-                        path=relative_path,
-                    )
-                except LocalMarkdownIssueError as exc:
-                    raise LocalMarkdownIssueError(
-                        f"{relative_path}: {exc}", code=exc.code
-                    ) from exc
-                issues.append(issue)
-        except LocalMarkdownIssueError as exc:
-            raise IssueSourceRefreshError(exc.code, str(exc)) from exc
-        except PermissionError as exc:
-            raise IssueSourceRefreshError("markdown-permission", str(exc)) from exc
-        except UnicodeError as exc:
-            raise IssueSourceRefreshError("markdown-malformed", str(exc)) from exc
-        except FileNotFoundError as exc:
-            raise IssueSourceRefreshError("markdown-not-found", str(exc)) from exc
-        except OSError as exc:
-            raise IssueSourceRefreshError("markdown-io", str(exc)) from exc
-        return CollectedIssues(tuple(issues))
+            except LocalMarkdownIssueError as exc:
+                raise LocalMarkdownIssueError(
+                    f"{relative_path}: {exc}", code=exc.code
+                ) from exc
+            documents.append(LocalIssueDocument(relative_path, content, issue))
+    except LocalMarkdownIssueError as exc:
+        raise IssueSourceRefreshError(exc.code, str(exc)) from exc
+    except PermissionError as exc:
+        raise IssueSourceRefreshError("markdown-permission", str(exc)) from exc
+    except UnicodeError as exc:
+        raise IssueSourceRefreshError("markdown-malformed", str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise IssueSourceRefreshError("markdown-not-found", str(exc)) from exc
+    except OSError as exc:
+        raise IssueSourceRefreshError("markdown-io", str(exc)) from exc
+    return tuple(documents)
+
+
+def _collected(documents: tuple[LocalIssueDocument, ...]) -> CollectedIssues:
+    return CollectedIssues(tuple(document.issue for document in documents))
 
 
 def parse_local_markdown_issue(

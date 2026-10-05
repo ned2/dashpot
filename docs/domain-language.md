@@ -67,7 +67,10 @@ Issue's engagement facts rather than in its profile. The first twenty are
 listed in Pull Request Number order and the count of any beyond them is shown
 beside the list. Targeted and page observations deliberately complete the display
 subset independently of required Issue Profile relationships; missing auxiliary
-observations remain unavailable rather than known empty.
+observations remain unavailable rather than known empty. A complete Issue
+collection that cannot complete one Issue's connection counts all of that
+Issue's Linked Pull Requests as unlisted and warns, rather than failing the
+collection ([ADR 0139](adr/0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md)).
 _Avoid_: using this Issue relationship as the repository-wide Pull Request
 observation
 
@@ -245,7 +248,8 @@ configuration or identity.
 One line an observation reports beside its data: its source, a stable code, a
 severity, and a message a person can act on. A failed refresh reports one
 Diagnostic and retains the last good result; a complete refresh may still
-carry a warning (a rate limit running low). A Query Source may also report
+carry a warning (a rate limit running low, or Linked Pull Requests it
+could only count). A Query Source may also report
 Diagnostics about itself rather than any one observation: a GitHub source
 warns with `github-rate-limit-low` from the most recent rate limit reading
 any of the dashboard's queries received
@@ -258,7 +262,8 @@ family — a GitHub Issue Source reports `github-authentication`,
 `github-rate-limit`, `github-rate-limit-low`, `github-rate-limit-paused`,
 `github-unattended-paused`, `github-refresh-budget`,
 `github-timeout`, `github-network`, `github-pagination`,
-`github-malformed-response` and `github-profile` — and
+`github-malformed-response`, `github-profile` and
+`github-linked-pull-requests` — and
 are read from the tracker's structured signals before its prose. A Project
 whose Issue Source is Local Markdown reports `pull-requests-not-configured`
 rather than inferring GitHub hosting from a Git remote
