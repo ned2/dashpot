@@ -15,7 +15,7 @@ from ..core.command_outcomes import OutcomeNote
 from ..core.timestamps import utc_now
 from ..core.worktree_paths import repository_worktrees, same_path, worktree_root
 from ..issues.issue_resolution import resolve_issue
-from .agents import WorkerEvidence
+from .agent_runs import WorkerEvidence
 from .harnesses import SESSION_ID, adapter
 from .processes import ProcessLookup, host_process_lookup
 from .session_identity import AgentSessionIdentity, IssueWorkError, enclosing_session

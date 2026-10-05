@@ -16,7 +16,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.observation.issue_list import row_key
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore

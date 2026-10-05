@@ -45,7 +45,7 @@ from ..repository.repository import (
     observe_observation_targets,
 )
 from ..sessions.agent_bindings import bind_issue_runs
-from ..sessions.agents import observe_agent_runs
+from ..sessions.agent_runs import observe_agent_runs
 from ..sessions.processes import lock_holder_probe
 from .keys import AGENT_RUNS_KEY, ObservationKey, ObservationOutcome, ObservationTicket
 from .observation_store import StoreChange, WorkspaceObservationStore

@@ -10,7 +10,7 @@ from typing import NoReturn, override
 from unittest import mock
 
 from dashpot.core.model import Harness, ObservationTarget
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.processes import (
     ProcessIdentity,

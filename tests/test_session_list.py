@@ -29,7 +29,7 @@ from dashpot.observation.session_list import (
     resume_command,
     shows_target,
 )
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore

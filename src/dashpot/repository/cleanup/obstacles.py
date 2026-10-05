@@ -20,7 +20,7 @@ from ...sessions.hook_scan import (
     stored_session_records,
 )
 from ...sessions.liveness import LivenessProbe
-from ...sessions.opencode_publishers import NO_LIVE_INSTANCE
+from ...sessions.opencode_publisher_records import NO_LIVE_INSTANCE
 from ...sessions.orphaned_runs import orphaned_process
 from ...sessions.processes import (
     ProcessLookup,

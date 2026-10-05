@@ -34,7 +34,7 @@ def main() -> None:
     )
     from dashpot.observation.collect import create_project_collector
     from dashpot.project.workspace import ResolvedProject
-    from dashpot.sessions.agents import observe_agent_runs
+    from dashpot.sessions.agent_runs import observe_agent_runs
     from dashpot.sessions.hook_records import HookRecord, project_session_store
     from dashpot.sessions.processes import ProcessPresent, host_process_lookup
 

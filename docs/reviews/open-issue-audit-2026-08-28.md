@@ -56,7 +56,7 @@ Workspaces only as secondary composition
 - discovers that filename in no-argument CLI startup and exposes a global
   `--state-dir` override ([cli/observe.py](../../src/dashpot/cli/observe.py));
 - publishes all Codex records to a platform-global application-state directory
-  by default ([agents.py](../../src/dashpot/sessions/agents.py));
+  by default ([agent_runs.py](../../src/dashpot/sessions/agent_runs.py));
 - documents both old locations ([README.md](../../README.md)); and
 - does not ignore `.dashpot/state/` ([.gitignore](../../.gitignore)).
 
@@ -64,7 +64,7 @@ The current `AgentRun` also represents a whole observed Codex session and stores
 its Issue binding directly ([model.py](../../src/dashpot/core/model.py)). The publisher
 copies `DASHPOT_ISSUE_ID` or `DASHPOT_ISSUE_REF` from the environment when the
 hook event is emitted; once identity is present, `HookRecordStore` rejects a
-different binding ([agents.py](../../src/dashpot/sessions/agents.py)). That supports binding
+different binding ([agent_runs.py](../../src/dashpot/sessions/agent_runs.py)). That supports binding
 at process launch and durable hint promotion, but it cannot represent one
 already-running session starting work, switching Issues, or ending Issue work
 without ending the underlying session.
@@ -170,7 +170,7 @@ lifecycle adapter contracts, while sharing the same Dashpot-owned store.
 
 No current open or closed Issue mentions Claude Code; current source, examples,
 entry points, README, and #3 are Codex-specific
-([agents.py](../../src/dashpot/sessions/agents.py),
+([agent_runs.py](../../src/dashpot/sessions/agent_runs.py),
 [hook.py](../../src/dashpot/hook.py),
 [examples/codex-hooks.json](../../examples/codex-hooks.json),
 [pyproject.toml](../../pyproject.toml),

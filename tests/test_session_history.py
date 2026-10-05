@@ -9,7 +9,7 @@ import pytest
 
 from dashpot.core.model import AgentRun
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
-from dashpot.sessions.agents import WorkerEvidence, observe_agent_runs
+from dashpot.sessions.agent_runs import WorkerEvidence, observe_agent_runs
 from dashpot.sessions.hook_records import (
     HookRecordStore,
     session_directory,

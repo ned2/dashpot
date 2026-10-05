@@ -25,7 +25,7 @@ from dashpot import hook
 from dashpot.core.event_log import EventLogDestination
 from dashpot.core.model import AgentRun, Harness
 from dashpot.event_logs import LEVEL_VARIABLE, route_event_log
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.deferred_end import (
     POLL_SECONDS,
     SETTLE_SECONDS,

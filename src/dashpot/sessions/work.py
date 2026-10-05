@@ -34,7 +34,7 @@ from ..core.model import (
 from ..core.timestamps import utc_now
 from ..core.worktree_paths import repository_worktrees, same_path, worktree_root
 from ..issues.issue_resolution import resolve_issue
-from .agents import (
+from .agent_runs import (
     NO_WORKER_EVIDENCE,
     WorkerEvidence,
     assigned_workers,

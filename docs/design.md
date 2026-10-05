@@ -283,7 +283,7 @@ depends on under their locks and moves a run only through the Work Store's
 compare-and-replace, so a concurrent hook or command loses cleanly rather
 than duplicating a run.
 
-Observation ([`agents.py`](../src/dashpot/sessions/agents.py)) reads the same
+Observation ([`agent_runs.py`](../src/dashpot/sessions/agent_runs.py)) reads the same
 records and never writes beyond pruning. One `SessionHistory` per Agent
 Session Identity decides which record places a session, for observation,
 Cleanup, the `work` commands and claim validation alike: its freshest current

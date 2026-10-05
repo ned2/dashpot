@@ -27,7 +27,7 @@ from dashpot.core.event_log import EventLogDestination
 from dashpot.core.model import Diagnostic
 from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_records import (
     HookRecord,
     project_session_store,
@@ -44,7 +44,7 @@ from dashpot.sessions.opencode_publish import (
     parse_request,
     publish_opencode,
 )
-from dashpot.sessions.opencode_publishers import PublisherStore
+from dashpot.sessions.opencode_publisher_records import PublisherStore
 from dashpot.sessions.processes import (
     ProcessAbsent,
     ProcessIdentity,

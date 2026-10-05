@@ -26,7 +26,7 @@ import pytest
 from dashpot.core.model import AgentRun, Diagnostic
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions import processes
-from dashpot.sessions.agents import locate_observation_target, observe_agent_runs
+from dashpot.sessions.agent_runs import locate_observation_target, observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecord,

@@ -34,7 +34,7 @@ from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.observation.issue_list import IssueListRow, row_key
 from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.queries.pages import QueryRequest
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessLookup

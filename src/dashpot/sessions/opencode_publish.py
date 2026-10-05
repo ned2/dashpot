@@ -43,7 +43,7 @@ from .harnesses import HookSessionIdentity
 from .hook_publish import HookPublication, publish_hook_event
 from .hook_records import HookRecord, HookRecordStore, session_directory
 from .hook_scan import stored_session_records
-from .opencode_publishers import (
+from .opencode_publisher_records import (
     NO_LIVE_INSTANCE,
     PUBLISHER_KEY,
     PublisherGeneration,

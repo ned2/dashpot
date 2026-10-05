@@ -68,7 +68,7 @@ whose Claude Code, Codex and OpenCode runs have all reported. One marked _infere
   [#478](https://github.com/ned2/dashpot/issues/478)).
 - **What the read model lacks.** No `AgentRun` field counts the live
   Sub-agents that hold no Worker Assignment. Only the hook observations
-  ([`agents.py`](../../src/dashpot/sessions/agents.py),
+  ([`agent_runs.py`](../../src/dashpot/sessions/agent_runs.py),
   [`hook_scan.py`](../../src/dashpot/sessions/hook_scan.py)), `work show`
   and Cleanup
   ([`obstacles.py`](../../src/dashpot/repository/cleanup/obstacles.py)) see

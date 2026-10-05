@@ -17,7 +17,7 @@ import pytest
 from dashpot import hook
 from dashpot.core.event_log import EventLogDestination
 from dashpot.event_logs import LEVEL_VARIABLE
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessIdentity, ProcessLookup

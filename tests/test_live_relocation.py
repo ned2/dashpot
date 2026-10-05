@@ -15,7 +15,7 @@ from dashpot.core.git import GitError
 from dashpot.core.model import Harness
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
 from dashpot.sessions import hook_records, work_reconciliation
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecord,
