@@ -49,8 +49,9 @@ buffer, which keeps every level whatever the Event Level records.
   time is on, so it adds the clock's UTC offset: `github-rate-limit-paused`
   and the refusal held by a Rate Limit Pause name when queries resume as
   `23:00:00 +10:00`, and `github-rate-limit-low` names the reset GitHub
-  reported the same way. Every such time lies within an hour of the
-  message, so the time of day and its offset place it without a date.
+  reported the same way. These give no date: a pause ends within the hour
+  after it starts, and a fresh reading's reset lies within the hour after
+  the reading.
 
 ### Tabs inside a temporary screen
 

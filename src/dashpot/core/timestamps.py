@@ -1,4 +1,4 @@
-"""Stamp and read the RFC 3339 UTC instants Dashpot records and observes.
+"""Stamp and read the RFC 3339 UTC instants Dashpot records, and show them on the local clock.
 
 Dashpot stores and compares instants in UTC, and shows them to a person on
 the local clock (ADR 0098).
@@ -45,7 +45,7 @@ def local_clock_text(instant: datetime) -> str:
     return f"{instant.astimezone():%H:%M:%S}"
 
 
-def local_offset_text(instant: datetime) -> str:
+def local_clock_with_offset_text(instant: datetime) -> str:
     """An instant on the local clock, to the second, with the clock's UTC offset.
 
     For text that also reaches headless output, such as a ``--json``

@@ -150,7 +150,7 @@ def no_host_processes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def local_clock_ten_hours_ahead() -> Iterator[None]:
-    """Set the local clock ten hours ahead of UTC, so a UTC time on screen shows."""
+    """Set the local clock ten hours ahead of UTC, so a time shown in UTC stands out."""
     before = os.environ.get("TZ")
     os.environ["TZ"] = "<+10>-10"
     time.tzset()

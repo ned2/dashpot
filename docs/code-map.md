@@ -261,6 +261,6 @@ holds the design they implement.
 | | [`core/file_locks.py`](../src/dashpot/core/file_locks.py) | Per-record lock files a pruner may delete without breaking exclusion. |
 | Errors | [`core/errors.py`](../src/dashpot/core/errors.py) | The CLI error contract: `DashpotError`, the one-line refusal every seam's error derives from. |
 | Working directory | [`core/working_directory.py`](../src/dashpot/core/working_directory.py) | Reads a command's working directory, refusing once it no longer exists. |
-| Time and wording | [`core/timestamps.py`](../src/dashpot/core/timestamps.py) | Stamps and reads the RFC 3339 UTC instants Dashpot records and observes. |
+| Time and wording | [`core/timestamps.py`](../src/dashpot/core/timestamps.py) | Stamps and reads the RFC 3339 UTC instants Dashpot records, and shows them on the local clock. |
 | | [`core/ages.py`](../src/dashpot/core/ages.py) | Says how long ago an observed timestamp was. |
 | | [`core/text.py`](../src/dashpot/core/text.py) | Words the English a person reads the same way on every surface. |

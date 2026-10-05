@@ -7,7 +7,7 @@ import pytest
 
 from dashpot.core.timestamps import (
     local_clock_text,
-    local_offset_text,
+    local_clock_with_offset_text,
     observed_instant,
     reported_instant,
     utc_now,
@@ -59,4 +59,4 @@ def test_an_instant_is_shown_on_the_local_clock() -> None:
 
     assert local_clock_text(instant) == "23:00:05"
     # Text read away from the dashboard names the clock by its offset.
-    assert local_offset_text(instant) == "23:00:05 +10:00"
+    assert local_clock_with_offset_text(instant) == "23:00:05 +10:00"

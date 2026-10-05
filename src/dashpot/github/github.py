@@ -31,7 +31,7 @@ from ..core.runtime_events import (
     span_attributes,
 )
 from ..core.timestamps import (
-    local_offset_text,
+    local_clock_with_offset_text,
     observed_instant,
     reported_instant,
     utc_stamp,
@@ -113,7 +113,7 @@ class RateLimit:
         than a time Dashpot cannot vouch for.
         """
         reset = reported_instant(self.reset_at)
-        return self.reset_at if reset is None else local_offset_text(reset)
+        return self.reset_at if reset is None else local_clock_with_offset_text(reset)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +134,7 @@ class RateLimitPause:
 
         It reaches headless output too, where no dashboard names the clock.
         """
-        return local_offset_text(self.until)
+        return local_clock_with_offset_text(self.until)
 
     @property
     def limit_text(self) -> str:
