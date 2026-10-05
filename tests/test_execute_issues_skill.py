@@ -402,6 +402,57 @@ def test_close_out_waits_for_another_sessions_sub_agents() -> None:
     assert "each Worktree the user removed despite listed sub-agents" in record
 
 
+def test_close_out_omits_a_remote_deletion_the_remote_already_made() -> None:
+    close_out = section(shipped("SKILL.md"), "5. Close out")
+    assert (
+        "Pass `--delete-remote-branch` only when the Branch's Remote-Tracking "
+        "Branch is still there after the fetch "
+        "(`git rev-parse -q --verify refs/remotes/<remote>/<branch>`)"
+    ) in close_out
+    assert "before you launch any further sub-agent of your own" in close_out
+    # The hooks check holds whether the repository tracks its hooks or
+    # installs them into the shared Git directory.
+    assert "points `core.hooksPath` at hooks it tracks" in close_out
+    assert "still name the main checkout's environment" in close_out
+
+
+def test_measuring_stacked_and_waiting_workers_are_briefed() -> None:
+    brief = " ".join(shipped("references/brief-template.md").split())
+    assert "`{BASE}` is a full commit SHA, never a ref name or prose" in brief
+    assert "- Branch: {BRANCH}, based on {BASE_ON} at {BASE}." in brief
+    assert (
+        "A review fix or a conflict resolution that touches one of them "
+        "invalidates it: record it again before you hand back."
+    ) in brief
+    assert (
+        "for recorded evidence, that the repository's check of it passes at "
+        "the PR head, or which sources differ and why;"
+    ) in brief
+    assert (
+        "Then hand back once, with your head SHA and what you are waiting for, "
+        "and end your turn"
+    ) in brief
+    stack = section(
+        shipped("references/strategies.md"), "Stack locally on an open blocker PR"
+    )
+    assert "`<dashpot> worktree create <n> --base <blocker head SHA> --json`" in stack
+    rebase = "`git rebase --onto origin/<integration branch> <old base sha> <branch>`"
+    assert rebase in stack
+    # Rebasing HEAD rather than the Branch leaves the result detached.
+    assert " HEAD`" not in stack
+    handling = section(shipped("SKILL.md"), "4. Handle each hand-back")
+    assert "while the worker is still live or resumable" in handling
+    assert "Tell the user in one line what merged, what is live and what is next." in (
+        handling
+    )
+    dispatch = section(shipped("SKILL.md"), "3. Dispatch a wave")
+    assert "An owned module's user-facing edge" in dispatch
+    assert (
+        "A stacked Worktree instead checks that its `baseCommit` is the blocker "
+        "head SHA it named, with no fast-forward."
+    ) in dispatch
+
+
 def test_each_known_dashpot_gap_is_named_for_removal() -> None:
     text = shipped("SKILL.md")
     gaps = section(text, "Known Dashpot gaps")

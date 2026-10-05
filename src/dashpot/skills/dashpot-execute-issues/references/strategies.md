@@ -71,15 +71,23 @@ merged (red CI, or still in review).
 
 **How:**
 
-- The worker rebases onto the blocker's branch and builds on its real
-  models.
+- Create the stacked Worktree on the blocker's head:
+  `<dashpot> worktree create <n> --base <blocker head SHA> --json`, and check
+  that the `baseCommit` it reports is that SHA. Its brief's `{BASE}` is that
+  SHA, and its `{BASE_ON}` names the blocker's PR. A worker already running
+  stacks by rebasing its Branch onto the blocker's head instead, and takes
+  that head as its new review base.
+- The worker builds on the blocker's real models.
 - After the blocker's squash merge, it runs
-  `git rebase --onto origin/<integration branch> <old base sha> HEAD`, then
-  checks that the branch holds only its own commits.
+  `git rebase --onto origin/<integration branch> <old base sha> <branch>`,
+  then checks that the branch holds only its own commits.
+- If the blocker is rebased before it merges, the stacked worker moves with
+  `git rebase --onto <new blocker head> <old blocker head> <branch>`.
+- Every rebase names the worker's Branch, which keeps it checked out. A
+  rebase of `HEAD` leaves the result detached, and the worker must point its
+  Branch at it again before it can push.
 - Stacks stay local. The PR is opened only once the branch is based on the
   integration branch.
-- If the blocker is rebased before it merges, the stacked worker moves with
-  `git rebase --onto <new blocker head> <old blocker head> HEAD`.
 
 **Cost:** merge order matters. Merging a sibling first changes the blocker's
 head, and the stack has to follow it.

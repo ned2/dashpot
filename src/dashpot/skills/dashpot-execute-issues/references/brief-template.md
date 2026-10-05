@@ -31,10 +31,16 @@ Issue from it.
 
 **Per-wave and per-Issue placeholders**, filled at dispatch: `{WAVE}` (the
 [wave block](#the-wave-block)), `{N}`, `{PATH}`, `{BRANCH}`, `{BASE}`,
-`{CLOSING}` and `{EXTRA}` (the Issue-specific block). `{CLOSING}` is the
-line that closes the Issue, such as `Closes #<n>`, or a non-closing
-reference such as `Part of #<n>` for one half of a split Issue, in the form
-the repository's commit conventions use.
+`{BASE_ON}`, `{CLOSING}` and `{EXTRA}` (the Issue-specific block).
+
+- `{BASE}` is a full commit SHA, never a ref name or prose: the gate
+  commands take it as their review base.
+- `{BASE_ON}` names what that commit is: "the integration branch", or
+  "#<m>'s open PR head" for an Issue stacked on an open blocker PR
+  ([strategies.md](strategies.md#stack-locally-on-an-open-blocker-pr)).
+- `{CLOSING}` is the line that closes the Issue, such as `Closes #<n>`, or a
+  non-closing reference such as `Part of #<n>` for one half of a split
+  Issue, in the form the repository's commit conventions use.
 
 ## The template
 
@@ -45,7 +51,7 @@ You are a worker agent on {REPO}. A lead agent is executing {ARC} with several w
 
 - Issue: #{N}. Read it with `gh issue view {N} --json title,body,labels,comments`; later comments override the body, and a maintainer decision in a comment overrides it outright. For the design it belongs to, read {CONTEXT} the same way.
 - Worktree: {PATH}. It is already created, with its environment prepared.
-- Branch: {BRANCH}, based on the integration branch at {BASE}.
+- Branch: {BRANCH}, based on {BASE_ON} at {BASE}.
 - Run every shell command as `cd {PATH} && …`, and give file tools absolute paths inside this Worktree. Other Worktrees and the main checkout belong to others.
 
 ## Ground rules
@@ -70,6 +76,7 @@ You are a worker agent on {REPO}. A lead agent is executing {ARC} with several w
 - The Issue, its comments and {CONTEXT} settle most questions. Where they don't, make the call most consistent with them, the design records and the code, and record it under a **Decisions** heading in the PR.
 - Verifying the Issue and closing it is a valid outcome. If the integration branch already does what a box asks, cite the evidence and add a test where one is missing; don't invent a source change. If nothing needs changing at all, open no PR: report the evidence, and the lead closes the Issue.
 - Where your Issue is a measurement, every claim you mark as measured has a check that verifies it against the recorded evidence.
+- Recorded evidence holds only for the sources it was recorded from. A review fix or a conflict resolution that touches one of them invalidates it: record it again before you hand back.
 - Escalate to the lead only what needs the maintainer: a contradiction in the Issue, a change outside your Issue, or a dependency change.
 - Keep to your Issue's scope. List anything out of scope in your final report for the lead to file.
 - On a textual conflict with a newer integration branch, rebase as the repository's instructions allow, then rerun the gates.
@@ -77,12 +84,14 @@ You are a worker agent on {REPO}. A lead agent is executing {ARC} with several w
 ## Talking to the lead
 
 - {REPORTING}
-- Tell the lead at once about a measurement or decision a sibling needs, a change to a shared file or type, a defect you verified (so it can be filed while you work), or a blocker. Then carry on.
+- Tell the lead at once about a measurement or decision a sibling needs, a change to a shared file or type, a defect you verified (so it can be filed while you work), or a blocker. Then carry on with whatever the blocker does not hold up.
+- At a checkpoint, or waiting on a blocker, finish your independent review on the diff you have. Then hand back once, with your head SHA and what you are waiting for, and end your turn: the lead resumes you when it arrives. Send no further "still waiting" reports.
 
 ## Final report
 
 Your last message, under 300 words:
 - the PR URL, head SHA, and green CI run URL, or what is failing and why;
+- for recorded evidence, that the repository's check of it passes at the PR head, or which sources differ and why;
 - the review findings and how you handled each;
 - the decisions you made beyond the Issue's text;
 - what the lead must act on: follow-ups, integration risks with sibling Issues (name the APIs and files), and open questions;

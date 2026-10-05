@@ -362,8 +362,9 @@ def worktree_remove(
         if delete_remote_branch and "remote-branch" not in found:
             raise CleanupError(
                 f"{path}'s Branch has no Remote-Tracking Branch for it at the "
-                f"remote a plain git push reaches; fetch, or delete it with "
-                f"dashpot branch delete --remote"
+                f"remote a plain git push reaches: if the Branch is there, "
+                f"fetch, or delete it with dashpot branch delete --remote; if "
+                f"it was already deleted there, omit --delete-remote-branch"
             )
         return tuple(target.identity for target in chosen)
 

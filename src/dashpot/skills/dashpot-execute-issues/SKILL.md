@@ -200,9 +200,11 @@ new share in the wave comment. Then look for collisions between the wave's
 Issues:
 
 - **Shared files and functions.** Give every file, function and document
-  section one owner. A change to a shared core goes through you first. A
-  file another open arc owns stays with it, as settled while mapping the
-  arc.
+  section one owner. An owned module's user-facing edge, such as the
+  command that exposes it and the document section that describes it, gets
+  an owner too: the module's owner, unless you name another. A change to a
+  shared core goes through you first. A file another open arc owns stays
+  with it, as settled while mapping the arc.
 - **Shared types.** A sibling that widens an enumeration others branch on
   must say so at once; the others use a generic fallback until it lands.
 - **Recorded evidence.** For each recorded measurement, list the sources it
@@ -217,24 +219,30 @@ For each Issue in the wave:
 
 1. Run `git fetch`, then at once
    `<dashpot> worktree create <n> --base origin/<integration-branch> --json`,
-   adding `--branch <name>` for the second half of a split Issue. Without
-   the fetch and the remote-tracking ref as its base, a Worktree created
-   just after a merge is cut from a tip one merge behind. Check that the
-   `baseCommit` it reports is `git rev-parse origin/<integration-branch>`.
+   adding `--branch <name>` for the second half of a split Issue. An Issue
+   stacked on an open blocker PR takes `--base <blocker head SHA>` instead
+   ([strategies.md](references/strategies.md#stack-locally-on-an-open-blocker-pr)).
+   Without the fetch and the remote-tracking ref as its base, a Worktree
+   created just after a merge is cut from a tip one merge behind. Check that
+   the `baseCommit` it reports is `git rev-parse origin/<integration-branch>`.
    If it is not, fast-forward the new Branch before its worker launches
    (`git -C <path> merge --ff-only origin/<integration-branch>`), and use
-   that tip as its base. Every Worktree follows this, including each one a
-   merge unblocks. Use the path and Branch it reports. Prepare the
+   that tip as its base. Every Worktree cut from the integration branch
+   follows this, including each one a merge unblocks. A stacked Worktree
+   instead checks that its `baseCommit` is the blocker head SHA it named,
+   with no fast-forward. Use the path and Branch it reports. Prepare the
    Worktree with the repository's own setup command. Do not install git
    hooks from a Worktree when every checkout shares the repository's hooks
    directory: that repoints every checkout at an environment removed with
    the Worktree.
 2. Render its brief from the template, with the wave block and an
-   Issue-specific block. The Issue-specific block says which gate variant
-   applies, what the worker owns and reserves, what has merged and the API
-   it exposes, what a sibling needs from it and when, any checkpoint, any
-   pinned tool release it measures, whether verifying and closing the Issue
-   is an allowed outcome, and how its commits reference the Issue.
+   Issue-specific block. Its `{BASE}` is the `baseCommit` step 1 confirmed,
+   or the tip you fast-forwarded to. The Issue-specific block says which
+   gate variant applies, what the worker owns and reserves, what has merged
+   and the API it exposes, what a sibling needs from it and when, any
+   checkpoint, any pinned tool release it measures, whether verifying and
+   closing the Issue is an allowed outcome, and how its commits reference
+   the Issue.
 3. Launch every worker of the wave at once, in the background, each with a
    short prompt that points at its brief. Record each worker's handle (its
    ID or task name) beside its Issue.
@@ -300,9 +308,12 @@ launch a fresh worker on the same brief, assigned in the old one's place.
    `statusCheckRollup`, never from the worker's report.
 2. Read what the next wave builds on: the new public API, every changed
    decision record (a changed decision needs a new record, not an edit),
-   any model that enforces a content or security rule, and for recorded
-   evidence, that what it records matches the PR head.
-   Tests and docs ride on the worker's independent review.
+   any model that enforces a content or security rule. Tests and docs ride
+   on the worker's independent review.
+   For recorded evidence, run the repository's check of it at the PR head
+   as soon as the hand-back arrives, while the worker is still live or
+   resumable: a mismatch goes back to that worker to record again. Its
+   report states the check's result; confirm it rather than trust it.
 3. **Check that CI tested what will land.** After a `git fetch`, it did
    when `git merge-base --is-ancestor origin/<integration-branch> <headRefOid>`
    succeeds: the head already contains the integration branch's tip. Where
@@ -341,7 +352,8 @@ launch a fresh worker on the same brief, assigned in the old one's place.
    changes that pass alone but break together.
 6. Record the merge with the SHA you broadcast, at once
    ([run-records.md](references/run-records.md)): the next broadcast starts
-   from it. Then dispatch whatever the merge unblocked (step 3).
+   from it. Tell the user in one line what merged, what is live and what is
+   next. Then dispatch whatever the merge unblocked (step 3).
 
 Merge in order of readiness, not of plan. When the PR planned to land
 second is ready first, land it and move the follow-on work to the worker
@@ -350,14 +362,20 @@ still running.
 **Checkpoint.** Resume the worker with one of: the merged blocker's SHA and
 API; a stack instruction ([strategies.md](references/strategies.md)); or
 permission to ship without the gated piece, re-homing that piece to the
-blocker's worker in the same round. A worker that must wait anyway runs its
-independent review on the diff it already has.
+blocker's worker in the same round. A worker at a checkpoint, or waiting on
+a blocker, finishes its independent review on the diff it has, hands back
+once with its head SHA and what it waits for, and ends its turn. Resume it
+when what it waits for arrives; it sends no "still waiting" reports.
 
 **Blocker.** Decide sequencing and ownership questions yourself. Take to
 the user what needs the maintainer: a contradiction in an Issue, a
 dependency or lockfile change, or a change of scope. Before you explain an
 Issue's options to the user, check its terms against the repository's
-glossary: an Issue's own framing can be wrong.
+glossary: an Issue's own framing can be wrong. With each blocker you take
+to the user, add the one line a merge gets: what merged, what is live and
+what is next. Tell the user no more than that line per merge or blocker,
+not a running commentary: the record Issue carries the detail, and the
+user may be away for much of the arc.
 
 On every hand-back and mid-flight message:
 
@@ -384,15 +402,26 @@ Close out each wave once all its workers have handed back, and the arc once
 every Issue has merged:
 
 1. Check every Issue's final state, and reopen any that closed early.
-2. Once no worker is live, remove the Worktrees you created: `git fetch
-   --prune`, then for each one
+2. Once no worker is live, remove the Worktrees you created, before you
+   launch any further sub-agent of your own: it would block the removals
+   too. `git fetch --prune`, then for each one
    `<dashpot> worktree remove <path> --delete-branch --delete-remote-branch --delete-ignored --dry-run`,
-   then the same without `--dry-run`. A detached check Worktree has no
-   Branch: check out the integration branch's tip in it first
-   (`git -C <path> checkout --detach <integration-branch>`), since Dashpot
-   refuses to drop a trial merge no ref reaches, then remove it with
-   `--delete-ignored` alone. Confirm afterwards that the shared git hooks
-   still point where they did.
+   then the same without `--dry-run`.
+   - Pass `--delete-remote-branch` only when the Branch's Remote-Tracking
+     Branch is still there after the fetch
+     (`git rev-parse -q --verify refs/remotes/<remote>/<branch>`). Where the
+     remote already deleted the Branch, as one that deletes a merged PR's
+     head does, Dashpot refuses the flag: omit it.
+   - A detached check Worktree has no Branch: check out the integration
+     branch's tip in it first
+     (`git -C <path> checkout --detach <integration-branch>`), since Dashpot
+     refuses to drop a trial merge no ref reaches, then remove it with
+     `--delete-ignored` alone.
+   - Confirm afterwards that the shared git hooks are as they were. Where
+     the repository points `core.hooksPath` at hooks it tracks, check that
+     the setting is unchanged. Where it installs hooks into the shared Git
+     directory, check that they still name the main checkout's environment,
+     not one removed with a Worktree.
 3. **A removal refused for another session's sub-agents** waits for that
    session. The `sub-agent` blocker holds every Worktree for any session's
    sub-agents, not only your workers: another arc's lead, or any session
