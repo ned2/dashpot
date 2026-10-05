@@ -1105,33 +1105,60 @@ def test_a_current_kind_index_passes(
 
 
 @pytest.mark.parametrize(
-    "change",
+    ("name", "title", "fields", "row"),
     [
-        pytest.param({"name": "added.md"}, id="a document missing from the table"),
-        pytest.param({"title": "A retitled note"}, id="a changed title"),
-        pytest.param({"status": "superseded"}, id="a changed status"),
-        pytest.param({"date": "2026-09-30"}, id="a changed date"),
+        pytest.param(
+            "added.md",
+            "Added",
+            {},
+            "| [Added](added.md) | research | 2026-08-26 |",
+            id="a document missing from the table",
+        ),
+        pytest.param(
+            "note.md",
+            "A retitled note",
+            {},
+            "| [A retitled note](note.md) | research | 2026-08-26 |",
+            id="a changed title",
+        ),
+        pytest.param(
+            "note.md",
+            "A note",
+            {"status": "superseded"},
+            "| [A note](note.md) | superseded | 2026-08-26 |",
+            id="a changed status",
+        ),
+        pytest.param(
+            "note.md",
+            "A note",
+            {"date": "2026-09-30"},
+            "| [A note](note.md) | research | 2026-09-30 |",
+            id="a changed date",
+        ),
     ],
 )
 def test_a_kind_index_that_disagrees_with_its_documents_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, change: dict[str, str]
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    name: str,
+    title: str,
+    fields: dict[str, str],
+    row: str,
 ) -> None:
     """A new document, or a document whose row has changed, leaves the table stale."""
     note = write_kind_document(tmp_path, "note.md", "A note")
     write_kind_index(tmp_path)
     kind_index_after_writing(monkeypatch, tmp_path, note)
-    fields = {key: change[key] for key in ("status", "date") if key in change}
-    changed = write_kind_document(
-        tmp_path,
-        change.get("name", "note.md"),
-        change.get("title", "A note"),
-        **fields,
-    )
+    changed = write_kind_document(tmp_path, name, title, **fields)
+    # A rewritten document is still one document, listed once.
+    documents = list(dict.fromkeys([note, changed]))
 
-    assert check_kinds(monkeypatch, tmp_path, note, changed) == [
+    assert check_kinds(monkeypatch, tmp_path, *documents) == [
         "docs/research/README.md:1: the kind index is out of date; "
         "regenerate it with --write-indexes"
     ]
+    assert row in kind_index_after_writing(monkeypatch, tmp_path, *documents)
+    assert check_kinds(monkeypatch, tmp_path, *documents) == []
 
 
 def test_a_kind_index_that_lists_a_removed_document_fails(
@@ -1300,6 +1327,33 @@ def test_writing_reports_a_kind_index_it_cannot_write_and_writes_the_rest(
         tmp_path / "docs/reviews/README.md"
     ).read_text(encoding="utf-8")
     assert (tmp_path / maintain_docs.ADR_INDEX_PATH).is_file()
+
+
+def test_writing_leaves_an_index_it_cannot_title_and_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An empty link would only trade the write's success for the gate's failure."""
+    note = write_kind_document(tmp_path, "note.md", "")
+    index = write_kind_index(tmp_path)
+    committed = index.read_text(encoding="utf-8")
+    adr = write_adr(tmp_path, "docs/adr/0001-first.md", "")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        maintain_docs, "tracked_markdown_files", lambda: [note, index, adr]
+    )
+    monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
+
+    assert maintain_docs.main(["--write-indexes"]) == 1
+    assert capsys.readouterr().err.splitlines() == [
+        "docs/adr/0001-first.md:1: declares no level-one heading, "
+        "so the ADR index cannot title it",
+        "docs/research/note.md:1: declares no level-one heading, "
+        "so its kind index cannot title it",
+    ]
+    assert index.read_text(encoding="utf-8") == committed
+    assert not (tmp_path / maintain_docs.ADR_INDEX_PATH).exists()
 
 
 def ship(root: Path, *names: str, body: str = '"""A module."""\n') -> list[str]:

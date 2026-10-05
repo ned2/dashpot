@@ -576,12 +576,13 @@ checkout:
   the frontmatter described in the
   [documentation map](#documentation-map), requires each ADR's number to
   be its own, requires the [ADR index](docs/adr/README.md) and each `docs/`
-  kind index to be what the script generates, and requires the [code map](docs/code-map.md) to link
-  every module and asset the package ships; it always reads the whole
-  document set, because a link resolves against files the commit need not
-  touch, and neither an ADR's number nor the index's or the map's
-  completeness is a property of one document. Last, a hook that never fails
-  warns while `core.hooksPath` does not name `.githooks`, outside CI.
+  kind index to be what the script generates, and requires the
+  [code map](docs/code-map.md) to link every module and asset the package
+  ships; it always reads the whole document set, because a link resolves
+  against files the commit need not touch, and neither an ADR's number nor
+  the indexes' or the map's completeness is a property of one document.
+  Last, a hook that never fails warns while `core.hooksPath` does not name
+  `.githooks`, outside CI.
 - **On push**: the pushed-revision gate in
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
   lockfile, Ruff lint and formatting, ty, the documents, and the distribution

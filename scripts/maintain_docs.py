@@ -25,10 +25,11 @@ The indexes are generated rather than hand-maintained, because a
 hand-maintained table of every document goes stale the moment someone adds
 one without touching it. A kind index keeps a hand-written introduction
 between its generated frontmatter and its generated table, which marker
-comments bound; the ADR index is generated whole. `--write-indexes` rewrites every index, and so does its older name
-`--write-adr-index`; the gate only reports that one needs rewriting. Because
-the generated parts are a function of the documents, a rebase conflict
-confined to them is resolved by rewriting them. The code map is checked
+comments bound; the ADR index is generated whole. `--write-indexes`
+rewrites every index, and so does its older name `--write-adr-index`; the
+gate only reports that one needs rewriting. Because the generated parts are a
+function of the documents, a rebase conflict confined to them is resolved by
+rewriting them. The code map is checked
 rather than generated: the concept each module serves and its role are prose
 no script can write.
 
@@ -718,15 +719,9 @@ def check_adr_index(paths: Sequence[Path]) -> list[Problem]:
     generator cannot title is reported here rather than rendered as an empty
     link, which would satisfy the comparison while saying nothing.
     """
-    untitled = [
-        Problem(
-            f"{ADR_DIRECTORY}/{entry.filename}",
-            1,
-            "declares no level-one heading, so the ADR index cannot title it",
-        )
-        for entry in collect_adr_entries(paths)
-        if not entry.title
-    ]
+    untitled = untitled_problems(
+        ADR_DIRECTORY, collect_adr_entries(paths), "the ADR index"
+    )
     if untitled:
         return untitled
     path = PROJECT_ROOT / ADR_INDEX_PATH
@@ -743,6 +738,25 @@ def check_adr_index(paths: Sequence[Path]) -> list[Problem]:
             )
         ]
     return []
+
+
+def untitled_problems(
+    directory: str, entries: Iterable[AdrEntry | KindEntry], index: str
+) -> list[Problem]:
+    """Report each document an index cannot title, for want of a level-one heading.
+
+    Such a document is reported rather than rendered as an empty link, which
+    would satisfy the comparison while telling a reader nothing.
+    """
+    return [
+        Problem(
+            f"{directory}/{entry.filename}",
+            1,
+            f"declares no level-one heading, so {index} cannot title it",
+        )
+        for entry in entries
+        if not entry.title
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -892,15 +906,7 @@ def check_kind_indexes(paths: Sequence[Path]) -> list[Problem]:
     problems: list[Problem] = []
     for directory in KIND_INDEX_DIRECTORIES:
         entries = collect_kind_entries(paths, directory)
-        untitled = [
-            Problem(
-                f"{directory}/{entry.filename}",
-                1,
-                "declares no level-one heading, so its kind index cannot title it",
-            )
-            for entry in entries
-            if not entry.title
-        ]
+        untitled = untitled_problems(directory, entries, "its kind index")
         if untitled:
             problems.extend(untitled)
             continue
@@ -923,13 +929,24 @@ def check_kind_indexes(paths: Sequence[Path]) -> list[Problem]:
 
 
 def write_indexes(tracked: Sequence[Path]) -> list[Problem]:
-    """Rewrite every generated index, reporting each kind index that cannot be rewritten."""
-    written = {ADR_INDEX_PATH: render_adr_index(tracked)}
-    problems: list[Problem] = []
+    """Rewrite every generated index, reporting each one that cannot be rewritten.
+
+    An index with a document it cannot title is left as it is rather than
+    written with an empty link, which the gate would then fail.
+    """
+    written: dict[str, str] = {}
+    problems = untitled_problems(
+        ADR_DIRECTORY, collect_adr_entries(tracked), "the ADR index"
+    )
+    if not problems:
+        written[ADR_INDEX_PATH] = render_adr_index(tracked)
     for directory in KIND_INDEX_DIRECTORIES:
-        outcome = regenerate_kind_index(
-            directory, collect_kind_entries(tracked, directory)
-        )
+        entries = collect_kind_entries(tracked, directory)
+        untitled = untitled_problems(directory, entries, "its kind index")
+        if untitled:
+            problems.extend(untitled)
+            continue
+        outcome = regenerate_kind_index(directory, entries)
         if isinstance(outcome, Problem):
             problems.append(outcome)
         elif outcome is not None:
