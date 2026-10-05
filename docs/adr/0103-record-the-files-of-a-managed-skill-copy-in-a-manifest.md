@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-05
-amended-by: 0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md
+amended-by: 0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md, 0130-write-integrates-configuration-where-each-harness-reads-it.md
 ---
 
 # Record the files of a managed skill copy in a manifest

@@ -25,6 +25,7 @@ from dashpot.sessions.integrate import (
     OPENCODE_ACCEPTED_VERSION,
     WORKER_AGENT,
     BundledAgent,
+    IncompleteRemovalError,
     IntegrationError,
     agent_file,
     install_integration,
@@ -353,6 +354,36 @@ def test_an_unreadable_agent_is_refused_reported_and_left_alone(
         for message in remove()
     )
     assert copy.read_bytes() == b"\xff not an agent Dashpot wrote\n"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
+def test_remove_carries_on_past_an_agent_it_cannot_unlink(tmp_path: Path) -> None:
+    install(tmp_path)
+    copy = copy_of(WORKER_AGENT)
+    plugin = opencode_home() / "plugins" / "dashpot.js"
+    copy.parent.chmod(0o555)
+    try:
+        with pytest.raises(IncompleteRemovalError) as incomplete:
+            remove()
+    finally:
+        copy.parent.chmod(0o755)
+
+    assert str(incomplete.value).startswith(
+        f"could not remove Dashpot worker agent from {copy}: [Errno 13] "
+    )
+    assert str(incomplete.value).endswith(
+        "; the rest of the integration is removed, and rerunning 'dashpot "
+        "integrate opencode --remove' once that is fixed finishes it"
+    )
+    assert incomplete.value.messages[0] == f"removed the OpenCode plugin {plugin}"
+    assert not plugin.exists()
+    skill = skill_directory(OPENCODE, opencode_home(), ISSUE_WORK_SKILL)
+    assert f"removed the Dashpot Issue work skill from {skill}" in (
+        incomplete.value.messages
+    )
+    assert not skill.exists()
+    assert WORKER_AGENT.marker in copy.read_text()
+    assert remove()[-1] == f"removed the Dashpot worker agent from {copy}"
 
 
 def test_remove_takes_every_managed_agent_and_keeps_the_users_own(

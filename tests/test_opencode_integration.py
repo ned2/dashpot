@@ -20,6 +20,7 @@ from dashpot.sessions.integrate import (
     ISSUE_WORK_SKILL,
     OPENCODE,
     OPENCODE_ACCEPTED_VERSION,
+    IncompleteRemovalError,
     IntegrationError,
     install_integration,
     integration_status,
@@ -329,6 +330,27 @@ def test_remove_takes_only_what_opencodes_integration_owns(
     assert remove_integration("opencode", home)[0] == (
         f"OpenCode integration is not installed: no {plugin_file(home)}"
     )
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
+def test_remove_carries_on_past_a_plugin_it_cannot_unlink(tmp_path: Path) -> None:
+    home = opencode_home(tmp_path)
+    install_integration("opencode", home, command_path=helper(tmp_path))
+    plugin_file(home).parent.chmod(0o555)
+    try:
+        with pytest.raises(IncompleteRemovalError) as incomplete:
+            remove_integration("opencode", home)
+    finally:
+        plugin_file(home).parent.chmod(0o755)
+
+    assert str(incomplete.value).startswith(
+        f"could not remove the OpenCode plugin {plugin_file(home)}: [Errno 13] "
+    )
+    skill = skill_directory(OPENCODE, home, ISSUE_WORK_SKILL)
+    assert f"removed the Dashpot Issue work skill from {skill}" in (
+        incomplete.value.messages
+    )
+    assert plugin_file(home).is_file()
 
 
 def test_remove_leaves_a_plugin_dashpot_does_not_manage(tmp_path: Path) -> None:
@@ -714,6 +736,29 @@ def test_status_warns_about_another_harness_copy_opencode_also_discovers(
         "integrate claude-code' or move it"
     ]
     assert (agents_skill / "SKILL.md").is_file()
+
+
+def test_status_checks_the_claude_code_skills_opencode_reads_from_the_home_directory(
+    tmp_path: Path, _home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = opencode_home(tmp_path)
+    install_integration("opencode", home, command_path=helper(tmp_path))
+    configured = tmp_path / "work-claude"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(configured))
+    # OpenCode reads Claude Code's skills from ``~/.claude`` alone, so a copy
+    # where ``CLAUDE_CONFIG_DIR`` points is not one it discovers.
+    for skills in (_home / ".claude" / "skills", configured / "skills"):
+        stale = skills / "dashpot-issue-work"
+        stale.mkdir(parents=True)
+        (stale / "SKILL.md").write_bytes(b"\xff not a skill Dashpot wrote\n")
+
+    messages = status(home, tmp_path)
+
+    discovered = _home / ".claude" / "skills" / "dashpot-issue-work"
+    assert [message for message in messages if "also discovers" in message] == [
+        f"warning: OpenCode also discovers the Issue work skill at {discovered}, "
+        "which differs from this Dashpot's, and may use either; move it"
+    ]
 
 
 def test_status_warns_about_another_copy_of_the_plugin_opencode_also_loads(

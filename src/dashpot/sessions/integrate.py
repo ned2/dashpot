@@ -11,10 +11,12 @@ import shutil
 import stat
 import subprocess
 import sysconfig
+import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, override
 
 from pydantic import Field, ValidationError
 
@@ -95,11 +97,33 @@ class IncompleteIntegrationError(IntegrationError):
     def __init__(
         self, harness: Harness, failures: Sequence[str], messages: Sequence[str]
     ) -> None:
-        super().__init__(
-            f"{'; '.join(failures)}; the rest of the integration is written, and "
-            f"rerunning 'dashpot integrate {harness}' once that is fixed finishes it"
-        )
+        super().__init__(f"{'; '.join(failures)}; {self.remainder(harness)}")
         self.messages = tuple(messages)
+
+    @staticmethod
+    def remainder(harness: Harness) -> str:
+        """What became of the rest of the integration, and the rerun that finishes it."""
+        return (
+            "the rest of the integration is written, and rerunning "
+            f"'dashpot integrate {harness}' once that is fixed finishes it"
+        )
+
+
+class IncompleteRemovalError(IncompleteIntegrationError):
+    """A removal that removed everything of Dashpot's it could, past what it could not.
+
+    Its message names each step that failed; ``messages`` reports what the
+    removal did, as a complete one's return value would (ADR 0130).
+    """
+
+    @override
+    @staticmethod
+    def remainder(harness: Harness) -> str:
+        """What became of the rest of the integration, and the rerun that finishes it."""
+        return (
+            "the rest of the integration is removed, and rerunning "
+            f"'dashpot integrate {harness} --remove' once that is fixed finishes it"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,9 +140,15 @@ class _PendingWrite:
     # Deferred, so nothing is written until every destination is checked;
     # raises ``IntegrationError``.
     perform: Callable[[], str]
+    # Why the write is refused whatever its directories allow, found while
+    # planning it, such as a skill file whose directory a link takes
+    # outside the copy.
+    blocked: str | None = None
 
     def refusal(self) -> str | None:
         """Why this write cannot be made; ``None`` when every directory allows it."""
+        if self.blocked is not None:
+            return f"cannot install {self.subject}: {self.blocked}"
         for directory in self.directories:
             reason = _unwritable(directory)
             if reason is not None:
@@ -237,6 +267,9 @@ class HarnessIntegration:
     home_name: str
     hooks_file: str
     command_name: str
+    # Where the harness reads user-wide skills: inside its configuration
+    # directory when ``skills_in_configuration``, else relative to the
+    # user's home directory, as Codex reads the shared ``.agents``.
     skills_home: Path
     events: tuple[str, ...]
     checks_config_toml: bool
@@ -251,18 +284,21 @@ class HarnessIntegration:
     # Where, inside its configuration directory, the harness reads the agent
     # definitions Dashpot bundles; ``None`` for a harness that installs none.
     agents_home: Path | None = None
+    # The environment variable naming the configuration directory itself,
+    # which the harness reads in place of its default, such as Claude
+    # Code's ``CLAUDE_CONFIG_DIR``.
+    home_variable: str | None = None
+    skills_in_configuration: bool = False
 
     @property
     def default_home(self) -> Path:
-        if self.plugin:
-            configured = os.environ.get("XDG_CONFIG_HOME")
-            base = Path(configured) if configured else Path.home() / ".config"
-            return base / self.home_name
-        return Path.home() / self.home_name
+        """The configuration directory the harness reads in this environment."""
+        return configuration_directory(self).path
 
     @property
     def default_skills_home(self) -> Path:
-        if self.plugin:
+        """The directory the harness reads user-wide skills from in this environment."""
+        if self.skills_in_configuration:
             return self.default_home / self.skills_home
         return Path.home() / self.skills_home
 
@@ -275,6 +311,53 @@ class HarnessIntegration:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ConfigurationDirectory:
+    """Where a harness reads its user-wide configuration, and what chose it."""
+
+    path: Path
+    # The harness's own variable that named the directory, such as
+    # ``CODEX_HOME``; ``None`` when the harness's default is in use.
+    variable: str | None = None
+
+    @override
+    def __str__(self) -> str:
+        if self.variable is None:
+            return str(self.path)
+        return f"{self.path} (from {self.variable})"
+
+
+def configuration_directory(
+    spec: HarnessIntegration, environ: Mapping[str, str] | None = None
+) -> ConfigurationDirectory:
+    """Resolve a harness's configuration directory as the harness itself does.
+
+    Claude Code reads ``$CLAUDE_CONFIG_DIR`` and Codex ``$CODEX_HOME`` in
+    place of their directories in the home directory, and OpenCode its
+    directory under ``$XDG_CONFIG_HOME``; a variable set but empty is read
+    as unset (ADR 0130).
+    """
+    environment = os.environ if environ is None else environ
+    if spec.home_variable is not None:
+        configured = environment.get(spec.home_variable)
+        if configured:
+            return ConfigurationDirectory(Path(configured), spec.home_variable)
+    if spec.plugin:
+        configured = environment.get("XDG_CONFIG_HOME")
+        base = Path(configured) if configured else Path.home() / ".config"
+        return ConfigurationDirectory(base / spec.home_name)
+    return ConfigurationDirectory(Path.home() / spec.home_name)
+
+
+def _configuration_in_use(
+    spec: HarnessIntegration, home: Path | None
+) -> ConfigurationDirectory:
+    """The configuration directory a command works in: the one named, else the harness's."""
+    return (
+        configuration_directory(spec) if home is None else ConfigurationDirectory(home)
+    )
+
+
 def hook_label(event: str, matcher: str | None) -> str:
     return f"{event}({matcher})" if matcher else event
 
@@ -285,6 +368,8 @@ CODEX = HarnessIntegration(
     home_name=".codex",
     hooks_file="hooks.json",
     command_name="dashpot-codex-hook",
+    # Codex reads user skills from the shared ``~/.agents``, wherever
+    # ``CODEX_HOME`` puts its own directory.
     skills_home=Path(".agents/skills"),
     # A delegated thread's boundaries keep its parent's live set, as Claude
     # Code's do, so a Codex sub-agent blocks Cleanup too (ADR 0066, ADR 0067).
@@ -298,6 +383,7 @@ CODEX = HarnessIntegration(
         "SessionEnd",
     ),
     checks_config_toml=True,
+    home_variable="CODEX_HOME",
 )
 
 CLAUDE_CODE = HarnessIntegration(
@@ -306,7 +392,7 @@ CLAUDE_CODE = HarnessIntegration(
     home_name=".claude",
     hooks_file="settings.json",
     command_name="dashpot-claude-code-hook",
-    skills_home=Path(".claude/skills"),
+    skills_home=Path("skills"),
     # A sub-agent's boundaries keep the session running while it works after
     # the main turn has stopped (ADR 0016).
     events=(
@@ -326,6 +412,8 @@ CLAUDE_CODE = HarnessIntegration(
         ("PostToolUse", "EnterWorktree"),
         ("PostToolUse", "ExitWorktree"),
     ),
+    home_variable="CLAUDE_CONFIG_DIR",
+    skills_in_configuration=True,
 )
 
 # OpenCode loads every ``plugins/*.js`` in its global configuration directory,
@@ -342,6 +430,7 @@ OPENCODE = HarnessIntegration(
     checks_config_toml=False,
     plugin=True,
     agents_home=Path("agent"),
+    skills_in_configuration=True,
 )
 
 INTEGRATIONS: dict[Harness, HarnessIntegration] = {
@@ -453,11 +542,12 @@ def install_integration(
     every failure once they are done (ADR 0110).
     """
     spec = integration(harness)
-    home = home or spec.default_home
+    configuration = _configuration_in_use(spec, home)
+    home = configuration.path
     if not home.is_dir():
         raise IntegrationError(
-            f"no {spec.display} configuration directory at {home}; install "
-            f"and run {spec.display} once before integrating"
+            f"no {spec.display} configuration directory at {configuration}; "
+            f"install and run {spec.display} once before integrating"
         )
     destinations = _skill_copies(spec, home, skills)
     agent_destinations = _agent_copies(spec, home, agents)
@@ -554,11 +644,13 @@ def _plan_hooks(
             ) from exc
         return f"installed {spec.display} lifecycle hooks in {path}"
 
-    return _PendingWrite(
-        subject=f"the {spec.display} lifecycle hooks in {path}",
-        directories=(path.parent,),
-        perform=write,
-    )
+    # The hooks are written to the file a link names, so the check is of
+    # the directory that file is replaced in.
+    target = _link_target(path)
+    subject = f"the {spec.display} lifecycle hooks in {path}"
+    if target != path:
+        subject += f", a link to {target}"
+    return _PendingWrite(subject=subject, directories=(target.parent,), perform=write)
 
 
 def _write_planned(
@@ -623,57 +715,74 @@ def remove_integration(
     skills: tuple[BundledSkill, ...] = BUNDLED_SKILLS,
     agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS,
 ) -> list[str]:
-    """Remove exactly Dashpot's hooks, managed skills and agents for one harness."""
+    """Remove exactly Dashpot's hooks, managed skills and agents for one harness.
+
+    A step that fails, such as a hooks file that cannot be read or a file
+    that cannot be unlinked, does not stop the others: every other step
+    runs, and ``IncompleteRemovalError`` names each failure once they are
+    done (ADR 0130).
+    """
     spec = integration(harness)
-    home = home or spec.default_home
-    path = home / spec.hooks_file
+    home = _configuration_in_use(spec, home).path
+    steps: list[Callable[[], str]] = [
+        partial(remove_plugin if spec.plugin else _remove_hooks, spec, home),
+        *(partial(_remove_skill, *copy) for copy in _skill_copies(spec, home, skills)),
+        *(partial(_remove_agent, *copy) for copy in _agent_copies(spec, home, agents)),
+    ]
     messages: list[str] = []
-    if spec.plugin:
-        messages.append(remove_plugin(spec, home))
-    elif not path.is_file():
-        messages.append(f"{spec.display} integration is not installed: no {path}")
-    else:
-        document = _load_hooks_document(spec, path)
-        hooks = document.get("hooks")
-        if not isinstance(hooks, dict):
-            messages.append(
-                f"{spec.display} integration is not installed: no hooks in {path}"
-            )
-        else:
-            removed = False
-            for event in list(hooks):
-                groups = hooks[event]
-                if not isinstance(groups, list):
-                    continue
-                kept, ours = _split_dashpot_handlers(groups)
-                if ours:
-                    removed = True
-                if kept:
-                    hooks[event] = kept
-                else:
-                    del hooks[event]
-            if not removed:
-                messages.append(
-                    f"{spec.display} integration is not installed: no Dashpot "
-                    f"hooks in {path}"
-                )
-            elif hooks or set(document) - {"description", "hooks"}:
-                if not hooks:
-                    del document["hooks"]
-                _write_json(path, document)
-                messages.append(f"removed the Dashpot hooks from {path}")
-            else:
-                path.unlink()
-                messages.append(f"removed {path}; it contained only the Dashpot hooks")
-    messages.extend(
-        _remove_skill(skill, target)
-        for skill, target in _skill_copies(spec, home, skills)
-    )
-    messages.extend(
-        _remove_agent(agent, target)
-        for agent, target in _agent_copies(spec, home, agents)
-    )
+    failures: list[str] = []
+    for step in steps:
+        try:
+            messages.append(step())
+        except IntegrationError as exc:
+            failures.append(str(exc))
+    if failures:
+        raise IncompleteRemovalError(harness, failures, messages)
     return messages
+
+
+def _remove_hooks(spec: HarnessIntegration, home: Path) -> str:
+    """Remove Dashpot's handlers from the hooks file, and the file if nothing else is left.
+
+    A hooks file reached through a link is never unlinked: the link is the
+    user's, so the file it names is rewritten without the hooks instead.
+    Raises ``IntegrationError`` when the file cannot be read or changed.
+    """
+    path = home / spec.hooks_file
+    if not path.is_file():
+        return f"{spec.display} integration is not installed: no {path}"
+    document = _load_hooks_document(spec, path)
+    hooks = document.get("hooks")
+    if not isinstance(hooks, dict):
+        return f"{spec.display} integration is not installed: no hooks in {path}"
+    removed = False
+    for event in list(hooks):
+        groups = hooks[event]
+        if not isinstance(groups, list):
+            continue
+        kept, ours = _split_dashpot_handlers(groups)
+        if ours:
+            removed = True
+        if kept:
+            hooks[event] = kept
+        else:
+            del hooks[event]
+    if not removed:
+        return (
+            f"{spec.display} integration is not installed: no Dashpot hooks in {path}"
+        )
+    try:
+        if hooks or set(document) - {"description", "hooks"} or path.is_symlink():
+            if not hooks:
+                del document["hooks"]
+            _write_json(path, document)
+            return f"removed the Dashpot hooks from {path}"
+        path.unlink()
+    except OSError as exc:
+        raise IntegrationError(
+            f"could not remove the Dashpot hooks from {path}: {exc}"
+        ) from exc
+    return f"removed {path}; it contained only the Dashpot hooks"
 
 
 def integration_status(
@@ -695,11 +804,16 @@ def integration_status(
     so a report across harnesses states them once rather than per harness.
     """
     spec = integration(harness)
-    home = home or spec.default_home
+    configuration = _configuration_in_use(spec, home)
+    home = configuration.path
     path = home / spec.hooks_file
     messages: list[str] = []
+    if configuration.variable is not None:
+        messages.append(f"{spec.display} configuration directory: {configuration}")
     if not home.is_dir():
-        messages.append(f"{spec.display} configuration directory not found: {home}")
+        messages.append(
+            f"{spec.display} configuration directory not found: {configuration}"
+        )
     elif spec.plugin:
         messages.extend(plugin_status(spec, home))
     elif not path.is_file():
@@ -708,7 +822,7 @@ def integration_status(
         try:
             document = _load_hooks_document(spec, path)
         except IntegrationError as exc:
-            return [str(exc)]
+            return [*messages, str(exc)]
         commands = _installed_commands(document)
         if not commands:
             messages.append(f"not installed: no Dashpot hooks in {path}")
@@ -832,10 +946,12 @@ def integration_presence(
     cannot be read to tell.
     """
     spec = integration(harness)
-    home = home or spec.default_home
+    configuration = _configuration_in_use(spec, home)
+    home = configuration.path
     if not home.is_dir():
         return IntegrationPresence(
-            "not integrated", f"no {spec.display} configuration directory at {home}"
+            "not integrated",
+            f"no {spec.display} configuration directory at {configuration}",
         )
     path = home / spec.hooks_file
     missing = _missing_hooks(spec, path)
@@ -1209,7 +1325,7 @@ def codex_integration_status(
 
 def skill_directory(spec: HarnessIntegration, home: Path, skill: BundledSkill) -> Path:
     """Locate this harness's user-wide copy of one bundled skill."""
-    if spec.plugin:
+    if spec.skills_in_configuration:
         return home / spec.skills_home / skill.name
     if home == spec.default_home:
         return spec.default_skills_home / skill.name
@@ -1421,6 +1537,7 @@ def _plan_skill(skill: BundledSkill, destination: Path) -> str | _PendingWrite:
         subject=f"the Dashpot {skill.label} at {destination}",
         directories=_skill_write_directories(skill, destination, managed=existed),
         perform=write,
+        blocked=_skill_write_outside(skill, destination),
     )
 
 
@@ -1441,6 +1558,30 @@ def _skill_write_directories(
             if _resolves_inside(destination / relative, root):
                 directories.add((destination / relative).parent)
     return tuple(sorted(directories))
+
+
+def _skill_write_outside(skill: BundledSkill, destination: Path) -> str | None:
+    """Why writing a copy would leave it, through a link the user put inside it.
+
+    A shipped file whose directory resolves outside the copy would be
+    written wherever the link leads, which removal never follows, so the
+    write is refused as removal is (ADR 0130); ``None`` when every shipped
+    file's directory resolves inside the copy.
+    """
+    root = destination.resolve()
+    outside = sorted(
+        {
+            (destination / relative).parent
+            for relative in skill.files
+            if not _resolves_inside(destination / relative, root)
+        }
+    )
+    if not outside:
+        return None
+    return (
+        f"{', '.join(map(str, outside))} resolves outside the copy through a "
+        "link; move it and retry"
+    )
 
 
 def _resolves_inside(path: Path, root: Path) -> bool:
@@ -1499,7 +1640,9 @@ def _remove_skill(skill: BundledSkill, destination: Path) -> str:
     try:
         _remove_files(destination, [*written, SKILL_MANIFEST, SKILL_FILE])
     except OSError as exc:
-        return f"could not remove Dashpot {skill.label} from {destination}: {exc}"
+        raise IntegrationError(
+            f"could not remove Dashpot {skill.label} from {destination}: {exc}"
+        ) from exc
     # The copy stays while it still holds the user's files.
     with contextlib.suppress(OSError):
         destination.rmdir()
@@ -1608,7 +1751,12 @@ def _remove_agent(agent: BundledAgent, destination: Path) -> str:
         return f"could not inspect Dashpot {agent.label} at {destination}: {exc}"
     if agent.marker not in text:
         return unmanaged
-    destination.unlink()
+    try:
+        destination.unlink()
+    except OSError as exc:
+        raise IntegrationError(
+            f"could not remove Dashpot {agent.label} from {destination}: {exc}"
+        ) from exc
     return f"removed the Dashpot {agent.label} from {destination}"
 
 
@@ -1805,7 +1953,8 @@ def _load_hooks_document(spec: HarnessIntegration, path: Path) -> dict[str, Any]
         return {"hooks": {}}
     try:
         document: Any = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    # ``ValueError`` holds a file that is not JSON and one that is not UTF-8.
+    except (OSError, ValueError) as exc:
         raise IntegrationError(
             f"cannot read {spec.display} hooks at {path}: {exc}; fix or "
             "move the file and retry"
@@ -1914,10 +2063,36 @@ def _config_toml_coexistence_warning(spec: HarnessIntegration, home: Path) -> li
     return []
 
 
+def _link_target(path: Path) -> Path:
+    """The file a symbolic link at ``path`` names, through every link; else ``path``."""
+    return path.resolve() if path.is_symlink() else path
+
+
 def _write_json(path: Path, document: dict[str, Any]) -> None:
-    replace_atomically(
-        path, json.dumps(document, indent=2) + "\n", temporary_prefix=f".{path.name}."
+    """Replace the user's JSON configuration at ``path``, keeping what it is.
+
+    The file is the user's: one reached through a link, as a dotfiles
+    manager leaves it, is replaced where the link leads, so the link stays,
+    and a replaced file keeps its mode. Text outside ASCII is written as
+    itself, not escaped (ADR 0130).
+    """
+    target = _link_target(path)
+    try:
+        mode: int | None = stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        mode = None
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", dir=target.parent
     )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            if mode is not None:
+                os.fchmod(stream.fileno(), mode)
+            stream.write(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 # ``opencode --version`` prints ``opencode v2.0.22`` from v2 and a bare
@@ -1992,7 +2167,10 @@ def _plan_plugin(
 
 
 def remove_plugin(spec: HarnessIntegration, home: Path) -> str:
-    """Remove the managed plugin, leaving any other file at its path alone."""
+    """Remove the managed plugin, leaving any other file at its path alone.
+
+    Raises ``IntegrationError`` when the managed plugin cannot be unlinked.
+    """
     path = home / spec.hooks_file
     try:
         current = _managed_plugin(path)
@@ -2000,7 +2178,12 @@ def remove_plugin(spec: HarnessIntegration, home: Path) -> str:
         return f"left {path} unchanged: {exc}"
     if current is None:
         return f"{spec.display} integration is not installed: no {path}"
-    path.unlink()
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise IntegrationError(
+            f"could not remove the {spec.display} plugin {path}: {exc}"
+        ) from exc
     return f"removed the {spec.display} plugin {path}"
 
 
@@ -2051,27 +2234,44 @@ def _plugin_helper(plugin: str) -> Path | None:
         return None
 
 
+# The skill directories in the home directory that OpenCode also reads, and
+# the harness whose integration writes there by default. OpenCode reads them
+# from the home directory whatever ``CLAUDE_CONFIG_DIR`` names.
+OPENCODE_DISCOVERED_SKILLS: tuple[tuple[Harness, Path], ...] = (
+    ("claude-code", Path(".claude/skills")),
+    ("codex", Path(".agents/skills")),
+)
+
+
 def _opencode_skill_copies(destinations: list[tuple[BundledSkill, Path]]) -> list[str]:
     """Report the other copies of each bundled skill OpenCode also discovers.
 
-    OpenCode reads skills from Claude Code's and the shared ``.agents``
-    directories too, and when two share a name it uses either. Each harness's
-    integration owns only its own copy, so a copy that differs from the one
-    this Dashpot ships is reported for its own harness to repair.
+    OpenCode reads skills from Claude Code's ``~/.claude`` and the shared
+    ``~/.agents`` directories too, and when two share a name it uses either.
+    Each harness's integration owns only its own copy, so a copy that
+    differs from the one this Dashpot ships is reported for its own harness
+    to repair, or to be moved when that harness's integration writes
+    elsewhere.
     """
     messages: list[str] = []
     for skill, own in destinations:
-        for owner, directory in (
-            ("claude-code", CLAUDE_CODE.default_skills_home / skill.name),
-            ("codex", CODEX.default_skills_home / skill.name),
-        ):
+        for owner, discovered in OPENCODE_DISCOVERED_SKILLS:
+            directory = Path.home() / discovered / skill.name
             if same_path(directory, own) or not _may_hold_a_skill(directory):
                 continue
             if not (_is_managed(skill, directory) and _is_current(skill, directory)):
+                # The owner's integration repairs only the copy it writes,
+                # which its configuration variable may put elsewhere.
+                spec = integration(owner)
+                repair = (
+                    f"run 'dashpot integrate {owner}' or move it"
+                    if same_path(directory, spec.default_skills_home / skill.name)
+                    else "move it"
+                )
                 messages.append(
                     f"warning: OpenCode also discovers the {skill.label} at "
                     f"{directory}, which differs from this Dashpot's, and may use "
-                    f"either; run 'dashpot integrate {owner}' or move it"
+                    f"either; {repair}"
                 )
     return messages
 
