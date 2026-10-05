@@ -16,13 +16,13 @@ from pathlib import Path
 import pytest
 
 from dashpot.core.model import Harness
+from dashpot.sessions.harnesses import OPENCODE_ACCEPTED_VERSION
 from dashpot.sessions.integrate import (
     BUNDLED_AGENTS,
     BUNDLED_AGENTS_ROOT,
     BUNDLED_SKILL_VERSION,
+    BUNDLED_SKILLS,
     ISSUE_WORK_SKILL,
-    OPENCODE,
-    OPENCODE_ACCEPTED_VERSION,
     WORKER_AGENT,
     BundledAgent,
     IncompleteRemovalError,
@@ -30,10 +30,12 @@ from dashpot.sessions.integrate import (
     agent_file,
     install_integration,
     integration,
+    integration_presence,
     integration_status,
     remove_integration,
     skill_directory,
 )
+from dashpot.sessions.integrate.harness import has_update
 
 # The keys OpenCode 2.0.22 decodes as a native agent definition
 # (packages/schema/src/config/agent.ts, plus ``variant``). Any other
@@ -80,8 +82,8 @@ def second(tmp_path: Path) -> BundledAgent:
 
 def opencode_home() -> Path:
     """OpenCode's global configuration directory, created as its first run would."""
-    OPENCODE.default_home.mkdir(parents=True, exist_ok=True)
-    return OPENCODE.default_home
+    integration("opencode").default_home.mkdir(parents=True, exist_ok=True)
+    return integration("opencode").default_home
 
 
 def publisher(tmp_path: Path, harness: Harness) -> Path:
@@ -127,7 +129,7 @@ def remove(agents: tuple[BundledAgent, ...] = BUNDLED_AGENTS) -> list[str]:
 
 
 def copy_of(agent: BundledAgent) -> Path:
-    copy = agent_file(OPENCODE, opencode_home(), agent)
+    copy = agent_file(integration("opencode"), opencode_home(), agent)
     assert copy is not None
     return copy
 
@@ -265,7 +267,7 @@ def test_an_unmanaged_agent_of_a_bundled_name_is_never_touched(
     # Another bundled agent's marker does not make a file this agent's.
     mine = f"---\n{second.marker}\ndescription: Mine.\n---\n\nMy own worker.\n"
     copy.write_text(mine)
-    plugin = opencode_home() / OPENCODE.hooks_file
+    plugin = opencode_home() / integration("opencode").hooks_file
 
     with pytest.raises(IntegrationError) as refused:
         install(tmp_path)
@@ -276,7 +278,9 @@ def test_an_unmanaged_agent_of_a_bundled_name_is_never_touched(
     )
     # Refused before anything was written.
     assert not plugin.exists()
-    assert not skill_directory(OPENCODE, opencode_home(), ISSUE_WORK_SKILL).exists()
+    assert not skill_directory(
+        integration("opencode"), opencode_home(), ISSUE_WORK_SKILL
+    ).exists()
     assert copy.read_text() == mine
     assert f"worker agent conflict at {copy}: not managed by Dashpot" in status(
         tmp_path
@@ -317,7 +321,7 @@ def test_a_path_that_is_no_agent_file_is_a_conflict_left_in_place(
 def test_an_install_refusal_names_every_skill_and_agent_it_cannot_manage(
     tmp_path: Path,
 ) -> None:
-    skill = skill_directory(OPENCODE, opencode_home(), ISSUE_WORK_SKILL)
+    skill = skill_directory(integration("opencode"), opencode_home(), ISSUE_WORK_SKILL)
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("Mine.\n")
     copy = copy_of(WORKER_AGENT)
@@ -356,6 +360,27 @@ def test_an_unreadable_agent_is_refused_reported_and_left_alone(
     assert copy.read_bytes() == b"\xff not an agent Dashpot wrote\n"
 
 
+def test_an_unreadable_agent_is_neither_dashpots_nor_an_update(
+    tmp_path: Path,
+) -> None:
+    spec = integration("opencode")
+    copy = copy_of(WORKER_AGENT)
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(b"\xff not an agent Dashpot wrote\n")
+
+    # With no plugin, a file Dashpot cannot read to tell is not one left
+    # over from a half-removed integration.
+    assert integration_presence("opencode").state == "not integrated"
+
+    install(tmp_path, agents=())
+
+    # Refreshing refuses it, so it offers no update, where a missing agent
+    # would.
+    assert not has_update(spec, opencode_home(), BUNDLED_SKILLS, BUNDLED_AGENTS)
+    copy.unlink()
+    assert has_update(spec, opencode_home(), BUNDLED_SKILLS, BUNDLED_AGENTS)
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
 def test_remove_carries_on_past_an_agent_it_cannot_unlink(tmp_path: Path) -> None:
     install(tmp_path)
@@ -377,7 +402,7 @@ def test_remove_carries_on_past_an_agent_it_cannot_unlink(tmp_path: Path) -> Non
     )
     assert incomplete.value.messages[0] == f"removed the OpenCode plugin {plugin}"
     assert not plugin.exists()
-    skill = skill_directory(OPENCODE, opencode_home(), ISSUE_WORK_SKILL)
+    skill = skill_directory(integration("opencode"), opencode_home(), ISSUE_WORK_SKILL)
     assert f"removed the Dashpot Issue work skill from {skill}" in (
         incomplete.value.messages
     )

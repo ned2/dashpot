@@ -249,7 +249,7 @@ would put it on the command line.
   `status: waiting`, `state: blocked` and `waitingFor: permission prompt`,
   while Dashpot reports its run `running` (measured, #479). Dashpot installs
   no `Notification` or `PermissionRequest` hook for Claude Code today
-  ([`integrate.py`](../../src/dashpot/sessions/integrate.py)); either could
+  ([`registry.py`](../../src/dashpot/sessions/integrate/registry.py)); either could
   tell it the Worker is waiting on a person (inference).
 - **The commit instruction.** Every `--bg` Worker's first model request
   carries a `# Background Session` system section that mentions

@@ -13,9 +13,9 @@ from pathlib import Path
 import pytest
 
 from dashpot.core.model import Harness
+from dashpot.sessions.harnesses import OPENCODE_ACCEPTED_VERSION
 from dashpot.sessions.integrate import (
     BUNDLED_SKILLS,
-    OPENCODE_ACCEPTED_VERSION,
     install_integration,
     integration,
     integration_status,

@@ -123,23 +123,24 @@ def check_opencode_integration(root: Path) -> None:
     """Bind the managed OpenCode plugin to the installed helper and run it."""
     from dashpot.sessions.integrate import (
         BUNDLED_AGENTS,
-        OPENCODE,
-        PLUGIN_HELPER,
         agent_file,
         install_integration,
+        integration,
         integration_status,
         remove_integration,
     )
+    from dashpot.sessions.integrate.opencode_plugin import PLUGIN_HELPER
 
-    config_home = root / "harnesses" / "opencode" / OPENCODE.home_name
+    spec = integration("opencode")
+    config_home = root / "harnesses" / "opencode" / spec.home_name
     config_home.mkdir(parents=True)
     install_integration("opencode", config_home)
-    plugin = config_home / OPENCODE.hooks_file
+    plugin = config_home / spec.hooks_file
     first = plugin.read_bytes()
     install_integration("opencode", config_home)
     assert plugin.read_bytes() == first
     # Every bundled agent is installed from the installed package.
-    agents = [agent_file(OPENCODE, config_home, agent) for agent in BUNDLED_AGENTS]
+    agents = [agent_file(spec, config_home, agent) for agent in BUNDLED_AGENTS]
     for bundled, installed in zip(BUNDLED_AGENTS, agents, strict=True):
         assert installed is not None, bundled.name
         assert installed.read_bytes() == bundled.source.read_bytes()

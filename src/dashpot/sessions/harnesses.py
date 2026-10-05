@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import AfterValidator, BeforeValidator
 
 from ..core.errors import DashpotError
-from ..core.model import HARNESS_DISPLAY, Harness, is_harness
+from ..core.model import Harness, is_harness
 
 # ``processes`` imports this module's adapters to walk a command's ancestry,
 # and each adapter's host-process predicate is typed on the ``ProcessIdentity``
@@ -122,7 +122,6 @@ class HarnessAdapter:
     """One supported harness's process and session identity contract."""
 
     harness: Harness
-    display: str
     is_host_process: Callable[[ProcessIdentity], bool]
     claim_session_identity: Callable[[Mapping[str, str]], SessionIdentityClaim | None]
     # Whether the host process serves exactly one Agent Session, so that
@@ -415,7 +414,6 @@ def _opencode_locates(event: HookEvent) -> bool:
 # publishes the same ``SessionEnd`` as an unload, so its end is deferred.
 CODEX = HarnessAdapter(
     harness="codex",
-    display=HARNESS_DISPLAY["codex"],
     is_host_process=is_codex_host_process,
     claim_session_identity=_codex_claim,
     locates=_codex_locates,
@@ -429,7 +427,6 @@ CODEX = HarnessAdapter(
 # enters or returns from a Worktree takes its run with it (ADR 0067).
 CLAUDE_CODE = HarnessAdapter(
     harness="claude-code",
-    display=HARNESS_DISPLAY["claude-code"],
     is_host_process=is_claude_code_host_process,
     claim_session_identity=_claude_code_claim,
     exclusive_session_process=True,
@@ -442,7 +439,6 @@ CLAUDE_CODE = HarnessAdapter(
 # session's move is its designated location evidence (ADR 0067).
 OPENCODE = HarnessAdapter(
     harness="opencode",
-    display=HARNESS_DISPLAY["opencode"],
     is_host_process=is_opencode_host_process,
     claim_session_identity=_opencode_claim,
     locates=_opencode_locates,
