@@ -12,7 +12,7 @@ from typing import Literal
 from ...core.model import Harness
 from ...core.record_store import replace_atomically
 from .registry import BUNDLED_SKILL_VERSION, BundledAgent, HarnessIntegration
-from .writes import IntegrationError, PendingWrite
+from .writes import IntegrationError, PendingWrite, Planned
 
 # What an agent's destination holds, judged by its marker.
 AgentState = Literal["vacant", "managed", "unmanaged", "not a file"]
@@ -41,9 +41,10 @@ def agent_copies(
 def _agent_state(agent: BundledAgent, destination: Path) -> AgentState:
     """What holds a bundled agent's destination.
 
-    Nothing at the path, even a link that leads nowhere, leaves it vacant;
-    anything there but a file is not one. Raises ``OSError`` when the file
-    cannot be read, and ``ValueError`` when it is not text.
+    Nothing at the path leaves it vacant; anything else that is not a
+    file, a link that leads nowhere included, is not one. Raises
+    ``OSError`` when the file cannot be read, and ``ValueError`` when it is
+    not text.
     """
     if not os.path.lexists(destination):
         return "vacant"
@@ -101,7 +102,7 @@ def agent_refusal(agent: BundledAgent, destination: Path) -> str | None:
     return None
 
 
-def plan_agent(agent: BundledAgent, destination: Path) -> str | PendingWrite:
+def plan_agent(agent: BundledAgent, destination: Path) -> Planned:
     """The pending write of the shipped agent definition, unless it is current."""
     if _is_current_agent(agent, destination):
         return f"Dashpot {agent.label} already installed in {destination}"

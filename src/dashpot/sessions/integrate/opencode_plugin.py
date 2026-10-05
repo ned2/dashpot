@@ -86,7 +86,7 @@ class OpenCodePlugin(HookInstaller):
 
     @override
     def remove(self, spec: HarnessIntegration, home: Path) -> str:
-        return remove_plugin(spec, home)
+        return _remove_plugin(spec, home)
 
     @override
     def missing(self, spec: HarnessIntegration, home: Path) -> tuple[str, ...] | None:
@@ -107,14 +107,16 @@ class OpenCodePlugin(HookInstaller):
     def has_update(self, spec: HarnessIntegration, home: Path) -> bool:
         try:
             plugin = _managed_plugin(home / spec.hooks_file)
-        except IntegrationError:  # pragma: no cover - read as Dashpot's just before.
+        # Asked only of an integrated harness, whose plugin
+        # ``integration_presence`` has just read as Dashpot's.
+        except IntegrationError:  # pragma: no cover
             return False
         helper = None if plugin is None else _plugin_helper(plugin)
         return helper is not None and plugin != render_plugin(helper)
 
     @override
     def status_lines(self, spec: HarnessIntegration, home: Path) -> list[str]:
-        return plugin_status(spec, home)
+        return _plugin_status(spec, home)
 
     @override
     def notes(
@@ -200,7 +202,7 @@ def _plan_plugin(spec: HarnessIntegration, home: Path, command: Path) -> Planned
     )
 
 
-def remove_plugin(spec: HarnessIntegration, home: Path) -> str:
+def _remove_plugin(spec: HarnessIntegration, home: Path) -> str:
     """Remove the managed plugin, leaving any other file at its path alone.
 
     Raises ``IntegrationError`` when the managed plugin cannot be unlinked.
@@ -221,7 +223,7 @@ def remove_plugin(spec: HarnessIntegration, home: Path) -> str:
     return f"removed the {spec.display} plugin {path}"
 
 
-def plugin_status(spec: HarnessIntegration, home: Path) -> list[str]:
+def _plugin_status(spec: HarnessIntegration, home: Path) -> list[str]:
     """Report whether the managed plugin is installed, current, and bound to a helper."""
     path = home / spec.hooks_file
     try:

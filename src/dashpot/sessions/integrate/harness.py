@@ -50,7 +50,7 @@ from .skill_copies import (
 )
 from .writes import IncompleteRemovalError, IntegrationError, Planned, write_planned
 
-INSTALLERS: dict[HookInstallerKind, HookInstaller] = {
+_INSTALLERS: Mapping[HookInstallerKind, HookInstaller] = {
     "hooks file": HOOKS_FILE,
     "plugin": OPENCODE_PLUGIN,
 }
@@ -58,7 +58,7 @@ INSTALLERS: dict[HookInstallerKind, HookInstaller] = {
 
 def hook_installer(spec: HarnessIntegration) -> HookInstaller:
     """The hook installer of a harness's integration."""
-    return INSTALLERS[spec.installer]
+    return _INSTALLERS[spec.installer]
 
 
 def install_integration(

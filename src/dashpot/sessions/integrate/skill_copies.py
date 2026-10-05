@@ -18,7 +18,7 @@ from ...core.model import Harness
 from ...core.pydantic import PersistedRecord, RepositoryRelativePath
 from ...core.record_store import replace_atomically
 from .registry import BUNDLED_SKILL_VERSION, BundledSkill, HarnessIntegration
-from .writes import IntegrationError, PendingWrite, file_mode
+from .writes import IntegrationError, PendingWrite, Planned, file_mode
 
 # Written beside the marker in every managed skill copy, it names each file
 # Dashpot wrote there, so a later Dashpot can tell a file an earlier one
@@ -208,7 +208,7 @@ def _remove_files(destination: Path, files: Sequence[Path]) -> None:
                 directory.rmdir()
 
 
-def plan_skill(skill: BundledSkill, destination: Path) -> str | PendingWrite:
+def plan_skill(skill: BundledSkill, destination: Path) -> Planned:
     """The pending write of one skill's copy, unless it is current."""
     if is_current(skill, destination):
         return f"Dashpot {skill.label} already installed in {destination}"

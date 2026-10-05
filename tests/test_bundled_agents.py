@@ -21,6 +21,7 @@ from dashpot.sessions.integrate import (
     BUNDLED_AGENTS,
     BUNDLED_AGENTS_ROOT,
     BUNDLED_SKILL_VERSION,
+    BUNDLED_SKILLS,
     ISSUE_WORK_SKILL,
     WORKER_AGENT,
     BundledAgent,
@@ -29,10 +30,12 @@ from dashpot.sessions.integrate import (
     agent_file,
     install_integration,
     integration,
+    integration_presence,
     integration_status,
     remove_integration,
     skill_directory,
 )
+from dashpot.sessions.integrate.harness import has_update
 
 # The keys OpenCode 2.0.22 decodes as a native agent definition
 # (packages/schema/src/config/agent.ts, plus ``variant``). Any other
@@ -355,6 +358,27 @@ def test_an_unreadable_agent_is_refused_reported_and_left_alone(
         for message in remove()
     )
     assert copy.read_bytes() == b"\xff not an agent Dashpot wrote\n"
+
+
+def test_an_unreadable_agent_is_neither_dashpots_nor_an_update(
+    tmp_path: Path,
+) -> None:
+    spec = integration("opencode")
+    copy = copy_of(WORKER_AGENT)
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes(b"\xff not an agent Dashpot wrote\n")
+
+    # With no plugin, a file Dashpot cannot read to tell is not one left
+    # over from a half-removed integration.
+    assert integration_presence("opencode").state == "not integrated"
+
+    install(tmp_path, agents=())
+
+    # Refreshing refuses it, so it offers no update, where a missing agent
+    # would.
+    assert not has_update(spec, opencode_home(), BUNDLED_SKILLS, BUNDLED_AGENTS)
+    copy.unlink()
+    assert has_update(spec, opencode_home(), BUNDLED_SKILLS, BUNDLED_AGENTS)
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
