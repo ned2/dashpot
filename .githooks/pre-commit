@@ -1,0 +1,22 @@
+#!/bin/sh
+# Run pre-commit's pre-commit hooks from the locked environment of the checkout
+# Git is committing or pushing in. `git config core.hooksPath .githooks`
+# selects this script (README.md#development-setup). Git runs a hook at the
+# root of its working tree, so `uv run` resolves that checkout's own `.venv`
+# and no interpreter path is written into the Git directory every checkout
+# shares.
+#
+# `pre-commit hook-impl` is internal to pre-commit: it is the entry point the
+# scripts `pre-commit install` generates call, not a public interface, so an
+# upgrade of pre-commit must check that these scripts still work.
+set -e
+
+if ! command -v uv >/dev/null 2>&1; then
+    echo "pre-commit hook: uv is not on PATH; see README.md#development-setup" >&2
+    exit 1
+fi
+
+hook_dir="$(cd "$(dirname "$0")" && pwd)"
+exec uv run --locked pre-commit hook-impl \
+    --config=.pre-commit-config.yaml --hook-type=pre-commit --hook-dir "$hook_dir" \
+    -- "$@"
