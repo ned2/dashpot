@@ -7,8 +7,8 @@ import sys
 from contextvars import copy_context
 from pathlib import Path
 
-from dashpot.core.commands import CommandError, RunningCommands, non_interactive_runner
-from dashpot.core.git import Git
+from dashpot.core.commands import CommandError, RunningCommands
+from dashpot.core.git import Git, git_runner
 from dashpot.repository.fetch import (
     FETCH_ENVIRONMENT,
     FetchReport,
@@ -123,8 +123,9 @@ def test_every_remote_failing_reports_no_fetch() -> None:
     assert report.summary() == "failed origin: ssh: no route"
 
 
-def test_non_interactive_runner_denies_prompts_a_terminal() -> None:
-    runner = non_interactive_runner(FETCH_ENVIRONMENT)
+def test_the_fetch_runner_denies_prompts_a_terminal() -> None:
+    # The runner ``remote_fetcher`` builds its adapter with.
+    runner = git_runner(FETCH_ENVIRONMENT, non_interactive=True, interruptible=False)
     script = (
         "import os, sys; "
         "print(os.environ['GIT_TERMINAL_PROMPT']); "

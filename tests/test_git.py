@@ -176,6 +176,7 @@ def _run_with_confirmed_cleanup(root: Path) -> None:
 
 
 def _run_a_remote_fetch(root: Path) -> None:
+    # The stand-in lists ``origin`` for ``git remote``, so ``git fetch`` runs too.
     remote_fetcher(10)(root)
 
 
@@ -184,17 +185,20 @@ def _ask_whether_the_source_is_dirty(root: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "invoke",
+    ("invoke", "subcommands"),
     [
-        _run_with_default_adapter,
-        _run_with_cleanup_preview,
-        _run_with_confirmed_cleanup,
-        _run_a_remote_fetch,
-        _ask_whether_the_source_is_dirty,
+        (_run_with_default_adapter, ["status"]),
+        (_run_with_cleanup_preview, ["status"]),
+        (_run_with_confirmed_cleanup, ["status"]),
+        (_run_a_remote_fetch, ["remote", "fetch"]),
+        (_ask_whether_the_source_is_dirty, ["status"]),
     ],
 )
-def test_every_production_git_runner_turns_optional_locks_off(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invoke: Callable[[Path], None]
+def test_production_git_adapters_turn_optional_locks_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invoke: Callable[[Path], None],
+    subcommands: list[str],
 ) -> None:
     # A stand-in ``git`` first on PATH records the environment each production
     # adapter hands it, so the assertion reaches past the runner to the process.
@@ -204,9 +208,12 @@ def test_every_production_git_runner_turns_optional_locks_off(
     stand_in = bin_directory / "git"
     stand_in.write_text(
         f"#!{sys.executable}\n"
-        "import os, pathlib\n"
-        f"pathlib.Path({str(recorded)!r}).write_text("
-        "os.environ.get('GIT_OPTIONAL_LOCKS', 'unset'))\n"
+        "import os, sys\n"
+        f"with open({str(recorded)!r}, 'a') as log:\n"
+        "    print(sys.argv[1], os.environ.get('GIT_OPTIONAL_LOCKS', 'unset'), "
+        "file=log)\n"
+        "if sys.argv[1:] == ['remote']:\n"
+        "    print('origin')\n"
     )
     stand_in.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_directory}:{os.environ['PATH']}")
@@ -215,4 +222,6 @@ def test_every_production_git_runner_turns_optional_locks_off(
 
     invoke(tmp_path)
 
-    assert recorded.read_text() == "0"
+    calls = [line.split() for line in recorded.read_text().splitlines()]
+    assert [subcommand for subcommand, _ in calls] == subcommands
+    assert {locks for _, locks in calls} == {"0"}
