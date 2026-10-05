@@ -103,7 +103,9 @@ def parse_project_config(text: str, path: Path) -> ProjectConfig:
     """Validate Project configuration text; ``path`` names it in diagnostics."""
     try:
         raw: Any = json.loads(text)
-    except json.JSONDecodeError as exc:
+    # JSON nested too deeply to decode raises ``RecursionError``: as
+    # unreadable as malformed JSON, and refused as such.
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise ProjectConfigError(
             f"cannot read Project configuration {path}: {exc}"
         ) from exc

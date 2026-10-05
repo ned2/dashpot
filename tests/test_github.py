@@ -176,6 +176,8 @@ class ClassificationTests(unittest.TestCase):
     def test_malformed_answers_are_malformed_response(self) -> None:
         cases = [
             ("not-json", "GitHub returned malformed JSON"),
+            # Nested too deeply to decode: ``json`` raises ``RecursionError``.
+            ("[" * 200_000, "GitHub returned malformed JSON"),
             ("[]", "GitHub response is not an object"),
             (json.dumps({"errors": "no"}), "malformed GraphQL errors value"),
             (json.dumps({"data": "no"}), "no data object"),

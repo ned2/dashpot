@@ -398,3 +398,29 @@ def test_a_symlink_loop_is_only_its_own_anchors_diagnostic(tmp_path: Path) -> No
     assert diagnostic.message.startswith(
         f"cannot read Project configuration {loop / '.dashpot' / 'config.json'}: "
     )
+
+
+def test_a_project_configuration_nested_too_deeply_is_its_anchors_diagnostic(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "dashpot"
+    write_project(root)
+    config = root / ".dashpot" / "config.json"
+    config.write_text("[" * 200_000)
+
+    result = resolve_workspace_projects(
+        [workspace("personal", root)], root_observer=root_observer
+    )
+
+    assert result.projects == []
+    (diagnostic,) = result.diagnostics
+    assert (diagnostic.source, diagnostic.code) == (
+        f"anchor:{root.resolve()}",
+        "repository-anchor",
+    )
+    # ``json`` raises ``RecursionError``, whose text differs between 3.13
+    # and 3.14 but names what it was decoding in both.
+    assert diagnostic.message.startswith(
+        f"cannot read Project configuration {config.resolve()}: "
+    )
+    assert "while decoding a JSON array" in diagnostic.message

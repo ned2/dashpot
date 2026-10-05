@@ -772,7 +772,9 @@ def _rate_limit(value: object) -> RateLimit | None:
 def _json_object(text: str) -> object | None:
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    # JSON nested too deeply to decode raises ``RecursionError``: as
+    # unreadable as malformed JSON.
+    except (json.JSONDecodeError, RecursionError):
         return None
 
 
