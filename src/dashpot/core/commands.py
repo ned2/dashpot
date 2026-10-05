@@ -495,5 +495,8 @@ def _signal(
     if not group:
         process.send_signal(signum)
         return
-    with suppress(ProcessLookupError):
+    # A group left with only its unreaped leader has nothing to signal: Linux
+    # answers that it is gone, macOS that it is not permitted, since a zombie
+    # takes no signal there.
+    with suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signum)
