@@ -9,7 +9,9 @@ This Repository's GitHub Issues carry labels that say what kind of work an
 Issue is, how urgent it is, and whether it waits on a person or on something
 outside the Repository. Agents triage most Issues here, and people triage the
 rest. This document lists the label set and the principles behind it, so that
-both apply the labels the same way.
+both apply the labels the same way. The maintainer named here and in
+`need/maintainer-input` is the person [AGENTS.md](../AGENTS.md) and the ADRs
+call the operator.
 
 These are conventions for developing Dashpot, in this Repository only. They
 are not rules for the Projects Dashpot observes, and Dashpot the application
@@ -26,19 +28,20 @@ Project.
 ## The principles
 
 1. **`need/*` says who an Issue waits on. Blocked-by says which
-   Issue work it waits on. `status/blocked` says what else holds it.** An
+   other Issues it waits on. `status/blocked` says what else holds it.** An
    Issue carries a `need/*` label only while someone must act on it:
    a triager, the reporter, or the maintainer. It carries
    `status/blocked` only while a capability or a third party holds it.
-   Another Issue's work is recorded only as a native blocked-by relationship.
-   Readiness is inferred from these, never labelled, so no label can go
-   stale against a relationship. There are no ready-for-agent or
-   ready-for-human labels: an Issue with no `need/*` label is ready for
-   either.
+   Waiting on another Issue is recorded only as a native blocked-by
+   relationship. Whether an Issue can be picked up is inferred from these,
+   never labelled, so no label can go stale against a relationship. There
+   are no ready-for-agent or ready-for-human labels: an Issue with no
+   `need/*` label is free for either an agent or a person to pick up.
 2. **`priority/*` measures urgency and nothing else.** Triage gives every
    Issue exactly one priority. A priority does not mark an Issue as triaged
-   (`need/triage` does that) and is not a readiness condition: a `P3` Issue
-   with no `need/*` label is as ready as a `P0`.
+   (removing `need/triage` does that) and is no condition on picking an
+   Issue up: a `P3` Issue with no `need/*` label is as free to pick up as a
+   `P0`.
 3. **`need/maintainer-input` is applied by anyone and cleared only by the
    maintainer.** This asymmetry is what makes the label work. An agent that
    could clear it could decide its own way out of waiting. An agent may
@@ -65,8 +68,9 @@ Project.
 ## Triage
 
 A new Issue starts with `need/triage`, which `gh issue create --label
-need/triage` applies ([issue tracker](agents/issue-tracker.md)). Triaging it
-means:
+need/triage` applies ([issue tracker](agents/issue-tracker.md)). A reporter
+who cannot apply labels opens an Issue with none, and triage adds
+`need/triage` to it. Triaging an Issue means:
 
 - removing `need/triage`;
 - applying exactly one `priority/*` label;
@@ -83,9 +87,10 @@ Some label states contradict each other and should never occur on an open
 Issue:
 
 - `need/triage` together with a priority;
+- neither `need/triage` nor a priority;
 - more than one priority;
 - `status/blocked` with no named hold;
-- a hard ordering on other Issue work ("after #N lands", "blocked by #N")
+- a hard ordering on another Issue ("after #N lands", "blocked by #N")
   written in prose and not recorded as blocked-by.
 
 A soft ordering ("coordinate with", "prefer first", a sequence chosen to
@@ -96,27 +101,27 @@ and `status/blocked` at once when the maintainer holds one part of it and a
 third party holds another, such as an upstream report the maintainer is to
 post and an upstream release the rest waits on.
 
-## Readiness
+## Free to pick up
 
-An open Issue with no `need/*` label waits on no one, so it is ready for
-an agent or a person to pick up. Whether work can start now also depends on
+An open Issue with no `need/*` label waits on no one, so it is free for an
+agent or a person to pick up. Whether work can start now also depends on
 its Open Blockers and on `status/blocked`.
 
 Dashpot's own **Ready Issue**
-([domain language](domain-language.md)) is narrower: an open Issue with no
-Open Blocker. The dashboard's Ready lifecycle and `dashpot issue list --state
-ready` select Ready Issues, and they read blocked-by relationships only, never
-labels. So the Ready lifecycle alone does not exclude an Issue that carries a
-`need/*` label or `status/blocked`. To list the open Issues that can be
-picked up now, choose the Ready lifecycle and add the exclusions to the
-search:
+([domain language](domain-language.md)) is a separate condition: an open
+Issue with no Open Blocker, whatever its labels. The dashboard's Ready
+lifecycle and `dashpot issue list --state ready` select Ready Issues, and
+they read blocked-by relationships only, never labels. So the Ready
+lifecycle alone does not exclude an Issue that carries a `need/*` label or
+`status/blocked`. To list the open Issues that can be picked up now, choose
+the Ready lifecycle and add the exclusions to the search:
 
 ```text
 -label:need/triage -label:need/info -label:need/maintainer-input -label:status/blocked
 ```
 
-An umbrella Issue whose work lives in its sub-issues can appear in that list.
-Its sub-issues are the work.
+An Issue whose work lives in its sub-issues can appear in that list. Its
+sub-issues are the work.
 
 ## The labels
 
@@ -134,14 +139,14 @@ Its sub-issues are the work.
 
 | Label | Meaning | Applied by | Cleared by |
 | --- | --- | --- | --- |
-| `status/blocked` | Held by something other than tracked Issue work: an unavailable capability (a host, a login, a platform feature) or a third party such as an upstream fix. The Issue names what holds it. Waiting on another Issue uses blocked-by instead, and a pending decision uses `need/maintainer-input`. | Triage | Triage, when the hold lifts |
+| `status/blocked` | Held by something other than another Issue: an unavailable capability (a host, a login, a platform feature) or a third party such as an upstream fix. The Issue names what holds it. Waiting on another Issue uses blocked-by instead, and a pending decision uses `need/maintainer-input`. | Triage | Triage, when the hold lifts |
 
 ### Blocked-by: native relationships, not labels
 
-An Issue that waits on other Issue work records each such Issue as a native
-GitHub **blocked-by** relationship. Prose alone is not enough, and no label
+An Issue that waits on other Issues records each of them as a native GitHub
+**blocked-by** relationship. Prose alone is not enough, and no label
 repeats the relationship. Dashpot's `WAITING ON` column and Ready lifecycle
-read these relationships, so they stay current as blockers close. Triage
+read these relationships, so they stay current as Open Blockers close. Triage
 adds and removes them.
 
 ### `priority/*`: urgency
@@ -179,20 +184,24 @@ such as a harness measurement, may carry none. Consumers: the dashboard's
 | `harness/claude-code` | Specific to Claude Code's behaviour or integration. | Triage | Triage |
 | `harness/codex` | Specific to Codex's behaviour or integration. | Triage | Triage |
 | `harness/opencode` | Specific to OpenCode's behaviour or integration. | Triage | Triage |
-| `tasks.md` | Tracked through `TASKS.md`. Historical: it marks the first Issues (#1, #6, #7, #8, #10, #11), all closed. | The upstream tasks.md tool, never a person or an agent | Nobody |
+| `tasks.md` | Tracked through `TASKS.md`. Historical: it marks the first Issues (#1, #6, #7, #8, #10, #11), all closed. | The tasks.md tool's GitHub backend, as its marker. Nobody applies it now. | Nobody |
 
 `harness-server` and `logging` each gather one body of work. A `harness/*`
 label goes on an Issue only when it concerns a single harness, so a
 cross-harness Issue carries none. A `harness/*` label can sit beside
-`harness-server`: `harness-server` names the arc, and the `harness/*` label
+`harness-server`: `harness-server` names the body of work, and the `harness/*` label
 names the harness. Consumer: the dashboard's label search, used by a person
 or an agent picking up one body of work, such as one harness's Issues before
 a re-pin or a harness acceptance run.
 
 `tasks.md` was the marker label of the upstream tasks.md tool's GitHub
-backend, from before [ADR 0001](adr/0001-own-project-and-issue-model.md)
-removed TASKS.md as a dependency. Nothing applies it now, and no one should
-apply it by hand.
+backend, which tracked this Repository's first Issues before
+[ADR 0001](adr/0001-own-project-and-issue-model.md) replaced TASKS.md as a
+backend. Nothing applies it now, and no one should apply it by hand. Its
+consumer is the record: it shows which closed Issues were tracked through
+TASKS.md. It is kept as it is by the maintainer's decision, an exception to
+[principle 5](#the-principles) that holds while it stays on closed Issues
+only.
 
 ### Closing
 
@@ -208,9 +217,9 @@ completed work. An agent that thinks an Issue should be declined applies
 ### Removed labels
 
 GitHub's defaults `invalid`, `question`, `good first issue` and `help wanted`
-have no consumer under [principle 5](#the-principles), and no Issue has
-ever carried them. They are removed: the labels are deleted once this
-document lands, and are not to be recreated.
+have no consumer under [principle 5](#the-principles), and no Issue
+carries them. They are removed from this Repository and are not to be
+recreated.
 
 - `invalid` is covered by `duplicate`, `wontfix`, or closing as not planned.
 - `question` is covered by `need/info` and `need/maintainer-input`.
@@ -220,5 +229,5 @@ document lands, and are not to be recreated.
 The 2026-09-22 alignment with the IPFS scheme renamed `ready-for-human` to
 `need/maintainer-input` and `needs-triage` to `need/triage`. On 2026-09-27
 the maintainer removed `status/ready`, its replacement for
-`ready-for-agent`, because readiness is inferred from blocked-by
-relationships and `need/*` labels.
+`ready-for-agent`, because whether an Issue can be picked up is inferred
+from blocked-by relationships and `need/*` labels.

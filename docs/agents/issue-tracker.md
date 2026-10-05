@@ -31,5 +31,4 @@ Run `gh issue create --label need/triage` so the new Issue enters triage.
 ## Label and triage an Issue
 
 The label set, who may apply and clear each label, and the triage steps are
-in [Issue labels and triage](../issue-labels.md). An agent never removes
-`need/maintainer-input` on its own judgement.
+in [Issue labels and triage](../issue-labels.md).
