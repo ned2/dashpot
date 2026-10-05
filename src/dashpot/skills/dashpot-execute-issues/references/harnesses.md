@@ -168,9 +168,13 @@ alone, and the SIGINT rule below for a `codex exec` does not apply to it.
 **A lead under `codex exec`.** If your own session is a `codex exec`, it
 stops cleanly only on SIGINT (Ctrl-C), which publishes `SessionEnd` and
 ends your run. SIGTERM and SIGKILL publish nothing: your run stays,
-orphaned, and blocks your Worktree. To recover, resume your thread in
-that Worktree and run `<dashpot> work start` with your Issue again, or end
-the run with `<dashpot> work stop --session <key>`.
+orphaned, and Cleanup's `agent-run` blocker keeps the checkout you bound
+in. To recover, resume your thread in that checkout, run `<dashpot> work
+start` with your Issue again, and assign every live worker again
+([Assign each worker](../SKILL.md#assign-each-worker)). Only when the user
+asks to end that run instead, run `<dashpot> work stop --session
+<session-key>` in that checkout, where `<dashpot> work show` identifies the
+orphaned run.
 
 **Location.** No tool a worker holds moves your session, and Dashpot
 refuses a Codex worker's `work` commands that would change your Issue work,

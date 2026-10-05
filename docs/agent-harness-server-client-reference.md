@@ -30,7 +30,7 @@ below where their meanings differ.
 Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
 2026-09-12, 2026-10-02 and 2026-10-03, Claude Code measurements on 2026-09-18, 2026-09-19,
 2026-09-30, 2026-10-01 and 2026-10-02, and Codex measurements on 2026-09-19,
-2026-09-20, 2026-10-01 and 2026-10-02. Current documentation
+2026-09-20, 2026-10-01, 2026-10-02 and 2026-10-05. Current documentation
 and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
@@ -748,10 +748,10 @@ measured `codex-cli` 0.160.0 on Linux (2026-10-05) with an isolated
 Dashpot's real Codex publisher as a trusted command hook. Three detached
 `codex exec -C <worktree> --json` processes, each bound by `work start` to its
 own Issue in its own Worktree and each holding a running command, were sent
-SIGINT, SIGTERM and SIGKILL at the same moment. Receipt 482 of the
-metadata-only [trace](spikes/measurements/issue-479-codex-trace.jsonl)
-records the hooks and exit statuses, and receipt 479 what Dashpot reported
-about 23 s after the signals; the
+SIGINT, SIGTERM and SIGKILL at the same moment. The metadata-only
+[trace](spikes/measurements/issue-479-codex-trace.jsonl) numbers its own
+receipts: receipt 482 records the hooks and exit statuses, and receipt 479
+what Dashpot reported about 23 s after the signals; the
 [verifier](../scripts/experiments/codex-479/verify.mjs) checks both.
 
 | Signal | Exit status | Hooks after the signal | Through Dashpot |
@@ -764,13 +764,11 @@ Each process's running command ended with it. The rule is the `exec`
 process's own: an `app-server --listen` sent SIGTERM publishes `SessionEnd`
 for its loaded thread ([measured at 0.155.1](#measured-lifecycle-at-01551)),
 and a SIGTERM to the managed daemon was not measured. Dashpot reads the
-SIGTERM and SIGKILL runs as orphaned, not ended, since with no `SessionEnd`
-it cannot tell an `exec` killed for good from one about to be continued by
-`codex exec resume`
-([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
-[Stopping `codex exec`](agent-sessions.md#stopping-codex-exec) gives the
-SIGINT rule and the two recoveries, resuming the thread and running `work
-start`, or `dashpot work stop --session <key>`. The execute-issues skill's
+SIGTERM and SIGKILL runs as orphaned, not ended.
+[Stopping `codex exec`](agent-sessions.md#stopping-codex-exec) says why, and
+gives the SIGINT rule and the two recoveries: resuming the thread and
+running `work start`, or `dashpot work stop --session <key>` in the run's
+Worktree. The execute-issues skill's
 Codex Workers are Sub-agents, not `exec` processes, and
 [its harness notes](../src/dashpot/skills/dashpot-execute-issues/references/harnesses.md#codex)
 say so.

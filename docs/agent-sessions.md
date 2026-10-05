@@ -525,8 +525,8 @@ Linux.
 
 #### Stopping `codex exec`
 
-Stop a `codex exec` session with SIGINT: Ctrl-C in its terminal, or
-`kill -INT <pid>` for a detached one. SIGINT publishes `Interrupt` and then
+Stop a `codex exec` session with SIGINT: `kill -INT <pid>` for a detached
+one, as measured, or Ctrl-C in its terminal, which sends the same signal. SIGINT publishes `Interrupt` and then
 `SessionEnd`, and the session's Agent Run ends. SIGTERM and SIGKILL publish
 nothing. The `exec` process exits, and the command it was running with it,
 but its bound run stays, an Orphaned Agent Run under the gone process. Cleanup
@@ -547,7 +547,7 @@ evidence that work ended
 ([ADR 0067](adr/0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md)).
 [ADR 0086](adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)
 orphans the runs of a stopped or restarted managed daemon, rather than ending
-them, for the same reason. Reading the run as ended would discard a run its
+them, for the same reason. Reading the run as ended would discard a run a
 person can still recover. Recover it in one of two ways:
 
 - Resume the thread in the run's Worktree, and run `dashpot work start
@@ -555,7 +555,8 @@ person can still recover. Recover it in one of two ways:
   Codex run [above](#codex-hosting-modes). `codex exec -C <worktree> resume
   <id> <prompt>` resumes it headless. Restate its sandbox flags before
   `resume`, since a bare `exec resume` runs at the configured default.
-- End the run with `dashpot work stop --session <key>`.
+- To abandon it instead, run `dashpot work stop --session <key>` in the
+  run's Worktree, as Cleanup's `agent-run` blocker names it.
 
 A Lead's Codex Workers in the `dashpot-execute-issues` skill are Sub-agents
 of the Lead's thread, not `exec` processes, so this rule does not reach them;
