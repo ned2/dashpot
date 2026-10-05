@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-09-30
+date: 2026-10-06
 ---
 
 # Issue tracker: GitHub
@@ -27,3 +27,8 @@ resolves; `gh pr view <number>` gives the Pull Request's own fields.
 ## Create an Issue
 
 Run `gh issue create --label need/triage` so the new Issue enters triage.
+
+## Label and triage an Issue
+
+The label set, who may apply and clear each label, and the triage steps are
+in [Issue labels and triage](../issue-labels.md).

@@ -1102,6 +1102,9 @@ it:
    commit, synchronizes the local main checkout only through an authorized
    fast-forward, and leaves Worktree cleanup separate.
 
+Issues are labelled and triaged as [`docs/issue-labels.md`](docs/issue-labels.md)
+describes.
+
 Agent sessions use the `dashpot-issue-work` skill to declare and verify the
 Issue they are working on (see
 [Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in)); the expectations
@@ -1119,6 +1122,10 @@ These `living` documents carry the detail this README points at:
 - [`docs/releasing.md`](docs/releasing.md) covers release gates, publishing, and recovery.
 - [`docs/development-integration.md`](docs/development-integration.md) covers
   Dashpot's required CI ruleset and the integration procedure.
+- [`docs/issue-labels.md`](docs/issue-labels.md) defines this Repository's
+  Issue labels and how Issues are triaged with them: what each label means,
+  who may apply and clear it, and how to tell whether an Issue is free to
+  pick up.
 - [`docs/domain-language.md`](docs/domain-language.md) defines the terms used in
   the interface, code, and documentation, including the phrasings to avoid.
 - [`docs/agent-sessions.md`](docs/agent-sessions.md) documents `dashpot
