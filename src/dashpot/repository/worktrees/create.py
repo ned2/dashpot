@@ -372,9 +372,8 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
     """Run the one mutation, verify it, and roll back only what it created.
 
     The add is a named mutation, so it is given
-    :func:`~dashpot.core.git.mutation_timeout` rather than the observation
-    timeout. An add that fails, times out, or cannot be run is rolled back
-    alike.
+    :func:`~dashpot.core.git.mutation_timeout` rather than the Git timeout.
+    An add that fails, times out, or cannot be run is rolled back alike.
     """
     path = Path(plan.path)
     if plan.base_commit is None:
@@ -386,25 +385,22 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
     # invocation's to delete.
     branch_existed = commit_of(git, f"refs/heads/{plan.branch}") is not None
     created_directories = _make_directories(path.parent)
-    adding = git.at(git.root, timeout=mutation_timeout(git.timeout))
+    mutating_git = git.at(git.root, timeout=mutation_timeout(git.timeout))
+    failure: str | None = None
     try:
         with nonzero_exit_fails(WorktreeCreateError):
-            result = adding.run(
+            result = mutating_git.run(
                 "worktree", "add", "-b", plan.branch, str(path), plan.base_commit
             )
     except GitError as exc:
+        failure = f"git worktree add did not complete: {exc.detail}"
+    else:
+        if result.returncode != 0:
+            detail = result.stderr.strip() or f"exit {result.returncode}"
+            failure = f"git worktree add failed: {detail}"
+    if failure is not None:
         leftovers = _roll_back(git, plan, created_directories, branch_existed)
-        raise WorktreeCreateError(
-            f"git worktree add did not complete: {exc.detail}"
-            + "".join(f"; {item}" for item in leftovers)
-        ) from exc
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"exit {result.returncode}"
-        leftovers = _roll_back(git, plan, created_directories, branch_existed)
-        raise WorktreeCreateError(
-            f"git worktree add failed: {detail}"
-            + "".join(f"; {item}" for item in leftovers)
-        )
+        raise WorktreeCreateError(failure + "".join(f"; {item}" for item in leftovers))
     problems = _verify_worktree(git, plan)
     if problems:
         raise WorktreeCreateError(
@@ -461,6 +457,7 @@ def _remove_what_this_created(
     created_directories: list[Path],
     branch_existed: bool,
 ) -> list[str]:
+    """Delete this invocation's Branch and empty directories; Git must answer."""
     path = Path(plan.path)
     messages: list[str] = []
     records = git.worktree_records()

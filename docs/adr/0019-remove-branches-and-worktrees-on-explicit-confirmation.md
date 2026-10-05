@@ -42,6 +42,11 @@ The ignored-content inventory sets `--untracked-files=normal` rather than
 following `status.showUntrackedFiles`, and an inventory Git refuses blocks
 the removal.
 
+Amended in place for [#539](https://github.com/ned2/dashpot/issues/539):
+a named mutation's Git commands get a bound of their own, the Git timeout
+raised to at least five minutes, and a command that outlasts its bound is
+asked to stop with its whole process group before it is killed.
+
 Dashpot reports whether a Branch is integrated
 ([ADR 0012](0012-observe-branch-integration-by-reachability.md),
 [ADR 0017](0017-observe-branch-integration-by-content-when-commits-are-unreachable.md),

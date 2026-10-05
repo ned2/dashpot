@@ -152,7 +152,7 @@ def cleanup_git(timeout: float, *, preview: bool = False) -> Git:
     A confirmed removal runs to completion: a dashboard exit interrupts
     observations, never a mutation half-way through a Worktree, and each
     command is given :func:`~dashpot.core.git.mutation_timeout` rather than
-    the observation timeout ``timeout``. A preview only reads, so an adapter
+    the Git timeout ``timeout``. A preview only reads, so an adapter
     built for the preview alone is interruptible like any other observation
     and keeps ``timeout``. Either way its Git takes no optional lock, so the
     preview's ``git status`` in a Worktree an agent commits in never holds

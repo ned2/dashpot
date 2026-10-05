@@ -169,8 +169,8 @@ _Avoid_: Remote-Tracking Branch for the branch at the remote
 **Remote Fetch**:
 A named mutation the dashboard performs, on the `f` key: `git fetch --prune`
 of every configured remote, one remote at a time, at the single Repository
-Anchor whose refs supplied the Branch observation. It is bounded by a named
-mutation's bound — the Git timeout, raised to at least five minutes —
+Anchor whose refs supplied the Branch observation. It is bounded by the Git
+timeout raised to at least five minutes, as every named mutation is,
 non-interactive, reported remote by remote, and followed by a
 passive re-observation of that Project's Git state; a refresh never fetches.
 The same explicit `f` invocation is available in an idle Cleanup preview at

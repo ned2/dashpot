@@ -15,6 +15,7 @@ import re
 import signal
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext, suppress
@@ -433,9 +434,10 @@ def _decoded(output: bytes) -> str:
 
     Git writes ref names and paths as the bytes it stores, which need not be
     UTF-8; a strict decode would fail the whole command over one name. The
-    replacement character keeps every other value intact and can never name
-    a real ref or path, so a later command given it fails rather than acting
-    on something else.
+    replacement character keeps every other value intact. A replaced name
+    all but never resolves, so a later command given it fails rather than
+    acting on something else: a Cleanup preview, for one, blocks such a
+    Branch because its integration cannot be read.
     """
     return output.decode("utf-8", errors="replace")
 
@@ -444,17 +446,41 @@ def _stop(process: subprocess.Popen[bytes], *, group: bool) -> None:
     """Stop a command that is not to finish: ask it to, then kill what is left.
 
     The termination request comes first so Git removes its lock files on the
-    way out; a command still running after :data:`STOP_GRACE` is killed. A
+    way out; whatever still runs after :data:`STOP_GRACE` is killed. A
     command in its own session (``group``) leads its own process group, and
     the whole group is signalled, so a helper it started — an SSH transport,
-    ``index-pack``, a hook — stops with it rather than running on orphaned.
+    ``index-pack``, a hook — stops with it rather than running on orphaned,
+    even one that outlives a leader which stopped when asked.
     """
     _signal(process, signal.SIGTERM, group=group)
+    if group:
+        # The leader is left unreaped through the grace, so its pid, and
+        # with it the group's id, still names this group when it is killed.
+        _await_exit_unreaped(process, STOP_GRACE)
+        _signal(process, signal.SIGKILL, group=True)
+        process.wait()
+        return
     try:
         process.wait(timeout=STOP_GRACE)
     except subprocess.TimeoutExpired:
-        _signal(process, signal.SIGKILL, group=group)
+        _signal(process, signal.SIGKILL, group=False)
         process.wait()
+
+
+def _await_exit_unreaped(process: subprocess.Popen[bytes], grace: float) -> None:
+    """Wait up to ``grace`` for ``process`` to exit, without reaping it."""
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        try:
+            exited = os.waitid(
+                os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
+            )
+        except ChildProcessError:
+            # Reaped elsewhere — a registry's ``poll`` — so it has exited.
+            return
+        if exited is not None:
+            return
+        time.sleep(0.01)
 
 
 def _signal(

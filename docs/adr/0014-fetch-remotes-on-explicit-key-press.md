@@ -9,6 +9,10 @@ Amended by [ADR 0036](0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)
 primary subject fixed and permit explicit Remote Fetch while the preview is idle.
 The fetch, observation, and re-inspection finish before confirmation is available.
 
+Amended in place for [#539](https://github.com/ned2/dashpot/issues/539):
+a named mutation's Git commands get a bound of their own, the Git timeout
+raised to at least five minutes, and a command that outlasts its bound is
+asked to stop with its whole process group before it is killed.
 
 The Branches pane lists local Branches and Remote-Tracking Branches as of
 the Repository's last fetch, and its border reports that fetch age

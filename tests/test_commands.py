@@ -11,7 +11,7 @@ from collections.abc import Callable
 from contextvars import copy_context
 from pathlib import Path
 from threading import Thread
-from typing import Any
+from typing import Any, Literal
 from unittest import mock
 
 import pytest
@@ -329,14 +329,14 @@ def test_output_that_is_not_utf8_is_replaced_not_raised() -> None:
 
 # A helper the command starts, as Git starts an SSH transport or a hook. It
 # records its pid once it is ready, and on a termination request records that
-# it was asked, then exits — unless told to ignore the request.
+# it was asked, then exits — unless it, or both, are told to ignore it.
 HELPER = """
 import os, pathlib, signal, sys, time
 asked, ready, ignore = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
 def stop(*_):
     asked.write_text("terminated")
     sys.exit(0)
-signal.signal(signal.SIGTERM, signal.SIG_IGN if ignore == "ignore" else stop)
+signal.signal(signal.SIGTERM, signal.SIG_IGN if ignore != "honour" else stop)
 staged = ready.with_suffix(".tmp")
 staged.write_text(str(os.getpid()))
 staged.rename(ready)
@@ -344,7 +344,7 @@ time.sleep(30)
 """
 
 # The command itself: starts the helper, then outlasts any test timeout,
-# ignoring a termination request when told to.
+# ignoring a termination request only when both are told to.
 COMMAND = """
 import signal, subprocess, sys, time
 helper, asked, ready, ignore = sys.argv[1:5]
@@ -387,7 +387,10 @@ def timing_out_once_ready(ready: Path) -> Callable[..., Any]:
 
 
 def run_timing_out(
-    tmp_path: Path, *, non_interactive: bool, ignore: bool = False
+    tmp_path: Path,
+    *,
+    non_interactive: bool,
+    ignore: Literal["honour", "ignore", "helper-ignores"] = "honour",
 ) -> tuple[subprocess.Popen[Any], int, Path]:
     """Run the command until it times out; its process, its helper's pid, the marker."""
     asked, ready = tmp_path / "asked", tmp_path / "ready"
@@ -398,7 +401,7 @@ def run_timing_out(
         HELPER,
         str(asked),
         str(ready),
-        "ignore" if ignore else "honour",
+        ignore,
     ]
     started: list[subprocess.Popen[Any]] = []
     real_popen = subprocess.Popen
@@ -437,9 +440,26 @@ def test_a_command_that_will_not_stop_is_killed_after_the_grace(
 ) -> None:
     monkeypatch.setattr(commands, "STOP_GRACE", 0.2)
 
-    process, helper, asked = run_timing_out(tmp_path, non_interactive=True, ignore=True)
+    process, helper, asked = run_timing_out(
+        tmp_path, non_interactive=True, ignore="ignore"
+    )
 
     assert process.returncode == -signal.SIGKILL
+    wait_for(lambda: gone(helper))
+    assert not asked.exists()
+
+
+def test_a_helper_that_outlives_its_command_is_killed_after_the_grace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A hook that traps the termination request while Git itself stops.
+    monkeypatch.setattr(commands, "STOP_GRACE", 0.2)
+
+    process, helper, asked = run_timing_out(
+        tmp_path, non_interactive=True, ignore="helper-ignores"
+    )
+
+    assert process.returncode == -signal.SIGTERM
     wait_for(lambda: gone(helper))
     assert not asked.exists()
 
@@ -480,3 +500,18 @@ def test_a_command_already_reaped_is_never_signalled() -> None:
         )
 
     killpg.assert_not_called()
+
+
+def test_a_command_sharing_dashpot_s_group_that_will_not_stop_is_killed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(commands, "STOP_GRACE", 0.2)
+
+    process, helper, _asked = run_timing_out(
+        tmp_path, non_interactive=False, ignore="ignore"
+    )
+
+    # The kill, like the request before it, reaches the command alone.
+    assert process.returncode == -signal.SIGKILL
+    assert not gone(helper)
+    os.kill(helper, signal.SIGKILL)

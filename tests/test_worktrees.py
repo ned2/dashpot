@@ -715,15 +715,22 @@ def test_a_timed_out_add_is_rolled_back(tmp_path: Path) -> None:
         "git worktree add did not complete: command timed out after 300s: git; "
     )
     assert "removed the Branch worktree-protocol this command created" in message
-    # The add is a named mutation, bounded apart from the observation timeout.
+    # The add is a named mutation, bounded apart from the Git timeout.
     assert adds == [MUTATION_TIMEOUT]
     assert local_branches(root) == {"main"}
     assert worktree_paths(root) == [str(root)]
     assert not (tmp_path / "p" / "sim.worktrees").exists()
 
 
-def test_a_branch_made_after_the_plan_is_never_rolled_back(tmp_path: Path) -> None:
-    """Another creator's Branch, made between the collision check and the add."""
+@pytest.mark.parametrize("ending", ["refused", "timed-out"])
+def test_a_branch_made_after_the_plan_is_never_rolled_back(
+    tmp_path: Path, ending: str
+) -> None:
+    """Another creator's Branch, made between the collision check and the add.
+
+    Whether Git refuses the add or the add is stopped at its timeout, the
+    Branch was there before it and is left alone.
+    """
     root = sim(tmp_path)
     base = git(root, "rev-parse", "HEAD")
     asked: list[Sequence[str]] = []
@@ -734,14 +741,23 @@ def test_a_branch_made_after_the_plan_is_never_rolled_back(tmp_path: Path) -> No
             if len(asked) == 2:
                 # The second look is the one just before the add.
                 git(root, "branch", "worktree-protocol", base)
+        if ending == "timed-out" and list(args[:3]) == ["git", "worktree", "add"]:
+            raise CommandError(
+                f"command timed out after {timeout:g}s: git", code="command-timed-out"
+            )
         return run_command(args, cwd, timeout)
 
     with pytest.raises(WorktreeCreateError) as failure:
         create(root, git_adapter=Git(root, runner=racing))
 
     message = str(failure.value)
-    assert message.startswith("git worktree add failed: ")
-    assert "a branch named 'worktree-protocol' already exists" in message
+    if ending == "refused":
+        assert message.startswith("git worktree add failed: ")
+        assert "a branch named 'worktree-protocol' already exists" in message
+    else:
+        assert message.startswith(
+            "git worktree add did not complete: command timed out after 300s: git; "
+        )
     assert (
         "Branch worktree-protocol existed before this command and was left alone"
         in message
@@ -751,6 +767,7 @@ def test_a_branch_made_after_the_plan_is_never_rolled_back(tmp_path: Path) -> No
 
 
 def test_a_rollback_git_cannot_inspect_removes_nothing(tmp_path: Path) -> None:
+    """Not knowing what a failed add left is not knowing it left nothing."""
     root = sim(tmp_path)
     base = git(root, "rev-parse", "HEAD")
     added: list[bool] = []
