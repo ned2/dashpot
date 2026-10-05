@@ -166,6 +166,13 @@ def runner(
     )
 
 
+def pending_triggers(
+    observations: ObservationRunner,
+) -> dict[ObservationKey, ObservationTrigger]:
+    """The trigger each queued rerun will run under, by key."""
+    return {key: rerun.trigger for key, rerun in observations.pending_reruns.items()}
+
+
 def landed(observations: ObservationRunner, message: ObservationFinished) -> Acceptance:
     """Finish ``message`` and return what the runner presented for it."""
     presented: list[Acceptance] = []
@@ -186,11 +193,11 @@ def test_a_request_during_an_observation_in_flight_reruns_once() -> None:
     observations.schedule([ALPHA], "manual")
     assert host.calls == []
     assert scheduler.generations == {ALPHA: 1}
-    assert observations.pending_rerun == {ALPHA: "manual"}
+    assert pending_triggers(observations) == {ALPHA: "manual"}
 
     assert isinstance(landed(observations, running.land()), PublishedObservation)
     rerun = host.pop_call(ALPHA)
-    assert observations.pending_rerun == {}
+    assert pending_triggers(observations) == {}
     assert observations.in_flight == {ALPHA: 2}
     assert rerun.land().trigger == "manual"
 
@@ -204,7 +211,7 @@ def test_distinct_keys_run_independently() -> None:
     observations.schedule([ALPHA, BETA], "manual")
     beta = host.pop_call(BETA)
     assert observations.in_flight == {ALPHA: 1, BETA: 1}
-    assert observations.pending_rerun == {ALPHA: "manual"}
+    assert pending_triggers(observations) == {ALPHA: "manual"}
 
     landed(observations, beta.land())
     assert observations.in_flight == {ALPHA: 1}
@@ -233,7 +240,7 @@ def test_a_coalesced_trigger_queues_no_rerun(trigger: ObservationTrigger) -> Non
     running = host.pop_call(ALPHA)
 
     observations.schedule([ALPHA], trigger)
-    assert observations.pending_rerun == {}
+    assert pending_triggers(observations) == {}
     assert not observations.refreshing_visible
 
     landed(observations, running.land())
@@ -257,7 +264,7 @@ def test_every_other_trigger_reruns_after_the_running_observation(
     running = host.pop_call(ALPHA)
 
     observations.schedule([ALPHA], trigger)
-    assert observations.pending_rerun == {ALPHA: trigger}
+    assert pending_triggers(observations) == {ALPHA: trigger}
     landed(observations, running.land())
     assert host.pop_call(ALPHA).land().trigger == trigger
 
@@ -268,11 +275,11 @@ def test_rerun_in_flight_overrides_the_trigger_rule() -> None:
     host.pop_call(ALPHA)
 
     observations.schedule([ALPHA], "timer", rerun_in_flight=True)
-    assert observations.pending_rerun == {ALPHA: "timer"}
+    assert pending_triggers(observations) == {ALPHA: "timer"}
     observations.schedule([BETA], "manual", rerun_in_flight=False)
     host.pop_call(BETA)
     observations.schedule([BETA], "manual", rerun_in_flight=False)
-    assert observations.pending_rerun == {ALPHA: "timer"}
+    assert pending_triggers(observations) == {ALPHA: "timer"}
 
 
 def test_a_coalesced_press_shows_refreshing_at_once() -> None:
@@ -386,7 +393,7 @@ def test_a_publish_with_changes_schedules_its_follow_ups_whatever_the_trigger() 
     published = landed(observations, alpha.land())
     assert published == PublishedObservation("timer", False, (change,))
     # The follow-up was already in flight, so a tick still reruns it.
-    assert observations.pending_rerun == {TARGETS: "timer"}
+    assert pending_triggers(observations) == {TARGETS: "timer"}
     landed(observations, targets.land())
     assert host.pop_call(TARGETS).land().trigger == "timer"
 
@@ -402,7 +409,7 @@ def test_the_rerun_is_scheduled_even_when_presenting_fails() -> None:
 
     with pytest.raises(RuntimeError, match="render failed"):
         observations.finish(running.land(), explode)
-    assert observations.pending_rerun == {}
+    assert pending_triggers(observations) == {}
     assert host.pop_call(ALPHA).land().trigger == "manual"
 
 

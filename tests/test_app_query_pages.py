@@ -392,7 +392,7 @@ async def test_startup_observes_a_snapshot_collector_exactly_once():
         await wait_until(lambda: first_load_landed(app))
         await pilot.pause()
         assert collector.calls == 1
-        assert not app.observations.pending_rerun
+        assert not app.observations.pending_reruns
         assert app.observations.errors == {}
         assert app.query_screen.issue_table().row_count == 1
         assert app.store.query_issues().rows[0].issue.reference == "test/repo#1"

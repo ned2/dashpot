@@ -178,6 +178,33 @@ async def test_initial_queries_do_not_report_unavailable_while_loading() -> None
 
 
 @pytest.mark.asyncio
+async def test_the_issue_table_shows_loading_until_its_first_page_lands() -> None:
+    snapshot = workspace_snapshot(issue("test/repo#1", "First"))
+    release = Event()
+    app = dashboard_app(SequenceCollector(snapshot), release=release)
+
+    try:
+        async with app.run_test(size=(80, 24)) as pilot:
+            table = app.query_screen.issue_table()
+            # The first observation lands and redraws the screen while the
+            # page it would show is still being queried; the pause lets that
+            # redraw run, which is what used to clear the indicator.
+            await wait_until(
+                lambda: app.store.revision == 1 and "issues" in app.queries.busy
+            )
+            await pilot.pause()
+            assert table.loading
+            assert table.row_count == 0
+
+            release.set()
+            await wait_until(lambda: first_load_landed(app))
+            assert not table.loading
+            assert table.row_count == 1
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
 async def test_first_query_failure_reports_issues_unavailable() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     app = dashboard_app(SequenceCollector(snapshot))
@@ -197,6 +224,8 @@ async def test_first_query_failure_reports_issues_unavailable() -> None:
 
         assert "Unavailable Issues: Test Repository" in alert_text(app)
         assert "Unavailable Pull Requests" not in alert_text(app)
+        # A failed first page ends the loading state; the alert says why.
+        assert not app.query_screen.issue_table().loading
 
 
 @pytest.mark.asyncio
@@ -828,7 +857,9 @@ async def test_refresh_while_in_flight_coalesces_and_reruns_once() -> None:
             app.request_refresh("manual")
             await pilot.pause()
             assert collector.calls == 1
-            assert list(app.observations.pending_rerun.values()) == ["manual"]
+            assert [
+                rerun.trigger for rerun in app.observations.pending_reruns.values()
+            ] == ["manual"]
 
             collector.release.set()
             # The held observation lands first, then the rerun observes anew.
@@ -836,7 +867,7 @@ async def test_refresh_while_in_flight_coalesces_and_reruns_once() -> None:
             await wait_until(lambda: not app.observations.in_flight)
             assert app.store.revision == 2
             assert collector.calls == 2
-            assert not app.observations.pending_rerun
+            assert not app.observations.pending_reruns
     finally:
         collector.release.set()
 
@@ -854,7 +885,7 @@ async def test_timer_ticks_coalesce_onto_a_slow_observation(tmp_path: Path) -> N
             # one is left to finish: its source is asked exactly once.
             await wait_until(lambda: collectors["alpha"].source.calls >= 3)
             assert collectors["beta"].source.calls == 1
-            assert not app.observations.pending_rerun
+            assert not app.observations.pending_reruns
 
             collectors["beta"].source.release.set()
             await wait_until(
@@ -882,7 +913,7 @@ async def test_only_a_timer_tick_coalesces_without_a_rerun(tmp_path: Path) -> No
 
             app.observations.schedule([beta_issues], "timer")
             await pilot.pause()
-            assert not app.observations.pending_rerun
+            assert not app.observations.pending_reruns
             assert not app.observations.refreshing_visible
 
             # A Cleanup that changed the Repository while it was being
@@ -890,7 +921,10 @@ async def test_only_a_timer_tick_coalesces_without_a_rerun(tmp_path: Path) -> No
             app.observations.schedule([beta_issues], "cleanup")
             app.observations.schedule([beta_issues], "manual")
             await pilot.pause()
-            assert app.observations.pending_rerun == {beta_issues: "manual"}
+            assert {
+                key: rerun.trigger
+                for key, rerun in app.observations.pending_reruns.items()
+            } == {beta_issues: "manual"}
             # The press is acknowledged at once, ahead of the indicator delay.
             assert app.observations.refreshing_visible
             assert "refreshing Beta" in alert_text(app)
@@ -899,7 +933,7 @@ async def test_only_a_timer_tick_coalesces_without_a_rerun(tmp_path: Path) -> No
             await wait_until(
                 lambda: (
                     not app.observations.in_flight
-                    and not app.observations.pending_rerun
+                    and not app.observations.pending_reruns
                 )
             )
             assert collectors["beta"].source.calls == 3

@@ -710,8 +710,8 @@ unknown value (`-`, `detached`, `no active Issue work`, `not fetched`,
 names, and how fresh the fact is, and the Pull Requests `REVIEW`, `CHECKS`,
 and `MERGE` descriptions say what each observation establishes and what it
 leaves to the base Branch's protection rules. The Legend also lists every
-shipped key, grouped by where it is pressed — global keys, each peer, the
-Worktrees pane, and each temporary screen — and a test holds
+shipped key, grouped by where it is pressed — global keys, each peer, each
+pane table that binds keys of its own, and each temporary screen — and a test holds
 it to every `BINDINGS` under `ui/`; the Branches `INTEGRATED` description
 and the Worktrees actions note say what `x` checks — the `INTEGRATED` one
 distinguishing the row summary from the Cleanup preview's per-target

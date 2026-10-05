@@ -59,6 +59,11 @@ class PageQueryState:
             return "unavailable"
         return None
 
+    @property
+    def loading(self) -> bool:
+        """Whether the first page is still being queried, with none shown and none failed."""
+        return self.page is None and self.in_flight and not self.failed_without_page
+
 
 class PageNavigation:
     def __init__(self, request: QueryRequest, capacity: int = 8) -> None:

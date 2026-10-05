@@ -446,7 +446,6 @@ class IssuesPullRequestsScreen(Screen[None]):
     """Own the Pull Request and Issue query panes and their contextual actions."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        ("enter", "open_issue", "Open Issue"),
         ("slash", "focus_search", "Search"),
         ("c", "columns", "Columns"),
         ("o", "cycle_issue_state", "Lifecycle"),
@@ -621,7 +620,7 @@ class IssuesPullRequestsScreen(Screen[None]):
         if self.dashpot.store.pages:
             self.redraw(lists=True)
         else:
-            self.issue_table().loading = True
+            self.issue_table_controller.update_loading()
             self.update_status()
         self.call_after_refresh(self.update_status)
 
@@ -647,16 +646,10 @@ class IssuesPullRequestsScreen(Screen[None]):
         """Expose only actions meaningful for the focused query pane."""
         if isinstance(self.focused, Input):
             return None
-        if action in {"columns", "open_issue"} and not self.surfaces_mounted():
-            return None
         if action == "columns":
+            if not self.surfaces_mounted():
+                return None
             return True if self.query_one("#issues-pane").has_focus_within else None
-        if action == "open_issue":
-            available = (
-                self.issue_table().has_focus
-                and self.issue_table_controller.selected_row_key is not None
-            )
-            return True if available else None
         return True
 
     @on(DataTable.HeaderSelected, "#issues")
@@ -763,11 +756,6 @@ class IssuesPullRequestsScreen(Screen[None]):
         """Open the Issue a person selected in the Issue table."""
         self.open_issue(str(event.row_key.value))
 
-    def action_open_issue(self) -> None:
-        selected = self.issue_table_controller.selected_row_key
-        if self.issue_table().has_focus and selected is not None:
-            self.open_issue(selected)
-
     def open_issue(self, key: str) -> None:
         """Read the Issue full-screen; nothing happens without an Issue row."""
         row = self.issue_table_controller.rows_by_key.get(key)
@@ -797,7 +785,6 @@ class IssuesPullRequestsScreen(Screen[None]):
         repaint.
         """
         if lists:
-            self.issue_table().loading = False
             self.issue_table_controller.reconcile_rows()
             self.update_issue_inventory()
             self.reconcile_list_panes()
@@ -1659,9 +1646,9 @@ def legend_keys() -> tuple[KeyGroup, ...]:
     """Every shipped key, grouped by where it is pressed, for the Legend.
 
     The global group is the app's keys and the focus cycle. Each peer,
-    the Worktrees table and each temporary screen are listed
-    under their own names, wherever the Legend was opened from, so Enter on
-    a Worktree is never confused with Enter on an Issue.
+    each table that binds keys of its own and each temporary screen are
+    listed under their own names, wherever the Legend was opened from, so
+    Enter on a Worktree is never confused with Enter on an Issue.
     """
     return (
         KeyGroup(
@@ -1677,6 +1664,7 @@ def legend_keys() -> tuple[KeyGroup, ...]:
             "Issues & Pull Requests",
             tuple(IssuesPullRequestsScreen.BINDINGS),
         ),
+        KeyGroup("Issues pane", tuple(IssueTable.BINDINGS)),
         KeyGroup("Sessions pane", tuple(SessionTable.BINDINGS)),
         KeyGroup("Worktrees pane", tuple(WorktreeTable.BINDINGS)),
         KeyGroup("Issue view", tuple(IssueScreen.BINDINGS)),

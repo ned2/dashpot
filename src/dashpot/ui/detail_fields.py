@@ -14,8 +14,10 @@ from textual.widgets import Static
 DetailKind = Literal["field", "heading", "section", "list", "message"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DetailItem:
+    """One label and value in a detail display; its kind styles the row."""
+
     value: str | Text
     label: str = ""
     kind: DetailKind = "field"

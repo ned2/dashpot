@@ -129,6 +129,14 @@ class PublishedObservation:
 Acceptance = DroppedObservation | FailedObservation | PublishedObservation
 
 
+@dataclass(frozen=True, slots=True)
+class PendingRerun:
+    """A key's queued rerun: the latest trigger, timed in the span its request started."""
+
+    trigger: ObservationTrigger
+    span: KeySpan
+
+
 class ObservationRunner:
     """Coordinate the observations in flight, their reruns, and their indicator."""
 
@@ -148,14 +156,14 @@ class ObservationRunner:
         # Where the refreshes and their keys are timed.
         self.event_log = event_log or unrecorded_event_log()
         self.in_flight: dict[ObservationKey, int] = {}
-        # The span of each ticket in flight, and of each pending rerun: the
-        # refresh that asked for the work keeps it, whatever releases it.
+        # The span of each ticket in flight: the refresh that asked for the
+        # work keeps it, whatever releases it.
         self._running_spans: dict[ObservationTicket, KeySpan] = {}
-        self._rerun_spans: dict[ObservationKey, KeySpan] = {}
         self._completed: set[ObservationKey] = set()
         # A key requested while its observation is in flight is observed once
-        # more when that observation lands, under the latest trigger.
-        self.pending_rerun: dict[ObservationKey, ObservationTrigger] = {}
+        # more when that observation lands, under the latest trigger and in
+        # the span its request started.
+        self.pending_reruns: dict[ObservationKey, PendingRerun] = {}
         # The last failure per key, until an observation of it is accepted.
         self.errors: dict[ObservationKey, str] = {}
         # Told of every landed observation once it is presented, so a flow
@@ -268,11 +276,10 @@ class ObservationRunner:
             if key not in self.in_flight:
                 wanted.append(key)
             elif rerun_in_flight:
-                self.pending_rerun[key] = trigger
-                replaced = self._rerun_spans.pop(key, None)
-                self._rerun_spans[key] = span_for(key)
+                replaced = self.pending_reruns.get(key)
+                self.pending_reruns[key] = PendingRerun(trigger, span_for(key))
                 if replaced is not None:
-                    replaced.end("dropped")
+                    replaced.span.end("dropped")
                 coalesced = True
             else:
                 # The tick's own observation is already running.
@@ -345,7 +352,7 @@ class ObservationRunner:
             del self.in_flight[ticket.key]
         # A queued rerun keeps the key refreshing; the indicator stays put
         # until it is scheduled rather than blinking off in between.
-        if not self.in_flight and not self.pending_rerun:
+        if not self.in_flight and not self.pending_reruns:
             if self.indicator_timer is not None:
                 self.indicator_timer.stop()
                 self.indicator_timer = None
@@ -354,16 +361,12 @@ class ObservationRunner:
     def _rerun(self, key: ObservationKey) -> None:
         # The host lands nothing once it is shutting down, so a rerun never
         # starts on a closed app.
-        trigger = self.pending_rerun.pop(key, None)
-        waiting = self._rerun_spans.pop(key, None)
-        if trigger is None:
-            return
+        waiting = self.pending_reruns.pop(key, None)
         if waiting is None:
-            self.schedule([key], trigger)
-        else:
-            # The rerun runs in the span its request started, under the
-            # refresh that asked for it.
-            self._schedule([key], trigger, None, lambda _key: waiting)
+            return
+        # The rerun runs in the span its request started, under the refresh
+        # that asked for it.
+        self._schedule([key], waiting.trigger, None, lambda _key: waiting.span)
 
     def accept(
         self, message: ObservationFinished, *, refresh: Refresh | None = None

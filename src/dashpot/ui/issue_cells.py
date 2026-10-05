@@ -1,10 +1,9 @@
-"""The Issue table's rendered values: cell types, Glyphs and chip formatting.
+"""The Issue table's rendered values: cells, Glyphs and chip formatting.
 
 Everything here turns an Issue Profile fact into what a cell shows — a
 coloured state block, a label chip, a date. A plain text value is a ``str``;
-a Rich cell carries its style, and where the text alone would not say what
-it shows — an Issue state block, a priority chip, label chips — the typed fact
-beside it. Nothing here orders rows: the source orders every Query Page.
+a Rich cell is a ``Text`` that carries its style and layout. Nothing here
+orders rows: the source orders every Query Page.
 The column catalogue and the view state that arrange these cells live in
 ``issue_table``.
 """
@@ -26,7 +25,6 @@ from ..core.model import (
 )
 from ..issues.ordering import (
     PRIORITY_BY_LABEL,
-    PriorityLevel,
     is_priority_label,
     issue_priority_label,
 )
@@ -69,64 +67,8 @@ LEGEND_ISSUE_STATE = (ISSUE_STATE_COLUMN_GLYPH, *ISSUE_STATE_GLYPHS.values())
 LEGEND_SORT = tuple(SORT_GLYPHS.values())
 
 
-class IssueStateCell(Text):
-    """A semantic Issue-state value rendered as a colored block."""
-
-    __slots__ = ("state_kind",)
-
-    def __init__(self, state_kind: IssueStateKind, *, dark: bool) -> None:
-        glyph = ISSUE_STATE_GLYPHS[state_kind]
-        super().__init__(glyph.symbol, style=glyph.style(dark=dark))
-        self.state_kind = state_kind
-
-
-class IssueNumberCell(Text):
-    """A right-aligned Issue Number."""
-
-    __slots__ = ()
-
-    def __init__(self, number: int) -> None:
-        super().__init__(str(number), justify="right")
-
-
 # Chip colour for labels whose tracker supplies no palette.
 NEUTRAL_LABEL_COLOR = "6e7781"
-
-
-class PriorityCell(Text):
-    """An Issue's priority as a chip in the colour of the label that set it.
-
-    An Issue without a recognized priority label renders empty and carries
-    no priority: the table never invents a default.
-    """
-
-    __slots__ = ("priority",)
-
-    def __init__(
-        self,
-        priority: PriorityLevel | None,
-        label: str | None,
-        colors: Mapping[str, str],
-    ) -> None:
-        super().__init__(no_wrap=True)
-        self.priority = priority
-        if priority is not None and label is not None:
-            append_chip(self, priority, colors.get(label, NEUTRAL_LABEL_COLOR))
-
-
-class LabelsCell(Text):
-    """Issue labels rendered as coloured chips, like a tracker's feed."""
-
-    __slots__ = ("labels",)
-
-    def __init__(
-        self,
-        labels: tuple[str, ...],
-        colors: Mapping[str, str],
-    ) -> None:
-        super().__init__(no_wrap=True)
-        self.labels = labels
-        append_label_chips(self, labels, colors)
 
 
 def label_chips(labels: Sequence[str], colors: Mapping[str, str]) -> Text:
@@ -186,7 +128,7 @@ def chip_foreground(background: str) -> str:
     return "#000000" if luminance > 0.55 else "#ffffff"
 
 
-TableCell = str | Text | IssueStateCell | IssueNumberCell | LabelsCell | PriorityCell
+TableCell = str | Text
 
 
 def cells_match(left: TableCell, right: TableCell) -> bool:
@@ -264,16 +206,28 @@ def label_colors(project: ProjectObservation) -> Mapping[str, str]:
     return project.snapshot.label_colors
 
 
-def labels_cell(issue: IssueProfile, project: ProjectObservation) -> LabelsCell:
-    """The Issue's ordinary labels; a recognized priority label is the PRIORITY cell."""
+def labels_cell(issue: IssueProfile, project: ProjectObservation) -> Text:
+    """The Issue's ordinary labels as chips; a recognized priority label is the PRIORITY cell."""
     labels = tuple(label for label in issue.labels if not is_priority_label(label))
-    return LabelsCell(labels, label_colors(project))
+    return append_label_chips(Text(no_wrap=True), labels, label_colors(project))
 
 
-def priority_cell(issue: IssueProfile, project: ProjectObservation) -> PriorityCell:
+def priority_cell(issue: IssueProfile, project: ProjectObservation) -> Text:
+    """The Issue's priority as a chip in the colour of the label that set it.
+
+    An Issue without a recognized priority label renders empty: the table
+    never invents a default.
+    """
+    cell = Text(no_wrap=True)
     label = issue_priority_label(issue)
-    priority = None if label is None else PRIORITY_BY_LABEL[label.casefold()]
-    return PriorityCell(priority, label, label_colors(project))
+    if label is not None:
+        colors = label_colors(project)
+        append_chip(
+            cell,
+            PRIORITY_BY_LABEL[label.casefold()],
+            colors.get(label, NEUTRAL_LABEL_COLOR),
+        )
+    return cell
 
 
 def optional_text_cell(value: str | None) -> str:
@@ -300,8 +254,15 @@ def issue_state_kind(issue: IssueProfile) -> IssueStateKind:
     return _CLOSED_STATE_KINDS.get(issue.state_reason, "completed")
 
 
-def issue_state_cell(issue: IssueProfile, *, dark: bool) -> IssueStateCell:
-    return IssueStateCell(issue_state_kind(issue), dark=dark)
+def issue_state_cell(issue: IssueProfile, *, dark: bool) -> Text:
+    """The Issue's state as a block in the state's colour."""
+    glyph = ISSUE_STATE_GLYPHS[issue_state_kind(issue)]
+    return Text(glyph.symbol, style=glyph.style(dark=dark))
+
+
+def issue_number_cell(number: int) -> Text:
+    """A right-aligned Issue Number."""
+    return Text(str(number), justify="right")
 
 
 def agent_state_cell(states: tuple[SessionActivity, ...], *, dark: bool = True) -> Text:

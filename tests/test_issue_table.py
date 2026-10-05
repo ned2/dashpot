@@ -30,14 +30,12 @@ from dashpot.ui.glyphs import ACTIVITY_COLUMN_GLYPH, ACTIVITY_LEGEND, MUTED_COLO
 from dashpot.ui.issue_cells import (
     ISSUE_STATE_COLUMN_GLYPH,
     LEGEND_ISSUE_STATE,
-    IssueNumberCell,
-    IssueStateCell,
-    LabelsCell,
-    PriorityCell,
     TableCell,
     agent_state_cell,
     cells_match,
     date_cell,
+    issue_number_cell,
+    issue_state_cell,
 )
 from dashpot.ui.issue_table import (
     COLUMN_SPECS,
@@ -183,7 +181,7 @@ def test_issue_number_column_uses_the_bare_project_local_number() -> None:
     )
 
     number = cells[row_key("issue", selected_issue.id)][0]
-    assert isinstance(number, IssueNumberCell)
+    assert isinstance(number, Text)
     assert str(number) == "17"
     assert number.justify == "right"
 
@@ -191,15 +189,17 @@ def test_issue_number_column_uses_the_bare_project_local_number() -> None:
 def test_cells_match_only_when_they_render_alike() -> None:
     assert cells_match("Title", "Title")
     assert not cells_match("Title", "Retitled")
-    assert cells_match(IssueNumberCell(17), IssueNumberCell(17))
+    assert cells_match(issue_number_cell(17), issue_number_cell(17))
     # Rich calls these Texts equal; the table would paint them differently.
     assert Text("■", style="green") == Text("■", style="red")
     assert not cells_match(Text("■", style="green"), Text("■", style="red"))
     assert not cells_match(Text("17"), Text("17", justify="right"))
-    assert not cells_match(Text("17"), IssueNumberCell(17))
+    assert not cells_match(Text("17"), issue_number_cell(17))
     assert not cells_match("17", Text("17"))
+    open_issue = issue("test/repo#17", "Open")
     assert not cells_match(
-        IssueStateCell("open", dark=True), IssueStateCell("open", dark=False)
+        issue_state_cell(open_issue, dark=True),
+        issue_state_cell(open_issue, dark=False),
     )
 
 
@@ -242,9 +242,9 @@ def test_labels_column_renders_tracker_coloured_chips_and_carries_names() -> Non
     _contexts, cells = build_rows(issue_rows(snapshot), columns=("labels",))
 
     chips = cells[row_key("issue", labelled.id)][0]
-    assert isinstance(chips, LabelsCell)
+    assert isinstance(chips, Text)
+    assert chips.no_wrap
     assert chips.plain == " bug   enhancement   zeta "
-    assert chips.labels == ("bug", "enhancement", "zeta")
     styles = [str(span.style) for span in chips.spans]
     assert styles == [
         "#ffffff on #d73a4a",
@@ -252,9 +252,8 @@ def test_labels_column_renders_tracker_coloured_chips_and_carries_names() -> Non
         "#ffffff on #6e7781",
     ]
     empty = cells[row_key("issue", bare.id)][0]
-    assert isinstance(empty, LabelsCell)
+    assert isinstance(empty, Text)
     assert empty.plain == "-"
-    assert empty.labels == ()
 
 
 def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
@@ -283,19 +282,18 @@ def test_priority_column_is_a_chip_in_its_source_label_colour() -> None:
         _contexts, cells = build_rows(result, columns=("priority", "labels"), dark=dark)
 
         priority, labels = cells[row_key("issue", urgent.id)]
-        assert isinstance(priority, PriorityCell)
+        assert isinstance(priority, Text)
+        assert priority.no_wrap
         assert priority.plain == " P0 "
-        assert priority.priority == "P0"
         assert [str(span.style) for span in priority.spans] == ["#ffffff on #b60205"]
         # The priority labels leave the LABELS chips rather than render twice.
-        assert isinstance(labels, LabelsCell)
-        assert labels.labels == ("bug",)
+        assert isinstance(labels, Text)
         assert labels.plain == " bug "
         low, bare = cells[row_key("issue", routine.id)]
-        assert isinstance(low, PriorityCell)
+        assert isinstance(low, Text)
         assert low.plain == " P3 "
         assert [str(span.style) for span in low.spans] == ["#ffffff on #6e7781"]
-        assert isinstance(bare, LabelsCell)
+        assert isinstance(bare, Text)
         assert bare.plain == "-"
 
 
@@ -311,12 +309,11 @@ def test_priority_column_shows_only_while_some_issue_carries_a_priority_label() 
     mixed = issue_rows(workspace_snapshot(prioritised, unlabelled))
     assert shown_columns(DEFAULT_COLUMNS, mixed.rows) == READY_COLUMNS
     _contexts, cells = build_rows(mixed, columns=("priority",))
-    # An Issue without a priority label shows nothing and carries no
-    # priority: no default is invented.
+    # An Issue without a priority label shows nothing: no default is
+    # invented.
     absent = cells[row_key("issue", unlabelled.id)][0]
-    assert isinstance(absent, PriorityCell)
+    assert isinstance(absent, Text)
     assert absent.plain == ""
-    assert absent.priority is None
     # The rows keep the order the source gave them.
     assert list(cells) == [
         row_key("issue", prioritised.id),
@@ -351,7 +348,7 @@ def test_local_markdown_number_is_the_table_id() -> None:
     )
 
     number = cells[row_key("issue", "I_local_17")][0]
-    assert isinstance(number, IssueNumberCell)
+    assert isinstance(number, Text)
     assert str(number) == "17"
     assert number.justify == "right"
 
@@ -371,7 +368,7 @@ def test_table_view_rejects_empty_or_duplicate_column_layouts() -> None:
         view.with_columns(("title", "title"))
 
 
-def test_cells_carry_typed_values() -> None:
+def test_cells_render_their_values() -> None:
     # The most active bound Agent Run sets the Glyph; no run shows nothing.
     assert str(agent_state_cell(())) == ""
     assert str(agent_state_cell(("unknown",))) == "○"
@@ -380,9 +377,7 @@ def test_cells_carry_typed_values() -> None:
     assert str(agent_state_cell(("running", "running"))) == "●"
     assert str(agent_state_cell(("waiting", "running", "unknown"))) == "●"
     assert str(agent_state_cell(("unknown", "waiting"))) == "◐"
-    assert all(IssueNumberCell(number).justify == "right" for number in (2, 10))
-    for kind in ("open", "completed", "not-planned", "duplicate"):
-        assert IssueStateCell(kind, dark=True).state_kind == kind
+    assert all(issue_number_cell(number).justify == "right" for number in (2, 10))
 
 
 def test_correlated_run_state_is_visible_in_issues_and_detail() -> None:
@@ -413,7 +408,7 @@ def test_correlated_run_state_is_visible_in_issues_and_detail() -> None:
     assert len(cells[selected_key]) == len(DEFAULT_COLUMNS) == 8
     number_cell = cells[selected_key][DEFAULT_COLUMNS.index("number")]
     assert str(number_cell) == "1"
-    assert isinstance(number_cell, IssueNumberCell)
+    assert isinstance(number_cell, Text)
     assert number_cell.justify == "right"
     assert str(cells[selected_key][DEFAULT_COLUMNS.index("agent_state")]) == "◐"
     detail = issue_metadata_text(contexts[selected_key])
@@ -528,7 +523,7 @@ def test_waiting_on_names_open_blockers_and_dims_the_rows_that_wait() -> None:
 
         # A Ready row names nothing and keeps its own colours.
         number, title, waiting_on, labels = cells[row_key("issue", ready.id)]
-        assert isinstance(number, IssueNumberCell)
+        assert isinstance(number, Text)
         assert (title, waiting_on) == ("Ready", "")
         # A closed blocker is not one; a blocker the Project does not hold
         # counts as open and is named by its identity.
@@ -539,7 +534,7 @@ def test_waiting_on_names_open_blockers_and_dims_the_rows_that_wait() -> None:
             assert isinstance(cell, Text)
             assert [str(span.style) for span in cell.spans] == [muted]
         # Chips keep the colours that carry their meaning.
-        assert isinstance(labels, LabelsCell)
+        assert isinstance(labels, Text)
         assert muted not in {str(span.style) for span in labels.spans}
         # The first three blockers are named and the rest counted.
         crowded_on = cells[row_key("issue", crowded.id)][2]

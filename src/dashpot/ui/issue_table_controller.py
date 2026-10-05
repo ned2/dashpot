@@ -24,7 +24,6 @@ from .issue_table import (
     ColumnKey,
     IssueTable,
     IssueTableViewState,
-    SortTerm,
     build_rows,
     column_header,
     column_specs,
@@ -44,12 +43,12 @@ def issue_column_label(
     spec = COLUMNS_BY_KEY[name]
     if not orderable:
         return Text(spec.label)
-    term = (
-        (SortTerm(name, request.ordering.endswith(":desc")),)
+    descending = (
+        request.ordering.endswith(":desc")
         if request.ordering.startswith(name + ":")
-        else ()
+        else None
     )
-    return column_header(spec, term)
+    return column_header(spec, descending)
 
 
 class IssueTableController:
@@ -130,10 +129,15 @@ class IssueTableController:
             navigation, now, detail="exact"
         )
 
+    def update_loading(self) -> None:
+        """Show the loading indicator in place of the table until its first page lands."""
+        self.table.loading = self.screen.dashpot.queries.page_states["issues"].loading
+
     def reconcile_rows(self) -> ListResult[IssueListRow, IssueListSummary]:
         """Rebuild the table from the accepted page and return the query result."""
         app = self.screen.dashpot
         table = self.table
+        self.update_loading()
         result = app.store.query_issues()
         self.update_page_summary()
         shown = shown_columns(self.issue_view.columns, result.rows)

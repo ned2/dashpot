@@ -1,6 +1,6 @@
 """The Issue table's shape: its column catalogue and view state.
 
-The rendered values themselves — cell types, Glyphs and chip formatting —
+The rendered values themselves — cells, Glyphs and chip formatting —
 live in ``issue_cells``; this module decides which columns are shown, heads
 them for the ordering the source accepted, and assembles each queried row
 into cells. The source orders every page, so nothing here sorts. Each
@@ -37,11 +37,11 @@ from .issue_cells import (
     LEGEND_ISSUE_STATE,
     SORT_GLYPHS,
     WAITING_ON_LIMIT,
-    IssueNumberCell,
     TableCell,
     agent_state_cell,
     comments_cell,
     date_cell,
+    issue_number_cell,
     issue_state_cell,
     labels_cell,
     muted_cell,
@@ -281,14 +281,6 @@ COLUMNS_BY_KEY = {spec.key: spec for spec in COLUMN_SPECS}
 
 
 @dataclass(frozen=True, slots=True)
-class SortTerm:
-    """One column of the ordering the source accepted, as its header shows it."""
-
-    column: ColumnKey
-    descending: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class IssueTableViewState:
     """The columns the Issue table shows; its query is the screen's ``ListQueries``."""
 
@@ -333,17 +325,20 @@ def _is_shown(spec: ColumnSpec, rows: Sequence[IssueListRow]) -> bool:
     return shown_when is None or any(shown_when(row) for row in rows)
 
 
-def column_label(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> str:
+def column_label(column: ColumnSpec, descending: bool | None) -> str:
+    """Head a sortable column with its sort marker.
+
+    ``descending`` is the direction of the ordering the source accepted on
+    this column, or ``None`` when it orders by another.
+    """
     if not column.sortable:
         return column.label
-    term = next((term for term in sort if term.column == column.key), None)
-    marker = SORT_GLYPHS[None if term is None else term.descending]
-    return f"{column.label} {marker.symbol}"
+    return f"{column.label} {SORT_GLYPHS[descending].symbol}"
 
 
-def column_header(column: ColumnSpec, sort: tuple[SortTerm, ...]) -> Text:
+def column_header(column: ColumnSpec, descending: bool | None) -> Text:
     """Align a column heading with the values it describes."""
-    return Text(column_label(column, sort), justify=column.header_justify)
+    return Text(column_label(column, descending), justify=column.header_justify)
 
 
 def build_rows(
@@ -387,7 +382,7 @@ def _row_values(row: IssueListRow, *, dark: bool) -> dict[ColumnKey, TableCell]:
     values: dict[ColumnKey, TableCell] = {
         "issue_state": issue_state_cell(issue, dark=dark),
         "agent_state": agent_state_cell(row.session_states, dark=dark),
-        "number": IssueNumberCell(issue.number),
+        "number": issue_number_cell(issue.number),
         "title": truncate_end(issue.title, TITLE_LIMIT),
         "waiting_on": unobserved_auxiliary(row)
         if blockers is None
