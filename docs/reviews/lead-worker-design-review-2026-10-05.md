@@ -164,6 +164,8 @@ maintainer can revert them:
 - sequence step 1 no longer building #444 on sub-agent data meanwhile, to
   agree with #498, which already defers #444 until #479 decides.
 
+The edits by kind:
+
 - **Staleness.** Landed work moved out of "still needed": #427, #458, #460
   (ADR 0107), #459, #476 (ADRs 0104 and 0112), #454 (ADR 0108), #466
   (ADR 0113, display in #517) and #243.
@@ -193,7 +195,9 @@ maintainer can revert them:
 - **Additions.**
   - [If sub-agent Workers stay](../proposals/lead-worker-design.md#if-sub-agent-workers-stay),
     a non-adoption branch.
-  - The doorbell-at-a-turn-boundary rule.
+  - Each harness's measured doorbell timing: none interrupts a tool call,
+    but Claude Code's `SendMessage` and OpenCode's `steer` arrive within a
+    busy session's running turn.
   - A harness permission-system stop counted as waiting on a person.
   - Warp and Claude Projects cited for the Lead-ended policy.
   - "Lifetime and observability, not write safety" as what prior art says.

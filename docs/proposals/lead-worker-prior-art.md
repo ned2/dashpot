@@ -627,5 +627,5 @@ busy session's turn: it arrives after the current tool call.
 11. (New.) Make a doorbell append at a turn boundary and never start a turn
     that pre-empts work in flight, and check each harness's doorbell against
     that in its experiment. The #479 experiment did: none interrupts a tool
-    call, but Claude Code's and OpenCode's `steer` arrive within the running
-    turn.
+    call, but Claude Code's `SendMessage` and OpenCode's `steer` arrive
+    within the running turn.
