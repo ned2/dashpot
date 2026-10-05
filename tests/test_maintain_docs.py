@@ -323,6 +323,22 @@ def test_a_link_in_an_html_comment_is_not_checked(
     assert messages == ["guide.md:3: link target is missing: missing.md"]
 
 
+def test_a_comment_in_a_paragraph_ends_at_a_blank_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A marker inside a paragraph cannot hide the paragraphs after it."""
+    document = write_document(
+        tmp_path,
+        "guide.md",
+        "A stray <!-- marker\n\n[x](gone.md)\n\nUse --> arrows.\n"
+        "<!--\n\n[y](hidden.md)\n\n-->\n",
+    )
+
+    messages = check(monkeypatch, tmp_path, document)
+
+    assert messages == ["guide.md:3: link target is missing: gone.md"]
+
+
 def test_a_comment_marker_in_a_code_span_opens_no_comment(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -339,6 +355,7 @@ def test_a_comment_marker_in_a_code_span_opens_no_comment(
 def test_an_unclosed_comment_marker_hides_nothing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Only a closed comment renders as nothing; a stray marker is text."""
     document = write_document(
         tmp_path, "guide.md", "A stray <!-- before [x](gone.md).\n"
     )
@@ -428,6 +445,7 @@ def test_link_syntax_in_python_code_is_not_checked(
         'label = "[x](gone.md)"\n'
         'message = f"[{label}](also-gone.md)"\n'
         '"[x](" "gone.md)" if label else ""\n'
+        '"[x](" "gone.md)"\n'
         "print(\n"
         '    "[x](gone.md)"\n'
         ")\n",
@@ -484,7 +502,7 @@ def test_the_link_gate_reads_the_tracked_python_of_the_package_and_scripts() -> 
         for path in maintain_docs.tracked_python_files()
     }
 
-    assert "src/dashpot/ui/cleanup_flow.py" in read
+    assert any(name.count("/") > 2 for name in read if name.startswith("src/"))
     assert "scripts/maintain_docs.py" in read
     assert all(name.startswith(("src/", "scripts/")) for name in read)
 

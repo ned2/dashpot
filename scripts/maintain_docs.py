@@ -106,17 +106,18 @@ INDENTED_CODE_PATTERN = re.compile(r"^(?: {4}|\t)")
 LIST_ITEM_PATTERN = re.compile(r"^ *(?:[-*+]|\d+[.)])[^\S\n]")
 BLANK_PATTERN = re.compile(r"^[^\S\n]*$")
 # Backtick runs delimit an inline code span, within one line; the closing run
-# matches in length. An HTML comment may run across lines. Whichever opens
-# first wins, so a `<!--` inside a span opens no comment, and a backtick inside
-# a comment opens no span.
+# matches in length. An HTML comment that opens a line is a block and may run
+# across blank lines; one inside a paragraph ends with it, at a blank line.
+# Whichever opens first wins, so a `<!--` inside a span opens no comment, and a
+# backtick inside a comment opens no span.
 INLINE_MASK_PATTERN = re.compile(
-    r"(?P<comment><!--.*?-->)"
+    r"(?P<comment>^ {0,3}<!--.*?-->|<!--(?:(?!\n[^\S\n]*\n).)*?-->)"
     r"|(?<!`)(?P<ticks>`+)(?!`)[^\n]*?(?<!`)(?P=ticks)(?!`)",
-    re.DOTALL,
+    re.DOTALL | re.MULTILINE,
 )
 
 # Tokens that neither belong to a statement nor end one: a Python statement is
-# a docstring when every other token in it is a string literal.
+# a docstring when what remains of it is one string literal.
 IGNORED_TOKEN_TYPES = frozenset(
     {
         tokenize.COMMENT,
@@ -234,14 +235,15 @@ def mask_inline(text: str, *, spans: bool = True) -> str:
     return INLINE_MASK_PATTERN.sub(blank, text)
 
 
-def python_prose(text: str) -> str:
+def mask_python_code(text: str) -> str:
     """Blank everything in Python source but its comments and docstrings, character for character.
 
-    A docstring here is any statement that is nothing but string literals, so
-    the attribute docstrings PEP 257 names count as well as a module's,
-    class's or function's. A string inside a larger expression, and every
-    f-string, is code and blanked with the rest. Newlines are kept, so offsets
-    and reported line numbers stay true.
+    A docstring here is any statement that is one string literal and nothing
+    else, so the attribute docstrings PEP 257 names count as well as a
+    module's, class's or function's. A string inside a larger expression, every
+    f-string, and implicitly concatenated literals, whose quotes would fall
+    inside their text, are code and blanked with the rest. Newlines are kept,
+    so offsets and reported line numbers stay true.
 
     Raises `SyntaxError` or `tokenize.TokenError` for source Python cannot
     tokenize.
@@ -258,10 +260,8 @@ def python_prose(text: str) -> str:
         if token.type == tokenize.COMMENT:
             kept.append((offset(token.start), offset(token.end)))
         elif token.type in (tokenize.NEWLINE, tokenize.ENDMARKER):
-            if statement and all(part.type == tokenize.STRING for part in statement):
-                kept.extend(
-                    (offset(part.start), offset(part.end)) for part in statement
-                )
+            if len(statement) == 1 and statement[0].type == tokenize.STRING:
+                kept.append((offset(statement[0].start), offset(statement[0].end)))
             statement = []
         elif token.type not in IGNORED_TOKEN_TYPES:
             statement.append(token)
@@ -271,11 +271,16 @@ def python_prose(text: str) -> str:
     return "".join(prose)
 
 
-def link_source(path: Path, text: str) -> str:
+def mask_for_links(path: Path, text: str) -> str:
     """Blank everything in a file the link gate must not read links out of."""
-    if path.suffix == ".py":
-        return mask_inline(python_prose(text))
+    if is_python(path):
+        return mask_inline(mask_python_code(text))
     return mask_code(text)
+
+
+def is_python(path: Path) -> bool:
+    """Report whether a file is Python, whose docstrings and comments are read for links."""
+    return path.suffix == ".py"
 
 
 def opens_indented_code(lines: Sequence[str], index: int) -> bool:
@@ -410,7 +415,7 @@ def check_links(paths: Sequence[Path]) -> list[Problem]:
         text = path.read_text(encoding="utf-8")
         relative = path.relative_to(PROJECT_ROOT).as_posix()
         try:
-            source = link_source(path, text)
+            source = mask_for_links(path, text)
         except (SyntaxError, tokenize.TokenError) as error:
             problems.append(
                 Problem(
@@ -428,8 +433,8 @@ def check_links(paths: Sequence[Path]) -> list[Problem]:
             if fragment is not None:
                 anchor = ""
             if not location:
-                # Only a Markdown document has headings for an anchor to name.
-                if anchor and path.suffix == ".md" and anchor not in anchors_for(path):
+                # Python has no headings for an anchor to name.
+                if anchor and not is_python(path) and anchor not in anchors_for(path):
                     problems.append(
                         Problem(relative, line, f"no heading anchors #{anchor}")
                     )
@@ -837,8 +842,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the documentation gates, or rewrite the ADR index and stop."""
     parser = argparse.ArgumentParser(
         description=(
-            "Check tracked Markdown documents, and the links in tracked Python's "
-            "docstrings and comments, and build the ADR index."
+            "Check tracked Markdown documents and the links in tracked Python's "
+            "docstrings and comments; build the ADR index."
         )
     )
     parser.add_argument(
