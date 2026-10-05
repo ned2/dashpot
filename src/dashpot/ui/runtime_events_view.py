@@ -47,8 +47,8 @@ from ..core.runtime_events import (
     UnattendedPauseChanged,
     is_recorded,
 )
+from ..core.text import counted
 from ..core.timestamps import observed_instant
-from ..repository.cleanup import counted
 from .detail_fields import DetailFields, DetailItem
 from .marked_widgets import MarkedCheckbox
 from .runtime_stats_view import clock_text, duration_text

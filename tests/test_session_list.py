@@ -29,7 +29,8 @@ from dashpot.observation.session_list import (
     resume_command,
     shows_target,
 )
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions import session_exits
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
@@ -515,6 +516,19 @@ def test_only_an_orphaned_session_with_an_identity_has_a_resume_command() -> Non
     )
     assert resume_command(run("codex", orphaned=False)) is None
     assert resume_command(run("codex", session_id=None)) is None
+
+
+def test_a_harness_without_a_resume_template_has_no_resume_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A harness without a template is offered no command, never Claude Code's."""
+    orphaned = session("work:one", harness="codex", target_path="/w/it").model_copy(
+        update={"session_id": "thread-1", "orphaned": True}
+    )
+    assert session_exits.ANY_SESSION_EXIT.resume is None
+    monkeypatch.delitem(session_exits.SESSION_EXITS, "codex")
+
+    assert resume_command(orphaned) is None
 
 
 def test_sandboxed_bindings_of_both_harnesses_reach_the_sessions_and_issues_read_models() -> (

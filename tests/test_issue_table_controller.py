@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.pages import QueryRequest
 from dashpot.ui.issue_table_controller import issue_column_label
 
 

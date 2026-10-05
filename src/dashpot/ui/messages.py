@@ -22,7 +22,7 @@ from textual.message import Message
 
 from ..observation.keys import ObservationOutcome, ObservationTicket
 from ..queries.page_navigation import ContinuationRefused, PageTicket
-from ..queries.source_queries import (
+from ..queries.pages import (
     PageObservation,
     ResolvedIssue,
     ResourceKind,

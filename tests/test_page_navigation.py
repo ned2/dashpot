@@ -7,8 +7,8 @@ from dashpot.queries.page_navigation import (
     PageNavigation,
     page_text,
 )
-from dashpot.queries.source_queries import QueryRequest
-from test_source_queries import markdown
+from dashpot.queries.pages import QueryRequest
+from test_query_pages import markdown
 
 # ``page_text`` takes the time, but no assertion here depends on a page's age.
 NOW = datetime(2026, 8, 27, 3, 0, 0, tzinfo=UTC)

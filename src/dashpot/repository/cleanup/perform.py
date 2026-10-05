@@ -25,15 +25,15 @@ from ...core.runtime_events import (
     fitting_identities,
 )
 from ...core.shell import shell_command
+from ...core.text import counted
 from ...sessions.processes import ProcessLookup, host_process_lookup
 from ...sessions.working_directories import ProcessScan
-from ..repository import LOCAL_REF_PREFIX, REMOTE_REF_PREFIX
+from ..refs import LOCAL_REF_PREFIX, REMOTE_REF_PREFIX
 from ..worktrees.records import registered_at
 from .obstacles import (
     LocatedWorktree,
     assess_processes_inside,
     assess_worktree_occupancy,
-    counted,
     locate_worktree,
 )
 from .override import (

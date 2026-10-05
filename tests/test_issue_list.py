@@ -25,7 +25,7 @@ from dashpot.observation.issue_list import (
     sort_issue_rows,
 )
 from dashpot.observation.observation_store import WorkspaceObservationStore
-from dashpot.queries.source_queries import AuxiliaryObservation
+from dashpot.queries.pages import AuxiliaryObservation
 from dashpot.ui.issue_table import COLUMN_SPECS
 from helpers import make_issue
 

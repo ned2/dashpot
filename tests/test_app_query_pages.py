@@ -30,14 +30,14 @@ from dashpot.core.model import Diagnostic, RepositoryStateInventory, WorkspaceSn
 from dashpot.observation.collect import ObservationCoordinator
 from dashpot.observation.observation_store import WorkspaceObservationStore
 from dashpot.project.workspace import ResolvedProject
+from dashpot.queries.cached_source import UnresolvedQuerySource
 from dashpot.queries.page_navigation import PageNavigation, page_text, totals_text
-from dashpot.queries.query_source import UnresolvedQuerySource
-from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
+from dashpot.queries.pages import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.legend import LegendScreen
 from factories import agent_run
 from helpers import wait_until
-from test_source_queries import markdown
+from test_query_pages import markdown
 
 
 class LocalOnlyCollector:
@@ -86,10 +86,10 @@ def application(
 async def test_first_page_navigation_and_submitted_text(tmp_path):
     app = application(tmp_path)
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.query_screen.queue_table().row_count == 1)
+        await wait_until(lambda: app.query_screen.issue_table().row_count == 1)
         await show_query_peer(app, pilot)
         assert app.queries.navigation["issues"].page.issues[0].number == 1
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await pilot.press("n")
         await wait_until(
             lambda: app.queries.navigation["issues"].page.issues[0].number == 2
@@ -188,9 +188,9 @@ async def test_paging_while_a_restart_is_in_flight_keeps_loading(tmp_path):
 
     try:
         async with app.run_test(size=(150, 55)) as pilot:
-            await wait_until(lambda: app.query_screen.queue_table().row_count == 1)
+            await wait_until(lambda: app.query_screen.issue_table().row_count == 1)
             await show_query_peer(app, pilot)
-            app.query_screen.queue_table().focus()
+            app.query_screen.issue_table().focus()
             source.query_page = held
             await pilot.press("g")
             await wait_until(started.is_set)
@@ -268,7 +268,7 @@ def test_totals_text_marks_stale_totals_and_never_substitutes_zero(tmp_path):
 async def test_the_legend_lists_the_shipped_screen_and_worktree_keys(tmp_path):
     app = application(tmp_path)
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.query_screen.queue_table().row_count == 1)
+        await wait_until(lambda: app.query_screen.issue_table().row_count == 1)
         await pilot.press("question_mark")
         await pilot.pause()
 
@@ -338,10 +338,10 @@ async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
         raise RuntimeError(error)
 
     async with app.run_test(size=(150, 55)) as pilot:
-        await wait_until(lambda: app.query_screen.queue_table().row_count == 1)
+        await wait_until(lambda: app.query_screen.issue_table().row_count == 1)
         await show_query_peer(app, pilot)
         app.queries.sources["issues"].query_page = failing
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await pilot.pause()
         app.query_screen.action_restart_page()
         await wait_until(lambda: app.queries.navigation["issues"].error == error)
@@ -350,7 +350,7 @@ async def test_failing_source_query_reports_its_error_and_keeps_the_app_running(
         assert app.queries.navigation["issues"].page is None
         assert str(app.query_screen.query_one("#issue-count", Static).render()) == error
         # The page the failed restart replaced stays on screen with the error.
-        assert app.query_screen.queue_table().row_count == 1
+        assert app.query_screen.issue_table().row_count == 1
 
 
 @pytest.mark.asyncio
@@ -394,7 +394,7 @@ async def test_startup_observes_a_snapshot_collector_exactly_once():
         assert collector.calls == 1
         assert not app.observations.pending_rerun
         assert app.observations.errors == {}
-        assert app.query_screen.queue_table().row_count == 1
+        assert app.query_screen.issue_table().row_count == 1
         assert app.store.query_issues().rows[0].issue.reference == "test/repo#1"
 
 

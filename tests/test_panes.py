@@ -9,7 +9,7 @@ from app_harness import NOW, SnapshotQuerySource, issue, workspace_snapshot
 from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.observation.related_rows import RelatedRows
 from dashpot.queries.page_navigation import PageNavigation
-from dashpot.queries.source_queries import QueryRequest, ResourceKind
+from dashpot.queries.pages import QueryRequest, ResourceKind
 from dashpot.ui.item_filter import ItemFilterBar
 from dashpot.ui.list_rows import build_list_rows
 from dashpot.ui.panes import (

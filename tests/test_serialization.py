@@ -26,7 +26,7 @@ from dashpot.core.runtime_events import (
     RuntimeEvent,
     SpanEnded,
 )
-from dashpot.queries.source_queries import PageObservation, QueryRequest
+from dashpot.queries.pages import PageObservation, QueryRequest
 from dashpot.repository.cleanup import CleanupBlocker
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
@@ -42,7 +42,7 @@ from dashpot.serialization import (
 )
 from factories import agent_run, project, pull_request, target, workspace
 from helpers import make_issue
-from test_source_queries import markdown
+from test_query_pages import markdown
 
 SNAPSHOT_KEYS = {
     "collectedAt",

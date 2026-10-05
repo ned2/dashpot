@@ -28,7 +28,7 @@ from ..issues.ordering import (
     sort_by_column,
 )
 from ..issues.search import parse_search
-from ..queries.source_queries import AuxiliaryObservation
+from ..queries.pages import AuxiliaryObservation
 
 
 @dataclass(frozen=True, slots=True)

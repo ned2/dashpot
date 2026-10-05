@@ -38,13 +38,13 @@ from dashpot.observation.collect import (
 )
 from dashpot.project.workspace import ResolvedProject
 from dashpot.queries.markdown_queries import MarkdownQuerySource
-from dashpot.queries.source_queries import (
+from dashpot.queries.pages import (
     AuxiliaryObservation,
     QuerySource,
     ResourceKind,
     SourceEnumeration,
 )
-from dashpot.repository.repository import BranchObservation
+from dashpot.repository.observe import BranchObservation
 from factories import dashpot_project, observation_target
 from helpers import jsonable, snapshot_of
 
@@ -788,7 +788,7 @@ class ObservationCoordinatorTests(unittest.TestCase):
 def test_enumeration_keeps_fallback_diagnostic_codes_for_both_source_families():
     from unittest.mock import Mock
 
-    from dashpot.queries.source_queries import (
+    from dashpot.queries.pages import (
         QuerySource,
         SourceContext,
         SourceEnumeration,

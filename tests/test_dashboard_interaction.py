@@ -73,7 +73,7 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         # pages Pull Requests, and anywhere else pages Issues.
         pane.table.focus()
         await wait_until(lambda: app.query_screen.page_kind() == "pull-requests")
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await wait_until(lambda: app.query_screen.page_kind() == "issues")
 
         # Typing submits nothing; Enter submits the whole text to the source.
@@ -181,7 +181,7 @@ async def select_header(app: DashpotApp, pilot: Pilot[None], column: str) -> Non
     # the way a mouse click does without depending on where the header cell
     # lands in the terminal, which the pane's column widths and scroll
     # offset move about.
-    table = app.query_screen.query_one("#queue", DataTable)
+    table = app.query_screen.query_one("#issues", DataTable)
     key = next(key for key in table.columns if key.value == column)
     table.post_message(
         DataTable.HeaderSelected(
@@ -203,12 +203,12 @@ async def submit_search(app: DashpotApp, pilot: Pilot[None], text: str) -> None:
 def headers(app: DashpotApp) -> list[str]:
     return [
         str(column.label)
-        for column in app.query_screen.query_one("#queue", DataTable).columns.values()
+        for column in app.query_screen.query_one("#issues", DataTable).columns.values()
     ]
 
 
 def titles(app: DashpotApp) -> list[str]:
-    table = app.query_screen.query_one("#queue", DataTable)
+    table = app.query_screen.query_one("#issues", DataTable)
     title_column = table.get_column_index("title")
     return [
         str(table.get_row_at(index)[title_column]) for index in range(table.row_count)
@@ -228,7 +228,7 @@ async def test_only_focused_query_table_shows_its_row_cursor() -> None:
         await show_query_peer(app, pilot)
         tables = {
             table_id: app.query_screen.query_one(f"#{table_id}", DataTable)
-            for table_id in ("pull-requests", "queue")
+            for table_id in ("pull-requests", "issues")
         }
 
         assert {
@@ -237,7 +237,7 @@ async def test_only_focused_query_table_shows_its_row_cursor() -> None:
         await pilot.press("tab")
         assert {
             current_id for current_id, table in tables.items() if table.show_cursor
-        } == {"queue"}
+        } == {"issues"}
 
         await pilot.press("slash")
         assert not any(table.show_cursor for table in tables.values())
@@ -260,7 +260,7 @@ async def test_a_header_the_source_cannot_order_by_leaves_the_query_alone() -> N
     async with app.run_test(size=(80, 24)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         request = app.queries.navigation["issues"].request
 
         for name, label in (
@@ -323,18 +323,20 @@ async def test_a_header_click_preserves_the_selected_issue() -> None:
     async with app.run_test(size=(80, 24)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         selected_key = row_key("issue", "I_test/repo#1")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key == selected_key
+            lambda: (
+                app.query_screen.issue_table_controller.selected_row_key == selected_key
+            )
         )
 
         await select_header(app, pilot, "number")
         await select_header(app, pilot, "number")
         await wait_until(lambda: titles(app) == ["Alpha", "Zebra"])
 
-        assert app.query_screen.issue_table.selected_row_key == selected_key
+        assert app.query_screen.issue_table_controller.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
 
@@ -396,7 +398,9 @@ async def test_a_submitted_sort_qualifier_owns_the_order_until_it_is_cleared() -
         await wait_until(lambda: titles(app) == ["Newly created", "Recently active"])
 
         # The qualifier orders the page, so no header offers to.
-        assert "created" not in app.query_screen.issue_table.issue_view.columns
+        assert (
+            "created" not in app.query_screen.issue_table_controller.issue_view.columns
+        )
         assert app.query_screen.list_queries.issues.text == "sort:created-desc"
         assert headers(app) == [
             "◈",
@@ -432,7 +436,7 @@ async def test_a_returning_sort_marker_is_measured_in_a_table_that_scrolls() -> 
     app = dashboard_app(SequenceCollector(workspace_snapshot(older, newer)))
 
     def clipped_headers() -> list[str]:
-        table = app.query_screen.queue_table()
+        table = app.query_screen.issue_table()
         console = app.console
         return [
             str(column.label)
@@ -447,7 +451,7 @@ async def test_a_returning_sort_marker_is_measured_in_a_table_that_scrolls() -> 
     async with app.run_test(size=(60, 24)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.queue_table()
+        table = app.query_screen.issue_table()
         await wait_until(lambda: table.max_scroll_x > 0)
         assert await settled(pilot, clipped_headers, "the headers") == []
 
@@ -524,34 +528,34 @@ async def test_visible_filters_update_the_page_summary_but_not_the_totals() -> N
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
         count = app.query_screen.query_one("#issue-count", Static)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         state = app.query_screen.query_one("#issue-state", Select)
 
         inventory = "ISSUES · Open 2 · Closed 1"
 
         assert str(count.render()) == page_summary(2)
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
         await submit_search(app, pilot, "zebra")
         await wait_until(lambda: str(count.render()) == page_summary(1))
         assert table.row_count == 1
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
         state.value = "closed"
         await wait_until(
             lambda: (
-                app.query_screen.issue_table.selected_row_key
+                app.query_screen.issue_table_controller.selected_row_key
                 == row_key("issue", closed_issue.id)
             )
         )
         assert app.queries.navigation["issues"].request.state == "closed"
         assert str(count.render()) == page_summary(1)
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
         await submit_search(app, pilot, "no-such-issue")
         await wait_until(lambda: str(count.render()) == page_summary(0))
         assert table.row_count == 0
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
 
 @pytest.mark.asyncio
@@ -582,50 +586,50 @@ async def test_o_cycles_the_lifecycle_filter_through_the_select() -> None:
         await show_query_peer(app, pilot)
         count = app.query_screen.query_one("#issue-count", Static)
         state = app.query_screen.query_one("#issue-state", Select)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         inventory = "ISSUES · Open 2 · Closed 1"
         assert str(count.render()) == page_summary(2)
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
         table.focus()
         # Ready leaves out the open Issue that waits on Alpha.
         await pilot.press("o")
         await wait_until(lambda: state.value == "ready")
         await wait_until(lambda: table.row_count == 1)
-        assert app.query_screen.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table_controller.selected_row_key == row_key(
             "issue", alpha.id
         )
         assert app.query_screen.list_queries.issues.lifecycle == "ready"
         assert app.queries.navigation["issues"].request.state == "ready"
         assert str(count.render()) == page_summary(1)
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "closed")
         await wait_until(
             lambda: (
-                app.query_screen.issue_table.selected_row_key
+                app.query_screen.issue_table_controller.selected_row_key
                 == row_key("issue", closed_issue.id)
             )
         )
         assert app.query_screen.list_queries.issues.lifecycle == "closed"
         assert app.queries.navigation["issues"].request.state == "closed"
         assert str(count.render()) == page_summary(1)
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "all")
         await wait_until(lambda: table.row_count == 3)
         assert app.queries.navigation["issues"].request.state == "all"
         assert str(count.render()) == page_summary(3)
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
         await pilot.press("o")
         await wait_until(lambda: state.value == "open")
         await wait_until(lambda: table.row_count == 2)
         assert app.queries.navigation["issues"].request.state == "open"
         assert str(count.render()) == page_summary(2)
-        assert pane_title(app.query_screen, "#queue-pane") == inventory
+        assert pane_title(app.query_screen, "#issues-pane") == inventory
 
 
 @pytest.mark.asyncio
@@ -646,19 +650,19 @@ async def test_ordering_and_column_visibility_leave_both_counts_alone() -> None:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
         count = app.query_screen.query_one("#issue-count", Static)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         assert str(count.render()) == page_summary(2)
         assert (
-            pane_title(app.query_screen, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
+            pane_title(app.query_screen, "#issues-pane") == "ISSUES · Open 2 · Closed 1"
         )
 
         await select_header(app, pilot, "number")
         await wait_until(lambda: headers(app)[2] == "# ↑")
-        app.query_screen.issue_table.apply_issue_columns(("title", "number"))
+        app.query_screen.issue_table_controller.apply_issue_columns(("title", "number"))
         await pilot.pause()
 
         assert app.queries.navigation["issues"].request.ordering == "number:asc"
-        assert app.query_screen.issue_table.issue_view.columns == (
+        assert app.query_screen.issue_table_controller.issue_view.columns == (
             "agent_state",
             "title",
             "number",
@@ -666,7 +670,7 @@ async def test_ordering_and_column_visibility_leave_both_counts_alone() -> None:
         assert table.row_count == 2
         assert str(count.render()) == page_summary(2)
         assert (
-            pane_title(app.query_screen, "#queue-pane") == "ISSUES · Open 2 · Closed 1"
+            pane_title(app.query_screen, "#issues-pane") == "ISSUES · Open 2 · Closed 1"
         )
 
 
@@ -685,9 +689,12 @@ async def test_priority_column_comes_and_goes_with_the_rows_the_table_shows() ->
     async with app.run_test(size=(100, 28)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
 
-        assert app.query_screen.issue_table.issue_view.columns == DEFAULT_COLUMNS
+        assert (
+            app.query_screen.issue_table_controller.issue_view.columns
+            == DEFAULT_COLUMNS
+        )
         assert headers(app) == ["◈", "◉", "# ↕", "TITLE", "LABELS ↕", "LAST ACTION ↕"]
 
         serve_snapshot(app, second)
@@ -747,22 +754,22 @@ async def test_tab_cycles_focus_within_the_query_peer() -> None:
     async with app.run_test(size=(120, 32)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        queue = app.query_screen.query_one("#queue", DataTable)
+        issues = app.query_screen.query_one("#issues", DataTable)
         pull_requests = app.query_screen.query_one("#pull-requests", DataTable)
         assert pull_requests.has_focus
-        assert not app.query_screen.query_one("#queue-pane").has_pseudo_class(
+        assert not app.query_screen.query_one("#issues-pane").has_pseudo_class(
             "focus-within"
         )
 
         await pilot.press("tab")
-        assert queue.has_focus
-        assert app.query_screen.query_one("#queue-pane").has_pseudo_class(
+        assert issues.has_focus
+        assert app.query_screen.query_one("#issues-pane").has_pseudo_class(
             "focus-within"
         )
         await pilot.press("tab")
         assert pull_requests.has_focus
         await pilot.press("shift+tab")
-        assert queue.has_focus
+        assert issues.has_focus
         await pilot.press("shift+tab")
         assert pull_requests.has_focus
 
@@ -772,7 +779,7 @@ async def test_tab_cycles_focus_within_the_query_peer() -> None:
         await pilot.press("tab")
         assert pull_requests.has_focus
 
-        queue.focus()
+        issues.focus()
         await pilot.press("slash")
         assert app.query_screen.query_one("#issue-search", Input).has_focus
 
@@ -802,7 +809,7 @@ async def test_arrows_move_between_lists_only_at_row_boundaries() -> None:
         assert pull_requests.highlighted() == ("last", 1)
 
         await pilot.press("down")
-        assert app.query_screen.queue_table().has_focus
+        assert app.query_screen.issue_table().has_focus
 
         # Focus returns to the row the cursor left, not the boundary row.
         await pilot.press("up")
@@ -813,7 +820,7 @@ async def test_arrows_move_between_lists_only_at_row_boundaries() -> None:
         assert pull_requests.highlighted() == ("first", 0)
 
         await pilot.press("up")
-        assert app.query_screen.queue_table().has_focus
+        assert app.query_screen.issue_table().has_focus
 
 
 @pytest.mark.asyncio
@@ -935,15 +942,15 @@ async def test_a_row_the_store_cannot_detail_selects_nothing() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        assert app.query_screen.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table_controller.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
 
-        app.query_screen.issue_table.show_row(row_key("issue", "I_gone"))
+        app.query_screen.issue_table_controller.show_row(row_key("issue", "I_gone"))
 
         # Nothing is selected, so the Open Issue binding opens nothing rather
         # than the previously selected Issue.
-        assert app.query_screen.issue_table.selected_row_key is None
+        assert app.query_screen.issue_table_controller.selected_row_key is None
         app.query_screen.action_open_issue()
         await pilot.pause()
         assert not isinstance(app.screen, IssueScreen)

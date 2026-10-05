@@ -92,7 +92,7 @@ async def test_issue_view_tracks_github_issue_state_colors(
         await show_query_peer(app, pilot)
         await show_issue_states(app, "all")
         await pilot.pause()
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         issue_key = row_key("issue", selected_issue.id)
         state_cell = table.get_cell(issue_key, "issue_state")
         assert isinstance(state_cell, IssueStateCell)
@@ -211,11 +211,13 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
     async with app.run_test(size=(100, 30)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         selected_key = row_key("issue", "I_test/repo#2")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key == selected_key
+            lambda: (
+                app.query_screen.issue_table_controller.selected_row_key == selected_key
+            )
         )
 
         table.focus()
@@ -237,7 +239,7 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         assert await pilot.click("#column-apply")
         await pilot.pause()
 
-        assert app.query_screen.issue_table.issue_view.columns == (
+        assert app.query_screen.issue_table_controller.issue_view.columns == (
             "agent_state",
             "issue_state",
             "number",
@@ -251,10 +253,10 @@ async def test_column_editor_applies_visibility_and_order_without_losing_selecti
         # WAITING ON stays chosen, but no row waits, so the table leaves it out.
         assert [key.value for key in table.columns] == [
             key
-            for key in app.query_screen.issue_table.issue_view.columns
+            for key in app.query_screen.issue_table_controller.issue_view.columns
             if key != "waiting_on"
         ]
-        assert app.query_screen.issue_table.selected_row_key == selected_key
+        assert app.query_screen.issue_table_controller.selected_row_key == selected_key
         selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
         assert selected == selected_key
 
@@ -354,7 +356,9 @@ async def test_issue_view_uses_one_current_store_projection() -> None:
     async with app.run_test(size=(80, 24)) as pilot:
         selected_key = row_key("issue", selected_issue.id)
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key == selected_key
+            lambda: (
+                app.query_screen.issue_table_controller.selected_row_key == selected_key
+            )
         )
         await pilot.pause()
 
@@ -392,14 +396,16 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         search = app.query_screen.query_one("#issue-search", Input)
         selected_key = row_key("issue", second.id)
         table.focus()
         await pilot.pause()
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key == selected_key
+            lambda: (
+                app.query_screen.issue_table_controller.selected_row_key == selected_key
+            )
         )
         search.value = "s"
         await pilot.pause()
@@ -436,14 +442,14 @@ async def test_enter_opens_the_issue_view_and_escape_restores_the_table() -> Non
         assert (
             body.styles.border_title_color
             == metadata.styles.border_title_color
-            == app.query_screen.query_one("#queue-pane").styles.border_title_color
+            == app.query_screen.query_one("#issues-pane").styles.border_title_color
         )
         assert body.styles.border_top[0] == metadata.styles.border_top[0] == "round"
         assert not view.stacked
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        assert app.query_screen.issue_table.selected_row_key == selected_key
+        assert app.query_screen.issue_table_controller.selected_row_key == selected_key
         # Typed but unsubmitted text is still there to submit or clear.
         assert app.query_screen.query_one("#issue-search", Input).value == "s"
         assert app.queries.navigation["issues"].request.query == ""
@@ -459,7 +465,7 @@ async def test_the_issue_view_keeps_its_chrome_after_its_identities_resolve() ->
 
     async with app.run_test(size=(70, 30)) as pilot:
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key is not None
+            lambda: app.query_screen.issue_table_controller.selected_row_key is not None
         )
         view = await open_issue_view(app, pilot)
         body = view.query_one("#issue-view-body")
@@ -489,7 +495,7 @@ async def test_a_newer_projection_keeps_the_pane_a_person_is_reading() -> None:
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key is not None
+            lambda: app.query_screen.issue_table_controller.selected_row_key is not None
         )
         view = await open_issue_view(app, pilot)
         await pilot.press("tab")
@@ -588,7 +594,7 @@ async def test_a_newer_projection_updates_every_pane_it_changes() -> None:
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key is not None
+            lambda: app.query_screen.issue_table_controller.selected_row_key is not None
         )
         view = await open_issue_view(app, pilot)
         assert str(
@@ -634,7 +640,7 @@ async def test_a_projection_after_the_view_closed_is_a_no_op() -> None:
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key is not None
+            lambda: app.query_screen.issue_table_controller.selected_row_key is not None
         )
         view = await open_issue_view(app, pilot)
         await pilot.press("escape")
@@ -656,7 +662,7 @@ async def test_the_issue_view_stacks_its_details_when_the_terminal_narrows() -> 
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key is not None
+            lambda: app.query_screen.issue_table_controller.selected_row_key is not None
         )
         view = await open_issue_view(app, pilot)
         body = view.query_one("#issue-view-body")
@@ -689,7 +695,7 @@ async def test_issue_view_shows_an_intentional_empty_state_for_a_blank_body() ->
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(
             lambda: (
-                app.query_screen.issue_table.selected_row_key
+                app.query_screen.issue_table_controller.selected_row_key
                 == row_key("issue", blank.id)
             )
         )
@@ -709,8 +715,8 @@ async def test_issue_view_does_nothing_without_an_issue_row() -> None:
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        assert app.query_screen.issue_table.selected_row_key is None
-        app.query_screen.queue_table().focus()
+        assert app.query_screen.issue_table_controller.selected_row_key is None
+        app.query_screen.issue_table().focus()
         await pilot.press("enter")
         await pilot.pause()
         await app.run_action("screen.open_issue")
@@ -728,7 +734,7 @@ async def test_refresh_while_the_issue_view_is_open_reaches_both_screens() -> No
 
     async with app.run_test(size=(120, 36)) as pilot:
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key is not None
+            lambda: app.query_screen.issue_table_controller.selected_row_key is not None
         )
         view = await open_issue_view(app, pilot)
         assert view.issue.title == "Before"
@@ -736,7 +742,7 @@ async def test_refresh_while_the_issue_view_is_open_reaches_both_screens() -> No
         serve_snapshot(app, after)
         await app.run_action("refresh")
         await wait_until(
-            lambda: app.query_screen.query_one("#queue", DataTable).row_count == 2
+            lambda: app.query_screen.query_one("#issues", DataTable).row_count == 2
         )
         assert app.screen is view
         # The open Issue follows the page it came from.
@@ -744,7 +750,7 @@ async def test_refresh_while_the_issue_view_is_open_reaches_both_screens() -> No
 
         await pilot.press("escape")
         await wait_until(lambda: not isinstance(app.screen, IssueScreen))
-        assert app.query_screen.query_one("#queue", DataTable).row_count == 2
+        assert app.query_screen.query_one("#issues", DataTable).row_count == 2
 
 
 def test_issue_metadata_names_each_related_issue_with_its_state() -> None:
@@ -1046,7 +1052,7 @@ async def test_dashboard_keys_are_not_on_the_issue_views_binding_chain() -> None
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
         lifecycle = app.query_screen.list_queries.issues.lifecycle
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 
@@ -1072,7 +1078,7 @@ async def test_legend_is_reachable_from_the_issue_view() -> None:
     async with app.run_test(size=(100, 40)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dashpot.queries.source_queries import ResourceKind
+from dashpot.queries.pages import ResourceKind
 from dashpot.ui.list_queries import ListQueries
 
 

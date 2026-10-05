@@ -36,16 +36,16 @@ from ..issues.pull_request_sources import PullRequestSourceObservation
 from ..issues.source_factories import check_issue_source
 from ..project.project_config import load_project_config
 from ..project.workspace import ResolvedProject
-from ..queries.query_source import configured_query_source
-from ..queries.source_queries import QuerySource
-from ..repository.repository import (
+from ..queries.cached_source import configured_query_source
+from ..queries.pages import QuerySource
+from ..repository.observe import (
     BranchObservation,
     IntegrationCache,
     observe_branches,
     observe_observation_targets,
 )
 from ..sessions.agent_bindings import bind_issue_runs
-from ..sessions.agents import observe_agent_runs
+from ..sessions.agent_runs import observe_agent_runs
 from ..sessions.processes import lock_holder_probe
 from .keys import AGENT_RUNS_KEY, ObservationKey, ObservationOutcome, ObservationTicket
 from .observation_store import StoreChange, WorkspaceObservationStore

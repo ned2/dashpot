@@ -19,7 +19,7 @@ from app_harness import (
     show_issue_states,
     workspace_snapshot,
 )
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.pages import QueryRequest
 from dashpot.ui.app import DashboardScreen, IssuesPullRequestsScreen
 from dashpot.ui.issue_table import COLUMN_KEYS
 from dashpot.ui.issue_view import IssueScreen
@@ -44,7 +44,7 @@ async def test_number_keys_switch_long_lived_peers_with_their_own_content() -> N
         assert isinstance(app.screen, DashboardScreen)
         assert app.screen.query_one("#sessions").has_focus
         assert not app.screen.query("#pull-requests-pane")
-        assert not app.screen.query("#queue-pane")
+        assert not app.screen.query("#issues-pane")
         dashboard_selector = app.screen.query_one("#peer-dashboard")
         issues_selector = app.screen.query_one("#peer-issues-pull-requests")
         assert str(dashboard_selector.render()) == "1 Dashboard"
@@ -61,7 +61,7 @@ async def test_number_keys_switch_long_lived_peers_with_their_own_content() -> N
         await wait_until(lambda: isinstance(app.screen, IssuesPullRequestsScreen))
         assert app.screen.query_one("#pull-requests").has_focus
         assert app.screen.query_one("#pull-requests").row_count == 1
-        assert app.screen.query_one("#queue").row_count == 1
+        assert app.screen.query_one("#issues").row_count == 1
         assert not app.screen.query("#sessions-pane")
         dashboard_selector = app.screen.query_one("#peer-dashboard")
         issues_selector = app.screen.query_one("#peer-issues-pull-requests")
@@ -169,13 +169,13 @@ async def test_switching_preserves_each_peers_native_focus_cursor_and_draft() ->
         await wait_until(lambda: first_load_landed(app))
         await pilot.press("2")
         await wait_until(lambda: app.screen is app.query_screen)
-        queue = app.query_screen.queue_table()
+        issues = app.query_screen.issue_table()
         draft = app.query_screen.issue_filter_bar.search
         draft.value = "not submitted"
-        queue.focus()
+        issues.focus()
         await pilot.press("down")
         await pilot.pause()
-        assert queue.cursor_row == 1
+        assert issues.cursor_row == 1
 
         await pilot.press("1")
         await wait_until(lambda: app.screen is app.dashboard)
@@ -185,8 +185,8 @@ async def test_switching_preserves_each_peers_native_focus_cursor_and_draft() ->
 
         await pilot.press("2")
         await wait_until(lambda: app.screen is app.query_screen)
-        assert queue.has_focus
-        assert queue.cursor_row == 1
+        assert issues.has_focus
+        assert issues.cursor_row == 1
         assert draft.value == "not submitted"
 
         await pilot.press("1")
@@ -213,17 +213,17 @@ async def test_switching_preserves_the_complete_query_presentation_state() -> No
         await pilot.press("enter")
         await await_issue_page(app, lambda request: request.query == "Issue")
         await show_issue_states(app, "all")
-        queue = app.query_screen.queue_table()
-        queue.focus()
+        issues = app.query_screen.issue_table()
+        issues.focus()
         await pilot.press("n")
         await wait_until(lambda: app.queries.navigation["issues"].index == 1)
 
-        app.query_screen.issue_table.apply_issue_columns(COLUMN_KEYS)
+        app.query_screen.issue_table_controller.apply_issue_columns(COLUMN_KEYS)
         search.value = "unsubmitted draft"
-        queue.focus()
-        queue.move_cursor(row=20, animate=False)
-        await wait_until(lambda: queue.scroll_y == queue.scroll_target_y > 0)
-        scroll_y = queue.scroll_y
+        issues.focus()
+        issues.move_cursor(row=20, animate=False)
+        await wait_until(lambda: issues.scroll_y == issues.scroll_target_y > 0)
+        scroll_y = issues.scroll_y
 
         await pilot.press("1")
         await wait_until(lambda: app.screen is app.dashboard)
@@ -237,11 +237,11 @@ async def test_switching_preserves_the_complete_query_presentation_state() -> No
         assert len(navigation.history) == 2
         assert navigation.page is not None
         assert navigation.page.issues[0].number == 31
-        assert app.query_screen.issue_table.issue_view.columns == COLUMN_KEYS
+        assert app.query_screen.issue_table_controller.issue_view.columns == COLUMN_KEYS
         assert search.value == "unsubmitted draft"
-        assert queue.has_focus
-        assert queue.cursor_row == 20
-        assert queue.scroll_y == scroll_y
+        assert issues.has_focus
+        assert issues.cursor_row == 20
+        assert issues.scroll_y == scroll_y
 
 
 @pytest.mark.asyncio
@@ -261,7 +261,7 @@ async def test_temporary_screens_return_to_origin_and_disable_peer_keys() -> Non
         await pilot.press("escape")
         await wait_until(lambda: app.screen is app.query_screen)
 
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await pilot.press("enter")
         await wait_until(lambda: isinstance(app.screen, IssueScreen))
         await pilot.press("1", "ctrl+shift+left", "ctrl+shift+right")
@@ -289,7 +289,7 @@ async def test_refresh_updates_the_inactive_peer_and_both_status_bars() -> None:
         serve_snapshot(app, second)
         app.request_refresh("manual")
         await wait_until(lambda: observation_landed(app, 2))
-        await wait_until(lambda: app.query_screen.queue_table().row_count == 2)
+        await wait_until(lambda: app.query_screen.issue_table().row_count == 2)
         await wait_until(
             lambda: (
                 str(app.dashboard.query_one("#peer-summary", Static).render())
@@ -354,5 +354,5 @@ async def test_footer_tracks_the_active_peer_and_focused_query_pane() -> None:
         keys = await footer_showing(app, {"o", "n", "p", "g", "slash"})
         assert {"f", "x", "c", "enter"}.isdisjoint(keys)
 
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await footer_showing(app, {"c", "enter"})

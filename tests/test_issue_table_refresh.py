@@ -22,7 +22,7 @@ from app_harness import (
 from dashpot.core.issue_profile import IssueProfile
 from dashpot.core.model import WorkspaceSnapshot
 from dashpot.observation.issue_list import row_key
-from dashpot.queries.source_queries import QueryRequest
+from dashpot.queries.pages import QueryRequest
 from dashpot.ui.app import DashpotApp
 from dashpot.ui.issue_table import COLUMN_KEYS, IssueTable
 from helpers import settled, wait_until
@@ -60,8 +60,8 @@ async def show_tall_page(app: DashpotApp, pilot: Pilot[None]) -> IssueTable:
     """Show the page with every column, so the table scrolls both ways."""
     await wait_until(lambda: first_load_landed(app))
     screen = await show_query_peer(app, pilot)
-    screen.issue_table.apply_issue_columns(COLUMN_KEYS)
-    table = screen.queue_table()
+    screen.issue_table_controller.apply_issue_columns(COLUMN_KEYS)
+    table = screen.issue_table()
     await wait_until(lambda: table.row_count == ISSUE_COUNT)
     await wait_until(lambda: table.max_scroll_x > 0)
     # The column rebuild scrolls its cursor into view after the next repaint;
@@ -85,7 +85,7 @@ async def place_viewport(
         await wait_until(lambda: table.scroll_y == table.scroll_target_y > 0)
         table.move_cursor(row=CURSOR_ROW, animate=False)
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key == SELECTED
+            lambda: app.query_screen.issue_table_controller.selected_row_key == SELECTED
         )
         table.scroll_to(x=20, animate=False)
     else:
@@ -170,7 +170,7 @@ async def test_a_refresh_that_changes_cells_updates_them_where_they_are(
         table = await show_tall_page(app, pilot)
         await place_viewport(app, table, viewport)
         before = (table.scroll_x, table.scroll_y, table.cursor_row)
-        selected = app.query_screen.issue_table.selected_row_key
+        selected = app.query_screen.issue_table_controller.selected_row_key
         title_width = table.columns[TITLE].content_width
         seen = scroll_changes(table)
 
@@ -189,7 +189,7 @@ async def test_a_refresh_that_changes_cells_updates_them_where_they_are(
         assert cell_text(table, 42, "title") == "Issue 42"
         assert seen == []
         assert (table.scroll_x, table.scroll_y, table.cursor_row) == before
-        assert app.query_screen.issue_table.selected_row_key == selected
+        assert app.query_screen.issue_table_controller.selected_row_key == selected
 
 
 @pytest.mark.asyncio
@@ -209,4 +209,4 @@ async def test_a_reordered_page_is_shown_in_the_query_sources_new_order() -> Non
             row_key("issue", f"I_test/repo#{number}")
             for number in range(ISSUE_COUNT, 0, -1)
         ]
-        assert app.query_screen.issue_table.selected_row_key == SELECTED
+        assert app.query_screen.issue_table_controller.selected_row_key == SELECTED

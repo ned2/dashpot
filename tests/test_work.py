@@ -21,7 +21,7 @@ from dashpot.core.state_paths import project_state_directory
 from dashpot.core.timestamps import utc_stamp
 from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.issues.issue_sources import IssueSourceRefreshError
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.harnesses import SESSION_OVERRIDE_VARIABLE, HarnessError
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory

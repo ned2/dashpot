@@ -16,7 +16,7 @@ from dashpot.observation.observation_store import (
     WorkspaceObservationStore,
 )
 from dashpot.queries.page_navigation import PageQueryState
-from dashpot.queries.source_queries import ResourceKind
+from dashpot.queries.pages import ResourceKind
 from dashpot.ui.alerts import list_diagnostics, summarize_alerts
 
 NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)

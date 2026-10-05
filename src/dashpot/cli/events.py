@@ -21,6 +21,7 @@ from ..core.event_log_files import (
     repository_event_log_directories,
 )
 from ..core.runtime_events import RecordedLevel, RuntimeEvent
+from ..core.text import counted
 from ..core.working_directory import current_directory
 from ..event_logs import owned_event_log
 from ..serialization import (
@@ -189,7 +190,7 @@ def events_read(
         if unreadable.lines:
             count = len(unreadable.lines)
             print(
-                f"dashpot: skipped {count} unreadable line{'s' if count != 1 else ''} "
+                f"dashpot: skipped {counted(count, 'unreadable line')} "
                 f"in {unreadable.path}",
                 file=sys.stderr,
             )

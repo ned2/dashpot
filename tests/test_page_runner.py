@@ -19,7 +19,7 @@ from dashpot.observation.paged_store import PagedObservationStore
 from dashpot.project.project_config import load_project_config
 from dashpot.queries.markdown_queries import MarkdownQuerySource
 from dashpot.queries.page_navigation import ContinuationRefused, PageNavigation
-from dashpot.queries.source_queries import (
+from dashpot.queries.pages import (
     QUERY_SOURCE_KEYS,
     InvalidContinuation,
     PageObservation,

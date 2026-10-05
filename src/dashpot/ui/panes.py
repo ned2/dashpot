@@ -22,7 +22,7 @@ from ..observation.pull_request_list import (
 from ..observation.related_rows import FocusedSource, RelatedRows
 from ..observation.session_list import shows_target
 from ..queries.page_navigation import PageNavigation, page_text, totals_text
-from ..queries.source_queries import ResourceKind
+from ..queries.pages import ResourceKind
 from .branch_cells import BRANCH_COLUMNS, branch_cells, branch_note
 from .focus_table import FocusCursorTable
 from .item_filter import LIFECYCLE_STATUSES, ItemFilterBar, lifecycle_value

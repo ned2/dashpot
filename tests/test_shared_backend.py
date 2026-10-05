@@ -9,7 +9,7 @@ import pytest
 
 import dashpot.sessions.session_identity as identity_module
 import dashpot.sessions.work as work_module
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_records import HookRecord, HookRecordStore, session_directory
 from dashpot.sessions.hook_scan import (
     locate_agent_session,
@@ -559,7 +559,7 @@ def test_a_record_superseded_by_its_own_process_end_holds_no_relocation(
     # Host Process, kept elsewhere, ended it (ADR 0134). It neither holds
     # the sequential resume's confirmation nor reads as a concurrent client.
     import dashpot.sessions.work_reconciliation as hooks
-    from dashpot.sessions.agents import relocation_diagnostic
+    from dashpot.sessions.agent_runs import relocation_diagnostic
     from dashpot.sessions.liveness import LivenessProbe
     from dashpot.sessions.session_matching import session_storage_key
     from dashpot.sessions.work_store import RelocationIntent

@@ -2,7 +2,6 @@
 
 from .adapter import CleanupAdapter as CleanupAdapter
 from .adapter import GitCleanupAdapter as GitCleanupAdapter
-from .obstacles import counted as counted
 from .override import DESPITE_SUBAGENTS_FLAG as DESPITE_SUBAGENTS_FLAG
 from .override import NO_ACKNOWLEDGEMENT as NO_ACKNOWLEDGEMENT
 from .override import Acknowledgement as Acknowledgement

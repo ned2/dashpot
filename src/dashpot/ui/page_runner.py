@@ -28,7 +28,7 @@ from ..queries.page_navigation import (
     PageQueryState,
     PageTicket,
 )
-from ..queries.source_queries import (
+from ..queries.pages import (
     PAGED_KINDS,
     QUERY_SOURCE_KEYS,
     InvalidContinuation,

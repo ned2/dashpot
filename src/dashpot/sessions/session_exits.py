@@ -3,6 +3,8 @@
 Every session-derived Cleanup blocker and ``dashpot work show`` read it, so a
 person is told one way to move or end a session, whichever surface asks,
 including when a sub-agent the session lists may only have been interrupted.
+Each harness's resume command lives here too, which the Sessions pane copies
+for an Orphaned Agent Run.
 """
 
 from __future__ import annotations
@@ -11,7 +13,36 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from ..core.model import HARNESS_DISPLAY, Harness
-from ..core.shell import shell_command
+from ..core.shell import in_directory, shell_command
+from ..core.text import counted
+
+# The words of a resume template that stand for the session's identity and
+# the directory it resumes at.
+RESUME_SESSION_ID = "{session_id}"
+RESUME_DIRECTORY = "{directory}"
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeTemplate:
+    """The command that resumes one harness's session at a directory.
+
+    Each of ``argv``'s words is one argument; ``RESUME_SESSION_ID`` and
+    ``RESUME_DIRECTORY`` stand for the session's identity and the directory,
+    each quoted as one argument however it is spelled. With ``from_directory``
+    the command runs from inside the directory, for a harness that files a
+    conversation under the directory it was started in.
+    """
+
+    argv: tuple[str, ...]
+    from_directory: bool = False
+
+    def render(self, session_id: str, directory: str) -> str:
+        """The command line resuming ``session_id`` at ``directory``."""
+        values = {RESUME_SESSION_ID: session_id, RESUME_DIRECTORY: directory}
+        argv = [values.get(word, word) for word in self.argv]
+        if self.from_directory:
+            return in_directory(directory, *argv)
+        return shell_command(*argv)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,16 +52,19 @@ class SessionExit:
     ``move`` takes the session, conversation and all, out of the Worktree;
     ``end`` ends it. Each is a clause that names the session as "that
     session"; ``{session_id}`` in either is replaced by its identity, or by
-    ``<session id>`` where no one session is meant.
+    ``<session id>`` where no one session is meant. ``resume``, where the
+    harness has one, is the command that resumes a session whose process is
+    gone.
     """
 
     move: str
     end: str
+    resume: ResumeTemplate | None = None
 
 
 # Each harness's way out, which every session-derived Cleanup blocker and
-# ``work show`` read: a harness adds its entry here, and one without an entry
-# is given ``ANY_SESSION_EXIT``.
+# ``work show`` read, and its resume command: a harness adds its entry here,
+# and one without an entry is given ``ANY_SESSION_EXIT``, which has none.
 SESSION_EXITS: Mapping[Harness, SessionExit] = {
     # ExitWorktree(keep) returns only a session EnterWorktree brought here; a
     # shell cd back into the checkout the session started in places it there
@@ -40,6 +74,12 @@ SESSION_EXITS: Mapping[Harness, SessionExit] = {
         "EnterWorktree brought it here, or cd its shell back to the checkout "
         "it started in if it came by cd (leaving any Agent Run here)",
         end="end that session",
+        # Claude Code files a conversation under the Worktree it entered, so
+        # the resume starts there; it continues the session's Agent Run
+        # (ADR 0053).
+        resume=ResumeTemplate(
+            ("claude", "--resume", RESUME_SESSION_ID), from_directory=True
+        ),
     ),
     # The declared resume of ADR 0029 carries an Agent Run; a session without
     # one just resumes elsewhere. A daemon-hosted thread outlives its
@@ -50,6 +90,11 @@ SESSION_EXITS: Mapping[Harness, SessionExit] = {
         "<worktree> in it first if it holds an Agent Run",
         end="end that session's client (a daemon-hosted thread ends about "
         "60 s after its last client leaves)",
+        # An Orphaned Agent Run's thread resumes with its directory as -C,
+        # which continues the conversation alone, not the run.
+        resume=ResumeTemplate(
+            ("codex", "resume", RESUME_SESSION_ID, "-C", RESUME_DIRECTORY)
+        ),
     ),
     # Quitting an OpenCode client ends and moves nothing: the session lives in
     # its server. It leaves by a move, ends by its deletion, which its server
@@ -60,6 +105,11 @@ SESSION_EXITS: Mapping[Harness, SessionExit] = {
         "or stop the OpenCode server it runs in, with opencode service stop or "
         "by quitting its --standalone client, which leaves every Agent Run on "
         "that server orphaned",
+        # The session resumes once a server runs it again; its run continues
+        # only by an explicit work start (ADR 0090).
+        resume=ResumeTemplate(
+            ("opencode", RESUME_DIRECTORY, "--session", RESUME_SESSION_ID)
+        ),
     ),
 }
 
@@ -75,10 +125,14 @@ def session_exit(harness: Harness) -> SessionExit:
     return SESSION_EXITS.get(harness, ANY_SESSION_EXIT)
 
 
+def resume_template(harness: Harness) -> ResumeTemplate | None:
+    """How a session of ``harness`` is resumed, or None for a harness without one."""
+    return session_exit(harness).resume
+
+
 def listed_subagents(count: int) -> str:
     """``1 sub-agent listed as working``: how many sub-agents a session lists."""
-    noun = "sub-agent" if count == 1 else "sub-agents"
-    return f"{count} {noun} listed as working"
+    return f"{counted(count, 'sub-agent')} listed as working"
 
 
 def named_subagents(agents: Sequence[str]) -> str:

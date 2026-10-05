@@ -12,7 +12,7 @@ from typing import Literal
 
 from ..core.ages import relative_age
 from ..core.model import SourceStatus
-from .source_queries import ProjectTotals, QueryPage, QueryRequest
+from .pages import ProjectTotals, QueryPage, QueryRequest
 
 # How much a page summary says. ``compact`` is the narrow inline form that
 # omits the observation entirely; ``relative`` is the full line with a

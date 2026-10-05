@@ -15,7 +15,7 @@ from typing import override
 from ..core.issue_profile import IssueProfile
 from ..core.model import Diagnostic, ProjectObservation, WorkspaceSnapshot
 from ..core.timestamps import observed_instant
-from ..queries.source_queries import (
+from ..queries.pages import (
     AuxiliaryObservation,
     ProjectTotals,
     QueryPage,

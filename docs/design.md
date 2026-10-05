@@ -133,8 +133,8 @@ whose Branch the forge deleted after a squash merge, a merged Branch still at
 own, and a dirty Worktree on a Branch named unlike its directory.
 
 The configured source owns Query Pages, Project Totals, identity resolution and
-explicit Source Enumeration ([source_queries.py](../src/dashpot/queries/source_queries.py),
-[query_source.py](../src/dashpot/queries/query_source.py)). GitHub searches use advanced
+explicit Source Enumeration ([pages.py](../src/dashpot/queries/pages.py),
+[cached_source.py](../src/dashpot/queries/cached_source.py)). GitHub searches use advanced
 syntax, scoped by current Repository name and validated by opaque identity and
 resource type. Search pages contain IDs for Issues, completed in batches of 24;
 Pull Requests carry their existing complete compact records. Each required page
@@ -283,7 +283,7 @@ depends on under their locks and moves a run only through the Work Store's
 compare-and-replace, so a concurrent hook or command loses cleanly rather
 than duplicating a run.
 
-Observation ([`agents.py`](../src/dashpot/sessions/agents.py)) reads the same
+Observation ([`agent_runs.py`](../src/dashpot/sessions/agent_runs.py)) reads the same
 records and never writes beyond pruning. One `SessionHistory` per Agent
 Session Identity decides which record places a session, for observation,
 Cleanup, the `work` commands and claim validation alike: its freshest current

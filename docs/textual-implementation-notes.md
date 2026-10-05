@@ -41,9 +41,9 @@ DashpotApp
     ├── query-body (PeerBody)
     │   ├── query-list-row
     │   │   ├── pull-requests-pane (ListPane / ItemFilterBar)
-    │   │   └── queue-pane
+    │   │   └── issues-pane
     │   │       ├── ItemFilterBar
-    │   │       └── IssueTable (#queue)
+    │   │       └── IssueTable (#issues)
     │   └── alert (layer: readout, dock: bottom)
     ├── diagnostics
     └── Footer
@@ -373,7 +373,7 @@ This is the shape Textual's own `ToastRack` uses (`layer:`, `dock: bottom`,
   needs an explicit `width: 1fr`.
 - The overlaid row must be a frame, never a control or a record. A pane stack
   that overflows its body is clipped, not shrunk, so the body's last visible
-  row is whatever the overflow left there: with `#queue-pane { min-height: 6 }`
+  row is whatever the overflow left there: with `#issues-pane { min-height: 6 }`
   that was the Issue filter controls at terminal height 9 and the Issue table
   at 11, still focusable under the alert. Hold a pane's minimum in the
   `fit_panes` arithmetic instead (`ISSUE_PANE_MINIMUM`), where it shrinks the

@@ -42,8 +42,8 @@ from dashpot.project.workspace import (
     WorkspaceInventory,
     WorkspaceResolution,
 )
-from dashpot.queries.query_source import ProjectUnresolvedError, UnresolvedQuerySource
-from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
+from dashpot.queries.cached_source import ProjectUnresolvedError, UnresolvedQuerySource
+from dashpot.queries.pages import QUERY_SOURCE_KEYS, QueryRequest
 from dashpot.repository.cleanup import (
     BranchCleanupRequest,
     CleanupBlocker,

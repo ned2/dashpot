@@ -11,6 +11,7 @@ from typing import Literal
 from ...core.git import Git, GitError
 from ...core.model import HARNESS_DISPLAY
 from ...core.shell import in_directory, shell_command, then
+from ...core.text import counted
 from ...core.worktree_paths import is_within, same_path, worktree_paths, worktree_root
 from ...sessions.hook_scan import (
     HookRecordClassification,
@@ -20,7 +21,7 @@ from ...sessions.hook_scan import (
     stored_session_records,
 )
 from ...sessions.liveness import LivenessProbe
-from ...sessions.opencode_publishers import NO_LIVE_INSTANCE
+from ...sessions.opencode_publisher_records import NO_LIVE_INSTANCE
 from ...sessions.orphaned_runs import orphaned_process
 from ...sessions.processes import (
     ProcessLookup,
@@ -37,12 +38,8 @@ from ...sessions.session_exits import (
 )
 from ...sessions.work_store import ActiveWork, WorkStore
 from ...sessions.working_directories import ProcessScan, ScanGap, processes_inside
-from ..repository import (
-    RefIndex,
-    assess_content_integration,
-    lock_holder,
-    short_ref,
-)
+from ..observe import assess_content_integration, lock_holder
+from ..refs import RefIndex, short_ref
 from ..worktrees.records import INITIALIZING_LOCK, registered_at, short_branch
 from .targets import CleanupBlocker, CleanupError, IntegrationFact
 
@@ -51,11 +48,6 @@ PROTECTED_DETAIL = (
     "this is the checkout Dashpot runs from or a configured Repository Anchor, "
     "which observation cannot lose"
 )
-
-
-def counted(count: int, noun: str) -> str:
-    """``1 commit`` or ``3 commits``: a count with its noun agreeing."""
-    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
 @dataclass(frozen=True, slots=True)

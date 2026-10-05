@@ -15,7 +15,7 @@ from textual.widgets import DataTable, Footer, Input, Static
 import factories
 from app_harness import (
     SequenceCollector,
-    assert_panes_stack_above_full_width_queue,
+    assert_panes_stack_above_full_width_issues_pane,
     dashboard_app,
     first_load_landed,
     footer_showing,
@@ -59,7 +59,10 @@ async def test_every_peer_pane_owns_the_same_top_gutter() -> None:
         await show_query_peer(app, pilot)
         assert_top_gutters(
             app,
-            (*app.query_screen.list_panes(), app.query_screen.query_one("#queue-pane")),
+            (
+                *app.query_screen.list_panes(),
+                app.query_screen.query_one("#issues-pane"),
+            ),
         )
 
         await pilot.resize_terminal(60, 24)
@@ -67,7 +70,10 @@ async def test_every_peer_pane_owns_the_same_top_gutter() -> None:
         await settle_screen(app, pilot, "the compact query peer")
         assert_top_gutters(
             app,
-            (*app.query_screen.list_panes(), app.query_screen.query_one("#queue-pane")),
+            (
+                *app.query_screen.list_panes(),
+                app.query_screen.query_one("#issues-pane"),
+            ),
         )
 
 
@@ -85,7 +91,7 @@ async def test_dashboard_tables_do_not_use_zebra_stripes() -> None:
             ),
             *(
                 app.query_screen.query_one(f"#{table_id}", DataTable)
-                for table_id in ("pull-requests", "queue")
+                for table_id in ("pull-requests", "issues")
             ),
         )
 
@@ -106,7 +112,7 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         assert count.region.y == search.region.y
         assert count.region.x >= search.region.right
         assert (
-            pane_title(app.query_screen, "#queue-pane") == "ISSUES · Open 1 · Closed 0"
+            pane_title(app.query_screen, "#issues-pane") == "ISSUES · Open 1 · Closed 0"
         )
 
     async with app.run_test(size=(60, 20)) as pilot:
@@ -119,28 +125,28 @@ async def test_layout_switches_at_horizontal_breakpoint() -> None:
         await pilot.resize_terminal(120, 32)
         await wait_until(lambda: app.screen.has_class("-wide"))
         await settle_screen(app, pilot, "the wide query peer")
-        assert_panes_stack_above_full_width_queue(app)
+        assert_panes_stack_above_full_width_issues_pane(app)
         assert_counts_share_the_search_row(page_summary)
-        assert_search_row_fits_the_queue_pane(app, page_summary)
+        assert_search_row_fits_the_issues_pane(app, page_summary)
 
         await pilot.resize_terminal(60, 20)
         await wait_until(lambda: app.screen.has_class("-compact"))
         await settle_screen(app, pilot, "the compact query peer")
         assert_counts_share_the_search_row("1/1 matches · fresh")
-        assert_search_row_fits_the_queue_pane(app, "1/1 matches · fresh")
+        assert_search_row_fits_the_issues_pane(app, "1/1 matches · fresh")
 
 
-def assert_search_row_fits_the_queue_pane(app: DashpotApp, page_summary: str) -> None:
-    queue_pane = app.query_screen.query_one("#queue-pane")
+def assert_search_row_fits_the_issues_pane(app: DashpotApp, page_summary: str) -> None:
+    issues_pane = app.query_screen.query_one("#issues-pane")
     search = app.query_screen.query_one("#issue-search", Input)
     count = app.query_screen.query_one("#issue-count", Static)
     assert count.region.width >= len(page_summary)
-    assert count.region.right <= queue_pane.region.right - 1
+    assert count.region.right <= issues_pane.region.right - 1
     assert search.region.width >= len(search.placeholder)
 
 
 @pytest.mark.asyncio
-async def test_compact_search_row_fits_the_queue_pane() -> None:
+async def test_compact_search_row_fits_the_issues_pane() -> None:
     snapshot = workspace_snapshot(issue("test/repo#1", "First"))
     app = dashboard_app(SequenceCollector(snapshot), refresh_seconds=0)
     page_summary = "1/1 matches · fresh"
@@ -152,7 +158,7 @@ async def test_compact_search_row_fits_the_queue_pane() -> None:
         count = app.query_screen.query_one("#issue-count", Static)
         assert str(count.render()) == page_summary
         assert count.tooltip == "1 shown · 1 matches · fresh"
-        assert_search_row_fits_the_queue_pane(app, page_summary)
+        assert_search_row_fits_the_issues_pane(app, page_summary)
 
         # A fresh page names no observation at either detail, so only a stale
         # one shows what the tooltip is for: the narrow summary drops the
@@ -164,12 +170,12 @@ async def test_compact_search_row_fits_the_queue_pane() -> None:
             PageTicket(generation=navigation.generation, request=navigation.request),
             accepted.model_copy(update={"status": "stale", "last_good_at": observed}),
         )
-        app.query_screen.issue_table.update_page_summary()
+        app.query_screen.issue_table_controller.update_page_summary()
         await pilot.pause()
         assert str(count.render()) == "1/1 matches · stale"
         assert count.tooltip == f"1 shown · 1 matches · stale · observed {observed}"
 
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await pilot.press("p")
         # The notice is rendered before the search row is laid out around it.
         await wait_until(lambda: "Already at first page" in str(count.render()))
@@ -178,7 +184,7 @@ async def test_compact_search_row_fits_the_queue_pane() -> None:
         assert "Already at first page" in str(count.tooltip)
         assert (
             count.region.right
-            <= app.query_screen.query_one("#queue-pane").region.right - 1
+            <= app.query_screen.query_one("#issues-pane").region.right - 1
         )
         search = app.query_screen.query_one("#issue-search", Input)
         assert search.region.width >= len(search.placeholder)
@@ -269,7 +275,7 @@ async def test_each_peer_stacks_only_its_own_full_width_panes() -> None:
         assert sessions.region.bottom + 1 == worktrees.region.y
         assert worktrees.region.bottom + 1 == branches.region.y
         assert not app.dashboard.query("#pull-requests-pane")
-        assert not app.dashboard.query("#queue-pane")
+        assert not app.dashboard.query("#issues-pane")
         assert pane_title(app, "#sessions-pane") == "SESSIONS · 0"
         assert pane_title(app, "#worktrees-pane") == "WORKTREES · 1"
         # Remote freshness sits apart from the label and count, aligned to the
@@ -299,8 +305,8 @@ async def test_each_peer_stacks_only_its_own_full_width_panes() -> None:
 
         await show_query_peer(app, pilot)
         pull_requests = app.query_screen.query_one("#pull-requests-pane", ListPane)
-        queue_pane = app.query_screen.query_one("#queue-pane")
-        assert_panes_stack_above_full_width_queue(app)
+        issues_pane = app.query_screen.query_one("#issues-pane")
+        assert_panes_stack_above_full_width_issues_pane(app)
         assert not app.query_screen.query("#sessions-pane")
         assert (
             pane_title(app.query_screen, "#pull-requests-pane")
@@ -311,7 +317,7 @@ async def test_each_peer_stacks_only_its_own_full_width_panes() -> None:
             str(pull_requests.query_one(".list-pane-empty", Static).render())
             == "No matching Pull Requests"
         )
-        assert queue_pane.region.height >= 6
+        assert issues_pane.region.height >= 6
         assert {
             "1",
             "2",
@@ -520,7 +526,7 @@ async def test_the_refreshing_alert_never_moves_a_peer_screen(
             body = screen.query_one("#body")
             row = screen.query_one("#list-row")
         # The row's own children, rather than every ListPane: the query peer
-        # absorbs a body height change in #queue-pane, which is a Vertical, so
+        # absorbs a body height change in #issues-pane, which is a Vertical, so
         # tracking only ListPanes would watch the one widget there whose region
         # a lost row never moves.
         tracked = tuple(row.children)
@@ -585,7 +591,7 @@ async def test_pull_requests_pane_scrolls_vertically_and_horizontally_at_narrow_
         )
         assert pane.table.show_vertical_scrollbar
         assert pane.table.show_horizontal_scrollbar
-        assert app.query_screen.query_one("#queue-pane").region.height >= 6
+        assert app.query_screen.query_one("#issues-pane").region.height >= 6
 
 
 @pytest.mark.asyncio
@@ -613,7 +619,7 @@ async def test_pull_requests_keep_their_eight_record_ceiling_when_wide() -> None
         assert pane.content_height_cap == 8
         assert pane.table.size.height == 1 + 8
         assert not pane.table.show_horizontal_scrollbar
-        assert app.query_screen.query_one("#queue-pane").region.height >= 6
+        assert app.query_screen.query_one("#issues-pane").region.height >= 6
 
 
 @pytest.mark.asyncio
@@ -642,7 +648,7 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         assert sessions.region.bottom <= worktrees.region.y
         assert sessions.region.height == pane_chrome(sessions) + 12
         assert worktrees.region.height == pane_chrome(worktrees) + 2
-        assert not app.dashboard.query("#queue-pane")
+        assert not app.dashboard.query("#issues-pane")
 
         await pilot.resize_terminal(120, 50)
         await wait_until(lambda: app.screen.has_class("-wide"))
@@ -650,7 +656,7 @@ async def test_panes_stack_full_width_at_every_breakpoint() -> None:
         await settle_screen(app, pilot, "the wide Dashboard")
         await show_query_peer(app, pilot)
         await settle_screen(app, pilot, "the wide query peer")
-        assert_panes_stack_above_full_width_queue(app)
+        assert_panes_stack_above_full_width_issues_pane(app)
         assert sessions.region.height == pane_chrome(sessions) + 12
         assert worktrees.region.height == pane_chrome(worktrees) + 2
 
@@ -668,31 +674,31 @@ async def test_panes_yield_height_before_the_issue_table_loses_its_minimum() -> 
         await show_query_peer(app, pilot)
         pull_requests = app.query_screen.pull_requests_pane()
         pull_requests.show_rows(list_rows(12, prefix="pull-request"))
-        queue_pane = app.query_screen.query_one("#queue-pane")
+        issues_pane = app.query_screen.query_one("#issues-pane")
         footer = app.query_screen.query_one(Footer)
 
         def pull_requests_fit() -> tuple[int, Region, Region]:
-            return pull_requests.content_height_cap, queue_pane.region, footer.region
+            return pull_requests.content_height_cap, issues_pane.region, footer.region
 
         # The scrollbar appears on the frame the records land, before the
         # panes are fitted to them: a cap read then is a passing value, which
         # the resize below can fail to shrink below.
         await wait_until(lambda: pull_requests.table.show_vertical_scrollbar)
-        initial_cap, queue_region, footer_region = await settled(
+        initial_cap, issues_region, footer_region = await settled(
             pilot, pull_requests_fit, "the Pull Requests cap at 25 rows"
         )
-        assert queue_region.height >= 6
-        assert queue_region.bottom <= footer_region.y
+        assert issues_region.height >= 6
+        assert issues_region.bottom <= footer_region.y
         assert pull_requests.table.show_vertical_scrollbar
 
         await pilot.resize_terminal(80, 19)
         await wait_until(lambda: pull_requests.content_height_cap < initial_cap)
-        cap, queue_region, footer_region = await settled(
+        cap, issues_region, footer_region = await settled(
             pilot, pull_requests_fit, "the Pull Requests cap at 19 rows"
         )
         assert cap < initial_cap
-        assert queue_region.height >= 6
-        assert queue_region.bottom <= footer_region.y
+        assert issues_region.height >= 6
+        assert issues_region.bottom <= footer_region.y
 
 
 @pytest.mark.asyncio
@@ -713,25 +719,25 @@ async def test_an_issue_pane_below_its_minimum_collapses_to_its_frame() -> None:
     async with app.run_test(size=(120, 30)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         screen = await show_query_peer(app, pilot)
-        queue_pane = screen.query_one("#queue-pane")
-        queue = screen.queue_table()
+        issues_pane = screen.query_one("#issues-pane")
+        issues = screen.issue_table()
         pull_requests = screen.pull_requests_pane().table
-        contents = (screen.issue_filter_bar, queue)
-        issue_focus = {"issue-search", "issue-state", "queue"}
+        contents = (screen.issue_filter_bar, issues)
+        issue_focus = {"issue-search", "issue-state", "issues"}
 
         def focusable() -> set[str | None]:
             return {widget.id for widget in screen.focus_chain}
 
-        queue.focus()
-        await wait_until(lambda: queue.has_focus)
+        issues.focus()
+        await wait_until(lambda: issues.has_focus)
 
         # One row short: the Pull Requests pane is already a bare frame.
         await pilot.resize_terminal(120, 11)
         await wait_until(lambda: not any(widget.display for widget in contents))
         await settle_screen(app, pilot, "the collapsed Issue pane")
-        assert queue_pane.region.height == 5
+        assert issues_pane.region.height == 5
         assert not focusable() & issue_focus
-        assert not queue.has_focus
+        assert not issues.has_focus
 
         pull_requests.focus()
         await wait_until(lambda: pull_requests.has_focus)
@@ -745,10 +751,10 @@ async def test_an_issue_pane_below_its_minimum_collapses_to_its_frame() -> None:
         await pilot.resize_terminal(120, 12)
         await wait_until(lambda: all(widget.display for widget in contents))
         await settle_screen(app, pilot, "the Issue pane at its minimum")
-        assert queue_pane.region.height == 6
+        assert issues_pane.region.height == 6
         assert focusable() >= issue_focus
         await pilot.press("tab")
-        await wait_until(lambda: queue.has_focus)
+        await wait_until(lambda: issues.has_focus)
 
 
 def column_widths(table: DataTable[Any]) -> list[int]:
@@ -765,11 +771,11 @@ async def test_issue_table_spreads_its_columns_to_the_pane_edge() -> None:
     async with app.run_test(size=(160, 50)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        queue = app.query_screen.query_one("#queue", DataTable)
+        issues = app.query_screen.query_one("#issues", DataTable)
         await wait_until(
-            lambda: sum(column_widths(queue)) == queue.scrollable_content_region.width
+            lambda: sum(column_widths(issues)) == issues.scrollable_content_region.width
         )
-        columns = list(queue.columns.values())
+        columns = list(issues.columns.values())
         assert all(not column.auto_width for column in columns)
         shares = {
             str(column.key.value): column.width - column.content_width
@@ -811,16 +817,16 @@ async def test_issue_table_spreads_its_columns_to_the_pane_edge() -> None:
         # scrolls sideways instead of squeezing anything.
         await pilot.resize_terminal(30, 50)
         await wait_until(
-            lambda: all(column.auto_width for column in queue.ordered_columns[1:])
+            lambda: all(column.auto_width for column in issues.ordered_columns[1:])
         )
         widths, visible = await settled(
             pilot,
-            lambda: (column_widths(queue), queue.scrollable_content_region.width),
+            lambda: (column_widths(issues), issues.scrollable_content_region.width),
             "the Issue table's columns at 30 cells",
         )
         assert sum(widths) > visible
 
         await pilot.resize_terminal(160, 50)
         await wait_until(
-            lambda: sum(column_widths(queue)) == queue.scrollable_content_region.width
+            lambda: sum(column_widths(issues)) == issues.scrollable_content_region.width
         )

@@ -16,7 +16,7 @@ from .hook_scan import (
     locate_agent_session,
     reachable_hook_stores,
 )
-from .opencode_publishers import deleted_session, recorded_root
+from .opencode_publisher_records import deleted_session, recorded_root
 from .processes import (
     ProcessIdentity,
     ProcessLookup,

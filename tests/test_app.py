@@ -20,7 +20,7 @@ from app_harness import (
     RELEASE_TIMEOUT,
     SequenceCollector,
     SnapshotQuerySource,
-    assert_panes_stack_above_full_width_queue,
+    assert_panes_stack_above_full_width_issues_pane,
     dashboard_app,
     first_load_landed,
     hold_sources,
@@ -45,7 +45,7 @@ from dashpot.observation.keys import (
     ObservationOutcome,
     ObservationTicket,
 )
-from dashpot.queries.source_queries import PageObservation, QueryRequest
+from dashpot.queries.pages import PageObservation, QueryRequest
 from dashpot.ui.app import DashboardScreen, DashpotApp
 from dashpot.ui.issue_table import COLUMN_KEYS, DEFAULT_COLUMNS
 from dashpot.ui.issue_view import selection_title
@@ -55,7 +55,7 @@ from helpers import settled, snapshot_of, wait_until
 
 
 @pytest.mark.asyncio
-async def test_initial_refresh_populates_queue_and_detail() -> None:
+async def test_initial_refresh_populates_issues_and_detail() -> None:
     snapshot = workspace_snapshot(
         issue("test/repo#1", "First"),
         issue("test/repo#2", "Second", "P2"),
@@ -68,14 +68,14 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         # ``Open 0 · Closed 0`` inventory.
         await wait_until(
             lambda: (
-                pane_title(app.query_screen, "#queue-pane")
+                pane_title(app.query_screen, "#issues-pane")
                 == "ISSUES · Open ? · Closed ? · totals unavailable"
             )
         )
         release.set()
         await wait_until(lambda: first_load_landed(app))
         await settle_screen(app, pilot, "the Dashboard")
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
 
         assert table.row_count == 2
         assert not hasattr(app, "snapshot")
@@ -122,7 +122,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         number_header = table.columns[number_key].label
         assert isinstance(number_header, Text)
         assert number_header.justify == "right"
-        assert app.query_screen.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table_controller.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
         assert selected_title(app) == "#1: First"
@@ -137,7 +137,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         assert not table.allow_select
 
         assert (
-            pane_title(app.query_screen, "#queue-pane") == "ISSUES · Open 2 · Closed 0"
+            pane_title(app.query_screen, "#issues-pane") == "ISSUES · Open 2 · Closed 0"
         )
         assert (
             str(app.query_screen.query_one("#issue-count", Static).render())
@@ -145,7 +145,7 @@ async def test_initial_refresh_populates_queue_and_detail() -> None:
         )
         assert not app.query_screen.query("#issue-filters .pane-title")
         diagnostics = app.query_one("#diagnostics", Static)
-        assert_panes_stack_above_full_width_queue(app)
+        assert_panes_stack_above_full_width_issues_pane(app)
         # With nothing to report the Diagnostics box is hidden rather than
         # spending a line on a placeholder.
         assert not diagnostics.has_class("-has-messages")
@@ -257,9 +257,9 @@ async def test_published_observation_updates_inventory_and_result_count() -> Non
     async with app.run_test(size=(100, 28)):
         await wait_until(lambda: first_load_landed(app))
         count = app.query_screen.query_one("#issue-count", Static)
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         assert (
-            pane_title(app.query_screen, "#queue-pane") == "ISSUES · Open 1 · Closed 0"
+            pane_title(app.query_screen, "#issues-pane") == "ISSUES · Open 1 · Closed 0"
         )
         assert str(count.render()) == page_summary(1)
         assert table.row_count == 1
@@ -269,7 +269,7 @@ async def test_published_observation_updates_inventory_and_result_count() -> Non
         await wait_until(
             lambda: (
                 app.store.revision == 2
-                and pane_title(app.query_screen, "#queue-pane")
+                and pane_title(app.query_screen, "#issues-pane")
                 == "ISSUES · Open 2 · Closed 1"
                 and table.row_count == 2
             )
@@ -287,12 +287,12 @@ async def refresh_over_a_grown_page(
         issue("test/repo#1", "First renamed"),
         issue("test/repo#2", "Second", "P2"),
     )
-    table = app.query_screen.query_one("#queue", DataTable)
+    table = app.query_screen.query_one("#issues", DataTable)
     selected_key = row_key("issue", "I_test/repo#2")
     await wait_until(lambda: first_load_landed(app))
     table.move_cursor(row=table.get_row_index(selected_key), animate=False)
     await wait_until(
-        lambda: app.query_screen.issue_table.selected_row_key == selected_key
+        lambda: app.query_screen.issue_table_controller.selected_row_key == selected_key
     )
 
     serve_snapshot(app, second)
@@ -301,7 +301,7 @@ async def refresh_over_a_grown_page(
 
     selected = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
     assert selected == selected_key
-    assert app.query_screen.issue_table.selected_row_key == selected_key
+    assert app.query_screen.issue_table_controller.selected_row_key == selected_key
 
 
 @pytest.mark.asyncio
@@ -341,11 +341,13 @@ async def test_a_restarted_page_stays_shown_without_an_unavailable_alert() -> No
 
     async with app.run_test(size=(80, 24)) as pilot:
         await wait_until(lambda: first_load_landed(app))
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         selected_key = row_key("issue", "I_test/repo#2")
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key == selected_key
+            lambda: (
+                app.query_screen.issue_table_controller.selected_row_key == selected_key
+            )
         )
 
         # While the restarted pages are held in flight, the shown rows, the
@@ -357,14 +359,16 @@ async def test_a_restarted_page_stays_shown_without_an_unavailable_alert() -> No
             await wait_until(lambda: app.store.revision == 2)
             await pilot.pause()
             assert table.row_count == 2
-            assert app.query_screen.issue_table.selected_row_key == selected_key
+            assert (
+                app.query_screen.issue_table_controller.selected_row_key == selected_key
+            )
             assert selected_title(app) == "#2: Second"
             assert "Unavailable Issues" not in alert_text(app)
             assert not alert(app).display
         finally:
             gate.set()
         await wait_until(lambda: observation_landed(app, 2))
-        assert app.query_screen.issue_table.selected_row_key == selected_key
+        assert app.query_screen.issue_table_controller.selected_row_key == selected_key
 
 
 @pytest.mark.asyncio
@@ -384,7 +388,7 @@ async def test_failed_refresh_keeps_last_good_rows_and_shows_diagnostic() -> Non
 
         assert app.store.revision == 1
         assert app.store.checkpoint() == snapshot
-        assert app.query_screen.query_one("#queue", DataTable).row_count == 1
+        assert app.query_screen.query_one("#issues", DataTable).row_count == 1
         assert "GitHub is unavailable" in str(
             app.query_one("#diagnostics", Static).render()
         )
@@ -415,7 +419,7 @@ async def test_unavailable_project_observation_keeps_the_pages_rows() -> None:
         await app.run_action("refresh")
         await wait_until(lambda: observation_landed(app, 2))
 
-        assert app.query_screen.query_one("#queue", DataTable).row_count == 1
+        assert app.query_screen.query_one("#issues", DataTable).row_count == 1
         assert selected_title(app) == "#1: Last good"
         assert "repository is unavailable" in str(
             app.query_one("#diagnostics", Static).render()
@@ -462,7 +466,7 @@ async def test_unavailable_issue_source_empties_the_page_but_not_the_store() -> 
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         assert "◐" in [str(cell) for cell in table.get_row_at(0)]
 
         serve_snapshot(app, unavailable)
@@ -657,7 +661,7 @@ async def test_target_diagnostic_is_visible_without_hiding_project() -> None:
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
 
-        assert app.query_screen.query_one("#queue", DataTable).row_count == 1
+        assert app.query_screen.query_one("#issues", DataTable).row_count == 1
         assert "prunable" in str(app.query_one("#diagnostics", Static).render())
 
 
@@ -680,9 +684,9 @@ async def test_unbound_agent_is_counted_on_the_project_not_listed_as_work() -> N
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
 
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         assert table.row_count == 1
-        assert app.query_screen.issue_table.selected_row_key == row_key(
+        assert app.query_screen.issue_table_controller.selected_row_key == row_key(
             "issue", "I_test/repo#1"
         )
         assert selected_title(app) == "#1: First"
@@ -732,9 +736,9 @@ async def test_issue_transfer_follows_the_issue_to_its_new_project() -> None:
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         assert selection_title(
-            app.query_screen.issue_table.rows_by_key[selected_key]
+            app.query_screen.issue_table_controller.rows_by_key[selected_key]
         ) == ("#7: Transfer me")
 
         serve_snapshot(app, second)
@@ -744,12 +748,12 @@ async def test_issue_transfer_follows_the_issue_to_its_new_project() -> None:
             lambda: (
                 observation_landed(app, 2)
                 and table.row_count == 2
-                and selected_key in app.query_screen.issue_table.rows_by_key
+                and selected_key in app.query_screen.issue_table_controller.rows_by_key
             )
         )
 
         assert selection_title(
-            app.query_screen.issue_table.rows_by_key[selected_key]
+            app.query_screen.issue_table_controller.rows_by_key[selected_key]
         ) == ("#70: Transfer me")
 
 
@@ -764,10 +768,12 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         table.move_cursor(row=table.get_row_index(selected_key), animate=False)
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key == selected_key
+            lambda: (
+                app.query_screen.issue_table_controller.selected_row_key == selected_key
+            )
         )
         assert selected_title(app) == "#7: Transfer me"
 
@@ -781,7 +787,7 @@ async def test_issue_transfer_preserves_selection_by_global_identity() -> None:
         gate.set()
         await wait_until(lambda: observation_landed(app, 2) and table.row_count == 2)
 
-        assert app.query_screen.issue_table.selected_row_key == selected_key
+        assert app.query_screen.issue_table_controller.selected_row_key == selected_key
         assert selected_title(app) == "#70: Transfer me"
 
 
@@ -842,7 +848,7 @@ async def test_timer_ticks_coalesce_onto_a_slow_observation(tmp_path: Path) -> N
 
     try:
         async with app.run_test(size=(80, 24)):
-            table = app.query_screen.query_one("#queue", DataTable)
+            table = app.query_screen.query_one("#issues", DataTable)
             await wait_until(lambda: table.row_count == 1)
             # Ticks keep observing the Project that answers while the held
             # one is left to finish: its source is asked exactly once.
@@ -1009,7 +1015,7 @@ async def test_first_published_project_renders_before_a_slow_one(
 
     try:
         async with app.run_test(size=(80, 24)):
-            table = app.query_screen.query_one("#queue", DataTable)
+            table = app.query_screen.query_one("#issues", DataTable)
             await wait_until(lambda: table.row_count == 1)
             await wait_until(
                 lambda: (
@@ -1020,7 +1026,7 @@ async def test_first_published_project_renders_before_a_slow_one(
             assert not table.loading
             assert (
                 row_key("issue", "I_alpha#1")
-                in app.query_screen.issue_table.rows_by_key
+                in app.query_screen.issue_table_controller.rows_by_key
             )
 
             collectors["beta"].source.release.set()
@@ -1047,12 +1053,14 @@ async def test_refresh_fans_out_to_every_project(
     app, collectors = coordinated_app(tmp_path)
 
     async with app.run_test(size=(80, 24)):
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         await wait_until(lambda: table.row_count == 1)
         await wait_until(lambda: not app.observations.in_flight)
         alpha_key = row_key("issue", "I_alpha#1")
         await wait_until(
-            lambda: app.query_screen.issue_table.selected_row_key == alpha_key
+            lambda: (
+                app.query_screen.issue_table_controller.selected_row_key == alpha_key
+            )
         )
         calls = {name: c.source.calls for name, c in collectors.items()}
         pull_request_calls = {
@@ -1077,7 +1085,7 @@ async def test_refresh_fans_out_to_every_project(
 
         assert collectors["alpha"].target_calls == 2
         assert collectors["beta"].target_calls == 2
-        assert app.query_screen.issue_table.selected_row_key == alpha_key
+        assert app.query_screen.issue_table_controller.selected_row_key == alpha_key
 
 
 @pytest.mark.asyncio
@@ -1089,7 +1097,7 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
     app, collectors = coordinated_app(tmp_path)
 
     async with app.run_test(size=(80, 24)):
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         await wait_until(lambda: table.row_count == 1)
         await wait_until(lambda: not app.observations.in_flight)
         collectors["alpha"].source.collections = [
@@ -1132,7 +1140,7 @@ async def test_one_failed_observation_kind_does_not_hide_the_other(
         "#sessions-pane FocusCursorTable",
         "#worktrees-pane FocusCursorTable",
         "#branches-pane FocusCursorTable",
-        "#queue",
+        "#issues",
     ),
 )
 async def test_late_observation_is_dropped_after_dashboard_children_unmount(
@@ -1143,7 +1151,7 @@ async def test_late_observation_is_dropped_after_dashboard_children_unmount(
 
     async with app.run_test(size=(80, 24)):
         await wait_until(lambda: first_load_landed(app))
-        owner = app.query_screen if removed == "#queue" else app.dashboard
+        owner = app.query_screen if removed == "#issues" else app.dashboard
         await owner.query_one(removed).remove()
         assert app.dashboard.is_mounted
 
@@ -1191,7 +1199,7 @@ async def test_alert_is_hidden_and_takes_no_space_when_healthy() -> None:
         assert diagnostics.region.height == 0
         footer = app.query_one(Footer)
         assert (
-            app.query_screen.query_one("#queue-pane").region.bottom == footer.region.y
+            app.query_screen.query_one("#issues-pane").region.bottom == footer.region.y
         )
 
 
@@ -1206,7 +1214,7 @@ async def test_slow_refresh_shows_an_indicator_after_the_threshold(
     collectors["beta"].source.release_timeout = None
     async with app.run_test(size=(80, 24)):
         try:
-            table = app.query_screen.query_one("#queue", DataTable)
+            table = app.query_screen.query_one("#issues", DataTable)
             await wait_until(lambda: table.row_count == 1)
             await wait_until(lambda: not app.observations.in_flight)
             # A slow runner can leave the initial refresh's own indicator showing.
@@ -1299,7 +1307,7 @@ async def test_quick_refresh_never_flickers_the_indicator(tmp_path: Path) -> Non
     app, _collectors = coordinated_app(tmp_path, refresh_indicator_seconds=1.0)
 
     async with app.run_test(size=(80, 24)):
-        table = app.query_screen.query_one("#queue", DataTable)
+        table = app.query_screen.query_one("#issues", DataTable)
         await wait_until(lambda: table.row_count == 1)
         # The initial refresh settles first so its own indicator timer cannot
         # bleed into what the manual refresh is being measured for.
@@ -1415,7 +1423,7 @@ async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
                     "#query-body",
                     "#query-list-row",
                     "#pull-requests-pane",
-                    "#queue-pane",
+                    "#issues-pane",
                 )
             ),
         )
@@ -1429,7 +1437,7 @@ async def test_alert_stays_one_line_in_a_compact_terminal() -> None:
         shown, *_panes = await settled(pilot, layout, "the shown alert")
         assert shown.height == 1
         assert shown.width == 60
-        assert_panes_stack_above_full_width_queue(app)
+        assert_panes_stack_above_full_width_issues_pane(app)
 
         serve_snapshot(app, fresh)
         await app.run_action("refresh")

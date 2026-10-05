@@ -16,7 +16,7 @@ from textual.widgets import DataTable
 from ..observation.issue_list import IssueListRow, IssueListSummary
 from ..observation.list_result import ListResult
 from ..queries.page_navigation import PageDetail, page_text
-from ..queries.source_queries import QueryRequest
+from ..queries.pages import QueryRequest
 from .glyphs import ACTIVITY_WIDTH
 from .issue_cells import TableCell, cells_match
 from .issue_table import (
@@ -64,7 +64,7 @@ class IssueTableController:
     @property
     def table(self) -> IssueTable:
         """The Issue table the controller drives."""
-        return self.screen.queue_table()
+        return self.screen.issue_table()
 
     @staticmethod
     def table_columns(table: DataTable[TableCell]) -> tuple[ColumnKey, ...]:

@@ -17,7 +17,7 @@ from ..observation.pull_request_list import (
     DEFAULT_PULL_REQUEST_QUERY,
     PullRequestListQuery,
 )
-from ..queries.source_queries import ResourceKind
+from ..queries.pages import ResourceKind
 from .item_filter import issue_lifecycle, lifecycle_states, lifecycle_value
 
 

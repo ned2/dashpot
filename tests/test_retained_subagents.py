@@ -19,7 +19,7 @@ import pytest
 from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.model import AgentRun
 from dashpot.repository.cleanup.obstacles import assess_worktree_occupancy
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_publish import HookPublication, publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecordStore,

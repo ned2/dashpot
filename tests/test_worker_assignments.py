@@ -33,8 +33,8 @@ from dashpot.core.model import AgentRun, AssignedWorker, WorkerState, WorkspaceS
 from dashpot.issues.issue_resolution import IssueResolutionError
 from dashpot.observation.issue_list import IssueListRow, row_key
 from dashpot.observation.paged_store import PagedObservationStore
-from dashpot.queries.source_queries import QueryRequest
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.queries.pages import QueryRequest
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import session_directory, state_directory
 from dashpot.sessions.processes import ProcessLookup
@@ -547,7 +547,7 @@ async def test_the_issue_list_shows_a_worker_running_until_it_stops() -> None:
     async with app.run_test(size=(150, 55)) as pilot:
         await wait_until(lambda: first_load_landed(app))
         await show_query_peer(app, pilot)
-        table = app.query_screen.queue_table()
+        table = app.query_screen.issue_table()
 
         def glyph(issue_id: str) -> str:
             cell = table.get_cell(row_key("issue", issue_id), "agent_state")

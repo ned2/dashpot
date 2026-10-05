@@ -15,7 +15,7 @@ import pytest
 
 from dashpot.core.model import Harness, ObservationTarget
 from dashpot.core.timestamps import utc_now, utc_stamp
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_publish import publish_hook_event
 from dashpot.sessions.hook_records import (
     HookRecord,

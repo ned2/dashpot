@@ -16,7 +16,7 @@ from app_harness import (
     workspace_snapshot,
 )
 from dashpot.observation.issue_list import row_key
-from dashpot.sessions.agents import observe_agent_runs
+from dashpot.sessions.agent_runs import observe_agent_runs
 from dashpot.sessions.hook_records import HookRecord, HookRecordStore
 from dashpot.sessions.processes import ProcessIdentity
 from dashpot.sessions.work_store import ActiveWork, SessionProcess, WorkStore
@@ -116,7 +116,7 @@ async def test_all_sources_navigation_reentry_and_passive_destinations(source_pa
         await pilot.press("escape")
         await wait_until(matches)
         assert collector.calls == 1
-        assert not app.query_screen.queue_table().related_rows
+        assert not app.query_screen.issue_table().related_rows
 
 
 @pytest.mark.asyncio
@@ -236,7 +236,7 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
             for table in destinations
         ]
         queries = (
-            app.query_screen.issue_table.issue_view,
+            app.query_screen.issue_table_controller.issue_view,
             app.query_screen.list_queries.issues,
             app.query_screen.list_queries.pull_requests,
         )
@@ -251,7 +251,7 @@ async def test_keyboard_mouse_focus_and_modal_emphasis_leave_other_panes_unchang
             for table in destinations
         ]
         assert queries == (
-            app.query_screen.issue_table.issue_view,
+            app.query_screen.issue_table_controller.issue_view,
             app.query_screen.list_queries.issues,
             app.query_screen.list_queries.pull_requests,
         )
@@ -377,7 +377,7 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
                 assert table.render_line(running_index + 1).text.index("●") == before
             assert len(set(positions)) == 1
             await show_query_peer(app, pilot)
-            activity = app.query_screen.queue_table().get_cell(
+            activity = app.query_screen.issue_table().get_cell(
                 row_key("issue", "I_alpha#2"), "agent_state"
             )
             assert isinstance(activity, Text)
@@ -388,18 +388,18 @@ async def test_activity_alignment_freezing_and_theme_colors(size):
 
         def activity_width() -> int:
             """The activity column's width, which the table measures while idle."""
-            return app.query_screen.queue_table().ordered_columns[0].width
+            return app.query_screen.issue_table().ordered_columns[0].width
 
         # Two zero-weight columns used to let the activity Glyph take spare width.
-        app.query_screen.issue_table.issue_view = replace(
-            app.query_screen.issue_table.issue_view, columns=("issue_state",)
+        app.query_screen.issue_table_controller.issue_view = replace(
+            app.query_screen.issue_table_controller.issue_view, columns=("issue_state",)
         )
-        app.query_screen.issue_table.reconcile_rows()
+        app.query_screen.issue_table_controller.reconcile_rows()
         assert await settled(pilot, activity_width, "the activity column") == 1
-        app.query_screen.issue_table.issue_view = replace(
-            app.query_screen.issue_table.issue_view, columns=()
+        app.query_screen.issue_table_controller.issue_view = replace(
+            app.query_screen.issue_table_controller.issue_view, columns=()
         )
-        app.query_screen.issue_table.reconcile_rows()
+        app.query_screen.issue_table_controller.reconcile_rows()
         assert await settled(pilot, activity_width, "the activity column") == 1
 
 
@@ -537,8 +537,8 @@ async def test_column_editor_normalizes_old_choices_and_keeps_activity_fixed():
         await show_query_peer(app, pilot)
         # The shipped app takes no view of its own, so an old choice arrives
         # as apply_issue_columns would deliver it: set on the mounted dashboard.
-        app.query_screen.issue_table.issue_view = view
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table_controller.issue_view = view
+        app.query_screen.issue_table().focus()
         await pilot.pause()
         await pilot.press("c")
         editor = app.screen
@@ -548,7 +548,9 @@ async def test_column_editor_normalizes_old_choices_and_keeps_activity_fixed():
         editor.query_one(MarkedSelectionList).deselect_all()
         await pilot.click("#column-apply")
         await wait_until(lambda: app.screen is app.query_screen)
-        assert app.query_screen.issue_table.issue_view.columns == ("agent_state",)
+        assert app.query_screen.issue_table_controller.issue_view.columns == (
+            "agent_state",
+        )
 
 
 @pytest.mark.asyncio
@@ -609,17 +611,17 @@ async def test_issue_pages_never_join_dashboard_relationship_emphasis(
         await wait_until(
             lambda: bool(app.dashboard.worktrees_pane().table.related_rows)
         )
-        assert not app.query_screen.queue_table().related_rows
+        assert not app.query_screen.issue_table().related_rows
         request_identities.assert_not_called()
         await show_query_peer(app, pilot)
-        app.query_screen.queue_table().focus()
+        app.query_screen.issue_table().focus()
         await pilot.press("n")
         await wait_until(
             lambda: app.queries.navigation["issues"].page.issues[0].id == "I_2"
         )
         await pilot.press("1")
         await pilot.pause()
-        assert not app.query_screen.queue_table().related_rows
+        assert not app.query_screen.issue_table().related_rows
         assert app.dashboard.worktrees_pane().table.related_rows
         assert app.queries.navigation["issues"].page.issues[0].id == "I_2"
 
@@ -678,7 +680,7 @@ async def test_paged_cursor_survives_observed_hook_session_starting_issue_work(
         await wait_until(
             lambda: bool(app.dashboard.worktrees_pane().table.related_rows)
         )
-        assert not app.query_screen.queue_table().related_rows
+        assert not app.query_screen.issue_table().related_rows
 
 
 @pytest.mark.asyncio
