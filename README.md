@@ -521,10 +521,11 @@ branch older than `.githooks/` runs none. Do not use
 `uv run pre-commit install`: its scripts, written to the `.git/hooks` every
 checkout shares, record the Python of the checkout that ran it. Once that
 checkout's `.venv` is removed with its Worktree, every checkout's hooks fall
-back to whatever `pre-commit` is on `PATH`, or fail. With `core.hooksPath` set, pre-commit refuses to install them, and
-Git ignores any an earlier install left behind. This is development setup,
-not a product decision, so no ADR records it. The commit hooks warn, without
-failing, while `core.hooksPath` is unset or names anything else.
+back to whatever `pre-commit` is on `PATH`, or fail. With `core.hooksPath`
+set, pre-commit refuses to install them, and Git ignores any an earlier
+install left behind. This is development setup, not a product decision, so
+no ADR records it. The commit hooks warn, without failing, while
+`core.hooksPath` is unset or names anything else.
 
 After pulling a change to the hooks, skills or agents Dashpot bundles,
 refresh every harness you have integrated from the main checkout, never
@@ -574,7 +575,8 @@ checkout:
   every module and asset the package ships; it always reads the whole
   document set, because a link resolves against files the commit need not
   touch, and neither an ADR's number nor the index's or the map's
-  completeness is a property of one document.
+  completeness is a property of one document. Last, a hook that never fails
+  warns while `core.hooksPath` does not name `.githooks`, outside CI.
 - **On push**: the pushed-revision gate in
   [`scripts/check_quality.py`](scripts/check_quality.py), which verifies the
   lockfile, Ruff lint and formatting, ty, the documents, and the distribution

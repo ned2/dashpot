@@ -17,7 +17,8 @@ import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -26,8 +27,14 @@ HOOKS_PATH = ".githooks"
 
 
 def hooks_path_warning(configured: str | None) -> str | None:
-    """The warning for a ``core.hooksPath`` other than the tracked hooks, if any."""
-    if configured == HOOKS_PATH:
+    """The warning for a ``core.hooksPath`` other than the tracked hooks, if any.
+
+    Spellings Git resolves to the same directory, such as ``./.githooks/``,
+    are the tracked hooks too.
+    """
+    if configured is not None and PurePosixPath(configured) == PurePosixPath(
+        HOOKS_PATH
+    ):
         return None
     found = "is unset" if configured is None else f"is {configured!r}"
     return (
@@ -50,13 +57,16 @@ def configured_hooks_path(checkout: Path = PROJECT_ROOT) -> str | None:
 
 
 def warn_about_hooks_path(checkout: Path = PROJECT_ROOT) -> None:
-    """Print the hooks-path warning; CI commits nothing, so it never gets one."""
+    """Warn when Git does not run the tracked hooks.
+
+    The warning never fails a gate. CI commits nothing, so it runs no hooks
+    and gets no warning; without Git there are no hooks to run either.
+    """
     if os.environ.get("CI"):
         return
     try:
         configured = configured_hooks_path(checkout)
     except OSError:
-        # Without Git there are no hooks to run; the warning never fails a gate.
         return
     warning = hooks_path_warning(configured)
     if warning is not None:
@@ -155,7 +165,15 @@ def run_quality_gates(*, include_tests: bool = True) -> None:
         )
 
 
-def parse_options(arguments: Sequence[str] | None = None) -> argparse.Namespace:
+@dataclass(frozen=True, slots=True)
+class Options:
+    """What one run of the quality gate was asked to do."""
+
+    include_tests: bool
+    hooks_path_only: bool
+
+
+def parse_options(arguments: Sequence[str] | None = None) -> Options:
     """Parse the quality gate's options."""
     parser = argparse.ArgumentParser()
     selection = parser.add_mutually_exclusive_group()
@@ -169,7 +187,11 @@ def parse_options(arguments: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="only warn when Git does not run the tracked hooks; never fails",
     )
-    return parser.parse_args(arguments)
+    options = parser.parse_args(arguments)
+    return Options(
+        include_tests=not bool(options.skip_tests),
+        hooks_path_only=bool(options.hooks_path_only),
+    )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -178,7 +200,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     if options.hooks_path_only:
         warn_about_hooks_path()
         return 0
-    include_tests = not bool(options.skip_tests)
+    include_tests = options.include_tests
     pushed_revision = os.environ.get(PRE_COMMIT_TO_REF)
     try:
         if pushed_revision:

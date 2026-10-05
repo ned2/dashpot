@@ -7,6 +7,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -159,7 +160,8 @@ def test_a_failed_checkout_removes_no_worktree(
 
 
 def test_only_the_tracked_hooks_directory_is_a_configured_hooks_path() -> None:
-    assert check_quality.hooks_path_warning(".githooks") is None
+    for spelling in (".githooks", ".githooks/", "./.githooks"):
+        assert check_quality.hooks_path_warning(spelling) is None
 
     unset = check_quality.hooks_path_warning(None)
     elsewhere = check_quality.hooks_path_warning("/elsewhere/hooks")
@@ -241,10 +243,12 @@ def test_ci_gets_no_hooks_path_warning(
 
 
 def test_a_missing_git_gives_no_hooks_path_warning(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
 ) -> None:
     monkeypatch.delenv("CI", raising=False)
-    monkeypatch.setenv("PATH", "")
+    monkeypatch.setenv("PATH", str(tmp_path))
 
     assert check_quality.main(["--hooks-path-only"]) == 0
 
@@ -319,10 +323,17 @@ def hook_call(checkout: Path, hook_type: str, *remaining: str) -> list[str]:
     ]
 
 
+class HookedRepository(NamedTuple):
+    """A repository running the tracked hooks, and where the fake ``uv`` records."""
+
+    checkout: Path
+    record: Path
+
+
 @pytest.fixture
 def hooked_repository(
     git_repository: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[Path, Path]:
+) -> HookedRepository:
     """A repository running the tracked hooks, and the fake ``uv``'s record."""
     bin_directory = tmp_path / "bin"
     bin_directory.mkdir()
@@ -338,11 +349,11 @@ def hooked_repository(
     git(git_repository, "config", "core.hooksPath", ".githooks")
     git(git_repository, "add", ".githooks")
     git(git_repository, "commit", "-q", "-m", "Track the hooks")
-    return git_repository, record
+    return HookedRepository(git_repository, record)
 
 
 def test_each_checkout_runs_pre_commit_from_its_own_root(
-    hooked_repository: tuple[Path, Path], tmp_path: Path
+    hooked_repository: HookedRepository, tmp_path: Path
 ) -> None:
     main_checkout, record = hooked_repository
     linked = tmp_path / "linked"
@@ -363,7 +374,7 @@ def test_each_checkout_runs_pre_commit_from_its_own_root(
 
 
 def test_pre_push_passes_the_pushed_refs_on(
-    hooked_repository: tuple[Path, Path], tmp_path: Path
+    hooked_repository: HookedRepository, tmp_path: Path
 ) -> None:
     checkout, record = hooked_repository
     remote = tmp_path / "remote.git"
