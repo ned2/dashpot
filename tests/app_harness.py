@@ -667,8 +667,8 @@ async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     """Open the selected Issue with Enter and wait for its identities to settle.
 
     Opening an Issue resolves the identities it relates to, and the view
-    recomposes once they land, replacing its panes; a test that read them
-    earlier would hold the old widgets.
+    updates its panes once they land; a test that read them earlier would
+    read the projection before them.
     """
     if app.screen is not app.query_screen:
         await show_query_peer(app, pilot)

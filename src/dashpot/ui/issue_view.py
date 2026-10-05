@@ -8,6 +8,8 @@ that travel beside it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import ClassVar, override
 
@@ -27,6 +29,7 @@ from ..issues.ordering import is_priority_label, issue_activity, issue_priority
 from ..observation.issue_list import IssueListRow, unobserved_auxiliary
 from .detail_fields import DetailFields, DetailItem
 from .issue_cells import (
+    cells_match,
     issue_state_chip,
     issue_state_kind,
     label_chips,
@@ -52,12 +55,14 @@ class IssueScreen(Screen[None]):
         self.context = context
         self.issue: IssueProfile = context.issue
         self.now = now
+        self.rendering: IssueRendering | None = None
 
     @override
     def compose(self) -> ComposeResult:
-        issue = self.issue
+        rendering = self.render_context()
+        self.rendering = rendering
         with (
-            Vertical(id="issue-view", classes=issue_state_class(issue)),
+            Vertical(id="issue-view", classes=rendering.state_class),
             Horizontal(id="issue-view-panes"),
         ):
             with VerticalScroll(id="issue-view-body", can_focus=True):
@@ -65,25 +70,23 @@ class IssueScreen(Screen[None]):
                 # right, on the one line that heads the body.
                 with Horizontal(id="issue-view-heading"):
                     yield Static(
-                        issue_location(issue), id="issue-view-location", markup=False
+                        rendering.location, id="issue-view-location", markup=False
                     )
                     yield Static(
-                        issue_byline(issue, now=self.now),
+                        rendering.byline,
                         id="issue-view-subtitle",
                         markup=False,
                     )
-                if issue.body.strip():
-                    yield Markdown(issue.body, id="issue-view-markdown")
-                else:
-                    yield Static(
-                        EMPTY_BODY_MESSAGE,
-                        id="issue-view-empty",
-                        markup=False,
-                    )
+                # Both are composed and one is shown, so a body that comes
+                # or goes later changes only which.
+                markdown = Markdown(rendering.body, id="issue-view-markdown")
+                empty = Static(EMPTY_BODY_MESSAGE, id="issue-view-empty", markup=False)
+                markdown.display = bool(rendering.body)
+                empty.display = not rendering.body
+                yield markdown
+                yield empty
             yield DetailFields(
-                *issue_metadata_items(
-                    self.context, now=self.now, dark=self.app.current_theme.dark
-                ),
+                *rendering.metadata,
                 id="issue-view-metadata",
                 classes="issue-view-metadata",
             )
@@ -94,18 +97,11 @@ class IssueScreen(Screen[None]):
         self.dress_panes()
         self.query_one("#issue-view-body").focus()
 
-    @override
-    async def recompose(self) -> None:
-        """Recompose the view and give the new panes the chrome the old ones had."""
-        focused = self.focused.id if self.focused is not None else None
-        await super().recompose()
-        # The base recompose is a no-op on a detached screen, so is this. It
-        # also skips a screen being pruned, which is private state; a
-        # projection landing in that instant finds the panes still mounted.
-        if not self.is_attached:
-            return
-        self.dress_panes()
-        self.query_one(f"#{focused or 'issue-view-body'}").focus()
+    def render_context(self) -> IssueRendering:
+        """What the view renders of its current projection, in the current theme."""
+        return issue_rendering(
+            self.context, now=self.now, dark=self.app.current_theme.dark
+        )
 
     def dress_panes(self) -> None:
         """Give the panes the titles, focusability and stacking compose leaves unset."""
@@ -118,11 +114,7 @@ class IssueScreen(Screen[None]):
 
     def on_theme_changed(self, _theme: Theme) -> None:
         """Re-render the chips, whose colours follow the theme's brightness."""
-        self.query_one("#issue-view-metadata", DetailFields).update(
-            *issue_metadata_items(
-                self.context, now=self.now, dark=self.app.current_theme.dark
-            )
-        )
+        self.update_panes()
 
     def on_resize(self, event: events.Resize) -> None:
         self.apply_layout(event.size.width)
@@ -135,15 +127,96 @@ class IssueScreen(Screen[None]):
         return self.query_one("#issue-view").has_class("-stacked")
 
     def show(self, context: IssueListRow) -> None:
-        """Show a newer projection of the open Issue; an unchanged one is left alone."""
-        if context == self.context:
-            return
+        """Show a newer projection of the open Issue in place.
+
+        A projection differs from the last in facts the view never renders,
+        such as when its Project was observed, so the panes are updated
+        rather than rebuilt: whatever renders the same is left untouched, and
+        each pane keeps the place a person scrolled it to.
+        """
         self.context = context
         self.issue = context.issue
-        self.refresh(recompose=True)
+        self.update_panes()
+
+    def update_panes(self) -> None:
+        """Bring each pane up to the current projection, changing only what differs."""
+        shown = self.rendering
+        # Until the view is composed, compose renders the newest projection
+        # itself; once it is detached there is nothing left to update.
+        if shown is None or not (self.is_mounted and self.is_attached):
+            return
+        rendering = self.render_context()
+        self.rendering = rendering
+        if rendering.state_class != shown.state_class:
+            view = self.query_one("#issue-view")
+            view.remove_class(shown.state_class)
+            view.add_class(rendering.state_class)
+        if rendering.title != shown.title:
+            self.query_one("#issue-view-body").border_title = Content(rendering.title)
+        if rendering.location != shown.location:
+            self.query_one("#issue-view-location", Static).update(rendering.location)
+        if rendering.byline != shown.byline:
+            self.query_one("#issue-view-subtitle", Static).update(rendering.byline)
+        if rendering.body != shown.body:
+            self.update_body(rendering.body)
+        if not details_match(rendering.metadata, shown.metadata):
+            self.query_one("#issue-view-metadata", DetailFields).update(
+                *rendering.metadata, keep_scroll=True
+            )
+
+    def update_body(self, body: str) -> None:
+        """Render a changed body, or say the Issue has none."""
+        markdown = self.query_one("#issue-view-markdown", Markdown)
+        markdown.update(body)
+        markdown.display = bool(body)
+        self.query_one("#issue-view-empty").display = not body
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class IssueRendering:
+    """Everything the Issue view renders of one projection, and nothing else.
+
+    The view compares one rendering with the next field by field, so a
+    projection that differs only in facts the view never shows leaves it as
+    a person left it. Its metadata is compared with ``details_match``, since
+    Rich's own equality overlooks a chip's colour.
+    """
+
+    state_class: str
+    title: str
+    location: str
+    byline: str
+    body: str
+    metadata: tuple[DetailItem, ...]
+
+
+def issue_rendering(
+    context: IssueListRow, *, now: datetime | None = None, dark: bool = True
+) -> IssueRendering:
+    """Render one projection of an Issue as the Issue view shows it."""
+    issue = context.issue
+    return IssueRendering(
+        state_class=issue_state_class(issue),
+        title=selection_title(context),
+        location=issue_location(issue),
+        byline=issue_byline(issue, now=now),
+        # A blank body renders as no body at all, whatever its whitespace.
+        body=issue.body if issue.body.strip() else "",
+        metadata=issue_metadata_items(context, now=now, dark=dark),
+    )
+
+
+def details_match(left: Sequence[DetailItem], right: Sequence[DetailItem]) -> bool:
+    """Whether two runs of detail fields render alike, styles included."""
+    return len(left) == len(right) and all(
+        mine.label == theirs.label
+        and mine.kind == theirs.kind
+        and cells_match(mine.value, theirs.value)
+        for mine, theirs in zip(left, right, strict=True)
+    )
 
 
 def issue_byline(issue: IssueProfile, *, now: datetime | None = None) -> str:
