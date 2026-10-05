@@ -79,6 +79,19 @@ def test_source_changes_invalidate_evidence(checkout, monkeypatch, change):
         review_coverage.verify(checkout, "HEAD")
 
 
+def test_a_script_change_invalidates_evidence(checkout, monkeypatch):
+    script = checkout / "scripts" / "tool.py"
+    script.parent.mkdir()
+    script.write_text('"""A maintenance script."""\n')
+    subprocess.run(["git", "-C", str(checkout), "add", "."], check=True)
+    commit_checkout(checkout, "Script")
+    fake_pytest(monkeypatch, report)
+    review_coverage.collect(checkout, "HEAD")
+    script.write_text('"""A changed maintenance script."""\n')
+    with pytest.raises(ValueError, match="Source files changed"):
+        review_coverage.verify(checkout, "HEAD")
+
+
 def test_ignored_files_do_not_invalidate_evidence(checkout, monkeypatch):
     fake_pytest(monkeypatch, report)
     evidence = review_coverage.collect(checkout, "HEAD")

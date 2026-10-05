@@ -624,6 +624,16 @@ Generated files are ignored. Use the checkout's locked environment; Python
 versions remain usable, and targeted `uv run pytest ...` development runs
 remain uninstrumented.
 
+The run measures the maintenance scripts under `scripts/` beside the `dashpot`
+package (`[tool.coverage.run]` in [`pyproject.toml`](pyproject.toml)), so a
+change to a script carries evidence about its own lines through this same
+gate, with no separate command. The
+[harness acceptance runs](#harness-acceptance-runs) under `scripts/experiments/`
+are left unmeasured: they drive real harness releases by hand, and no test runs
+them. Coverage does not follow subprocesses, so a line a test reaches only by
+running a script as a command reports as missed, as does a script that only
+CI's build and installation jobs run.
+
 Before completing review and after commit hooks, verify the evidence without
 running the suite again:
 
@@ -631,8 +641,8 @@ running the suite again:
 uv run --locked python scripts/review_coverage.py --base "$review_base" --check
 ```
 
-The source digest includes tracked and non-ignored new files, including modes
-and symlink targets. Staging and committing the same files preserves it; source
+The source digest includes every tracked and non-ignored new file, `scripts/`
+as well as `src/` and `tests/`, including modes and symlink targets. Staging and committing the same files preserves it; source
 edits, a different review base, or a replaced report require fresh evidence.
 Ignored local state is excluded. This verifies freshness, not reviewer approval.
 Keep one writer and one coverage run per Worktree. Supply both reports to the
