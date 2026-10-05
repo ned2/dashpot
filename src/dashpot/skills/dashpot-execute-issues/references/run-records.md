@@ -38,6 +38,9 @@ Posted once, at setup, before you create the first Worktree:
   and each Issue's float;
 - the reservations, by Issue, and the spare;
 - your share of the machine's cores, and how it splits between workers;
+- the brief template's per-arc placeholder values: each value, or a link to
+  where it lives, such as the repository instructions a gate is quoted
+  from;
 - the other open arcs you read, with the files, numbers and cores each
   holds, and how each file both arcs touch was settled;
 - who holds merge authority for the arc;
@@ -71,6 +74,21 @@ The record holds:
   reports them;
 - what worked, what it cost, and any follow-up it raised.
 
+## A gotcha
+
+Posted when you add a gotcha to the brief template mid-arc: the gotcha as
+the template now words it, and the friction that raised it. It goes in the
+next merge or decision comment, or as its own comment.
+With the arc map's per-arc values, these let a lost template be rebuilt
+from the record alone.
+
+## An unverified finding
+
+Posted when a hand-back reports a defect you cannot verify yet: the claim,
+the worker and Issue that reported it, and what would verify it. It goes in
+your next record comment, whatever its kind. Close-out verifies and files
+each one from here, so none waits in a scratch file.
+
 ## A decision
 
 Posted when the user decides something that changes the arc: what was
@@ -87,7 +105,7 @@ Posted when the arc ends, or when a long arc pauses:
 - the lessons, ranked. File each lesson about the repository as an Issue
   against its agent instructions and link it here. List the lessons about
   this skill for the user, who decides whether to report them upstream.
-- the follow-ups filed, and the Issues outside the arc that inherited
-  deferred scope;
+- the follow-ups filed, each as it arrived or at close-out, and the Issues
+  outside the arc that inherited deferred scope;
 - each Worktree the user removed despite listed sub-agents: the user's
   instruction, and each check's result.

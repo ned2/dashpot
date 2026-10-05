@@ -229,7 +229,7 @@ def test_the_lead_binds_through_the_issue_work_skill_before_any_worktree() -> No
         "<dashpot> worktree create <n> --base"
     )
     close_out = section(text, "5. Close out")
-    assert close_out.index("Once no worker is live, remove the Worktrees") < (
+    assert close_out.index("Once no sub-agent of your session is live") < (
         close_out.index('"Finish the engagement"')
     )
     assert "--dry-run" in close_out
@@ -453,6 +453,43 @@ def test_measuring_stacked_and_waiting_workers_are_briefed() -> None:
     ) in dispatch
 
 
+def test_a_lost_brief_template_can_be_rebuilt_from_the_record() -> None:
+    records = shipped("references/run-records.md")
+    arc_map = section(records, "The arc map")
+    assert (
+        "the brief template's per-arc placeholder values: each value, or a link "
+        "to where it lives"
+    ) in arc_map
+    gotcha = section(records, "A gotcha")
+    assert "Posted when you add a gotcha to the brief template mid-arc" in gotcha
+    assert "a lost template be rebuilt from the record alone" in gotcha
+    handling = section(shipped("SKILL.md"), "4. Handle each hand-back")
+    assert (
+        "Add each new friction item to the template's gotchas, post it to the "
+        "record ([run-records.md](references/run-records.md#a-gotcha))"
+    ) in handling
+    assert "hold none in a scratch file" in handling
+    assert "(references/run-records.md#an-unverified-finding)" in handling
+    finding = section(records, "An unverified finding")
+    assert "Close-out verifies and files each one from here" in finding
+
+
+def test_close_out_files_only_what_a_hand_back_could_not() -> None:
+    text = shipped("SKILL.md")
+    close_out = section(text, "5. Close out")
+    assert "File follow-ups batched from the hand-backs" not in close_out
+    assert (
+        "so this step files only a finding that could not be verified then"
+    ) in close_out
+    # A reviewer or helper of the Lead's blocks removal as a worker does.
+    rules = section(text, "Rules for the whole arc")
+    assert "**Remove Worktrees only when no sub-agent of your session is live.**" in (
+        rules
+    )
+    assert "your workers, and any reviewer or helper you launch yourself" in rules
+    assert "workers and any reviewer or helper you launched alike" in close_out
+
+
 def test_each_known_dashpot_gap_is_named_for_removal() -> None:
     text = shipped("SKILL.md")
     gaps = section(text, "Known Dashpot gaps")
@@ -556,6 +593,8 @@ def test_run_records_go_to_github_comments() -> None:
         "The arc map",
         "A wave",
         "A merge",
+        "A gotcha",
+        "An unverified finding",
         "A decision",
         "The close-out",
     ]

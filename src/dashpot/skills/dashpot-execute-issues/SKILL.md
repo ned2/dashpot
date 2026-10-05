@@ -64,12 +64,13 @@ step 2.
   Worktree while a worker runs; [harnesses.md](references/harnesses.md)
   says what can move a session in each harness. Workers work in their
   Worktrees by giving every command its own `cd <path> && …`.
-- **Remove Worktrees only when no worker is live.** Dashpot refuses to
-  remove any Worktree of the repository while a session's sub-agents are
-  running, and your workers are your session's sub-agents. Stop a worker
-  the way [harnesses.md](references/harnesses.md) says for your harness: a
-  stop Dashpot never hears of keeps that refusal up until your session
-  ends.
+- **Remove Worktrees only when no sub-agent of your session is live.**
+  Dashpot refuses to remove any Worktree of the repository while a
+  session's sub-agents are running. Every sub-agent of your session counts:
+  your workers, and any reviewer or helper you launch yourself. Stop a
+  worker the way [harnesses.md](references/harnesses.md) says for your
+  harness: a stop Dashpot never hears of keeps that refusal up until your
+  session ends.
 - **Leave the sub-agent override to the user.** A refused
   `dashpot worktree remove` offers `--despite-subagents` with your
   workers' IDs. It asserts that none of them works in that Worktree, which
@@ -81,7 +82,9 @@ step 2.
   [run-records.md](references/run-records.md) defines. Keep no private
   notes file. Your scratch directory holds only working files, such as the
   filled brief template, and everything needed to resume the arc after a
-  lost scratch directory is in those comments.
+  lost scratch directory is in those comments: the template's per-arc
+  values, each gotcha you add to it, and each finding you have not yet
+  filed.
 
 ## 1. Map the arc
 
@@ -381,12 +384,16 @@ On every hand-back and mid-flight message:
 
 - Verify each defect it reports with one command or one search, then file
   it at once with the repository's triage labels, so the worker's PR can
-  link a durable Issue.
+  link a durable Issue. A finding you cannot verify yet goes in your next
+  record comment
+  ([run-records.md](references/run-records.md#an-unverified-finding)), for
+  close-out to verify and file; hold none in a scratch file.
 - Route a finding to the sibling that owns the file and the acceptance
   box, not to whoever found it.
 - Approve an edit outside a worker's area explicitly, with its conditions.
-- Add each new friction item to the template's gotchas, and broadcast the
-  workaround to live workers at once.
+- Add each new friction item to the template's gotchas, post it to the
+  record ([run-records.md](references/run-records.md#a-gotcha)), and
+  broadcast the workaround to live workers at once.
 - Close off optional extras a worker offers: the Issue's text sets its
   scope.
 - Forward anything a sibling needs, such as a measurement or a decision,
@@ -402,7 +409,8 @@ Close out each wave once all its workers have handed back, and the arc once
 every Issue has merged:
 
 1. Check every Issue's final state, and reopen any that closed early.
-2. Once no worker is live, remove the Worktrees you created, before you
+2. Once no sub-agent of your session is live, workers and any reviewer or
+   helper you launched alike, remove the Worktrees you created, before you
    launch any further sub-agent of your own: it would block the removals
    too. `git fetch --prune`, then for each one
    `<dashpot> worktree remove <path> --delete-branch --delete-remote-branch --delete-ignored --dry-run`,
@@ -451,9 +459,11 @@ every Issue has merged:
    instruction and each check's result in the close-out record.
 4. Post each Issue's closing comment (workers draft them), including on
    Issues their PRs closed automatically.
-5. File follow-ups batched from the hand-backs, each claim verified, with
-   the repository's triage labels. Comment on any Issue outside the arc that
-   inherits deferred scope.
+5. Gather the follow-ups the hand-backs raised for the close-out record.
+   You filed each one as its hand-back arrived, so this step files only a
+   finding that could not be verified then: verify it now, from the record
+   that holds it, and file it with the repository's triage labels. Comment
+   on any Issue outside the arc that inherits deferred scope.
 6. Record the arc on its goal: for an epic, close it with a comment mapping
    each Issue to its PR; for a list, comment on each Issue the arc unblocked
    with what landed and what it now needs.
