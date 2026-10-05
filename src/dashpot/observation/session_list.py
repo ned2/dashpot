@@ -9,7 +9,6 @@ the sole authority for it), never a second row.
 
 from __future__ import annotations
 
-import shlex
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -17,6 +16,7 @@ from pathlib import Path
 
 from ..core.issue_profile import IssueProfile
 from ..core.model import AgentRun, ProjectObservation, SessionActivity
+from ..sessions.session_exits import resume_template
 from .issue_list import row_key
 from .list_result import ListResult
 
@@ -102,23 +102,16 @@ def _sort_key(row: SessionListRow) -> tuple[int, int, str, str]:
 def resume_command(session: AgentRun) -> str | None:
     """The shell command that resumes an Orphaned Agent Run's session, if any.
 
-    Resuming a Claude Code session whose process is gone continues its Agent
-    Run (ADR 0053), so the command resumes at the Worktree the run is recorded
-    at: Claude Code files a conversation under the Worktree it entered, and
-    Codex takes the directory as ``-C``. A resumed Codex thread does not
-    continue its run; it resumes the conversation alone, as does an OpenCode
-    session, whose run continues only by an explicit ``work start`` once a
-    server runs it again (ADR 0090).
+    The command resumes at the Worktree the run is recorded at, by its
+    harness's resume template; a harness without one has no command.
     """
     directory = session.observation_target or session.working_directory
     if not session.orphaned or session.session_id is None or directory is None:
         return None
-    identity, location = shlex.quote(session.session_id), shlex.quote(directory)
-    if session.harness == "codex":
-        return f"codex resume {identity} -C {location}"
-    if session.harness == "opencode":
-        return f"opencode {location} --session {identity}"
-    return f"cd {location} && claude --resume {identity}"
+    template = resume_template(session.harness)
+    if template is None:
+        return None
+    return template.render(session.session_id, directory)
 
 
 def _descending(value: str) -> str:
