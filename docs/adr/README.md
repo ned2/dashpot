@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-05
+date: 2026-10-06
 ---
 
 # Architecture decision records

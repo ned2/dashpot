@@ -161,6 +161,7 @@ def test_detaching_during_an_idle_pause_keeps_the_idle_signal() -> None:
         (600.0, "detached", "no tmux client attached"),
     ],
 )
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 def test_a_pause_is_one_info_diagnostic_line(
     idle_seconds: float, signal: str, reason: str
 ) -> None:
@@ -178,7 +179,7 @@ def test_a_pause_is_one_info_diagnostic_line(
     assert diagnostic.severity == "info"
     assert diagnostic.source == "github"
     assert diagnostic.message == (
-        f"GitHub queries paused since 12:00:00 UTC: {reason}; any key resumes"
+        f"GitHub queries paused since 22:00:00: {reason}; any key resumes"
     )
 
 

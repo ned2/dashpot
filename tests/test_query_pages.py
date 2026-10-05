@@ -1424,6 +1424,7 @@ def test_every_query_a_github_source_sends_selects_the_rate_limit(tmp_path):
     assert all(RATE_LIMIT_SELECTION in query for query in queries)
 
 
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 def test_a_low_rate_limit_warns_from_the_latest_response(tmp_path):
     source, _ = github(
         tmp_path,
@@ -1444,11 +1445,11 @@ def test_a_low_rate_limit_warns_from_the_latest_response(tmp_path):
         "github-rate-limit-low",
         "warning",
     )
-    assert "480 of 5000 points remain until 2026-09-27T13:00:00Z" in warning.message
+    assert "480 of 5000 points remain until 23:00:00 +10:00" in warning.message
     # A Resolved Issues response is read the same way.
     source.resolve_identities(["I_issue_1"])
     (warning,) = source.source_diagnostics()
-    assert "470 of 5000 points remain until 2026-09-27T14:00:00Z" in warning.message
+    assert "470 of 5000 points remain until 00:00:00 +10:00" in warning.message
     # The next hour's reading, with its points restored, clears the warning.
     source.resolve_identities(["I_issue_1"])
     assert source.source_diagnostics() == ()
@@ -1513,6 +1514,7 @@ def test_a_partial_answer_that_fails_the_page_still_warns_from_its_reading(
     assert "420 of 5000 points remain" in warning.message
 
 
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 def test_a_rate_limit_refusal_pauses_every_sharing_source_until_the_reset(
     tmp_path,
 ):
@@ -1547,7 +1549,7 @@ def test_a_rate_limit_refusal_pauses_every_sharing_source_until_the_reset(
     (held,) = held_page.diagnostics
     assert held.code == resolved.diagnostics[0].code == "github-rate-limit"
     assert "not sent" in held.message
-    assert "paused until 2026-09-27T13:00:00Z" in held.message
+    assert "paused until 23:00:00 +10:00" in held.message
     # Both sources say so once, beside the low-allowance warning.
     assert pages.source_diagnostics() == identities.source_diagnostics()
     low, paused = pages.source_diagnostics()

@@ -3,7 +3,16 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
-from dashpot.core.timestamps import observed_instant, utc_now, utc_timestamp
+import pytest
+
+from dashpot.core.timestamps import (
+    local_clock_text,
+    local_clock_with_offset_text,
+    observed_instant,
+    reported_instant,
+    utc_now,
+    utc_timestamp,
+)
 
 
 def test_the_clock_stamps_a_fixed_width_utc_instant() -> None:
@@ -29,3 +38,25 @@ def test_offset_timestamps_normalise_to_utc_and_others_pass_through() -> None:
     assert utc_timestamp("2026-08-28T11:00:00+10:00") == "2026-08-28T01:00:00Z"
     assert utc_timestamp("2026-08-28T01:00:00") == "2026-08-28T01:00:00Z"
     assert utc_timestamp("yesterday") == "yesterday"
+
+
+def test_a_reported_instant_without_an_offset_is_read_as_utc() -> None:
+    assert reported_instant("2026-08-28T11:00:00+10:00") == datetime(
+        2026, 8, 28, 1, tzinfo=UTC
+    )
+    assert reported_instant("2026-08-28T01:00:00Z") == datetime(
+        2026, 8, 28, 1, tzinfo=UTC
+    )
+    assert reported_instant("2026-08-28T01:00:00") == datetime(
+        2026, 8, 28, 1, tzinfo=UTC
+    )
+    assert reported_instant("not an instant") is None
+
+
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
+def test_an_instant_is_shown_on_the_local_clock() -> None:
+    instant = datetime(2026, 9, 27, 13, 0, 5, 250_000, tzinfo=UTC)
+
+    assert local_clock_text(instant) == "23:00:05"
+    # Text read away from the dashboard names the clock by its offset.
+    assert local_clock_with_offset_text(instant) == "23:00:05 +10:00"

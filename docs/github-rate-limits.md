@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-05
+date: 2026-10-06
 ---
 
 # GitHub rate limits
@@ -199,7 +199,8 @@ limit, it holds them for a minute, doubling with each refusal in a row up to
 an hour. While it lasts:
 
 - The Diagnostics show one `github-rate-limit-paused` warning naming when
-  queries resume.
+  queries resume, on the local clock with its UTC offset
+  ([ADR 0098](adr/0098-show-runtime-events-and-stats-as-tabs-of-one-temporary-screen.md)).
 - Runtime Stats (`s`, the Runtime screen's Stats tab) leads its GitHub
   allowance section with the pause.
 - The Event Log records a `rate_limit_pause.changed` event when the pause
@@ -214,7 +215,8 @@ still spends the allowance and is refused in its own way.
 Before the allowance runs out, every query Dashpot sends reads the remaining allowance from its
 own response. While fewer than a tenth of the hour's points remain, the
 dashboard's Diagnostics show one `github-rate-limit-low` warning naming the
-points left and when the hour resets, taken from the most recent response any
+points left and when the hour resets, on the local clock with its UTC
+offset, taken from the most recent response any
 of its queries received, and `issue list` and `pr list` add it to the
 Diagnostics of the page they print
 ([ADR 0061](adr/0061-warn-of-a-low-rate-limit-from-the-latest-reading-across-query-sources.md)).

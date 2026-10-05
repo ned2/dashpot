@@ -145,6 +145,7 @@ async def test_an_attended_dashboard_refreshes_github_on_each_tick(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 async def test_an_idle_dashboard_pauses_and_a_key_resumes_with_a_refresh(
     tmp_path: Path,
 ) -> None:
@@ -163,7 +164,7 @@ async def test_an_idle_dashboard_pauses_and_a_key_resumes_with_a_refresh(
             assert pause_changes(app) == [("started", "idle")]
             await wait_until(lambda: "GitHub queries paused" in diagnostics_text(app))
             assert (
-                "↻ github: GitHub queries paused since 12:00:00 UTC: no key or "
+                "↻ github: GitHub queries paused since 22:00:00: no key or "
                 "mouse input for 10m; any key resumes"
             ) in diagnostics_text(app)
 

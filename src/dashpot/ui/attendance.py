@@ -17,6 +17,7 @@ from pathlib import Path
 from ..core.commands import CommandError, CommandRunner, run_command
 from ..core.model import Diagnostic
 from ..core.runtime_events import UnattendedPauseChange, UnattendedSignal
+from ..core.timestamps import local_clock_text
 
 UNATTENDED_PAUSED = "github-unattended-paused"
 
@@ -100,7 +101,11 @@ class Attendance:
         return None
 
     def diagnostics(self) -> tuple[Diagnostic, ...]:
-        """One ``github-unattended-paused`` line while a pause holds."""
+        """One ``github-unattended-paused`` line while a pause holds.
+
+        Only the dashboard attends, so its start is on the local clock with
+        no offset, as the Runtime tabs show it (ADR 0098).
+        """
         pause = self.pause
         if pause is None:
             return ()
@@ -109,7 +114,7 @@ class Attendance:
                 source="github",
                 severity="info",
                 message=(
-                    f"GitHub queries paused since {pause.since:%H:%M:%S} UTC: "
+                    f"GitHub queries paused since {local_clock_text(pause.since)}: "
                     f"{self.signal_text(pause)}; any key resumes"
                 ),
                 code=UNATTENDED_PAUSED,

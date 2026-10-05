@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
@@ -54,6 +52,7 @@ from dashpot.core.runtime_stats import (
     last_github_refresh,
     resident_memory,
 )
+from dashpot.core.timestamps import utc_stamp
 from dashpot.github.github import LatestRateLimit, RateLimit, RateLimitPause
 from dashpot.project.settings import default_settings_path
 from dashpot.ui.app import DashpotApp
@@ -77,22 +76,6 @@ REVISION = "0123456789abcdef0123456789abcdef01234567"
 MIDDAY = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
 HOUR = DASHBOARD_RECENT_WINDOW.total_seconds()
 MIDDAY_STAMP = "2026-09-27T12:00:00Z"
-
-
-@pytest.fixture
-def local_clock_ten_hours_ahead() -> Iterator[None]:
-    """Set the local clock ten hours ahead of UTC, so a UTC time on screen shows."""
-    before = os.environ.get("TZ")
-    os.environ["TZ"] = "<+10>-10"
-    time.tzset()
-    try:
-        yield
-    finally:
-        if before is None:
-            del os.environ["TZ"]
-        else:
-            os.environ["TZ"] = before
-        time.tzset()
 
 
 class Clock:
@@ -470,7 +453,7 @@ async def test_the_allowance_shows_the_latest_reading_the_sources_share(
 def test_both_runtime_tabs_read_a_pause_on_one_clock() -> None:
     pause = RateLimitPause("primary", datetime(2026, 9, 27, 12, 1, tzinfo=UTC))
     event = RateLimitPauseChanged(
-        change="started", limit="primary", until=pause.until_text
+        change="started", limit="primary", until=utc_stamp(pause.until)
     )
 
     # The Stats row and the Events summary name the same local time.

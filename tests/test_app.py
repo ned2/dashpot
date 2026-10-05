@@ -561,7 +561,7 @@ async def test_a_low_github_rate_limit_is_one_diagnostic_line() -> None:
         code="github-rate-limit-low",
         message=(
             "GitHub GraphQL rate limit is low: 400 of 5000 points remain "
-            "until 2026-09-27T13:00:00Z; the last request cost 1"
+            "until 23:00:00 +10:00; the last request cost 1"
         ),
     )
     # Every Query Source reports the one reading its gateways share.
