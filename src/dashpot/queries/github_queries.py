@@ -684,6 +684,10 @@ class GitHubQuerySource(CachedQuerySource):
             )
         repository = Repository.model_validate(raw.get("repository"))
         if repository.id != context.repository_id:
+            reference = f"{repository.name_with_owner}#{raw['number']}"
+            # A sub-issue or blocker in another Repository is an ordinary
+            # relationship, so the outcome reports where the Issue is rather
+            # than warning that it moved.
             return ResolvedIssue(
                 context=context,
                 issue_id=identity,
@@ -694,13 +698,15 @@ class GitHubQuerySource(CachedQuerySource):
                 diagnostics=(
                     Diagnostic(
                         source="github",
-                        severity="warning",
+                        severity="info",
                         code="issue-outside-repository",
-                        message=f"Issue {identity} is now outside the configured Repository",
+                        message=(
+                            f"Issue {reference} is outside the configured Repository"
+                        ),
                     ),
                 ),
                 observed_repository_id=repository.id,
-                reference=f"{repository.name_with_owner}#{raw['number']}",
+                reference=reference,
             )
         complete = self.profiles.complete_nested_connections(raw, meter)
         issue = normalize_github_issue(

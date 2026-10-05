@@ -2,7 +2,11 @@
 
 from datetime import UTC, datetime
 
-from dashpot.queries.page_navigation import PageNavigation, page_text
+from dashpot.queries.page_navigation import (
+    ContinuationRefused,
+    PageNavigation,
+    page_text,
+)
 from dashpot.queries.source_queries import QueryRequest
 from test_source_queries import markdown
 
@@ -138,3 +142,26 @@ def test_previous_on_page_one_supersedes_a_pending_next_page(tmp_path):
     assert not navigation.accept(pending, source.query_page(pending.request).page)
     assert navigation.page is not None
     assert navigation.page.issues[0].number == 1
+
+
+def test_a_refused_continuation_restarts_but_page_one_cannot_be_refused_one(
+    tmp_path,
+):
+    source = markdown(tmp_path)
+    navigation = PageNavigation(QueryRequest(page_size=1))
+    first = navigation.refresh()
+    navigation.accept(first, source.query_page(first.request).page)
+    second = navigation.next()
+    assert second is not None
+    navigation.accept(second, source.query_page(second.request).page)
+    refused = ContinuationRefused("Continuation context changed or expired")
+
+    restarted = navigation.refuse_continuation(navigation.refresh(), refused)
+    assert restarted is not None and restarted.request.cursor is None
+    assert navigation.page is None and navigation.error is None
+
+    # Page one sends no continuation, so a refusal of it is a failure shown
+    # as one rather than a restart that could repeat on every refresh.
+    assert navigation.refuse_continuation(restarted, refused) is None
+    assert navigation.error == refused.message
+    assert navigation.generation == restarted.generation

@@ -12,12 +12,13 @@ total or identity resolved again unchanged — moves neither.
 
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import override
 
+from ..core.issue_profile import IssueProfile
 from ..core.model import Diagnostic, ProjectObservation, WorkspaceSnapshot
+from ..core.timestamps import observed_instant
 from ..queries.source_queries import (
     AuxiliaryObservation,
     ProjectTotals,
@@ -43,6 +44,19 @@ from .observation_store import (
 from .session_list import SessionListRow, query_indexed_session_list
 
 
+def _overrules(outcome: ResolvedIssue | None, page: QueryPage) -> bool:
+    """Tell whether an identity outcome is newer evidence than the page's.
+
+    Each is compared by when it last observed its records: a stale page
+    still shows what it observed then.
+    """
+    return (
+        outcome is not None
+        and outcome.outcome != "unavailable"
+        and observed_instant(outcome.last_good_at) > observed_instant(page.last_good_at)
+    )
+
+
 class PagedObservationStore(WorkspaceObservationStore):
     """Hold the accepted pages, totals and identities beside the observations."""
 
@@ -51,7 +65,7 @@ class PagedObservationStore(WorkspaceObservationStore):
         # the shown page's Issues, so the page state must exist before it.
         self.pages: dict[ResourceKind, QueryPage] = {}
         self.totals: dict[ResourceKind, ProjectTotals] = {}
-        self.resolved: OrderedDict[str, ResolvedIssue] = OrderedDict()
+        self.resolved: dict[str, ResolvedIssue] = {}
         # What the Query Sources last reported about themselves rather than
         # about one observation, such as a rate limit running low.
         self.source_diagnostics: tuple[Diagnostic, ...] = ()
@@ -113,15 +127,15 @@ class PagedObservationStore(WorkspaceObservationStore):
             self.source_revision += 1
 
     def accept_identities(self, outcomes: Sequence[ResolvedIssue]) -> None:
-        """Retain bounded identity evidence independently of navigation history."""
-        changed = False
-        for outcome in outcomes:
-            changed = changed or self.resolved.get(outcome.issue_id) != outcome
-            self.resolved[outcome.issue_id] = outcome
-            self.resolved.move_to_end(outcome.issue_id)
-        while len(self.resolved) > 256:
-            self.resolved.popitem(last=False)
-        if changed:
+        """Hold the outcomes of the identities last requested, and only those.
+
+        The dashboard requests the bound Issues, the selected one and its
+        relationships; an outcome for an identity no longer among them is
+        forgotten, so it neither hides a row nor stays in the Diagnostics.
+        """
+        resolved = {outcome.issue_id: outcome for outcome in outcomes}
+        if resolved != self.resolved:
+            self.resolved = resolved
             self.source_revision += 1
 
     def accept_source_diagnostics(self, diagnostics: Sequence[Diagnostic]) -> None:
@@ -131,18 +145,27 @@ class PagedObservationStore(WorkspaceObservationStore):
             self.source_revision += 1
 
     def row_for(self, issue_id: str) -> IssueListRow | None:
-        """Project one Issue by identity: resolved evidence first, then the accepted page."""
+        """Project one Issue by identity, from the newer of its page and its outcome.
+
+        The accepted page lists the Issue as the page observed it; its
+        resolved outcome overrules that only when observed after the page,
+        and an unavailable outcome observed nothing to overrule it with.
+        """
         outcome = self.resolved.get(issue_id)
         page = self.pages.get("issues")
-        issue = outcome.issue if outcome else None
-        auxiliary: AuxiliaryObservation | None = outcome.auxiliary if outcome else None
-        if (
-            issue is None
-            and (outcome is None or outcome.outcome == "unavailable")
-            and page
-        ):
-            issue = next((issue for issue in page.issues if issue.id == issue_id), None)
-            auxiliary = page.auxiliary.get(issue_id)
+        listed = (
+            next((issue for issue in page.issues if issue.id == issue_id), None)
+            if page
+            else None
+        )
+        issue: IssueProfile | None
+        auxiliary: AuxiliaryObservation | None
+        if page is not None and listed is not None and not _overrules(outcome, page):
+            issue, auxiliary = listed, page.auxiliary.get(issue_id)
+        elif outcome is not None:
+            issue, auxiliary = outcome.issue, outcome.auxiliary
+        else:
+            return None
         if issue is None:
             return None
         project = self.project(issue.project_id) or self.joined_projects.get(issue_id)
@@ -276,4 +299,6 @@ class PagedObservationStore(WorkspaceObservationStore):
                         )
                     )
                 )
-        return (*super().diagnostics(), *diagnostics)
+        # A page and the totals its request counted report one failure, or one
+        # unconfigured kind, alike; it is one line however many report it.
+        return (*super().diagnostics(), *dict.fromkeys(diagnostics))

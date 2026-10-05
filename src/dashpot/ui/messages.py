@@ -21,7 +21,7 @@ from textual.geometry import Size
 from textual.message import Message
 
 from ..observation.keys import ObservationOutcome, ObservationTicket
-from ..queries.page_navigation import PageTicket
+from ..queries.page_navigation import ContinuationRefused, PageTicket
 from ..queries.source_queries import (
     PageObservation,
     ResolvedIssue,
@@ -61,11 +61,15 @@ class OffLoopHost(Protocol):
 
 @dataclass(eq=False)
 class PageFinished(Message):
-    """One Query Page and its Project Totals were observed, or the query failed."""
+    """One Query Page and its Project Totals were observed, or the query failed.
+
+    A continuation the source refused is an outcome rather than a failure:
+    the navigation begins again at page one.
+    """
 
     kind: ResourceKind
     ticket: PageTicket
-    observation: PageObservation | None = None
+    observation: PageObservation | ContinuationRefused | None = None
     error: str | None = None
 
 

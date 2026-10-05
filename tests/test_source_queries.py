@@ -197,6 +197,10 @@ def test_identity_batches_preserve_siblings_and_transfer_evidence(tmp_path):
         "not-resolved",
     ]
     assert results[2].issue is None and results[2].reference == "other/repo#3"
+    # A relationship into another Repository is ordinary, not a warning.
+    assert [(d.severity, d.message) for d in results[2].diagnostics] == [
+        ("info", "Issue other/repo#3 is outside the configured Repository")
+    ]
     assert len(runner.calls) == 1
 
 
@@ -239,6 +243,55 @@ def test_markdown_orders_only_by_a_sortable_issue_fact(tmp_path):
     page = source.query_page(QueryRequest(page_size=1, ordering="title:asc")).page
     assert page.status == "unavailable"
     assert "Unsupported local column ordering" in page.diagnostics[0].message
+
+
+def test_markdown_pull_request_query_reads_no_local_issue(tmp_path):
+    source = markdown(tmp_path)
+    # With the Local Issues gone, reading them would fail the query.
+    for path in (tmp_path / "issues").iterdir():
+        path.unlink()
+    (tmp_path / "issues").rmdir()
+
+    observation = source.query_page(QueryRequest(kind="pull-requests"))
+
+    for observed in (observation.page, observation.totals):
+        assert observed.status == "unavailable"
+        assert [(d.severity, d.code) for d in observed.diagnostics] == [
+            ("info", "pull-requests-not-configured")
+        ]
+    assert observation.page.context == source.context
+    assert observation.totals.open_count is None
+
+
+@pytest.mark.parametrize(
+    ("query", "title"),
+    [
+        ("can't", "Can't paste"),
+        ("user's", "The user's settings"),
+        (r"C:\work", r"Path C:\work\dashpot"),
+        # A quote still being typed searches the phrase as typed so far.
+        ('"paste fail', "Can paste failing images"),
+    ],
+)
+def test_markdown_searches_apostrophes_backslashes_and_open_quotes(
+    tmp_path, query, title
+):
+    source = markdown(tmp_path)
+    (tmp_path / "issues" / "4.md").write_text(
+        local_issue_document(issue_id="I_4", number=4, reference="four", title=title)
+    )
+
+    page = source.query_page(QueryRequest(query=query)).page
+
+    assert page.status == "fresh"
+    assert [issue.number for issue in page.issues] == [4]
+
+
+def test_markdown_refuses_a_sort_it_cannot_answer(tmp_path):
+    page = markdown(tmp_path).query_page(QueryRequest(query="sort:comments")).page
+
+    assert page.status == "unavailable"
+    assert page.diagnostics[0].message.startswith("Unsupported sort 'sort:comments'")
 
 
 @pytest.mark.parametrize("change", ["edit", "rename", "insert", "delete"])

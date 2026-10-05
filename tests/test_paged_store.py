@@ -1,6 +1,8 @@
-"""The paged store joins each page row with its Project, across a transfer."""
+"""The paged store joins each page row with its Project and its identity outcome."""
 
 from __future__ import annotations
+
+from typing import Literal
 
 from app_harness import (
     SnapshotQuerySource,
@@ -8,9 +10,14 @@ from app_harness import (
     with_first_project,
     workspace_snapshot,
 )
-from dashpot.core.model import WorkspaceSnapshot
+from dashpot.core.model import Diagnostic, WorkspaceSnapshot
 from dashpot.observation.paged_store import PagedObservationStore
-from dashpot.queries.source_queries import QueryPage, QueryRequest
+from dashpot.queries.source_queries import (
+    ProjectTotals,
+    QueryPage,
+    QueryRequest,
+    ResolvedIssue,
+)
 from helpers import snapshot_of
 
 
@@ -102,3 +109,134 @@ def test_a_page_naming_a_project_never_observed_has_no_row() -> None:
     )
     assert titles(store) == []
     assert store.row_for("I_other#1") is None
+
+
+BEFORE = "2026-08-25T00:59:00Z"
+AFTER = "2026-08-25T01:01:00Z"
+
+
+def outcome(
+    source: SnapshotQuerySource,
+    issue_id: str,
+    observed_at: str,
+    kind: Literal["not-resolved", "unavailable"] = "not-resolved",
+) -> ResolvedIssue:
+    """A fresh outcome for ``issue_id``, observed at ``observed_at``."""
+    return ResolvedIssue(
+        context=source.context,
+        issue_id=issue_id,
+        outcome=kind,
+        status="fresh",
+        attempted_at=observed_at,
+        last_good_at=observed_at,
+        diagnostics=(
+            Diagnostic(
+                source="github",
+                severity="warning",
+                code="issue-not-resolved",
+                message=f"Issue {issue_id} is missing or inaccessible",
+            ),
+        )
+        if kind == "not-resolved"
+        else (),
+    )
+
+
+def listed_store() -> tuple[PagedObservationStore, SnapshotQuerySource, str]:
+    """A store showing a page that lists one Issue, observed at the harness's NOW."""
+    snapshot = workspace_snapshot(issue("test/repo#7", "Listed"))
+    store = PagedObservationStore(snapshot)
+    source = SnapshotQuerySource(snapshot)
+    store.accept_page("issues", page(source))
+    return store, source, snapshot_of(snapshot.projects[0]).issues[0].id
+
+
+def test_a_page_listing_an_issue_wins_over_an_older_outcome() -> None:
+    store, source, issue_id = listed_store()
+
+    # The Issue was not resolved before the page observed it again, as when
+    # its Local Issue file was briefly absent: the page lists it, so it has
+    # a row, and the rows agree with the page's count.
+    store.accept_identities((outcome(source, issue_id, BEFORE),))
+    assert [row.issue.id for row in store.query_issues().rows] == [issue_id]
+    assert store.row_for(issue_id) is not None
+
+    # An unavailable outcome, however new, observed nothing to overrule it.
+    store.accept_identities((outcome(source, issue_id, AFTER, "unavailable"),))
+    assert store.row_for(issue_id) is not None
+    # Neither listed nor resolved, an identity has no row.
+    assert store.row_for("I_elsewhere") is None
+
+
+def test_an_outcome_observed_after_the_page_overrules_it() -> None:
+    store, source, issue_id = listed_store()
+
+    store.accept_identities((outcome(source, issue_id, AFTER),))
+    assert store.query_issues().rows == ()
+    assert store.row_for(issue_id) is None
+
+    # The page observing the Issue again, after the outcome, lists it again.
+    later = store.pages["issues"].model_copy(
+        update={"attempted_at": AFTER, "last_good_at": "2026-08-25T01:02:00Z"}
+    )
+    store.accept_page("issues", later)
+    assert [row.issue.id for row in store.query_issues().rows] == [issue_id]
+
+
+def test_only_the_identities_last_requested_keep_their_outcomes() -> None:
+    store, source, issue_id = listed_store()
+    store.accept_identities((outcome(source, "I_elsewhere", BEFORE),))
+    assert "I_elsewhere" in store.resolved
+    revision = store.source_revision
+    assert any(
+        entry.diagnostic.code == "issue-not-resolved" for entry in store.diagnostics()
+    )
+
+    # The selection moved on: the outcome no longer requested is forgotten,
+    # with the Diagnostic it carried.
+    store.accept_identities((outcome(source, issue_id, BEFORE, "unavailable"),))
+    assert set(store.resolved) == {issue_id}
+    assert store.source_revision == revision + 1
+    assert not any(
+        entry.diagnostic.code == "issue-not-resolved" for entry in store.diagnostics()
+    )
+    store.accept_identities(())
+    assert store.resolved == {}
+    store.accept_identities(())
+    assert store.source_revision == revision + 2
+
+
+def test_a_page_and_its_totals_reporting_alike_show_one_line() -> None:
+    store, source, _issue_id = listed_store()
+    unavailable = Diagnostic(
+        source="local-markdown",
+        severity="info",
+        code="pull-requests-not-configured",
+        message="Pull Requests are not configured for a Markdown Project",
+    )
+    store.accept_page(
+        "pull-requests",
+        store.pages["issues"].model_copy(
+            update={
+                "request": QueryRequest(kind="pull-requests"),
+                "issues": (),
+                "auxiliary": {},
+                "returned_count": 0,
+                "diagnostics": (unavailable,),
+            }
+        ),
+    )
+    store.accept_totals(
+        ProjectTotals(
+            context=source.context,
+            kind="pull-requests",
+            open_count=None,
+            closed_count=None,
+            status="unavailable",
+            attempted_at=BEFORE,
+            last_good_at=None,
+            diagnostics=(unavailable,),
+        )
+    )
+    shown = [entry.diagnostic for entry in store.diagnostics()]
+    assert shown.count(unavailable) == 1

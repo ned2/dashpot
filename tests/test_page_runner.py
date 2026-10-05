@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
+from typing import override
 
 import pytest
 from textual.message import Message
@@ -14,10 +16,19 @@ from dashpot.core.event_log import EventLog
 from dashpot.core.model import Diagnostic
 from dashpot.core.runtime_events import ProcessIdentity, QueryAttributes, SpanEnded
 from dashpot.observation.paged_store import PagedObservationStore
-from dashpot.queries.source_queries import QUERY_SOURCE_KEYS, QueryRequest
+from dashpot.project.project_config import load_project_config
+from dashpot.queries.markdown_queries import MarkdownQuerySource
+from dashpot.queries.page_navigation import ContinuationRefused, PageNavigation
+from dashpot.queries.source_queries import (
+    QUERY_SOURCE_KEYS,
+    InvalidContinuation,
+    PageObservation,
+    QueryRequest,
+)
 from dashpot.ui.messages import IdentitiesFinished, PageFinished
 from dashpot.ui.page_runner import PageRunner
 from dashpot.ui.refresh_spans import Refresh
+from factories import local_issue_document, write_project_config
 
 
 @dataclass
@@ -223,6 +234,162 @@ def test_the_navigation_starts_from_each_kind_default_request() -> None:
         kind="pull-requests"
     )
     pages.shutdown()
+
+
+# --- A Local Markdown Project ----------------------------------------------
+
+
+def markdown_runner(
+    root: Path,
+) -> tuple[PageRunner, PagedObservationStore, FakeHost]:
+    """A runner over three Local Issues, paging the Issues one at a time."""
+    write_project_config(root)
+    directory = root / "issues"
+    directory.mkdir()
+    for number in (1, 2, 3):
+        (directory / f"{number}.md").write_text(
+            local_issue_document(
+                issue_id=f"I_{number}",
+                number=number,
+                reference=f"issue-{number}",
+                title=f"Issue {number}",
+            )
+        )
+    config = load_project_config(root)
+    store = PagedObservationStore()
+    host = FakeHost()
+    pages = PageRunner(
+        {key: MarkdownQuerySource(root, config) for key in QUERY_SOURCE_KEYS},
+        store,
+        host,
+    )
+    pages.navigation["issues"] = PageNavigation(QueryRequest(page_size=1))
+    return pages, store, host
+
+
+def test_a_refresh_after_a_local_issue_edit_restarts_at_page_one(
+    tmp_path: Path,
+) -> None:
+    pages, store, host = markdown_runner(tmp_path)
+    pages.refresh(restart=True)
+    pages.finish_page(_landed(host.pop_call("issues")))
+    pages.finish_page(_landed(host.pop_call("pull-requests")))
+    pages.next_page("issues")
+    pages.finish_page(_landed(host.pop_call("issues")))
+    navigation = pages.navigation["issues"]
+    second = navigation.page
+    assert second is not None and second.request.cursor is not None
+    assert navigation.index == 1
+
+    # Any edit changes the Markdown revision every continuation is bound to.
+    edited = tmp_path / "issues" / "1.md"
+    edited.write_text(edited.read_text() + "\nchanged\n")
+    pages.refresh(restart=False)
+    refused = _landed(host.pop_call("issues"))
+    assert isinstance(refused.observation, ContinuationRefused)
+    pages.finish_page(refused)
+
+    # The page past one is no longer shown as fresh: the navigation begins
+    # again at page one, still showing the old page until page one lands.
+    assert navigation.page is None
+    assert navigation.shown is second
+    assert navigation.error is None
+    assert pages.page_states["issues"].in_flight
+    restarted = _landed(host.pop_call("issues"))
+    assert restarted.ticket.request.cursor is None
+    pages.finish_page(restarted)
+    page = navigation.page
+    assert page is not None and page.status == "fresh"
+    assert [issue.number for issue in page.issues] == [1]
+    assert navigation.index == 0 and navigation.error is None
+    assert store.totals["issues"].open_count == 3
+
+
+def test_a_refused_continuation_of_a_superseded_ticket_restarts_nothing(
+    tmp_path: Path,
+) -> None:
+    pages, _store, host = markdown_runner(tmp_path)
+    pages.refresh(restart=True)
+    pages.finish_page(_landed(host.pop_call("issues")))
+    pages.finish_page(_landed(host.pop_call("pull-requests")))
+    pages.next_page("issues")
+    stale = host.pop_call("issues")
+    edited = tmp_path / "issues" / "1.md"
+    edited.write_text(edited.read_text() + "\nchanged\n")
+    # A newer search supersedes the page the refusal answers.
+    pages.submit("issues", query="Issue")
+    refused = _landed(stale)
+    assert isinstance(refused.observation, ContinuationRefused)
+    pages.finish_page(refused)
+    latest = _landed(host.pop_call("issues"))
+    assert latest.ticket.request.query == "Issue"
+    pages.finish_page(latest)
+    assert host.calls == []
+    assert pages.navigation["issues"].page is not None
+
+
+def test_a_refusal_of_page_one_is_a_failure_not_a_restart() -> None:
+    pages, _store, host = runner()
+
+    class RefusingSource(SnapshotQuerySource):
+        @override
+        def query_page(self, request: QueryRequest) -> PageObservation:
+            raise InvalidContinuation("Continuation context changed or expired")
+
+    pages.sources["issues"] = RefusingSource(workspace_snapshot())
+    pages.submit("issues", query="First")
+    pages.finish_page(_landed(host.pop_call("issues")))
+
+    # Page one sent no continuation, so nothing restarts on every refresh.
+    assert host.calls == []
+    assert pages.navigation["issues"].error == (
+        "Continuation context changed or expired"
+    )
+    assert pages.page_states["issues"].failed_without_page
+
+
+def test_a_markdown_project_reports_its_pull_requests_unconfigured_once(
+    tmp_path: Path,
+) -> None:
+    pages, store, host = markdown_runner(tmp_path)
+    pages.refresh(restart=True)
+    pages.finish_page(_landed(host.pop_call("issues")))
+    pages.finish_page(_landed(host.pop_call("pull-requests")))
+    pages.publish()
+
+    shown = [entry.diagnostic for entry in store.diagnostics()]
+    # Not a fault: no warning, and the one fact is one line.
+    assert [diagnostic.severity for diagnostic in shown] == ["info"]
+    assert shown[0].code == "pull-requests-not-configured"
+    assert store.pages["pull-requests"].status == "unavailable"
+    assert store.totals["pull-requests"].status == "unavailable"
+
+
+def test_asking_for_no_identities_forgets_every_outcome() -> None:
+    pages, store, host = runner()
+    pages.request_identities(("I_test/repo#1",))
+    pages.finish_identities(_identities(host.pop_call("identities")))
+    assert set(store.resolved) == {"I_test/repo#1"}
+
+    pages.request_identities(())
+    assert host.calls == []
+    assert store.resolved == {}
+
+    # While an earlier request runs, asking for none waits its turn, so the
+    # earlier outcomes cannot land after the store forgot them.
+    pages.request_identities(("I_test/repo#2",))
+    running = host.pop_call("identities")
+    pages.request_identities(())
+    pages.finish_identities(_identities(running))
+    assert set(store.resolved) == {"I_test/repo#2"}
+    pages.finish_identities(_identities(host.pop_call("identities")))
+    assert store.resolved == {}
+
+
+def _identities(call: QueryCall) -> IdentitiesFinished:
+    message = call.land()
+    assert isinstance(message, IdentitiesFinished)
+    return message
 
 
 # --- Refresh spans ---------------------------------------------------------
