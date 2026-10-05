@@ -93,10 +93,16 @@ and the hook says so; confirm with `work show` rather than running
 `work start` again. An OpenCode run never continues by itself: resume the
 session with `opencode <worktree-path> --session <session-id>`, then run
 `work start` with the same Issue there, which reports that it restarted the
-run. Otherwise use `work show` to identify it. End an orphan
-only with the explicit `work stop --session <session-key>` management command
-and only when the user asked to end that exact run. Never edit the Work Store
-directly.
+run. A Codex run never continues by itself either: resume the session in
+the Worktree the run is in with `codex resume <session-id> -C
+<worktree-path>`, which the dashboard's Sessions pane copies with `y`, then
+run `work start` with the same Issue there, which reports that it restarted
+the run. After a Codex daemon restart the conversation is already loaded, so
+its next turn can run `work start` without a resume while it stays loaded;
+once it unloads, resume it as above. On every harness, `work show`
+identifies the orphaned run. End an orphan only with the explicit
+`work stop --session <session-key>` management command and only when the
+user asked to end that exact run. Never edit the Work Store directly.
 
 ## Pending Codex relocation
 

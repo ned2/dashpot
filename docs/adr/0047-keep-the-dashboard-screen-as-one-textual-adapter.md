@@ -80,7 +80,7 @@ protocol or callback surface it adds.
 Textual runs a message handler on every class in the MRO that defines it,
 subclass first, so a handler extracted to a mixin or base would either run
 twice or force the `super()` call
-[AGENTS.md](../../AGENTS.md#quality-and-code-conventions) forbids. The
+[AGENTS.md](../../AGENTS.md#code-conventions) forbids. The
 handlers must stay on the one screen class; the convention the repository
 already follows — a thin handler that delegates to a plain method or
 collaborator, as `on_observation_finished` delegates to
@@ -115,7 +115,7 @@ existing tests through the widget —
 zero height when empty are unchanged.
 
 The behaviours the Issue names are pinned through the public seams
-[AGENTS.md](../../AGENTS.md#quality-and-code-conventions) requires — the
+[AGENTS.md](../../AGENTS.md#code-conventions) requires — the
 shipped dashboard built by `dashboard_app`, `App.run_test` and the pilot:
 
 - Layout and pane fitting: `test_dashboard_stacks_the_panes_above_the_issues`,

@@ -14,7 +14,7 @@ mutates: the view, every refresh, and `dashpot --json` never assign or edit
 Issues, change the Git Repository, or control agent sessions. Dashpot's named
 management commands — `init`, `integrate`, `work start`, `work relocate`,
 `work stop`, `work forget-subagents`, `work assign`, `work unassign`,
-`branch delete`, `worktree remove`, and
+`branch delete`, `worktree create`, `worktree remove`, and
 `events remove` — and its two mutating keys — `f`, which fetches Git remotes, and `x`, which deletes a Branch or
 removes a Worktree — mutate only what their name says, on explicit invocation,
 and report what they changed
@@ -159,9 +159,10 @@ command it follows, so the timeout for `init` is given as `dashpot init
 --timeout 5`, not before `init`. Every command failure — invalid input, a
 startup error, or a refused operation — is a one-line `dashpot: ...`
 diagnostic on stderr and exit code 2, with no traceback. Beside observation,
-the management commands `init`, `integrate`,
-`work`, `issue show`, `worktree create` / `check` / `remove`,
-`branch delete`, and `events` / `events remove` are documented in
+the management commands `init`, `integrate`, `work start` / `relocate` /
+`stop` / `forget-subagents` / `assign` / `unassign`, `worktree create` /
+`remove`, `branch delete`, and `events remove`, and the read-only commands
+`work show`, `issue show`, `worktree check`, and `events`, are documented in
 [Project configuration](#project-configuration),
 [Agent session observation](docs/agent-sessions.md#agent-session-observation),
 [Issue work opt-in](docs/agent-sessions.md#issue-work-opt-in),
@@ -177,6 +178,7 @@ the management commands `init`, `integrate`,
 | `r` | Restart both submitted queries from page one, refresh Project Totals, relevant Issue identities and local observations |
 | `Enter` in Worktrees | Open the selected Worktree in a new tmux pane or through the configured launcher |
 | `y` in Worktrees | Send the full Worktree path to the terminal clipboard |
+| `y` in Sessions | On an Orphaned Agent Run, send the command that resumes its session to the terminal clipboard |
 | `f` on Dashboard | Fetch and prune the Git remotes of the Repository Anchor behind the Branches pane; also available inside both Cleanup dialogs |
 | `x` on Dashboard | Preview removing the highlighted Worktree or deleting the highlighted Branch, then confirm; `Escape` cancels. Optional additional targets start unchecked ([ADR 0036](docs/adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)) |
 | `Tab` / `Shift+Tab` | Cycle through only the active peer's tables: Sessions → Worktrees → Branches, or Pull Requests → Issues |
@@ -466,9 +468,9 @@ and Repository Anchors, so automation and diagnostics do not depend on labels or
 paths for identity.
 
 The headless JSON key set is a stable contract, for `dashpot --json` and for
-every management command's `--json` (`issue show`, `worktree create`,
+the `--json` of `issue show`, `worktree create`,
 `worktree check`, `worktree remove`, `branch delete`, `events`,
-`events remove`): keys are camelCase,
+and `events remove`: keys are camelCase,
 every documented field is present, and
 an unknown value is an explicit `null` rather than an omitted key, so a
 consumer can tell "unknown" from "not emitted by this version". A shape change
@@ -625,7 +627,7 @@ quality of assertions or coverage of every branch outcome.
 
 A documentation-only change, one CI's [documentation lane](#continuous-integration)
 classifies as `docs`, skips the coverage run and its check;
-[AGENTS.md](AGENTS.md#quality-and-code-conventions) says what it still
+[AGENTS.md](AGENTS.md#quality-gates-and-integration) says what it still
 requires. Confirm the classification before pushing with CI's own classifier,
 run from the checkout root. It reads the committed `$review_base...HEAD` diff
 and prints `docs`, or `full` when the coverage run is required:
@@ -1051,7 +1053,7 @@ it:
    [integration procedure](docs/development-integration.md#integrate-a-verified-pr).
    An agent's work ends before this step, with the PR open, its validation
    section recorded, and CI green
-   ([AGENTS.md](AGENTS.md#independent-review-before-integration)); it neither
+   ([AGENTS.md](AGENTS.md#integration-and-rebase)); it neither
    merges the PR nor enables auto-merge. The PR title and body, not the
    branch's own commits, are what land on `main`, and nothing runs CI on
    `main` itself, so the merged result is not verified before it lands. After

@@ -18,7 +18,7 @@ Amended by [ADR 0089](0089-leave-the-pr-merge-to-the-operator.md), which
 records the withdrawal, by commit `0193a6d`, of the closing statement below:
 that the implementing agent's authority ends at queueing the PR with
 `gh pr merge --squash --auto`. The
-[agent instructions](../../AGENTS.md#independent-review-before-integration)
+[agent instructions](../../AGENTS.md#integration-and-rebase)
 end the agent's work with the PR open, its validation section recorded, and
 CI green, and the operator reviews and merges. An agent neither merges nor
 enables auto-merge. The merge-queue analysis is unaffected.

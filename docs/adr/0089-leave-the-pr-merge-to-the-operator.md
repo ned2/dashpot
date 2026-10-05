@@ -16,7 +16,7 @@ the PR as soon as its CI went green.
 
 Commit `0193a6d` (2026-09-18) restored the practice from before ADR 0044.
 It changed the
-[agent instructions](../../AGENTS.md#independent-review-before-integration)
+[agent instructions](../../AGENTS.md#integration-and-rebase)
 alone and recorded no decision, so ADRs 0044 and 0045 went on naming
 auto-merge as the agent's last step until
 [#276](https://github.com/ned2/dashpot/issues/276) (PR

@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-04
+date: 2026-10-05
 ---
 
 # Design
@@ -455,6 +455,7 @@ key:
 | `f`, `x` | Remote Fetch; Cleanup of the selected Branch or Worktree | Unavailable |
 | `/`, `o`, `n`, `p`, `g` | Unavailable | Search, lifecycle and page action of the pane that owns focus, including its controls |
 | `c` | Unavailable | Issue columns, only while the Issues pane owns focus |
+| `y` | Copies the Worktree path from the Worktrees table, and on an Orphaned Agent Run's Sessions row the command that resumes its session | Unavailable |
 | `Enter` | Keeps the Worktree table's existing open action; has no Session-to-Issue action | Opens Issue Detail from an Issue row; unbound for Pull Requests |
 
 The Footer exposes the active peer's available actions. The Legend groups

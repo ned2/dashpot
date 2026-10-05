@@ -4,8 +4,8 @@ The flow holds a Project from the moment its preview is taken until the
 modal is dismissed or the report is in, refuses a second Cleanup or a Remote
 Fetch there meanwhile, and lets the open preview fetch its remotes and
 rebuild its evidence without confirming anything
-([ADR 0019](../../docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md),
-[ADR 0036](../../docs/adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)).
+([ADR 0019](../../../docs/adr/0019-remove-branches-and-worktrees-on-explicit-confirmation.md),
+[ADR 0036](../../../docs/adr/0036-keep-cleanup-subjects-fixed-and-fetch-in-previews.md)).
 """
 
 from __future__ import annotations
