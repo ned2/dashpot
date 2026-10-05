@@ -215,4 +215,6 @@ anything for long:
   ([#543](https://github.com/ned2/dashpot/issues/543)): a `SessionEnd` that
   names no Host Process beside a previous record that names one is accepted
   as that process's end, and keeps the sub-agents that process runs; one
-  beside a record that names none keeps nothing.
+  beside a record that names none keeps nothing. An end that names a Host
+  Process keeps, beside its own process's sub-agents, those the store's
+  previous record lists when that record names none.

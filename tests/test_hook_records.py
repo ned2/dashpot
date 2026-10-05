@@ -351,7 +351,9 @@ class HookRecordStoreTests(unittest.TestCase):
 
                 self.assertEqual(not removed, (self.state_dir / "opaque.json").exists())
 
-    def test_a_session_end_beside_an_unnamed_process_ends_the_session(self) -> None:
+    def test_a_session_end_beside_a_record_naming_no_process_ends_the_session(
+        self,
+    ) -> None:
         # A hook whose ancestry probe failed names no Host Process, only why
         # (#543). That is no evidence of another process, so the newer end
         # ends the session on either side of it.
@@ -395,7 +397,7 @@ class HookRecordStoreTests(unittest.TestCase):
                 )
                 self.assertEqual([], runs)
 
-    def test_an_older_session_end_beside_an_unnamed_process_ends_nothing(
+    def test_an_older_session_end_beside_a_record_naming_no_process_ends_nothing(
         self,
     ) -> None:
         store = HookRecordStore(self.state_dir)
@@ -429,7 +431,7 @@ class HookRecordStoreTests(unittest.TestCase):
         )
         self.assertEqual(["unknown"], [run.state for run in runs])
 
-    def test_a_session_end_beside_an_unnamed_process_keeps_its_sub_agents(
+    def test_a_session_end_beside_a_record_naming_no_process_keeps_its_sub_agents(
         self,
     ) -> None:
         # Accepted on no contrary evidence, the end is the named process's,

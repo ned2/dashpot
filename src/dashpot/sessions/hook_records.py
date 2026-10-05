@@ -398,16 +398,17 @@ def _retained_subagents(
     until their ``SubagentStop``, or until the Host Process running them is
     gone, so only an end that names one keeps any: nothing else could ever
     clear them. They are those the session's records of that process list,
-    with the process each runs in (ADR 0107). A record that names no Host
-    Process is no evidence of another, so its sub-agents are the ending
-    process's as far as anything can tell (ADR 0132).
+    with the process each runs in (ADR 0107). The previous record that the
+    end was accepted beside is the ending process's even when it names no
+    Host Process, since nothing says another runs the session (ADR 0132).
     """
     if ending.get("sessionProcess") is None:
         return {}
     kept: dict[str, Any] = {}
-    for record in (previous, seed):
-        if record is not None and not _names_another_process(record, ending):
-            kept.update(_carried_by_host(ending, subagent_hosts(record), gone_hosts))
+    if previous is not None and not _names_another_process(previous, ending):
+        kept.update(_carried_by_host(ending, subagent_hosts(previous), gone_hosts))
+    if seed is not None and _same_host_process(seed, ending):
+        kept.update(_carried_by_host(ending, subagent_hosts(seed), gone_hosts))
     return kept
 
 
@@ -571,7 +572,7 @@ def _names_another_process(one: Mapping[str, Any], other: Mapping[str, Any]) -> 
     )
 
 
-def _ending_process(
+def _ending_record(
     ending: Mapping[str, Any], previous: Mapping[str, Any] | None
 ) -> dict[str, Any]:
     """``ending`` naming the Host Process ``previous`` names, when it names none itself.
@@ -669,9 +670,10 @@ class HookRecordStore(LockedRecordStore):
         this store, so a move never forgets a live Sub-agent (ADR 0067). A
         child-scoped event instead keeps this store's previous record's
         location, never ends it, and writes nothing but a sub-agent's start
-        where there is no record. A ``SessionEnd`` older than the previous
-        record, or naming another Host Process than it, keeps nothing; where
-        only one of the two names a process, the end is that process's
+        where there is no record. A ``SessionEnd`` keeps nothing when the
+        previous record is newer, or names a different Host Process from the
+        one the end names. Where only one of the two names a process, as when
+        a hook's ancestry probe failed, the end is accepted as that process's
         (ADR 0132). A ``SessionEnd`` whose session still lists
         live sub-agents keeps them in an ended record of its Host Process,
         which only their boundaries change and which a ``SessionStart`` of
@@ -724,7 +726,7 @@ class HookRecordStore(LockedRecordStore):
                     > observed_instant(record.get("lastActivityAt"))
                 ):
                     return HookRecordWrite(destination, None)
-                ending = _ending_process(record, previous)
+                ending = _ending_record(record, previous)
                 retained = _retained_subagents(ending, previous, seed, gone_hosts)
                 if retained:
                     self.replace(key, _with_listing(ending, retained))

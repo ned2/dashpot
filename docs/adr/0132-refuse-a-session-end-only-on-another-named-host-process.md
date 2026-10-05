@@ -49,12 +49,15 @@ A `SessionEnd` is refused only on contrary evidence.
   for its sub-agents
   ([ADR 0095](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md))
   then waits on that process and is pruned once it is gone.
-- **Sub-agents of a record that names none are the ending process's.** An end
-  keeps the sub-agents listed by the session's records of its Host Process
-  and by its records that name no process. A sub-agent whose process no
-  record names is the session's own, as the store already treats it when
-  carrying a live record's sub-agents
+- **The previous record's sub-agents are the ending process's.** An end
+  that names a Host Process keeps the sub-agents the store's previous record
+  lists when that record names the same process or none: the end was
+  accepted beside it as the session's end, so nothing says another process
+  runs them. A listed sub-agent with no process of its own is the session's,
+  as the store already treats it when carrying a live record's sub-agents
   ([ADR 0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md)).
+  The record the publisher seeds from in another store still counts only
+  when it names the ending process, as for every other event.
 
 The rule is the store's, so it applies to every harness.
 
@@ -77,11 +80,19 @@ The rule is the store's, so it applies to every harness.
 - Amends [ADR 0095](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md):
   an end that names no Host Process keeps the sub-agents of the process its
   session's previous record names, and keeps nothing only when that record
-  names none either.
+  names none either. An end that names one keeps, beside its own process's
+  sub-agents, those the store's previous record lists when that record names
+  none.
 - A `SessionEnd` that another process publishes for a session whose last
   record lost its process evidence now ends that session. That needs a
   transient probe failure on the session's last event before a foreign
   `SessionEnd`, and is the trade the triage of #543 accepted.
+- The mirror case is the same trade. A foreign `SessionEnd` whose own probe
+  failed, such as a refused `claude -p --resume` whose ancestry could not be
+  observed, is now accepted beside a live record naming the session's Host
+  Process, and is recorded as that process's end. Its hook record lists the
+  session no longer, until that process's next event writes a new one. It
+  too needs a transient probe failure, on the foreign end.
 - [ADR 0069](0069-remove-an-ended-sessions-records-from-every-store-of-its-repository.md)
   is unchanged. A `SessionEnd` still removes the session's records in other
   stores only when both its own and the record's Host Process are observed.

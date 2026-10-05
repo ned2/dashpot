@@ -879,9 +879,9 @@ Codex resume in
 [ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)
 is the one exception: `SessionEnd` preserves the pending run before removing
 the old client's hook record. A `SessionEnd` leaves the record as it was
-only when the record is newer or names another Host Process than the end
-does. Where only one of the two names a process, as after a hook could not
-observe its harness, the end is that process's
+only when the record is newer, or names a different Host Process from the
+one the end names. Where only one of the two names a process, as when a
+hook's ancestry probe failed, the end is accepted as that process's
 ([ADR 0132](adr/0132-refuse-a-session-end-only-on-another-named-host-process.md)).
 A session that was killed, or whose `SessionEnd` hook never ran, is dropped
 quietly and its stale record and lock file are cleaned up, unless it leaves
