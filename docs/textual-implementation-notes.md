@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-05
+date: 2026-10-06
 ---
 
 # Textual implementation notes for Dashpot
@@ -213,10 +213,9 @@ the registry stays closed, and a confirmed mutation opts out and finishes
 
 ## Updating the `DataTable`
 
-Encode the row kind and opaque stable identities into every Textual row key. A
-normal Issue row uses globally unique Issue Identity so selection survives a
-Project transfer; only an identity-conflict fallback also includes Project
-Identity. Only Issues are rows, like an Issue tracker's feed; Projects and
+Encode the row kind and opaque stable identities into every Textual row key.
+An Issue row uses globally unique Issue Identity so selection survives a
+Project transfer. Only Issues are rows, like an Issue tracker's feed; Projects and
 Agent Runs are facts shown in the Issue view rather than rows. Add explicit
 stable column keys as well. Textual row keys remain valid when rows move because
 of deletion or sorting; coordinates do not.
