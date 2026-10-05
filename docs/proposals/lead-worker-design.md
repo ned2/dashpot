@@ -534,14 +534,20 @@ merged into 7, and 16 into 2.
 - **12.** Moot: the Issues pane's activity column has no "delegated"
   distinction today.
 - **17. The hand-back keyed on Worker, Issue, PR and head commit.**
-  Adopted at skill level, under either mechanism, whenever the skill next
-  changes; the pilot's hand-back uses it ([communication](#communication)).
+  Adopted at skill level, under either mechanism, in the bundled skill by
+  #534: the [brief template](../../src/dashpot/skills/dashpot-execute-issues/references/brief-template.md) has each
+  Worker open its hand-back, and every report before it, with that key, and
+  the Lead [reads each hand-back against it](../../src/dashpot/skills/dashpot-execute-issues/SKILL.md#4-handle-each-hand-back).
+  The pilot's hand-back uses it ([communication](#communication)).
 - **U5. An accountable person per Arc,** a direction for the skill under
-  either mechanism: the skill's Arc record (the record Issue's arc map)
-  names the person accountable for the Arc, and wave sizing counts the
-  three-to-five Worker ceiling
-  ([prior art](lead-worker-prior-art.md#suggestions-for-the-design)) per
-  person across all of their Arcs. Dashpot needs no person field for this.
+  either mechanism, adopted in the bundled skill by #534: the skill's Arc
+  record (the record Issue's [arc map](../../src/dashpot/skills/dashpot-execute-issues/references/run-records.md#the-arc-map))
+  names the person accountable for the Arc, and
+  [wave sizing](../../src/dashpot/skills/dashpot-execute-issues/SKILL.md#2-set-up) counts the three-to-five Worker
+  ceiling ([prior art](lead-worker-prior-art.md#suggestions-for-the-design))
+  per person across all of their Arcs, with five as the default ceiling the
+  user's explicit direction can change. Dashpot needs no person field for
+  this.
 
 ### For the adopting ADR
 

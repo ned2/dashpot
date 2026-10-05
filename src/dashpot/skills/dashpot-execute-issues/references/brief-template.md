@@ -30,9 +30,12 @@ Issue from it.
   whatever its past workers tripped on.
 
 **Per-wave and per-Issue placeholders**, filled at dispatch: `{WAVE}` (the
-[wave block](#the-wave-block)), `{N}`, `{PATH}`, `{BRANCH}`, `{BASE}`,
-`{BASE_ON}`, `{CLOSING}` and `{EXTRA}` (the Issue-specific block).
+[wave block](#the-wave-block)), `{N}`, `{WORKER}`, `{PATH}`, `{BRANCH}`,
+`{BASE}`, `{BASE_ON}`, `{CLOSING}` and `{EXTRA}` (the Issue-specific block).
 
+- `{WORKER}` is a name for this worker, unique within the arc, such as
+  `<n>-a`. A worker relaunched on the same brief gets a new one, so a
+  report from the one it replaced reads as stale.
 - `{BASE}` is a full commit SHA, never a ref name or prose: the gate
   commands take it as their review base.
 - `{BASE_ON}` names what that commit is: "the integration branch", or
@@ -84,12 +87,13 @@ You are a worker agent on {REPO}. A lead agent is executing {ARC} with several w
 ## Talking to the lead
 
 - {REPORTING}
+- Open your hand-back, and every report before it, with this key line, after any first message the line above prescribes, so a lost or repeated notice is harmless: `Key: worker {WORKER}, Issue #{N}, PR <#number or none yet>, head <your Branch's full head SHA>`.
 - Tell the lead at once about a measurement or decision a sibling needs, a change to a shared file or type, a defect you verified (so it can be filed while you work), or a blocker. Then carry on with whatever the blocker does not hold up.
-- At a checkpoint, or waiting on a blocker, finish your independent review on the diff you have. Then hand back once, with your head SHA and what you are waiting for, and end your turn: the lead resumes you when it arrives. Send no further "still waiting" reports.
+- At a checkpoint, or waiting on a blocker, finish your independent review on the diff you have. Then hand back once, with your key line and what you are waiting for, and end your turn: the lead resumes you when it arrives. Send no further "still waiting" reports.
 
 ## Final report
 
-Your last message, under 300 words:
+Your last message, under 300 words, opening with the key line:
 - the PR URL, head SHA, and green CI run URL, or what is failing and why;
 - for recorded evidence, that the repository's check of it passes at the PR head, or which sources differ and why;
 - the review findings and how you handled each;

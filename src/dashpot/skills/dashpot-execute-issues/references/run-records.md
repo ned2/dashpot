@@ -34,6 +34,8 @@ decisions as decisions, and ask before quoting them.
 Posted once, at setup, before you create the first Worktree:
 
 - the arc's Issues and its goal;
+- the person accountable for the arc, and the ceiling on their live workers
+  across their arcs: five by default, or the one the user directed;
 - the graph: each blocked-by edge with its gated slice, the critical path,
   and each Issue's float;
 - the reservations, by Issue, and the spare;

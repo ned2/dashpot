@@ -120,14 +120,17 @@ step 2.
   the same line ([run-records.md](references/run-records.md)), so
   `gh issue list --state open --search '"Tracking Issue for a dashpot-execute-issues arc" in:body'`
   finds them all. From each one's arc map and wave comments, note the files
-  its collision plan owns, the numbers it reserved, and its share of the
-  machine's cores. For every file both arcs touch, settle its ownership with
+  its collision plan owns, the numbers it reserved, its share of the
+  machine's cores, and the person accountable for it (step 2's
+  "Size the waves") with the workers it has live. For every file both arcs
+  touch, settle its ownership with
   the other arc's lead through the user, or sequence your Issues that touch
   it after that arc's.
 
 Done when you know the arc's Issues, its goal, the graph, the critical
 path, each Issue's float, each edge's gated slice, the user's Worktrees,
-and every other open arc with the files, numbers and cores it holds.
+and every other open arc with the files, numbers, cores and person it
+holds.
 
 ## 2. Set up
 
@@ -172,6 +175,18 @@ and every other open arc with the files, numbers and cores it holds.
    [harnesses.md](references/harnesses.md), and split your share between
    your workers' test runs. A documentation-only Issue runs no suite and
    costs almost nothing alongside the others.
+
+   Count people as well as cores. The arc has one **accountable person**:
+   the user who asked for it, unless they name someone else. By default, a
+   person supervises three to five live workers at once, counted across
+   every open arc they are accountable for: yours, and any other arc whose
+   map names them. Five is the default ceiling: plan for three to five, and
+   hold a wave that would pass the ceiling until a worker hands back,
+   whatever the cores allow. Only the user's explicit direction changes the
+   ceiling, for this arc or across their arcs: use the one they set, and
+   record it in the arc map as their direction. Your live workers are
+   bounded by the smallest of three limits: your cores, your harness's
+   worker limit, and that ceiling.
 6. **Fill the brief template.** Copy
    [brief-template.md](references/brief-template.md) to your scratch
    directory and fill its per-arc placeholders, which that file lists.
@@ -199,8 +214,9 @@ flaky check.
 Before dispatching, run the open-arc search from step 1 again. When an arc
 has started or ended since your last wave, settle its files and numbers as
 in steps 1 and 2, re-split the cores between the live arcs, and record your
-new share in the wave comment. Then look for collisions between the wave's
-Issues:
+new share in the wave comment. Recount the accountable person's live
+workers across their arcs against the ceiling from step 2. Then look for
+collisions between the wave's Issues:
 
 - **Shared files and functions.** Give every file, function and document
   section one owner. An owned module's user-facing edge, such as the
@@ -248,7 +264,8 @@ For each Issue in the wave:
    the Issue.
 3. Launch every worker of the wave at once, in the background, each with a
    short prompt that points at its brief. Record each worker's handle (its
-   ID or task name) beside its Issue.
+   ID or task name) beside its Issue and the `{WORKER}` name its brief
+   gives it.
 4. Assign each worker to its Issue, as
    [Assign each worker](#assign-each-worker) says.
 
@@ -301,7 +318,31 @@ notice that a worker stopped while it still has background work running is
 not a hand-back: wait for its report. A worker that ended without a report
 (stopped, killed, failed, cancelled or errored, or silent after an
 interruption) is a blocker: check its Worktree and PR, then resume it or
-launch a fresh worker on the same brief, assigned in the old one's place.
+launch a fresh worker on the same brief, rendered again with a new
+`{WORKER}` name, and assign it in the old one's place.
+
+**Read every hand-back against its key.** The brief has each worker open
+its hand-back, and every report before it, with a key: worker, Issue, PR
+and head commit. Check the key against what you recorded for that worker
+before you act:
+
+- **A repeated key** on a hand-back you already acted on changes nothing: a
+  notice can arrive twice. A mid-flight report is read for what it says,
+  even when its key repeats an earlier one.
+- **A missing or stale key** is not acted on: a report with no key line,
+  other than a first message your harness's reporting line prescribes
+  ([harnesses.md](references/harnesses.md)), one from a worker you
+  replaced, or one naming an Issue or PR that worker does not own. Check
+  the worker and its PR, and resume the worker for a fresh report where
+  you need one.
+- **The head** of a PR-ready hand-back must be the PR's
+  (`gh pr view <pr> --json headRefOid`); one that is not is stale. A
+  mid-flight report's head may be newer than the PR's, since the worker
+  may not have pushed yet: read it as information.
+- **A lost notice** is recovered by checking, not by waiting. A worker you
+  expected to hear from and have not is handled like one that ended
+  without a report, above: check its Worktree and PR, and resume it for a
+  fresh report.
 
 **PR ready.** Run the merge routine:
 
@@ -367,7 +408,7 @@ API; a stack instruction ([strategies.md](references/strategies.md)); or
 permission to ship without the gated piece, re-homing that piece to the
 blocker's worker in the same round. A worker at a checkpoint, or waiting on
 a blocker, finishes its independent review on the diff it has, hands back
-once with its head SHA and what it waits for, and ends its turn. Resume it
+once with its key and what it waits for, and ends its turn. Resume it
 when what it waits for arrives; it sends no "still waiting" reports.
 
 **Blocker.** Decide sequencing and ownership questions yourself. Take to
