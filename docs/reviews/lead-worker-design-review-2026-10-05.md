@@ -30,7 +30,8 @@ rest of the case is weaker than the design states:
 - **Cleanup.** [ADR 0112](../adr/0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md)
   already gives a person an override for the Repository-wide `sub-agent`
   blocker, and under root Workers each Worker's reviewer Sub-agent brings
-  that blocker back while it runs (measured on OpenCode). One local
+  that blocker back while it runs (measured on Claude Code and OpenCode).
+  One local
   estimate puts the reviewer windows at 14–36 % of an Arc, about 22 % at the
   median, so root Workers cut the Repository-wide block by roughly two
   thirds to five sixths, not to zero (inference from transcript timestamps;
@@ -152,7 +153,16 @@ The [experiment](../spikes/root-session-workers-spike.md) has the receipts.
 ## Applied in this revision
 
 These fix facts or add no-regrets material and change no lean,
-recommendation, contract item or phasing.
+recommendation or contract item. Three of them overlap the
+[candidate uplifts](#candidate-uplifts) and are flagged here so the
+maintainer can revert them:
+
+- the non-adoption branch, which is U8's description of an outcome, not a
+  choice of it;
+- #474 named as an input to decision 1, which is N3's observation, not its
+  pursuit;
+- sequence step 1 no longer building #444 on sub-agent data meanwhile, to
+  agree with #498, which already defers #444 until #479 decides.
 
 - **Staleness.** Landed work moved out of "still needed": #427, #458, #460
   (ADR 0107), #459, #476 (ADRs 0104 and 0112), #454 (ADR 0108), #466
@@ -199,7 +209,7 @@ difference is stated.
 | Leading candidate | Rework | Uniform adoption on three harnesses is not supported. Qualify per harness; Claude Code first. |
 | The Why | Rework | Lead with lifetime and observed state (`waiting`, placement). State the Cleanup gain as a partial, measured reduction, since ADR 0112 and the reviewer's blocker both stand. |
 | Worker contract | Keep as a per-harness gate; rework items | Add credentials (the Worker can push and open its PR), the permission posture on launch and on resume, how a person attaches and redirects, and what a parked or denied Worker reads as. Separate execution state, declared outcome, PR readiness and Cleanup eligibility. |
-| Mechanism per harness | Keep as evidence | Claude Code: works; dispatch with `--settings` for the stamp, the environment and `bgIsolation`, in a subshell. Codex: a constrained batch mode at best; it cannot be redirected while it runs. OpenCode: defer until restart rebinding is fixed. Claude Code: pending the live run. |
+| Mechanism per harness | Keep as evidence | Claude Code: works; dispatch with `--settings` for the stamp, the environment and `bgIsolation`, in a subshell. Codex: a constrained batch mode at best; it cannot be redirected while it runs. OpenCode: defer until restart rebinding is fixed. |
 | The Lead link | Rework | Neither candidate survives as written. The reviews differ on the fix: a Lead-side `work assign` generalised to root sessions, or a provenance record kept apart from both Agent Runs. [U1](#candidate-uplifts) combines them. |
 | Communication | Keep the principle | Durable state is the truth and harness channels are doorbells; prior art agrees. Key the hand-back to Worker, Issue, PR and head commit. A status file in the Worktree is deleted at Cleanup, so the Lead copies what it needs first. A green PR is not this Repository's "ready": review and validation evidence are part of it. |
 | What Dashpot would build | Shrink | A pilot needs at most the link and the Cleanup explanation naming the Lead. Defer `work wait` until its semantics are specified (baseline, timeout, a vanished Worker, unreadable state) and a pilot shows the need. |
@@ -228,7 +238,8 @@ earlier candidates had:
 
 ## Candidate uplifts
 
-These would change the design materially, so none is applied. Each has a
+These would change the design materially. None is applied beyond the
+three overlaps [listed above](#applied-in-this-revision). Each has a
 recommendation for the maintainer to accept, adapt or reject.
 
 | # | Uplift | Recommendation |
@@ -330,9 +341,10 @@ before filing.
    on Claude Code, with U1 and U2.
 
 This defers the link's implementation, `work workers` and `work wait`, pane
-grouping, the vocabulary ruling, and every Codex and OpenCode change. It
-meets #479's outcome: the comparison exists, the experiments ran, and the
-decision is recorded either way.
+grouping, the vocabulary ruling, and every Codex and OpenCode change.
+With this review, the comparison exists and the experiments ran. #479's
+last outcome, the decision recorded either way, waits for the maintainer's
+choice and its ADR.
 
 ## Remaining unknowns
 

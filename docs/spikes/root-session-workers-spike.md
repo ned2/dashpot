@@ -32,7 +32,7 @@ Every hook went to Dashpot's real publisher, built from `c8069ac`. After
 each step, the runner recorded the hook records Dashpot stored, `work show`
 from each session, and the `worktree check --json` report of every
 Worktree. The traces are metadata only, with paths rewritten to
-placeholders; neither contains a home path or a host name.
+placeholders; none contains a home path or a host name.
 
 The fixture model only advances scripted steps. What a real model does with
 the same notices, and what a real account's rate limits allow, is outside
@@ -299,9 +299,10 @@ From a checkout of the Worktree, outside every harness process, with a
 private `TMPDIR` for the fixture roots:
 
 ```sh
-TMPDIR=<private dir> setsid -f node scripts/experiments/claude-479/run.mjs ~/.local/share/claude/versions/2.1.289 > claude-479.log 2>&1
+TMPDIR=<private dir> setsid -f node scripts/experiments/claude-479/run.mjs ~/.local/share/claude/versions/2.1.287 > claude-479-2.1.287.log 2>&1
+TMPDIR=<private dir> setsid -f node scripts/experiments/claude-479/run.mjs ~/.local/share/claude/versions/2.1.289 2.1.289 > claude-479-2.1.289.log 2>&1
 TMPDIR=<private dir> setsid -f node scripts/experiments/codex-479/run.mjs ~/.codex/packages/standalone/releases/0.160.0-x86_64-unknown-linux-musl/bin/codex > codex-479.log 2>&1
-TMPDIR=<private dir> setsid -f node scripts/experiments/opencode-479/run.mjs <fixture copy of opencode 2.0.22> > opencode-479.log 2>&1
+TMPDIR=<private dir> setsid -f node scripts/experiments/opencode-479/run.mjs ~/.opencode/bin/opencode > opencode-479.log 2>&1
 node scripts/experiments/claude-479/verify.mjs docs/spikes/measurements/issue-479-claude-2.1.287-trace.jsonl.gz docs/spikes/measurements/issue-479-claude-2.1.289-trace.jsonl.gz
 node scripts/experiments/codex-479/verify.mjs docs/spikes/measurements/issue-479-codex-trace.jsonl --strict
 node scripts/experiments/opencode-479/verify.mjs docs/spikes/measurements/issue-479-opencode-trace.jsonl --strict

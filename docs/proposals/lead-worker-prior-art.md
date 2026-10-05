@@ -597,7 +597,9 @@ suggestion 1 is part of its
 shapes its [communication core](lead-worker-design.md#communication), and
 the rest appear among its
 [open decisions](lead-worker-design.md#open-decisions). Suggestion 11 is new
-in this revision and not yet in the design.
+in this revision. The design records each harness's measured doorbell
+against it, and Claude Code's `SendMessage` does not wait for the end of a
+busy session's turn: it arrives after the current tool call.
 
 1. Keep Workers that run for an Issue's lifetime as root sessions and
    reviewers as Sub-agents. Argue it from lifetime and observability, since
@@ -624,4 +626,6 @@ in this revision and not yet in the design.
     person is the reported comfort level.
 11. (New.) Make a doorbell append at a turn boundary and never start a turn
     that pre-empts work in flight, and check each harness's doorbell against
-    that in its experiment.
+    that in its experiment. The #479 experiment did: none interrupts a tool
+    call, but Claude Code's and OpenCode's `steer` arrive within the running
+    turn.

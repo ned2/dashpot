@@ -15,7 +15,9 @@ platform, and, in most traces, the isolated configuration; the records after it 
 hooks, process ancestry samples, and scenario steps the run observed. The
 earlier traces keep the fixture's temporary paths; the later ones rewrite them
 to placeholders such as `$ROOT`. The same experiment's `verify.mjs` checks the
-document's claims against the trace.
+document's claims against the trace. A trace too large for the repository's
+large-file check is kept gzipped as `.jsonl.gz`; the SHA-256 its document
+gives is of the uncompressed JSONL, and its verifier reads the file as kept.
 
 A `.json` file is one JSON array of samples from the first-load latency spike.
 The dashboard timings come from the profiling command its
