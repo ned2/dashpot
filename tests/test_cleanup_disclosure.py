@@ -188,6 +188,9 @@ def test_a_branch_rebased_by_a_stack_in_another_worktree_is_in_use(
         capture_output=True,
         check=False,
     )
+    # The rebase stopped with ``low`` recorded as still to move.
+    admin = Path(git(worktree, "rev-parse", "--absolute-git-dir"))
+    assert "refs/heads/low" in (admin / "rebase-merge" / "update-refs").read_text()
 
     local = by_identity(preview_branch(root, "low"))["local:refs/heads/low"]
 
