@@ -307,6 +307,206 @@ def test_an_indented_list_continuation_is_still_checked(
     assert messages == ["guide.md:3: link target is missing: nope.md"]
 
 
+def test_a_link_in_an_html_comment_is_not_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A commented-out link renders as nothing, so it cannot fail the gate."""
+    document = write_document(
+        tmp_path,
+        "guide.md",
+        "<!-- [old](gone.md) -->\n"
+        "Before <!-- a comment that\nwraps [x](gone.md) --> after [y](missing.md).\n",
+    )
+
+    messages = check(monkeypatch, tmp_path, document)
+
+    assert messages == ["guide.md:3: link target is missing: missing.md"]
+
+
+def test_a_comment_in_a_paragraph_ends_at_a_blank_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A marker inside a paragraph cannot hide the paragraphs after it."""
+    document = write_document(
+        tmp_path,
+        "guide.md",
+        "A stray <!-- marker\n\n[x](gone.md)\n\nUse --> arrows.\n"
+        "<!--\n\n[y](hidden.md)\n\n-->\n",
+    )
+
+    messages = check(monkeypatch, tmp_path, document)
+
+    assert messages == ["guide.md:3: link target is missing: gone.md"]
+
+
+def test_a_comment_marker_in_a_code_span_opens_no_comment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A span that opens first wins, so the link after it is still read."""
+    document = write_document(
+        tmp_path, "guide.md", "Write `<!--` to open one; see [x](gone.md) -->.\n"
+    )
+
+    messages = check(monkeypatch, tmp_path, document)
+
+    assert messages == ["guide.md:1: link target is missing: gone.md"]
+
+
+def test_an_unclosed_comment_marker_hides_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Only a closed comment renders as nothing; a stray marker is text."""
+    document = write_document(
+        tmp_path, "guide.md", "A stray <!-- before [x](gone.md).\n"
+    )
+
+    messages = check(monkeypatch, tmp_path, document)
+
+    assert messages == ["guide.md:1: link target is missing: gone.md"]
+
+
+def test_a_heading_in_an_html_comment_defines_no_anchor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Neither a commented-out heading nor a commented-out anchor renders."""
+    target = write_document(
+        tmp_path,
+        "target.md",
+        '<!--\n## Draft\n\n<a name="spot"></a>\n-->\n## Kept `<!--` marker\n',
+    )
+    document = write_document(
+        tmp_path,
+        "guide.md",
+        "[a](target.md#draft) [b](target.md#spot) [c](target.md#kept----marker)\n",
+    )
+
+    messages = check(monkeypatch, tmp_path, document, target)
+
+    assert messages == [
+        "guide.md:1: target.md has no heading anchoring #draft",
+        "guide.md:1: target.md has no heading anchoring #spot",
+    ]
+
+
+def test_a_broken_link_in_a_docstring_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A module links its ADR relative to itself, so moving it must not rot the link."""
+    write_document(tmp_path, "docs/adr/0001-decide.md", "# Decide\n")
+    module = write_document(
+        tmp_path,
+        "src/pkg/module.py",
+        '"""Do the thing.\n\n'
+        "As [ADR 0001](../../docs/adr/0001-decide.md#decide) and\n"
+        '[ADR 0002](../../docs/adr/0002-gone.md) decide.\n"""\n\n\n'
+        "def act() -> None:\n"
+        '    """Act ([ADR 0001](../docs/adr/0001-decide.md))."""\n',
+    )
+
+    messages = check(monkeypatch, tmp_path, module)
+
+    assert messages == [
+        "src/pkg/module.py:4: link target is missing: ../../docs/adr/0002-gone.md",
+        "src/pkg/module.py:9: link target is missing: ../docs/adr/0001-decide.md",
+    ]
+
+
+def test_a_broken_link_in_a_python_comment_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = write_document(
+        tmp_path,
+        "scripts/tool.py",
+        "VALUE = 1  # As [the note](gone.md) says.\n"
+        "# A [wrapped\n# link](also-gone.md#L3).\n"
+        "NAME: str\n"
+        '"""An attribute docstring, citing [it](missing.md)."""\n',
+    )
+
+    messages = check(monkeypatch, tmp_path, module)
+
+    assert messages == [
+        "scripts/tool.py:1: link target is missing: gone.md",
+        "scripts/tool.py:3: link target is missing: also-gone.md",
+        "scripts/tool.py:5: link target is missing: missing.md",
+    ]
+
+
+def test_link_syntax_in_python_code_is_not_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Only docstrings and comments are prose; a subscript call or a string is code."""
+    module = write_document(
+        tmp_path,
+        "src/pkg/module.py",
+        '"""Render links, as `[x](gone.md)` shows."""\n\n'
+        "handlers = {}\n"
+        'handlers["key"](1)\n'
+        'label = "[x](gone.md)"\n'
+        'message = f"[{label}](also-gone.md)"\n'
+        '"[x](" "gone.md)" if label else ""\n'
+        '"[x](" "gone.md)"\n'
+        "print(\n"
+        '    "[x](gone.md)"\n'
+        ")\n",
+    )
+
+    assert check(monkeypatch, tmp_path, module) == []
+
+
+def test_a_same_file_anchor_in_python_is_not_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Python has no headings, so a comment line is not mistaken for one."""
+    module = write_document(
+        tmp_path, "src/module.py", "# Usage\n# See [usage](#usage) and [it](#gone).\n"
+    )
+
+    assert check(monkeypatch, tmp_path, module) == []
+
+
+def test_python_that_cannot_be_tokenized_is_reported(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A file the gate cannot read is reported rather than passed unread."""
+    module = write_document(tmp_path, "src/module.py", 'TEXT = """never closed\n')
+
+    messages = check(monkeypatch, tmp_path, module)
+
+    assert len(messages) == 1
+    assert messages[0].startswith(
+        "src/module.py:1: cannot read its docstrings and comments: "
+    )
+
+
+def test_a_tracked_python_path_argument_is_checked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A Python file is selected by path as a document is, and its links checked."""
+    module = write_document(tmp_path, "src/module.py", "# See [it](gone.md).\n")
+    monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(maintain_docs, "tracked_markdown_files", list)
+    monkeypatch.setattr(maintain_docs, "tracked_python_files", lambda: [module])
+    monkeypatch.setattr(maintain_docs, "check_adr_index", lambda paths: [])
+    monkeypatch.setattr(maintain_docs, "check_code_map", lambda shipped: [])
+    monkeypatch.setattr(maintain_docs, "tracked_package_files", list)
+
+    assert maintain_docs.main([str(module)]) == 1
+    assert "src/module.py:1: link target is missing: gone.md" in capsys.readouterr().err
+
+
+def test_the_link_gate_reads_the_tracked_python_of_the_package_and_scripts() -> None:
+    """Git's `*` crosses directories, so a nested module is read; tests are not."""
+    read = {
+        path.relative_to(maintain_docs.PROJECT_ROOT).as_posix()
+        for path in maintain_docs.tracked_python_files()
+    }
+
+    assert any(name.count("/") > 2 for name in read if name.startswith("src/"))
+    assert "scripts/maintain_docs.py" in read
+    assert all(name.startswith(("src/", "scripts/")) for name in read)
+
+
 def test_an_intraword_underscore_survives_the_slug(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -470,6 +670,7 @@ def test_an_untracked_path_argument_is_reported(
 ) -> None:
     """A typo in a path must fail rather than quietly check nothing."""
     monkeypatch.setattr(maintain_docs, "tracked_markdown_files", list)
+    monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
 
     assert maintain_docs.main(["docs/does-not-exist.md"]) == 1
 
@@ -742,6 +943,7 @@ def test_writing_the_index_satisfies_the_gate(
     monkeypatch.setattr(
         maintain_docs, "tracked_markdown_files", lambda: [first, second]
     )
+    monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
 
     assert maintain_docs.main(["--write-adr-index"]) == 0
     assert maintain_docs.check_adr_index([first, second]) == []
@@ -754,6 +956,7 @@ def test_writing_the_index_still_rejects_an_untracked_path(
     first = write_adr(tmp_path, "docs/adr/0001-first.md", "Do the first thing")
     monkeypatch.setattr(maintain_docs, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(maintain_docs, "tracked_markdown_files", lambda: [first])
+    monkeypatch.setattr(maintain_docs, "tracked_python_files", list)
 
     assert maintain_docs.main(["--write-adr-index", "docs/does-not-exist.md"]) == 1
     assert not (tmp_path / maintain_docs.ADR_INDEX_PATH).exists()
@@ -886,6 +1089,26 @@ def test_links_in_code_do_not_list_a_module(
         tmp_path,
         shipped,
         "```markdown\n[`hook.py`](../src/dashpot/hook.py)\n```\n",
+    )
+
+    assert messages == [
+        "docs/code-map.md:1: does not list src/dashpot/hook.py; "
+        "add it under the concept it serves"
+    ]
+
+
+def test_a_commented_out_listing_does_not_list_a_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A link no reader sees lists nothing, and a stale one in a comment is no failure."""
+    shipped = ship(tmp_path, "hook.py")
+
+    messages = check_map(
+        monkeypatch,
+        tmp_path,
+        shipped,
+        "<!--\n| [`hook.py`](../src/dashpot/hook.py) | Publish. |\n"
+        "| [`gone.py`](../src/dashpot/gone.py) | Removed. |\n-->\n",
     )
 
     assert messages == [

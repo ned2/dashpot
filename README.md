@@ -544,7 +544,10 @@ gate. `uv run pre-commit install` enables two sets of hooks for the checkout:
   `uv run` do. Ruff's rule selection and ty's rule levels live in
   [`pyproject.toml`](pyproject.toml). Then
   [`scripts/maintain_docs.py`](scripts/maintain_docs.py) resolves every in-repo
-  Markdown link (its path, heading anchor, or `#L` line fragment), requires
+  Markdown link (its path, heading anchor, or `#L` line fragment) in the
+  tracked Markdown and in the docstrings and comments of the tracked Python
+  under `src/` and `scripts/`, outside code blocks, code spans and HTML
+  comments, requires
   the frontmatter described in the
   [documentation map](#documentation-map), requires each ADR's number to
   be its own, requires the [ADR index](docs/adr/README.md) to be the file

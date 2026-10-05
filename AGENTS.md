@@ -269,7 +269,10 @@ The conventions the tooling enforces or the code assumes:
   every in-repo Markdown link resolves — path, heading anchor, and `#L`
   line fragment — and every ADR carries a four-digit number no other ADR
   claims, so a bare "ADR NNNN" in prose or in a code comment still names one
-  document.
+  document. The links checked are those in the tracked Markdown, outside
+  code blocks, code spans and HTML comments, and those in the docstrings and
+  comments of the Python under `src/` and `scripts/`, where a path is
+  relative to the module.
   `scripts/maintain_docs.py` fails the gate on any of them. The
   [ADR index](docs/adr/README.md) is generated from the ADRs, so after adding
   or changing one run

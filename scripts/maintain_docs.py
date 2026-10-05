@@ -3,7 +3,10 @@
 Five gates run over the tracked Markdown files. The link gate resolves every
 in-repo link — relative paths, heading anchors, and `#L<n>` / `#L<n>-L<m>` line
 fragments — and fails on a target that does not exist, so a rename, a moved
-section, or an edit that shortens a file cannot silently rot a pointer.
+section, or an edit that shortens a file cannot silently rot a pointer. It
+reads the docstrings and comments of the tracked Python under `src/` and
+`scripts/` too, where a module links the ADR it implements by a path relative
+to itself, so moving the module cannot silently break the link either.
 The frontmatter gate requires every document under `docs/` to declare its
 `status` and `date`, and requires a `superseded` or `amended` document to name
 what replaced or changed it, so a reader can tell a living document from a
@@ -22,17 +25,21 @@ table of every ADR goes stale the moment someone adds one without touching it.
 The code map is checked rather than generated: the concept each module serves
 and its role are prose no script can write.
 
-The gate errs towards silence: code is masked before anything is read out of a
-document, because a false failure on a legitimate document is worse than a
-missed link. Everything it does report has been resolved against the tree.
+The gate errs towards silence: code and HTML comments are masked before
+anything is read out of a document, and everything in a Python file but its
+docstrings and comments, because a false failure on a legitimate document is
+worse than a missed link. Everything it does report has been resolved against
+the tree.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 import re
 import subprocess
 import sys
+import tokenize
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -49,6 +56,10 @@ ADR_INDEX_PATH = f"{ADR_DIRECTORY}/{ADR_INDEX_NAME}"
 ADR_NUMBER_PATTERN = re.compile(r"\A(?P<number>\d{4})-")
 
 ADR_INDEX_REGENERATE = "regenerate it with --write-adr-index"
+
+# The Python whose docstrings and comments the link gate reads: the package and
+# the repository's scripts. Git's `*` matches across directories.
+PYTHON_PATHSPECS = ("src/*.py", "scripts/*.py")
 
 CODE_MAP_PATH = "docs/code-map.md"
 # Everything Git tracks here is in the wheel, so this is what the map covers.
@@ -94,9 +105,27 @@ FENCE_PATTERN = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 INDENTED_CODE_PATTERN = re.compile(r"^(?: {4}|\t)")
 LIST_ITEM_PATTERN = re.compile(r"^ *(?:[-*+]|\d+[.)])[^\S\n]")
 BLANK_PATTERN = re.compile(r"^[^\S\n]*$")
-# Backtick runs delimit an inline code span; the closing run matches in length.
-CODE_SPAN_PATTERN = re.compile(
-    r"(?<!`)(?P<ticks>`+)(?!`).*?(?<!`)(?P=ticks)(?!`)", re.DOTALL
+# Backtick runs delimit an inline code span, within one line; the closing run
+# matches in length. An HTML comment that opens a line is a block and may run
+# across blank lines; one inside a paragraph ends with it, at a blank line.
+# Whichever opens first wins, so a `<!--` inside a span opens no comment, and a
+# backtick inside a comment opens no span.
+INLINE_MASK_PATTERN = re.compile(
+    r"(?P<comment>^ {0,3}<!--.*?-->|<!--(?:(?!\n[^\S\n]*\n).)*?-->)"
+    r"|(?<!`)(?P<ticks>`+)(?!`)[^\n]*?(?<!`)(?P=ticks)(?!`)",
+    re.DOTALL | re.MULTILINE,
+)
+
+# Tokens that neither belong to a statement nor end one: a Python statement is
+# a docstring when what remains of it is one string literal.
+IGNORED_TOKEN_TYPES = frozenset(
+    {
+        tokenize.COMMENT,
+        tokenize.NL,
+        tokenize.INDENT,
+        tokenize.DEDENT,
+        tokenize.ENCODING,
+    }
 )
 
 EXTERNAL_SCHEMES = ("http://", "https://", "mailto:", "ftp://", "tel:")
@@ -119,10 +148,10 @@ class Problem:
         return f"{self.path}:{self.line}: {self.message}"
 
 
-def tracked_markdown_files() -> list[Path]:
-    """List the repository's tracked Markdown files."""
+def tracked_files(*pathspecs: str) -> list[Path]:
+    """List the repository's tracked files that match any of the pathspecs."""
     completed = subprocess.run(
-        ["git", "ls-files", "-z", "*.md"],
+        ["git", "ls-files", "-z", "--", *pathspecs],
         cwd=PROJECT_ROOT,
         check=True,
         capture_output=True,
@@ -131,13 +160,28 @@ def tracked_markdown_files() -> list[Path]:
     return [PROJECT_ROOT / name for name in completed.stdout.split("\0") if name]
 
 
+def tracked_markdown_files() -> list[Path]:
+    """List the repository's tracked Markdown files."""
+    return tracked_files("*.md")
+
+
+def tracked_python_files() -> list[Path]:
+    """List the tracked Python whose docstrings and comments the link gate reads."""
+    return tracked_files(*PYTHON_PATHSPECS)
+
+
 def mask_code(text: str, *, spans: bool = True) -> str:
-    """Blank every code block, and by default every code span, character for character.
+    """Blank every code block and HTML comment, and by default every code span, character for character.
 
     The result is the same length as the input, so an offset into it is an
     offset into the document and the reported line numbers stay true. Heading
     text keeps its spans, because a slug is built from what a span renders as.
     """
+    return mask_inline(mask_blocks(text), spans=spans)
+
+
+def mask_blocks(text: str) -> str:
+    """Blank every fenced and indented code block, character for character."""
     lines = text.split("\n")
     masked: list[str] = []
     fence: str | None = None
@@ -170,13 +214,73 @@ def mask_code(text: str, *, spans: bool = True) -> str:
             indented = True
             masked.append(" " * len(line))
             continue
-        if not spans:
-            masked.append(line)
-            continue
-        masked.append(
-            CODE_SPAN_PATTERN.sub(lambda span: " " * len(span.group(0)), line)
-        )
+        masked.append(line)
     return "\n".join(masked)
+
+
+def mask_inline(text: str, *, spans: bool = True) -> str:
+    """Blank every HTML comment, and by default every code span, character for character.
+
+    A comment is blanked whether or not spans are, and a span is still found
+    when it is kept, so a `<!--` it holds never opens a comment. Only a closed
+    comment is blanked: an unclosed `<!--` is left as the text it may be.
+    Newlines are kept, so offsets and reported line numbers stay true.
+    """
+
+    def blank(match: re.Match[str]) -> str:
+        if match.group("comment") is None and not spans:
+            return match.group(0)
+        return re.sub(r"[^\n]", " ", match.group(0))
+
+    return INLINE_MASK_PATTERN.sub(blank, text)
+
+
+def mask_python_code(text: str) -> str:
+    """Blank everything in Python source but its comments and docstrings, character for character.
+
+    A docstring here is any statement that is one string literal and nothing
+    else, so the attribute docstrings PEP 257 names count as well as a
+    module's, class's or function's. A string inside a larger expression, every
+    f-string, and implicitly concatenated literals, whose quotes would fall
+    inside their text, are code and blanked with the rest. Newlines are kept,
+    so offsets and reported line numbers stay true.
+
+    Raises `SyntaxError` or `tokenize.TokenError` for source Python cannot
+    tokenize.
+    """
+    starts = [0, *(match.end() for match in re.finditer(r"\n", text))]
+
+    def offset(position: tuple[int, int]) -> int:
+        row, column = position
+        return starts[row - 1] + column
+
+    kept: list[tuple[int, int]] = []
+    statement: list[tokenize.TokenInfo] = []
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type == tokenize.COMMENT:
+            kept.append((offset(token.start), offset(token.end)))
+        elif token.type in (tokenize.NEWLINE, tokenize.ENDMARKER):
+            if len(statement) == 1 and statement[0].type == tokenize.STRING:
+                kept.append((offset(statement[0].start), offset(statement[0].end)))
+            statement = []
+        elif token.type not in IGNORED_TOKEN_TYPES:
+            statement.append(token)
+    prose = [character if character == "\n" else " " for character in text]
+    for start, end in kept:
+        prose[start:end] = text[start:end]
+    return "".join(prose)
+
+
+def mask_for_links(path: Path, text: str) -> str:
+    """Blank everything in a file the link gate must not read links out of."""
+    if is_python(path):
+        return mask_inline(mask_python_code(text))
+    return mask_code(text)
+
+
+def is_python(path: Path) -> bool:
+    """Report whether a file is Python, whose docstrings and comments are read for links."""
+    return path.suffix == ".py"
 
 
 def opens_indented_code(lines: Sequence[str], index: int) -> bool:
@@ -310,7 +414,16 @@ def check_links(paths: Sequence[Path]) -> list[Problem]:
     for path in paths:
         text = path.read_text(encoding="utf-8")
         relative = path.relative_to(PROJECT_ROOT).as_posix()
-        for target, offset in iter_link_targets(mask_code(text)):
+        try:
+            source = mask_for_links(path, text)
+        except (SyntaxError, tokenize.TokenError) as error:
+            problems.append(
+                Problem(
+                    relative, 1, f"cannot read its docstrings and comments: {error}"
+                )
+            )
+            continue
+        for target, offset in iter_link_targets(source):
             if target.startswith(EXTERNAL_SCHEMES) or target.startswith("//"):
                 continue
             line = line_of(text, offset)
@@ -320,7 +433,8 @@ def check_links(paths: Sequence[Path]) -> list[Problem]:
             if fragment is not None:
                 anchor = ""
             if not location:
-                if anchor and anchor not in anchors_for(path):
+                # Python has no headings for an anchor to name.
+                if anchor and not is_python(path) and anchor not in anchors_for(path):
                     problems.append(
                         Problem(relative, line, f"no heading anchors #{anchor}")
                     )
@@ -727,7 +841,10 @@ def select(
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the documentation gates, or rewrite the ADR index and stop."""
     parser = argparse.ArgumentParser(
-        description="Check tracked Markdown documents and build the ADR index."
+        description=(
+            "Check tracked Markdown documents and the links in tracked Python's "
+            "docstrings and comments; build the ADR index."
+        )
     )
     parser.add_argument(
         "paths", nargs="*", help="files to check; default is every tracked one"
@@ -740,14 +857,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     tracked = tracked_markdown_files()
+    readable = tracked + tracked_python_files()
     if arguments.paths:
-        paths, unknown = select(tracked, arguments.paths)
+        paths, unknown = select(readable, arguments.paths)
         for name in unknown:
-            print(f"{name}: not a tracked Markdown file", file=sys.stderr)
+            print(
+                f"{name}: neither a tracked Markdown file nor tracked Python "
+                "the link gate reads",
+                file=sys.stderr,
+            )
         if unknown:
             return 1
     else:
-        paths = tracked
+        paths = readable
 
     if arguments.write_adr_index:
         (PROJECT_ROOT / ADR_INDEX_PATH).write_text(
