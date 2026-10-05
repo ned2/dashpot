@@ -74,7 +74,7 @@ every observation and query command is interruptible by default. The two
 named mutations opt out and run to completion through an exit: a Remote
 Fetch ([ADR 0014](0014-fetch-remotes-on-explicit-key-press.md)) and a
 Cleanup ([ADR 0019](0019-remove-branches-and-worktrees-on-explicit-confirmation.md))
-each build their Git adapter with `non_interactive_runner(...,
+each build their Git adapter with `git_runner(..., non_interactive=True,
 interruptible=False)`, so a confirmed `git worktree remove` is never left
 half-way through a Worktree and a `git fetch --prune` finishes the ref
 updates it began. A Cleanup preview only reads, so its adapter is built

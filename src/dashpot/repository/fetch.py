@@ -22,8 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.commands import non_interactive_runner
-from ..core.git import Git, GitError, last_stderr_line
+from ..core.git import Git, GitError, git_runner, last_stderr_line
 
 FETCH_ENVIRONMENT: dict[str, str] = {"GIT_TERMINAL_PROMPT": "0"}
 
@@ -121,6 +120,6 @@ def remote_fetcher(timeout: float) -> RemoteFetcher:
     git = Git(
         Path.cwd(),
         timeout,
-        non_interactive_runner(FETCH_ENVIRONMENT, interruptible=False),
+        git_runner(FETCH_ENVIRONMENT, non_interactive=True, interruptible=False),
     )
     return lambda anchor: fetch_remotes(anchor, git=git)

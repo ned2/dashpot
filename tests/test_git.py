@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import os
+import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from dashpot.core.commands import CommandError, CommandResult
+from dashpot.core.distribution import source_dirty
 from dashpot.core.git import Git, GitError
+from dashpot.repository.cleanup.perform import cleanup_git
+from dashpot.repository.fetch import remote_fetcher
 from factories import SequenceRunner, completed
 
 
@@ -152,3 +158,70 @@ def test_worktree_records_parses_the_nul_porcelain() -> None:
         },
     ]
     assert runner.calls[0][0] == ["git", "worktree", "list", "--porcelain", "-z"]
+
+
+# --- Optional locks ----------------------------------------------------------
+
+
+def _run_with_default_adapter(root: Path) -> None:
+    Git(root).run("status", "--porcelain=v1")
+
+
+def _run_with_cleanup_preview(root: Path) -> None:
+    cleanup_git(10, preview=True).at(root).run("status", "--porcelain=v1")
+
+
+def _run_with_confirmed_cleanup(root: Path) -> None:
+    cleanup_git(10).at(root).run("status", "--porcelain=v1")
+
+
+def _run_a_remote_fetch(root: Path) -> None:
+    # The stand-in lists ``origin`` for ``git remote``, so ``git fetch`` runs too.
+    remote_fetcher(10)(root)
+
+
+def _ask_whether_the_source_is_dirty(root: Path) -> None:
+    source_dirty(root)
+
+
+@pytest.mark.parametrize(
+    ("invoke", "subcommands"),
+    [
+        (_run_with_default_adapter, ["status"]),
+        (_run_with_cleanup_preview, ["status"]),
+        (_run_with_confirmed_cleanup, ["status"]),
+        (_run_a_remote_fetch, ["remote", "fetch"]),
+        (_ask_whether_the_source_is_dirty, ["status"]),
+    ],
+)
+def test_production_git_adapters_turn_optional_locks_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    invoke: Callable[[Path], None],
+    subcommands: list[str],
+) -> None:
+    # A stand-in ``git`` first on PATH records the environment each production
+    # adapter hands it, so the assertion reaches past the runner to the process.
+    bin_directory = tmp_path / "bin"
+    bin_directory.mkdir()
+    recorded = tmp_path / "recorded"
+    stand_in = bin_directory / "git"
+    stand_in.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        f"with open({str(recorded)!r}, 'a') as log:\n"
+        "    print(sys.argv[1], os.environ.get('GIT_OPTIONAL_LOCKS', 'unset'), "
+        "file=log)\n"
+        "if sys.argv[1:] == ['remote']:\n"
+        "    print('origin')\n"
+    )
+    stand_in.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_directory}:{os.environ['PATH']}")
+    # An inherited setting does not turn the optional locks back on.
+    monkeypatch.setenv("GIT_OPTIONAL_LOCKS", "1")
+
+    invoke(tmp_path)
+
+    calls = [line.split() for line in recorded.read_text().splitlines()]
+    assert [subcommand for subcommand, _ in calls] == subcommands
+    assert {locks for _, locks in calls} == {"0"}

@@ -3,14 +3,18 @@
 Every module that asks Git a question goes through :class:`Git`, so the
 return-code and stderr handling, the ``%00`` field discipline for
 ``for-each-ref``, and the rule that a failure is never reported as an
-absence each live in exactly one place.
+absence each live in exactly one place. Every production adapter's runner
+comes from :func:`git_runner`, the one place Git's environment is set and an
+observation is told from a named mutation.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
+from types import MappingProxyType
 
 from .commands import (
     CommandError,
@@ -49,6 +53,41 @@ class GitError(DashpotError, RuntimeError):
         super().__init__(f"git {' '.join(self.argv)} failed: {self.detail}")
 
 
+# Git's switch for a background reader (git-status(1), "Background
+# refresh"). Without it ``git status`` takes ``index.lock`` to write the
+# refreshed stat cache back, and an agent's ``git add`` or ``git commit``
+# that starts meanwhile fails on the held lock. It turns off only optional
+# sub-operations, so a named mutation run under it changes exactly what it did
+# before.
+_NO_OPTIONAL_LOCKS: Mapping[str, str] = MappingProxyType({"GIT_OPTIONAL_LOCKS": "0"})
+
+
+def git_runner(
+    environment: Mapping[str, str] | None = None,
+    *,
+    non_interactive: bool = False,
+    interruptible: bool = True,
+) -> CommandRunner:
+    """A runner for Git that never takes an optional lock, with ``environment`` added.
+
+    ``GIT_OPTIONAL_LOCKS=0`` overrides both ``environment`` and an inherited
+    value, so no observation Dashpot runs competes with a writer for
+    ``index.lock``. ``non_interactive`` and ``interruptible`` are
+    :func:`~dashpot.core.commands.run_command`'s: an observation stays
+    interruptible, a named mutation opts out and runs to completion.
+    """
+    return partial(
+        run_command,
+        environment={**(environment or {}), **_NO_OPTIONAL_LOCKS},
+        non_interactive=non_interactive,
+        interruptible=interruptible,
+    )
+
+
+# The runner of an adapter built without one: interruptible, optional locks off.
+_OBSERVATION_RUNNER = git_runner()
+
+
 def last_stderr_line(stderr: str) -> str:
     """Take Git's last non-empty stderr line: the reason, after any progress noise."""
     lines = [line.strip() for line in stderr.splitlines() if line.strip()]
@@ -61,7 +100,7 @@ class Git:
 
     root: Path
     timeout: float = 5
-    runner: CommandRunner = run_command
+    runner: CommandRunner = _OBSERVATION_RUNNER
 
     def at(self, root: Path, *, timeout: float | None = None) -> Git:
         """Retarget this adapter at another Worktree, keeping its runner."""

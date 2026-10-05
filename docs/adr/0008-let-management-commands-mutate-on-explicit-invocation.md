@@ -12,9 +12,11 @@ contract as implemented is narrower than the slogan. Three things write:
 observation, which prunes ended or gone hook records and reclaims orphaned
 lock files in the hook store and the Work Store — housekeeping of Dashpot's
 own ignored state, never the Git Repository's refs, objects, or working trees
-(its `git status` probe may refresh `.git/index`, as any status does); the
-hook publisher, which the harness invokes on lifecycle events and which
-writes only that session's own hook record; and explicitly invoked commands —
+(every Git command it runs sets `GIT_OPTIONAL_LOCKS=0`, so its `git status`
+probe neither refreshes `.git/index` nor takes the `index.lock` an agent's
+`git add` or `git commit` needs); the hook publisher, which the harness
+invokes on lifecycle events and which writes only that session's own hook
+record; and explicitly invoked commands —
 `dashpot init` writes `.dashpot/config.json`, `dashpot integrate` edits or
 removes a harness's user-level hook file, and `dashpot work start`, `dashpot
 work relocate`, and `dashpot work stop` write the Work Store — each touching

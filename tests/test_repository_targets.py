@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 from unittest import mock
+
+import pytest
 
 from dashpot.core.commands import CommandError
 from dashpot.core.git import Git
@@ -11,7 +15,7 @@ from dashpot.core.model import Diagnostic
 from dashpot.core.worktree_paths import same_path
 from dashpot.repository.repository import observe_observation_targets
 from dashpot.sessions.processes import ProcessLiveness
-from factories import SequenceRunner, completed, git
+from factories import SequenceRunner, completed, git, init_repository
 
 
 def over(runner: SequenceRunner) -> Git:
@@ -280,3 +284,40 @@ def test_paths_that_cannot_resolve_never_name_the_same_place(tmp_path: Path) -> 
     assert not same_path(tmp_path / "a", tmp_path / "b")
     # A persisted path may carry bytes the host cannot even resolve.
     assert not same_path(Path("bad\0path"), Path("bad\0path"))
+
+
+def test_observing_a_worktree_leaves_its_index_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An inherited setting does not turn the optional locks back on.
+    monkeypatch.setenv("GIT_OPTIONAL_LOCKS", "1")
+    root = init_repository(tmp_path / "repo")
+    tracked = root / "tracked.txt"
+    tracked.write_text("unchanged\n")
+    git(root, "add", "tracked.txt")
+    git(
+        root,
+        "-c",
+        "user.name=Sim",
+        "-c",
+        "user.email=sim@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "first",
+    )
+    # Same content, older stat: a plain ``git status`` would take index.lock
+    # to write the refreshed stat cache back.
+    os.utime(tracked, (1_000_000_000, 1_000_000_000))
+    index = root / ".git" / "index"
+    before = index.read_bytes()
+
+    inventory = observe_observation_targets([root])
+
+    assert inventory.targets[0].availability == "available"
+    assert inventory.targets[0].dirty is False
+    assert index.read_bytes() == before
+    # The check above is meaningful: Git's own status, optional locks on,
+    # rewrites this index.
+    subprocess.run(["git", "status", "--porcelain=v1"], cwd=root, check=True)
+    assert index.read_bytes() != before
