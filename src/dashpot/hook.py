@@ -7,7 +7,9 @@ import re
 import signal
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -26,7 +28,6 @@ from .event_logs import open_event_log
 from .sessions.deferred_end import SETTLE_COMMAND, DeferredEnd, settle_session_end
 from .sessions.hook_publish import HookPublication, publish_hook_event
 from .sessions.opencode_publish import (
-    OpenCodeOutcome,
     PluginRequest,
     parse_request,
     publish_opencode,
@@ -39,6 +40,17 @@ from .sessions.work_store import ActiveWork
 # would let a full disk or an unwritable state directory erase a prompt or
 # refuse a Stop. Observation must never get in the session's way.
 NON_BLOCKING_FAILURE_EXIT_CODE = 1
+# What fails a hook run, reported and recorded rather than shown as a
+# traceback. ``ValueError`` is a store's refusal of an occupied destination,
+# the base of a record's Pydantic validation failure and of unreadable JSON.
+# ``RuntimeError`` stays for Python's own runtime faults, such as a symlink
+# loop under ``Path.resolve``: a hook must never break its harness.
+HOOK_FAILURES: tuple[type[Exception], ...] = (
+    OSError,
+    ValueError,
+    RuntimeError,
+    DashpotError,
+)
 # The Claude Code events whose hook output can add context for the model. Only
 # a Claude Code run is ever continued (ADR 0053), so no other harness reaches
 # this output.
@@ -114,42 +126,72 @@ def hook_event_log(
     )
 
 
+@dataclass(slots=True)
+class HookRun:
+    """What one hook process has learned about its run so far.
+
+    It is filled while the run goes, so unlike the values it collects it is
+    not frozen. ``event`` is the payload whose ``hook_event_name`` names the
+    outcome, ``publication`` what the run did to its record and the Work
+    Store, ``reason`` a reason word it kept, and ``error`` what failed it.
+    """
+
+    event: object = None
+    publication: HookPublication | None = None
+    reason: str | None = None
+    error: Exception | None = None
+
+    @property
+    def exit_code(self) -> int:
+        """The status the hook process exits with: a failure never blocks the session."""
+        return 0 if self.error is None else NON_BLOCKING_FAILURE_EXIT_CODE
+
+
+@contextmanager
+def hook_process(log: EventLog, *, label: str | None = None) -> Iterator[HookRun]:
+    """Run one hook process's work against its Event Log, which the block's spans go to.
+
+    The process starts, and when the block ends its outcome is recorded from
+    the :class:`HookRun` it filled, then the process ends with its exit
+    status and the log is closed. A failure in :data:`HOOK_FAILURES` ends
+    the block, is printed to standard error under ``label`` when one is
+    given, and fails the run without blocking the session. Any other
+    exception goes on, leaving no ``process.end``: a missing end is a crash.
+    """
+    log.start()
+    run = HookRun()
+    try:
+        with use_event_log(log):
+            yield run
+    except HOOK_FAILURES as exc:
+        if label is not None:
+            print(f"dashpot {label} hook: {exc}", file=sys.stderr)
+        run.error = exc
+    record_hook_outcome(log, run.event, run.publication, run.error, run.reason)
+    log.end(run.exit_code)
+    log.close()
+
+
 def _run(
     harness: Harness, label: str, *, event_log: EventLogDestination | None = None
 ) -> int:
-    # ``ValueError`` is the store's refusal of an occupied destination and
-    # the base of a record's Pydantic validation failure; both are reported
-    # like every other failed publish rather than shown as a traceback.
-    # ``RuntimeError`` stays for Python's own runtime faults, such as a
-    # symlink loop under ``Path.resolve``: a hook must never break its harness.
     try:
         event: object = json.load(sys.stdin)
-    except (OSError, ValueError, RuntimeError) as exc:
+    except HOOK_FAILURES as exc:
         event = None
         failure: Exception | None = exc
     else:
         failure = None
     log = hook_event_log(harness, event, destination=event_log)
-    log.start()
-    code = 0
-    publication: HookPublication | None = None
-    error: Exception | None = None
-    try:
+    with hook_process(log, label=label) as run:
+        run.event = event
         if failure is not None:
             raise failure
         # Identifying the session runs ``ps``; its spans are the hook's.
-        with use_event_log(log):
-            publication, output = _publish(event, harness)
+        run.publication, output = _publish(event, harness)
         if output is not None:
             print(output)
-    except (OSError, ValueError, RuntimeError, DashpotError) as exc:
-        print(f"dashpot {label} hook: {exc}", file=sys.stderr)
-        code = NON_BLOCKING_FAILURE_EXIT_CODE
-        error = exc
-    record_hook_outcome(log, event, publication, error)
-    log.end(code)
-    log.close()
-    return code
+    return run.exit_code
 
 
 def record_hook_outcome(
@@ -203,7 +245,7 @@ def _run_opencode(*, event_log: EventLogDestination | None = None) -> int:
     failure: Exception | None
     try:
         request, failure = parse_request(sys.stdin.read()), None
-    except (OSError, ValueError) as exc:
+    except HOOK_FAILURES as exc:
         request, failure = None, exc
     kind = "hook:opencode" if request is None else f"hook:opencode:{request.kind}"
     session = None if request is None else request.session
@@ -221,48 +263,29 @@ def _run_opencode(*, event_log: EventLogDestination | None = None) -> int:
         harness="opencode",
         session_id=None if session is None else session.root,
     )
-    log.start()
-    code = 0
-    outcome: OpenCodeOutcome | None = None
-    error: Exception | None = None
-    previous = signal.signal(signal.SIGALRM, _expire)
-    try:
-        if request is None:
-            raise failure or ValueError("no OpenCode plugin request")
-        signal.setitimer(
-            signal.ITIMER_REAL,
-            request.deadline_ms / 1000 + OPENCODE_DEADLINE_GRACE_SECONDS,
-        )
-        with use_event_log(log):
+    with hook_process(log, label="OpenCode") as run:
+        # The last shared event written stands in for a native hook event
+        # name; a request that wrote none is named by its kind.
+        run.event = {} if request is None else {"hook_event_name": request.kind}
+        previous = signal.signal(signal.SIGALRM, _expire)
+        try:
+            if request is None:
+                raise failure or ValueError("no OpenCode plugin request")
+            signal.setitimer(
+                signal.ITIMER_REAL,
+                request.deadline_ms / 1000 + OPENCODE_DEADLINE_GRACE_SECONDS,
+            )
             outcome = publish_opencode(request)
-        print(outcome.acknowledgment.wire())
-    except (OSError, ValueError, RuntimeError, DashpotError) as exc:
-        print(f"dashpot OpenCode hook: {exc}", file=sys.stderr)
-        code = NON_BLOCKING_FAILURE_EXIT_CODE
-        error = exc
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
-    last = (
-        None
-        if outcome is None or not outcome.publications
-        else outcome.publications[-1]
-    )
-    # The last shared event written stands in for a native hook event name;
-    # a request that wrote none is named by its kind.
-    name = (
-        outcome.written[-1]
-        if outcome is not None and outcome.written
-        else None
-        if request is None
-        else request.kind
-    )
-    event = {} if name is None else {"hook_event_name": name}
-    reason = None if outcome is None else outcome.acknowledgment.reason
-    record_hook_outcome(log, event, last, error, reason)
-    log.end(code)
-    log.close()
-    return code
+            if outcome.written:
+                run.event = {"hook_event_name": outcome.written[-1]}
+            if outcome.publications:
+                run.publication = outcome.publications[-1]
+            run.reason = outcome.acknowledgment.reason
+            print(outcome.acknowledgment.wire())
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
+    return run.exit_code
 
 
 def main(*, event_log: EventLogDestination | None = None) -> int:
@@ -299,7 +322,7 @@ def settle_main(
     failure: Exception | None = None
     try:
         deferred = DeferredEnd.parse(argv[0]) if argv else None
-    except ValueError as exc:
+    except HOOK_FAILURES as exc:
         failure = exc
     # Only the Codex adapter defers an end, so an unreadable one is Codex's.
     harness: Harness = "codex" if deferred is None else deferred.harness
@@ -310,30 +333,22 @@ def settle_main(
         harness=harness,
         session_id=None if deferred is None else deferred.session_id,
     )
-    log.start()
-    code = 0
-    publication: HookPublication | None = None
-    error: Exception | None = None
-    try:
+    # Detached from the hook that started it, the settler has no one to
+    # print a failure to.
+    with hook_process(log) as run:
+        run.event = {"hook_event_name": "SessionEnd"}
         if deferred is None:
             raise failure or ValueError("no deferred SessionEnd to settle")
-        with use_event_log(log):
-            ended = settle_session_end(deferred, lookup, clock=clock, sleep=sleep)
+        ended = settle_session_end(deferred, lookup, clock=clock, sleep=sleep)
         # The settler writes no hook record; its outcome names the directory
         # the deferred end was published from.
-        publication = HookPublication(
+        run.publication = HookPublication(
             Path(deferred.cwd),
             state="ended",
             work="ended" if ended else "unchanged",
             issue_id=ended[0][1].issue_id if ended else None,
         )
-    except (OSError, ValueError, RuntimeError, DashpotError) as exc:
-        error = exc
-        code = NON_BLOCKING_FAILURE_EXIT_CODE
-    record_hook_outcome(log, {"hook_event_name": "SessionEnd"}, publication, error)
-    log.end(code)
-    log.close()
-    return code
+    return run.exit_code
 
 
 def module_main(argv: Sequence[str]) -> int:

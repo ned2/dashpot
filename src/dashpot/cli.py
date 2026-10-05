@@ -35,6 +35,7 @@ from .core.event_log import (
 )
 from .core.event_log_files import (
     EventSelection,
+    UnreadableEventLog,
     describe_event_log_removal,
     describe_runtime_event,
     read_event_logs,
@@ -656,11 +657,16 @@ def events_read(
 ) -> int:
     """Read the Event Log of every Worktree of this Repository, oldest event first.
 
-    Lines that cannot be read are reported on stderr and skipped, with or
-    without --json. Only .jsonl files are read, so a compressed file is not.
+    Events print as each UTC day is read. A span is filed on the day it
+    ended, so one stamped more than two days before that day prints out of
+    order, once its day is read. Lines that cannot be read are reported on
+    stderr and skipped, with or without --json; an event's line the filters
+    leave out is not checked. Only .jsonl files are read, so a compressed
+    file is not.
     """
     own = _EVENT_LOG.get()
-    reading = read_event_logs(
+    problems: list[UnreadableEventLog] = []
+    events = read_event_logs(
         repository_event_log_directories(current_directory(), timeout=timeout),
         EventSelection(
             session=session,
@@ -671,15 +677,18 @@ def events_read(
             # This command's own start is not what anyone reads it for.
             exclude_run=None if own is None else own.identity.run_id,
         ),
+        unreadable=problems.append,
     )
     try:
-        _print_events(reading.events, json_output=json_output)
+        _print_events(events, json_output=json_output)
         # Flush inside the guard: a short output still sits in the buffer,
         # and the interpreter's own flush at exit would meet the closed pipe.
         sys.stdout.flush()
     except BrokenPipeError:
         _discard_stdout()
-    for unreadable in reading.unreadable:
+    # A reader that closed the pipe stopped the reading too, so only what
+    # was read before it is reported.
+    for unreadable in problems:
         if unreadable.error is not None:
             print(
                 f"dashpot: cannot read {unreadable.path}: {unreadable.error}",
@@ -695,16 +704,17 @@ def events_read(
     return 0
 
 
-def _print_events(events: Sequence[RuntimeEvent], *, json_output: bool) -> None:
-    """Print each event on a line of its own, as JSON Lines or for a person."""
-    if json_output:
-        for event in events:
+def _print_events(events: Iterable[RuntimeEvent], *, json_output: bool) -> None:
+    """Print each event on a line of its own, as it comes, as JSON Lines or for a person."""
+    printed = False
+    for event in events:
+        printed = True
+        if json_output:
             print(render_json(runtime_event_document(event), compact=True))
-    elif not events:
-        print("no matching Runtime Events")
-    else:
-        for event in events:
+        else:
             print(describe_runtime_event(event))
+    if not printed and not json_output:
+        print("no matching Runtime Events")
 
 
 def _discard_stdout() -> None:

@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-05
+amended-by: 0146-stream-the-event-log-by-utc-day-and-select-lines-before-validating-them.md
 ---
 
 # Print Runtime Events as JSON Lines
@@ -74,6 +75,13 @@ The output also looks unlike the `.jsonl` files it reads
   screen reading the files
   ([#452](https://github.com/ned2/dashpot/issues/452)), would have to settle
   that order first.
+- Amended by [ADR 0146](0146-stream-the-event-log-by-utc-day-and-select-lines-before-validating-them.md)
+  ([#557](https://github.com/ned2/dashpot/issues/557)): `dashpot events`
+  streams one UTC day at a time, holding events back by a two-day
+  carry-over, so only a span stamped longer than that before its file's day
+  prints out of order. That supersedes "Events are still printed only after
+  the whole read" and the rejected option "Stream events day by day, holding
+  back one day".
 
 ## Considered options
 

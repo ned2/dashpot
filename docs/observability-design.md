@@ -447,7 +447,11 @@ same in a file and in the command's output.
   on standard error, with or without `--json`, and the rest is still
   printed. `--json` prints JSON Lines, one event per line
   ([ADR 0099](adr/0099-print-runtime-events-as-json-lines.md),
-  [#450](https://github.com/ned2/dashpot/issues/450)). Only
+  [#450](https://github.com/ned2/dashpot/issues/450)). Lines are selected
+  by their raw fields before they are validated, and the output streams
+  one UTC day at a time, in order except for a span stamped more than two
+  days before its file's day
+  ([ADR 0146](adr/0146-stream-the-event-log-by-utc-day-and-select-lines-before-validating-them.md)). Only
   the Event Log's own `.jsonl` names are read, so a compressed or renamed
   file is invisible. `dashpot work show` lists its Agent Session's recent
   outcomes — at most 20 from the last 7 days, failures included — reading

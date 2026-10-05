@@ -311,7 +311,9 @@ class EventLog:
 
     ``destination`` is ``None`` for a writer that keeps events in memory
     only. ``facts`` describes the process for ``process.start`` and every
-    ``process.continued``, and is read at most once, when first needed.
+    ``process.continued``, and is read at most once, when first needed,
+    never under the writer's lock and with no Event Log in use, so the
+    commands it may run record no spans here.
     ``keep_recent`` bounds the in-memory buffer of recent events a dashboard
     aggregates by count, and ``recent_window`` by age; zero keeps none.
     ``forward``, when set, receives every line the level in force records,
@@ -345,6 +347,7 @@ class EventLog:
         self._level: EventLevel = level
         self._facts_source = facts
         self._facts: ProcessStart | None = None
+        self._facts_lock = threading.Lock()
         self._lock = threading.Lock()
         # Pool threads record while the event loop reads the buffer.
         self._recent_lock = threading.Lock()
@@ -557,7 +560,11 @@ class EventLog:
             self._failed(EVENT_TOO_LARGE, close=False)
             return
         try:
-            self._append(line, is_start=isinstance(body, ProcessStart))
+            # The facts a new file's ``process.continued`` repeats are known
+            # before the lock is taken, so describing the process never
+            # holds up another thread's line.
+            facts = None if isinstance(body, ProcessStart) else self._start_facts()
+            self._append(line, continued=facts)
         except OSError as exc:
             self._failed(error_type(exc))
 
@@ -582,20 +589,25 @@ class EventLog:
         with self._lock:
             self._close()
 
-    def _append(self, line: bytes, *, is_start: bool) -> None:
+    def _append(self, line: bytes, *, continued: ProcessStart | None) -> None:
+        """Append ``line``, after ``process.continued`` from ``continued`` in a new file.
+
+        ``continued`` is ``None`` for ``process.start``, which describes the
+        process itself.
+        """
         with self._lock:
             path = self._file_for(self.clock())
             opened = self._open(path)
-            if opened and not is_start:
-                continued = RuntimeEvent(
+            if opened and continued is not None:
+                described = RuntimeEvent(
                     time=utc_stamp(self.clock()),
                     level="standard",
                     process=self.identity,
                     body=ProcessContinued.model_validate(
-                        self._start_facts().model_dump(exclude={"name"})
+                        continued.model_dump(exclude={"name"})
                     ),
                 )
-                self._write(continued.line())
+                self._write(described.line())
             self._write(line)
 
     def _file_for(self, moment: datetime) -> Path:
@@ -639,9 +651,16 @@ class EventLog:
             os.close(fd)
 
     def _start_facts(self) -> ProcessStart:
-        if self._facts is None:
-            self._facts = self._facts_source()
-        return self._facts
+        facts = self._facts
+        if facts is not None:
+            return facts
+        with self._facts_lock:
+            if self._facts is None:
+                # A dashboard's facts run ``git status``, whose span would
+                # otherwise be recorded to this log while it describes itself.
+                with use_event_log(None), use_span(None):
+                    self._facts = self._facts_source()
+            return self._facts
 
     def _failed(self, error: str, *, close: bool = True) -> None:
         if close:

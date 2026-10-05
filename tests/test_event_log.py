@@ -24,7 +24,9 @@ from dashpot.core.event_log import (
     carry_current_span,
     current_span,
     error_type,
+    recorded_span,
     unrecorded_event_log,
+    use_event_log,
     use_span,
 )
 from dashpot.core.runtime_events import (
@@ -41,6 +43,8 @@ from dashpot.core.state_paths import STATE_GITIGNORE
 from factories import completed, fake_git
 
 RUN = "0123456789abcdef0123456789abcdef"
+# ``os.write`` itself, which a test that fakes a failed write still calls.
+REAL_WRITE = os.write
 MIDDAY = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
 
 
@@ -359,6 +363,105 @@ def test_the_recent_buffer_lets_go_of_events_older_than_its_window() -> None:
     assert log.uptime_seconds() == 360
 
 
+def facts_that_run_a_command(calls: list[str]) -> Callable[[], ProcessStart]:
+    """Facts that time a command, as a dashboard's ``git status`` is timed."""
+
+    def describe() -> ProcessStart:
+        calls.append("facts")
+        with recorded_span("command", attributes=command_span()):
+            pass
+        return facts()
+
+    return describe
+
+
+def finishes(work: Callable[[], None]) -> bool:
+    """Whether ``work`` finishes on a thread of its own rather than hanging."""
+    thread = threading.Thread(target=work, daemon=True)
+    thread.start()
+    thread.join(timeout=10)
+    return not thread.is_alive()
+
+
+def test_a_log_describes_itself_outside_its_lock_and_records_none_of_its_own_spans(
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+    log = EventLog(
+        EventLogDestination(tmp_path),
+        identity=ProcessIdentity(run_id=RUN, kind=DASHBOARD_KIND),
+        level="full",
+        facts=facts_that_run_a_command(calls),
+        clock=Clock().wall,
+    )
+
+    def first_event_is_not_the_start() -> None:
+        # The facts are first needed for the ``process.continued`` a new
+        # file opens with, while this log is the one in use.
+        with use_event_log(log):
+            log.start_span("command").end()
+            log.end(0)
+
+    assert finishes(first_event_is_not_the_start)
+    assert calls == ["facts"]
+    assert names(log.path or tmp_path) == [
+        "process.continued",
+        "span",
+        "process.end",
+    ]
+
+
+def test_a_log_started_while_in_use_describes_itself_once(tmp_path: Path) -> None:
+    calls: list[str] = []
+    log = EventLog(
+        EventLogDestination(tmp_path),
+        identity=ProcessIdentity(run_id=RUN, kind=DASHBOARD_KIND),
+        level="full",
+        facts=facts_that_run_a_command(calls),
+        clock=Clock().wall,
+    )
+
+    def start_in_use() -> None:
+        with use_event_log(log):
+            log.start()
+            log.end(0)
+
+    assert finishes(start_in_use)
+    assert calls == ["facts"]
+    assert names(log.path or tmp_path) == ["process.start", "process.end"]
+
+
+def test_threads_recording_at_once_describe_the_process_once(tmp_path: Path) -> None:
+    calls: list[str] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_facts() -> ProcessStart:
+        calls.append("facts")
+        entered.set()
+        release.wait(timeout=10)
+        return facts()
+
+    log = EventLog(
+        EventLogDestination(tmp_path),
+        identity=ProcessIdentity(run_id=RUN, kind=DASHBOARD_KIND),
+        level="full",
+        facts=slow_facts,
+        clock=Clock().wall,
+    )
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        first = pool.submit(log.start_span("command").end)
+        assert entered.wait(timeout=10)
+        # The others need the same facts for the file's first line.
+        rest = [pool.submit(log.start_span("command").end) for _ in range(3)]
+        release.set()
+        for future in (first, *rest):
+            future.result(timeout=10)
+
+    assert calls == ["facts"]
+    assert names(log.path or tmp_path) == ["process.continued", *["span"] * 4]
+
+
 # --- Failures ---------------------------------------------------------------
 
 
@@ -407,11 +510,14 @@ def test_a_failed_write_is_dropped_into_the_buffer_and_never_raised(
 
 
 @pytest.mark.parametrize(
-    "write",
+    ("write", "fragment"),
     [
-        pytest.param(lambda fd, data: 1, id="short"),
+        # A short write leaves the start of the line in the file, as a full
+        # disk does part-way through it.
+        pytest.param(lambda fd, data: REAL_WRITE(fd, data[:5]), True, id="short"),
         pytest.param(
             lambda fd, data: (_ for _ in ()).throw(OSError(errno.ENOSPC, "full")),
+            False,
             id="raised",
         ),
     ],
@@ -420,24 +526,29 @@ def test_a_write_that_fails_closes_the_file_and_the_next_event_opens_it_again(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     write: Callable[[int, bytes], int],
+    fragment: bool,
 ) -> None:
     failures: list[str] = []
     log = make_log(tmp_path, on_write_failure=failures.append)
     log.start()
-    real_write = os.write
     monkeypatch.setattr(event_log_module.os, "write", write)
 
     log.start_span("command", level="standard").end()
-    monkeypatch.setattr(event_log_module.os, "write", real_write)
+    monkeypatch.setattr(event_log_module.os, "write", REAL_WRITE)
     log.end(0)
 
     assert failures == ["ENOSPC"]
-    # The file was closed and opened again, so the next event is whole on a
-    # line of its own, after whatever the failed write left.
     path = tmp_path / "events-2026-09-27.jsonl"
-    assert names(path)[0] == "process.start"
-    last = read_runtime_event(path.read_bytes().splitlines()[-1])
-    assert last is not None and last.body.name == "process.end"
+    read = [read_runtime_event(line) for line in path.read_bytes().splitlines()]
+    names = [None if event is None else event.body.name for event in read]
+    if fragment:
+        # The file was opened again, but the fragment has no newline, so it
+        # swallows the next line, the writer's ``process.continued``; the
+        # event after that is whole. Recovering that line is deferred (#561).
+        assert path.read_bytes().splitlines()[1].startswith(b'{"sch{"schema"')
+        assert names == ["process.start", None, "process.end"]
+    else:
+        assert names == ["process.start", "process.continued", "process.end"]
 
 
 def test_a_span_failed_with_a_message_is_refused_where_it_fails(

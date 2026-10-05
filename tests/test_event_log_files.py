@@ -23,7 +23,9 @@ from dashpot.core.event_log import (
 )
 from dashpot.core.event_log_files import (
     LARGE_EVENT_LOG_BYTES,
+    SPAN_CARRY_OVER,
     EventSelection,
+    UnreadableEventLog,
     describe_runtime_event,
     event_fields,
     event_log_large_diagnostic,
@@ -38,9 +40,14 @@ from dashpot.core.runtime_events import (
     CommandAttributes,
     EventBody,
     EventLevel,
+    HookOutcome,
     LevelChanged,
+    ObservationAttributes,
+    ProcessEnd,
     ProcessIdentity,
     ProcessStart,
+    RuntimeEvent,
+    SpanEnded,
 )
 from dashpot.core.state_paths import machine_state_directory, project_state_directory
 from dashpot.event_logs import LEVEL_VARIABLE
@@ -126,6 +133,19 @@ def read_json(
         assert isinstance(event, dict)
         events.append(event)
     return events
+
+
+def read_all(
+    directories: tuple[Path, ...], selection: EventSelection | None = None
+) -> tuple[list[RuntimeEvent], list[UnreadableEventLog]]:
+    """Every event the reader streams, and what it reported unreadable."""
+    unreadable: list[UnreadableEventLog] = []
+    events = list(
+        read_event_logs(
+            directories, selection or EventSelection(), unreadable=unreadable.append
+        )
+    )
+    return events, unreadable
 
 
 def names_and_runs(events: list[dict[str, Any]]) -> list[tuple[str, str]]:
@@ -406,7 +426,7 @@ def test_events_json_prints_each_event_on_one_line_with_every_field(
     assert cli.main(["events", "--json"]) == 0
     out = capsys.readouterr().out
 
-    read = read_event_logs((events_directory(main),), EventSelection()).events
+    read, _unreadable = read_all((events_directory(main),))
     assert out.endswith("\n")
     lines = out.splitlines()
     assert len(lines) == len(read) == 2
@@ -508,10 +528,10 @@ def test_a_directory_that_cannot_be_listed_is_reported_not_fatal(
         "dashpot.core.event_log_files.os.scandir",
         side_effect=[PermissionError(13, "Permission denied"), os.scandir(readable)],
     ):
-        reading = read_event_logs((tmp_path / "locked", readable), EventSelection())
+        events, unreadable = read_all((tmp_path / "locked", readable))
 
-    assert [event.body.name for event in reading.events] == ["process.start"]
-    assert [(item.path, item.error) for item in reading.unreadable] == [
+    assert [event.body.name for event in events] == ["process.start"]
+    assert [(item.path, item.error) for item in unreadable] == [
         (str(tmp_path / "locked"), "Permission denied")
     ]
 
@@ -529,10 +549,7 @@ def test_a_file_removed_while_reading_is_skipped(tmp_path: Path) -> None:
         return original(self, *args, **kwargs)
 
     with mock.patch.object(Path, "open", vanish):
-        reading = read_event_logs((tmp_path,), EventSelection())
-
-    assert reading.events == ()
-    assert reading.unreadable == ()
+        assert read_all((tmp_path,)) == ([], [])
 
 
 def test_a_file_that_cannot_be_read_is_reported_and_the_rest_printed(
@@ -563,6 +580,244 @@ def test_a_file_that_cannot_be_read_is_reported_and_the_rest_printed(
     assert text.err == f"dashpot: cannot read {path}: Permission denied\n"
 
 
+# --- Selecting before validating -------------------------------------------
+
+
+def varied_events(directory: Path) -> None:
+    """Write events of every kind a selection tells apart into ``directory``."""
+    clock = Clock(MIDDAY - timedelta(hours=2))
+    hook = writer(
+        directory,
+        clock,
+        run=RUN_A,
+        kind="hook:codex:Stop",
+        harness="codex",
+        session_id=SESSION,
+    )
+    command = writer(directory, clock, run=RUN_B, kind="command:work-start")
+    command.identify(project_id="project:test", issue_id="I_issue7")
+    dashboard = writer(directory, clock, run=RUN_C, kind=DASHBOARD_KIND)
+    hook.start()
+    hook.record(HookOutcome(result="succeeded"))
+    clock.now += timedelta(hours=1)
+    command.start()
+    with command.start_as_current_span(
+        "command", attributes=CommandAttributes(program="git")
+    ):
+        pass
+    with (
+        pytest.raises(OSError),
+        command.start_as_current_span("command", level="standard"),
+    ):
+        raise OSError(2, "No such file")
+    dashboard.start()
+    for project in ("alpha", "beta"):
+        dashboard.start_span(
+            "observation",
+            attributes=ObservationAttributes(kind="branches", project_id=project),
+        ).end()
+    clock.now += timedelta(hours=1)
+    dashboard.record(LevelChanged(previous="full", current="standard"))
+    command.end(0)
+    hook.end(1)
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        EventSelection(session=SESSION),
+        EventSelection(harness="codex"),
+        EventSelection(issue="I_issue7"),
+        EventSelection(project="project:test"),
+        EventSelection(project="alpha"),
+        EventSelection(level="standard"),
+        EventSelection(exclude_run=RUN_B),
+        EventSelection(since=MIDDAY - timedelta(hours=1)),
+        EventSelection(since=MIDDAY),
+        EventSelection(outcomes_only=True),
+        EventSelection(session=SESSION, outcomes_only=True, level="standard"),
+        EventSelection(project="alpha", since=MIDDAY - timedelta(hours=1)),
+    ],
+    ids=repr,
+)
+def test_selecting_a_line_before_validating_it_keeps_what_the_event_selects(
+    tmp_path: Path, selection: EventSelection
+) -> None:
+    varied_events(tmp_path)
+    every, unreadable = read_all((tmp_path,))
+
+    selected, _unreadable = read_all((tmp_path,), selection)
+
+    assert unreadable == []
+    assert selected == [event for event in every if selection.admits(event)]
+    assert 0 < len(selected) < len(every)
+
+
+def test_a_selection_answers_from_a_lines_raw_fields() -> None:
+    def line(**fields: object) -> dict[str, object]:
+        return {"event.name": "hook.outcome", "dashpot.level": "standard", **fields}
+
+    span = {"event.name": "span", "dashpot.level": "full"}
+    end = {"event.name": "process.end", "dashpot.level": "standard"}
+
+    assert not EventSelection(level="standard").may_admit({**span})
+    assert not EventSelection(exclude_run=RUN_A).may_admit(
+        line(**{"service.instance.id": RUN_A})
+    )
+    assert not EventSelection(since=MIDDAY).may_admit(
+        line(time="2026-09-27T11:59:59.000000Z")
+    )
+    assert EventSelection(since=MIDDAY).may_admit(line(time="2026-09-27T12:00:00Z"))
+    outcomes = EventSelection(outcomes_only=True)
+    assert not outcomes.may_admit({**end, "process.exit.code": 0})
+    assert outcomes.may_admit({**end, "process.exit.code": 1})
+    assert not outcomes.may_admit({**span, "otel.status_code": "OK"})
+    assert outcomes.may_admit({**span, "otel.status_code": "ERROR"})
+    assert not outcomes.may_admit({"event.name": "process.start"})
+    assert not outcomes.may_admit(line(**{"dashpot.level": "full"}))
+    # An identity matches at the top or among a span's attributes.
+    alpha = EventSelection(project="alpha")
+    assert alpha.may_admit({**span, "attributes": {"dashpot.project.id": "alpha"}})
+    assert alpha.may_admit({**span, "dashpot.project.id": "alpha"})
+    assert not alpha.may_admit({**span, "attributes": {"dashpot.project.id": "beta"}})
+
+
+def test_a_line_left_out_by_its_raw_fields_is_not_validated_or_reported(
+    tmp_path: Path,
+) -> None:
+    log = writer(tmp_path, Clock(), session_id=SESSION, harness="codex")
+    log.start()
+    log.end(0)
+    assert log.path is not None
+    start, end = log.path.read_bytes().splitlines()
+    other = json.loads(end)
+    other["dashpot.agent_session.id"] = OTHER_SESSION
+    # Of another session and not an event this Dashpot could validate.
+    invalid = {**other, "process.exit.code": "zero"}
+    log.path.write_bytes(
+        b"\n".join(
+            [
+                start,
+                json.dumps(invalid).encode(),
+                b"not json",
+                json.dumps({**other, "schema": 2}).encode(),
+                json.dumps({**other, "event.name": "later.event"}).encode(),
+                end,
+            ]
+        )
+        + b"\n"
+    )
+
+    selected, unreadable = read_all((tmp_path,), EventSelection(session=SESSION))
+    _every, unreadable_unselected = read_all((tmp_path,))
+
+    assert [event.body.name for event in selected] == ["process.start", "process.end"]
+    # A line that is not a JSON object naming a known event is reported
+    # whatever the selection; the invalid event of another session is not.
+    assert unreadable == [UnreadableEventLog(path=str(log.path), lines=(3, 4, 5))]
+    assert unreadable_unselected == [
+        UnreadableEventLog(path=str(log.path), lines=(2, 3, 4, 5))
+    ]
+
+
+# --- Streaming ---------------------------------------------------------------
+
+
+def test_events_stream_before_a_later_days_file_is_read(tmp_path: Path) -> None:
+    clock = Clock()
+    log = writer(tmp_path, clock)
+    log.start()
+    clock.now = MIDDAY + SPAN_CARRY_OVER + timedelta(days=1)
+    log.end(0)
+    later = log.path
+    opened: list[Path] = []
+    original = Path.open
+
+    def note(self: Path, *args: Any, **kwargs: Any) -> Any:
+        opened.append(self)
+        return original(self, *args, **kwargs)
+
+    with mock.patch.object(Path, "open", note):
+        stream = read_event_logs((tmp_path,), EventSelection())
+        first = next(stream)
+        assert later not in opened
+        rest = list(stream)
+
+    assert first.body.name == "process.start"
+    assert [event.body.name for event in rest] == ["process.continued", "process.end"]
+    assert opened[-1] == later
+
+
+def test_a_span_filed_days_after_it_started_comes_out_in_order(tmp_path: Path) -> None:
+    clock = Clock(MIDDAY)
+    log = writer(tmp_path, clock)
+    log.start()
+    clock.now = MIDDAY + timedelta(hours=1)
+    span = log.start_span("command")
+    clock.now = MIDDAY + timedelta(days=1)
+    log.record(LevelChanged(previous="full", current="standard"))
+    # Ended just inside the carry-over past its start's day.
+    clock.now = (
+        datetime.combine(MIDDAY.date(), datetime.min.time(), UTC)
+        + SPAN_CARRY_OVER
+        + timedelta(hours=1)
+    )
+    span.end()
+
+    events, _unreadable = read_all((tmp_path,))
+
+    assert [event.body.name for event in events] == [
+        "process.start",
+        "span",
+        "process.continued",
+        "level.changed",
+        "process.continued",
+    ]
+
+
+def test_a_span_stamped_longer_than_the_carry_over_comes_out_late(
+    tmp_path: Path,
+) -> None:
+    clock = Clock(MIDDAY)
+    log = writer(tmp_path, clock)
+    span = log.start_span("command")
+    clock.now = MIDDAY + timedelta(hours=1)
+    log.start()
+    clock.now = MIDDAY + SPAN_CARRY_OVER + timedelta(days=1)
+    span.end()
+
+    events, _unreadable = read_all((tmp_path,))
+
+    # Its day's events were yielded before its file was read.
+    assert [event.body.name for event in events] == [
+        "process.start",
+        "span",
+        "process.continued",
+    ]
+    assert isinstance(events[1].body, SpanEnded)
+    assert events[1].time < events[0].time
+
+
+def test_events_of_one_instant_keep_their_files_and_lines_order(
+    tmp_path: Path,
+) -> None:
+    first, second = tmp_path / "first", tmp_path / "second"
+    clock = Clock()
+    in_second = writer(second, clock, run=RUN_B)
+    in_first = writer(first, clock, run=RUN_A)
+    in_second.start()
+    in_first.start()
+    in_first.record(ProcessEnd(exit_code=0, duration_seconds=0))
+
+    events, _unreadable = read_all((first, second))
+
+    assert [(event.process.run_id, event.body.name) for event in events] == [
+        (RUN_A, "process.start"),
+        (RUN_A, "process.end"),
+        (RUN_B, "process.start"),
+    ]
+
+
 def test_a_described_event_flattens_its_attributes_onto_one_line(
     tmp_path: Path,
 ) -> None:
@@ -579,7 +834,7 @@ def test_a_described_event_flattens_its_attributes_onto_one_line(
     ):
         pass
 
-    start, span = read_event_logs((tmp_path,), EventSelection()).events
+    (start, span), _unreadable = read_all((tmp_path,))
 
     assert "dashpot.source.dirty=true" in describe_runtime_event(start).split()
     words = describe_runtime_event(span).split()

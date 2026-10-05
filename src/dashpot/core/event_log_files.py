@@ -1,10 +1,12 @@
 """Find, read, measure and remove the files an Event Log keeps.
 
 Reading merges the Event Log of every Worktree of one Repository with the
-machine-local fallback, ordered by time (ADR 0059). It is a validating seam:
-each line is read by the tolerant :func:`read_runtime_event`, so an event a
-newer Dashpot wrote keeps the fields this one knows, and a line that cannot
-be read is reported beside the events rather than failing the read.
+machine-local fallback, ordered by time (ADR 0059), and streams it one UTC
+day at a time (ADR 0146). It is a validating seam: a line is selected by
+its raw fields first, and only a line the selection may keep is validated
+by the tolerant reader, so an event a newer Dashpot wrote keeps the fields
+this one knows, and a line that cannot be read is reported beside the
+events rather than failing the read.
 
 Removal deletes only files named as Event Log files whose UTC day is before
 both the day asked for and today, so a running writer's current file is
@@ -14,11 +16,13 @@ Nothing here compresses or renames a file.
 
 from __future__ import annotations
 
+import heapq
+import itertools
 import os
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,13 +33,15 @@ from .event_log import EVENTS_DIRECTORY, EventLogDestination, event_log_file_day
 from .model import Diagnostic, Harness
 from .pydantic import LaxSequence, PublishedModel
 from .runtime_events import (
+    EVENT_BODIES,
     EventBody,
     ProcessEnd,
     ProcessIdentity,
     RecordedLevel,
     RuntimeEvent,
     SpanEnded,
-    read_runtime_event,
+    runtime_event_fields,
+    runtime_event_from_fields,
 )
 from .state_paths import (
     enclosing_checkout,
@@ -60,6 +66,20 @@ SESSION_FIELD = _on_disk(ProcessIdentity, "session_id")
 HARNESS_FIELD = _on_disk(ProcessIdentity, "harness")
 ISSUE_FIELD = _on_disk(ProcessIdentity, "issue_id")
 PROJECT_FIELD = _on_disk(ProcessIdentity, "project_id")
+# The raw fields a selection reads before a line is validated.
+_RUN_FIELD = _on_disk(ProcessIdentity, "run_id")
+_TIME_FIELD = _on_disk(RuntimeEvent, "time")
+_LEVEL_FIELD = _on_disk(RuntimeEvent, "level")
+_NAME_FIELD = _on_disk(EventBody, "name")
+_EXIT_CODE_FIELD = _on_disk(ProcessEnd, "exit_code")
+_STATUS_FIELD = _on_disk(SpanEnded, "status")
+# How long before the UTC day of the file it is written to an event may be
+# stamped and still be read in order. A span is stamped when it started and
+# written to the file of the day it ended, so the reader holds back the
+# events this close to the next day's files until it has read them; only a
+# span stamped longer than this before its file's day is read out of order
+# (ADR 0146).
+SPAN_CARRY_OVER = timedelta(days=2)
 # What a process records about itself rather than about the work it did.
 PROCESS_BOOKKEEPING = frozenset(
     {"process.start", "process.continued", "level.changed", "event_log.write_failed"}
@@ -182,6 +202,19 @@ def is_session_outcome(event: RuntimeEvent) -> bool:
     return event.level == "standard"
 
 
+def _may_be_outcome(fields: Mapping[str, object]) -> bool:
+    """Whether a line's raw fields may be an event :func:`is_session_outcome` counts."""
+    name = fields.get(_NAME_FIELD)
+    if name in PROCESS_BOOKKEEPING:
+        return False
+    body = EVENT_BODIES.get(name) if isinstance(name, str) else None
+    if body is not None and issubclass(body, ProcessEnd):
+        return fields.get(_EXIT_CODE_FIELD) != 0
+    if body is not None and issubclass(body, SpanEnded):
+        return fields.get(_STATUS_FIELD) == "ERROR"
+    return fields.get(_LEVEL_FIELD) == "standard"
+
+
 @dataclass(frozen=True, slots=True)
 class EventSelection:
     """Which Runtime Events a reader keeps.
@@ -213,6 +246,49 @@ class EventSelection:
         """
         return None if self.since is None else self.since.astimezone(UTC).date()
 
+    def _wanted(self) -> dict[str, str]:
+        """The identity fields this selection filters on, by their on-disk names."""
+        return {
+            field: value
+            for field, value in (
+                (SESSION_FIELD, self.session),
+                (HARNESS_FIELD, self.harness),
+                (ISSUE_FIELD, self.issue),
+                (PROJECT_FIELD, self.project),
+            )
+            if value is not None
+        }
+
+    def may_admit(self, fields: Mapping[str, object]) -> bool:
+        """Whether a line with these raw fields may hold an event this selection keeps.
+
+        It reads the line as decoded, before it is validated, and says no
+        only where :meth:`admits` would refuse the event the line validates
+        to, so a reader validates only the lines it may keep. Validation is
+        strict, so an event's values are its line's values unchanged.
+        """
+        if self.level == "standard" and fields.get(_LEVEL_FIELD) != "standard":
+            return False
+        if self.exclude_run is not None and fields.get(_RUN_FIELD) == self.exclude_run:
+            return False
+        stamp = fields.get(_TIME_FIELD)
+        if (
+            self.since is not None
+            and isinstance(stamp, str)
+            and observed_instant(stamp) < self.since
+        ):
+            return False
+        if self.outcomes_only and not _may_be_outcome(fields):
+            return False
+        attributes = fields.get("attributes")
+        # A validated span's attributes keep only the fields its kind knows,
+        # so either place may be the one :meth:`admits` reads.
+        return all(
+            fields.get(field) == value
+            or (isinstance(attributes, Mapping) and attributes.get(field) == value)
+            for field, value in self._wanted().items()
+        )
+
     def admits(self, event: RuntimeEvent) -> bool:
         """Whether the event is one this selection keeps."""
         if self.level == "standard" and event.level != "standard":
@@ -223,16 +299,7 @@ class EventSelection:
             return False
         if self.outcomes_only and not is_session_outcome(event):
             return False
-        wanted = {
-            field: value
-            for field, value in (
-                (SESSION_FIELD, self.session),
-                (HARNESS_FIELD, self.harness),
-                (ISSUE_FIELD, self.issue),
-                (PROJECT_FIELD, self.project),
-            )
-            if value is not None
-        }
+        wanted = self._wanted()
         if not wanted:
             return True
         fields = event_fields(event)
@@ -258,14 +325,6 @@ class UnreadableEventLog:
     error: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class EventLogReading:
-    """The selected Runtime Events of every Event Log read, oldest first."""
-
-    events: tuple[RuntimeEvent, ...]
-    unreadable: tuple[UnreadableEventLog, ...] = ()
-
-
 def _error_text(error: OSError) -> str:
     return error.strerror or type(error).__name__
 
@@ -273,13 +332,24 @@ def _error_text(error: OSError) -> str:
 def _read_file(
     file: Path, selection: EventSelection
 ) -> tuple[list[RuntimeEvent], UnreadableEventLog | None]:
-    """The selected events of one file, and what of it could not be read."""
+    """The selected events of one file, and what of it could not be read.
+
+    A line that is not a JSON object naming an event this Dashpot knows is
+    always unreadable. A known event's line the selection leaves out by its
+    raw fields is not validated, so it is never reported, readable or not.
+    """
     events: list[RuntimeEvent] = []
     bad: list[int] = []
     try:
         with file.open("rb") as stream:
             for number, line in enumerate(stream, start=1):
-                event = read_runtime_event(line)
+                fields = runtime_event_fields(line)
+                if fields is None:
+                    bad.append(number)
+                    continue
+                if not selection.may_admit(fields):
+                    continue
+                event = runtime_event_from_fields(fields)
                 if event is None:
                     bad.append(number)
                 elif selection.admits(event):
@@ -296,43 +366,67 @@ def _read_file(
     return events, UnreadableEventLog(path=str(file), lines=tuple(bad))
 
 
-def _listed(
+def _files_by_day(
     directories: Iterable[Path],
-) -> Iterator[list[EventLogFile] | UnreadableEventLog]:
+    first_day: date | None,
+    report: Callable[[UnreadableEventLog], None],
+) -> dict[date, list[Path]]:
+    """Every Event Log file from ``first_day`` on, by its UTC day, in directory order."""
+    by_day: dict[date, list[Path]] = {}
     for directory in directories:
         try:
-            yield event_log_files(directory)
+            files = event_log_files(directory)
         except OSError as exc:
-            yield UnreadableEventLog(path=str(directory), error=_error_text(exc))
+            report(UnreadableEventLog(path=str(directory), error=_error_text(exc)))
+            continue
+        for file in files:
+            if first_day is None or file.day >= first_day:
+                by_day.setdefault(file.day, []).append(file.path)
+    return by_day
+
+
+def _ignore(_unreadable: UnreadableEventLog) -> None:
+    return None
 
 
 def read_event_logs(
-    directories: Sequence[Path], selection: EventSelection
-) -> EventLogReading:
-    """Read and merge the selected events of every Event Log in ``directories``.
+    directories: Sequence[Path],
+    selection: EventSelection,
+    *,
+    unreadable: Callable[[UnreadableEventLog], None] = _ignore,
+) -> Iterator[RuntimeEvent]:
+    """Stream the selected events of every Event Log in ``directories``, oldest first.
 
-    Events are ordered by their time; events of one instant keep the order
-    their files and lines hold them in. Every selected file is read before
-    the first event is known: a span is stamped when it started but written
-    to the file of the day it ended, so any later file can hold an earlier
-    event.
+    Files are read one UTC day at a time, each directory's file of that day
+    in turn. A span is stamped when it started but written to the file of
+    the day it ended, so an event is held back until it is older than
+    :data:`SPAN_CARRY_OVER` before the next day's files, which then cannot
+    hold an earlier one; a span stamped longer than that before its file's
+    day comes out once its file is read, after later events already
+    yielded. Events of one instant keep the order of their files' days,
+    then their directories, files and lines. ``unreadable`` is told of each
+    file, directory or line that could not be read as it is met; reading
+    stops where the caller stops taking events.
     """
-    events: list[RuntimeEvent] = []
-    unreadable: list[UnreadableEventLog] = []
-    first_day = selection.first_day
-    for files in _listed(directories):
-        if isinstance(files, UnreadableEventLog):
-            unreadable.append(files)
-            continue
-        for file in files:
-            if first_day is not None and file.day < first_day:
-                continue
-            selected, problem = _read_file(file.path, selection)
-            events.extend(selected)
+    by_day = _files_by_day(directories, selection.first_day, unreadable)
+    days = sorted(by_day)
+    held: list[tuple[datetime, int, RuntimeEvent]] = []
+    order = itertools.count()
+    for index, day in enumerate(days):
+        for path in by_day[day]:
+            selected, problem = _read_file(path, selection)
+            for event in selected:
+                heapq.heappush(held, (event_instant(event), next(order), event))
             if problem is not None:
-                unreadable.append(problem)
-    events.sort(key=event_instant)
-    return EventLogReading(events=tuple(events), unreadable=tuple(unreadable))
+                unreadable(problem)
+        following = days[index + 1] if index + 1 < len(days) else None
+        settled = (
+            None
+            if following is None
+            else datetime.combine(following, time.min, UTC) - SPAN_CARRY_OVER
+        )
+        while held and (settled is None or held[0][0] < settled):
+            yield heapq.heappop(held)[2]
 
 
 def recent_events(
@@ -349,14 +443,7 @@ def recent_events(
     Unreadable lines are skipped without a word: this is a summary, and
     ``dashpot events`` is where they are reported.
     """
-    first_day = selection.first_day
-    by_day: dict[date, list[Path]] = {}
-    for files in _listed(directories):
-        if isinstance(files, UnreadableEventLog):
-            continue
-        for file in files:
-            if first_day is None or file.day >= first_day:
-                by_day.setdefault(file.day, []).append(file.path)
+    by_day = _files_by_day(directories, selection.first_day, _ignore)
     found: list[RuntimeEvent] = []
     for day in sorted(by_day, reverse=True):
         for path in by_day[day]:

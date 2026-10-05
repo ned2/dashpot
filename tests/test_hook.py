@@ -8,6 +8,9 @@ from pathlib import Path
 import pytest
 
 from dashpot import hook
+from dashpot.core.errors import DashpotError
+from dashpot.core.event_log import EventLogDestination
+from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.sessions.hook_publish import HookPublication
 from dashpot.sessions.hook_records import HookRecordStore, build_hook_record
 from dashpot.sessions.processes import AgentAncestry
@@ -177,3 +180,72 @@ def test_an_occupied_destination_is_a_non_blocking_hook_exit(
         "Agent Session Identity\n"
     )
     assert captured.out == ""
+
+
+@pytest.fixture
+def recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Record hook processes at the default level, which the suite turns off."""
+    monkeypatch.setenv(LEVEL_VARIABLE, "standard")
+
+
+def hook_lines(directory: Path) -> list[dict[str, object]]:
+    (path,) = directory.glob("events-*.jsonl")
+    return [json.loads(line) for line in path.read_bytes().splitlines()]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [OSError(28, "full"), ValueError("bad"), RuntimeError("loop"), DashpotError("no")],
+    ids=lambda failure: type(failure).__name__,
+)
+@pytest.mark.usefixtures("recorded")
+def test_a_hook_process_failure_is_recorded_and_never_blocks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], failure: Exception
+) -> None:
+    log = hook.hook_event_log(
+        "codex",
+        {"hook_event_name": "Stop"},
+        destination=EventLogDestination(tmp_path),
+    )
+
+    with hook.hook_process(log, label="Codex") as run:
+        run.event = {"hook_event_name": "Stop"}
+        raise failure
+
+    assert run.exit_code == hook.NON_BLOCKING_FAILURE_EXIT_CODE
+    assert capsys.readouterr().err == f"dashpot Codex hook: {failure}\n"
+    start, outcome, end = hook_lines(tmp_path)
+    assert start["event.name"] == "process.start"
+    assert outcome["dashpot.outcome.result"] == "failed"
+    assert outcome["dashpot.hook.event"] == "Stop"
+    assert end["process.exit.code"] == hook.NON_BLOCKING_FAILURE_EXIT_CODE
+
+
+@pytest.mark.usefixtures("recorded")
+def test_a_hook_process_records_what_it_published_and_ends_cleanly(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log = hook.hook_event_log("codex", {}, destination=EventLogDestination(tmp_path))
+
+    with hook.hook_process(log) as run:
+        run.event = {"hook_event_name": "SessionEnd"}
+        run.publication = HookPublication(tmp_path, state="ended", work="unchanged")
+        run.reason = "logout"
+
+    assert run.exit_code == 0
+    assert capsys.readouterr() == ("", "")
+    _start, outcome, end = hook_lines(tmp_path)
+    assert outcome["dashpot.outcome.result"] == "succeeded"
+    assert outcome["dashpot.agent_session.state"] == "ended"
+    assert end["process.exit.code"] == 0
+
+
+@pytest.mark.usefixtures("recorded")
+def test_a_hook_process_crash_goes_on_and_leaves_no_end(tmp_path: Path) -> None:
+    log = hook.hook_event_log("codex", {}, destination=EventLogDestination(tmp_path))
+
+    with pytest.raises(KeyError), hook.hook_process(log, label="Codex"):
+        raise KeyError("a bug, not a failed publish")
+
+    # A missing process.end is how a crash reads in the Event Log.
+    assert [line["event.name"] for line in hook_lines(tmp_path)] == ["process.start"]
