@@ -29,6 +29,20 @@ class PageTicket:
 
 
 @dataclass(frozen=True, slots=True)
+class ContinuationRefused:
+    """The refusal of a page's continuation, whose context changed or expired.
+
+    A Markdown revision changes with every Local Issue edit, and a GitHub
+    principal or source configuration can change too, so a continuation
+    issued before cannot page on. The source's ``InvalidContinuation``
+    arrives as this value rather than as an error's text, so the
+    navigation can tell it from a failure and begin again at page one.
+    """
+
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class PageQueryState:
     """The accepted Query Page and the transient state of its replacement."""
 
@@ -133,6 +147,25 @@ class PageNavigation:
         self.index -= 1
         self.request = self.history[self.index].request
         self.error = None
+
+    def refuse_continuation(
+        self, ticket: PageTicket, refused: ContinuationRefused
+    ) -> PageTicket | None:
+        """Begin again at page one when the source refused the ticket's continuation.
+
+        Whether the ticket refreshed a later page or moved to the next one,
+        every page past one was paged under the old context, so none can be
+        refreshed: the restart keeps the shown page on screen until page one
+        lands. A superseded ticket restarts nothing, and a request without a
+        continuation was refused nothing to restart from, so it is shown as
+        the failure it is.
+        """
+        if ticket.generation != self.generation:
+            return None
+        if ticket.request.cursor is None:
+            self.accept(ticket, None, refused.message)
+            return None
+        return self.restart()
 
     def accept(
         self, ticket: PageTicket, page: QueryPage | None, error: str | None = None

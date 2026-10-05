@@ -18,7 +18,6 @@ from ..observation.paged_store import PagedObservationStore
 from ..observation.pull_request_list import (
     DEFAULT_PULL_REQUEST_QUERY,
     PullRequestListRow,
-    pull_request_result_count_text,
 )
 from ..observation.related_rows import FocusedSource, RelatedRows
 from ..observation.session_list import shows_target
@@ -166,8 +165,17 @@ def pull_request_pane_rows(context: PaneContext) -> PaneRows:
     page = store.pages.get("pull-requests")
     projects = store.projects()
     summary = totals_text(store.totals.get("pull-requests"))
+    navigation = context.navigation["pull-requests"]
+    # The controls count what the query matched, as the Issue filter bar
+    # does, never the page's length; a page still to land says so.
+    filter_count = page_text(navigation, context.now, detail="compact")
     if page is None or not projects:
-        return PaneRows((), title_summary=summary, empty_message="Loading page")
+        return PaneRows(
+            (),
+            title_summary=summary,
+            empty_message="Loading page",
+            filter_count=filter_count,
+        )
     # The page is the source's answer, already filtered and ordered; the
     # rows join each Pull Request to the Project it was asked for.
     rows = build_list_rows(
@@ -182,11 +190,11 @@ def pull_request_pane_rows(context: PaneContext) -> PaneRows:
     return PaneRows(
         rows,
         title_summary=summary,
-        note=page_text(context.navigation["pull-requests"], context.now),
+        note=page_text(navigation, context.now),
         empty_message="No matching Pull Requests"
         if page.status == "fresh"
         else "Pull Requests unavailable",
-        filter_count=pull_request_result_count_text(len(rows)),
+        filter_count=filter_count,
     )
 
 
@@ -199,7 +207,7 @@ def pull_request_filter_bar() -> ItemFilterBar:
         status=lifecycle_value(query.states),
         query=query.text,
         placeholder="Search Pull Requests",
-        count=pull_request_result_count_text(0),
+        count="Loading page",
     )
 
 

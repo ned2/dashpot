@@ -17,7 +17,7 @@ def test_separates_lexical_terms_from_supported_qualifiers_and_sorting() -> None
         ("is", "draft", True),
     ]
     assert parsed.sort == SearchSort("created", descending=False)
-    assert parsed.diagnostics == ()
+    assert parsed.refusals == ()
 
 
 def test_accepts_github_review_spellings_and_active_inventory_predicates() -> None:
@@ -32,7 +32,7 @@ def test_accepts_github_review_spellings_and_active_inventory_predicates() -> No
         ("review", "changes_requested"),
         ("status", "pending"),
     ]
-    assert parsed.diagnostics == ()
+    assert parsed.refusals == ()
 
 
 def test_invalid_supported_qualifier_is_removed_and_diagnosed() -> None:
@@ -40,7 +40,7 @@ def test_invalid_supported_qualifier_is_removed_and_diagnosed() -> None:
 
     assert parsed.terms == ("fix",)
     assert parsed.qualifiers == ()
-    assert parsed.diagnostics == (
+    assert parsed.refusals == (
         "Unsupported Pull Request qualifier 'status:neutral'; "
         "use status:failure or status:pending or status:success",
     )
@@ -50,4 +50,4 @@ def test_unknown_qualifier_remains_a_lexical_term() -> None:
     parsed = parse_pull_request_search("label:bug")
 
     assert parsed.terms == ("label:bug",)
-    assert parsed.diagnostics == ()
+    assert parsed.refusals == ()

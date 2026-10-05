@@ -94,7 +94,8 @@ def test_pull_request_pane_lists_the_accepted_page_with_its_count() -> None:
     loading = pull_request_pane_rows(context(store, navigation))
     assert loading.rows == ()
     assert loading.empty_message == "Loading page"
-    assert loading.filter_count is None
+    # A page still to land is not an empty result.
+    assert loading.filter_count == "Loading page"
     assert loading.records == ()
 
     source = SnapshotQuerySource(snapshot)
@@ -107,10 +108,34 @@ def test_pull_request_pane_lists_the_accepted_page_with_its_count() -> None:
     assert len(listed.rows) == 2
     assert listed.title_summary == "Open 2 · Closed 0"
     assert listed.note is not None and listed.note.startswith("2 shown · 2 matches")
-    assert listed.filter_count is not None and listed.filter_count.startswith("2 ")
+    assert listed.filter_count == "2/2 matches · fresh"
     assert listed.empty_message == "No matching Pull Requests"
     # Pull Request rows take no part in relationship emphasis.
     assert listed.records == ()
+
+
+def test_pull_request_filter_bar_counts_matches_beyond_the_page() -> None:
+    snapshot = workspace_snapshot(
+        pull_requests=tuple(factories.pull_request(number) for number in (1, 2, 3))
+    )
+    store = PagedObservationStore(snapshot)
+    navigation = PageNavigation(QueryRequest(kind="pull-requests", page_size=2))
+    page = SnapshotQuerySource(snapshot).query_page(navigation.request).page
+    assert navigation.accept(navigation.restart(), page)
+    store.accept_page("pull-requests", page)
+    listed = pull_request_pane_rows(context(store, navigation))
+    assert len(listed.rows) == 2
+    # The bar counts what the query matched, not the page's length.
+    assert listed.filter_count == "2/3 matches · fresh"
+
+
+def test_pull_request_filter_bar_shows_a_failed_first_query() -> None:
+    store = PagedObservationStore(workspace_snapshot())
+    navigation = PageNavigation(QueryRequest(kind="pull-requests"))
+    assert navigation.accept(navigation.restart(), None, "Source exploded")
+    failed = pull_request_pane_rows(context(store, navigation))
+    assert failed.rows == ()
+    assert failed.filter_count == "Source exploded"
 
 
 def test_pull_request_filter_bar_starts_from_the_default_query() -> None:
@@ -119,6 +144,7 @@ def test_pull_request_filter_bar_starts_from_the_default_query() -> None:
     assert bar.item == "pull-request"
     assert bar.initial_status == "open"
     assert bar.initial_query == ""
+    assert bar.initial_count == "Loading page"
 
 
 def test_build_list_rows_keys_each_record_and_names_its_issue() -> None:

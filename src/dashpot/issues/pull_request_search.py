@@ -21,10 +21,13 @@ class PullRequestQualifier:
 
 @dataclass(frozen=True, slots=True)
 class ParsedPullRequestSearch:
+    """A Pull Request search, its warnings and refusals as ``ParsedSearch`` has them."""
+
     terms: tuple[str, ...] = ()
     qualifiers: tuple[PullRequestQualifier, ...] = ()
     sort: SearchSort | None = None
-    diagnostics: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    refusals: tuple[str, ...] = ()
 
 
 _QUALIFIER_VALUES: dict[PullRequestQualifierField, frozenset[str]] = {
@@ -46,7 +49,7 @@ def parse_pull_request_search(text: str) -> ParsedPullRequestSearch:
     parsed = parse_search(text)
     terms: list[str] = []
     qualifiers: list[PullRequestQualifier] = []
-    diagnostics = list(parsed.diagnostics)
+    refusals = list(parsed.refusals)
     for token in parsed.terms:
         negated = token.startswith("-")
         candidate = token[1:] if negated else token
@@ -64,9 +67,7 @@ def parse_pull_request_search(text: str) -> ParsedPullRequestSearch:
                 if allowed
                 else f"{field}: requires a value"
             )
-            diagnostics.append(
-                f"Unsupported Pull Request qualifier {token!r}; {guidance}"
-            )
+            refusals.append(f"Unsupported Pull Request qualifier {token!r}; {guidance}")
             continue
         qualifiers.append(
             PullRequestQualifier(
@@ -76,5 +77,5 @@ def parse_pull_request_search(text: str) -> ParsedPullRequestSearch:
             )
         )
     return ParsedPullRequestSearch(
-        tuple(terms), tuple(qualifiers), parsed.sort, tuple(diagnostics)
+        tuple(terms), tuple(qualifiers), parsed.sort, parsed.warnings, tuple(refusals)
     )

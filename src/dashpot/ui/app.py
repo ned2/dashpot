@@ -42,7 +42,6 @@ from ..core.model import Diagnostic
 from ..core.runtime_events import EventLevel, UnattendedPauseChanged
 from ..github.github import LatestRateLimit
 from ..observation.collect import ObservationScheduler
-from ..observation.issue_list import issue_result_count_text
 from ..observation.observation_store import ObservedDiagnostic
 from ..observation.paged_store import PagedObservationStore
 from ..observation.related_rows import FocusedSource, query_related_rows
@@ -477,7 +476,7 @@ class IssuesPullRequestsScreen(Screen[None]):
             status=query.lifecycle,
             query=query.text,
             placeholder="Search Issues",
-            count=issue_result_count_text(0),
+            count="Loading page",
         )
         # The filter bar of each paged kind, composed once: the Issue table's
         # own and each list pane's from its spec.
@@ -1560,8 +1559,9 @@ class DashpotApp(App[None]):
         if changed_only and frozenset(requested) == self.requested_identities:
             return
         self.requested_identities = frozenset(requested)
-        if requested:
-            self.queries.request_identities(requested, refresh=refresh)
+        # Asking for none still lands: the store forgets the outcomes of
+        # identities no longer requested.
+        self.queries.request_identities(requested, refresh=refresh)
 
     def on_page_finished(self, message: PageFinished) -> None:
         self.queries.finish_page(message)

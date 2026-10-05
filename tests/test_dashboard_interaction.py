@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from threading import Event
+
 import pytest
 from textual import events
 from textual.pilot import Pilot
@@ -62,7 +64,7 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
 
         assert lifecycle.value == "open"
         assert pane.table.row_count == 2
-        assert str(count.render()) == "2 pull requests"
+        assert str(count.render()) == "2/2 matches · fresh"
         assert pane_title(app.query_screen, "#pull-requests-pane") == inventory
 
         # Page keys follow the pane holding focus: the Pull Requests pane
@@ -83,7 +85,7 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         assert app.queries.navigation["pull-requests"].request.query == "draft:true"
         assert app.query_screen.list_queries.pull_requests.text == "draft:true"
         assert "Draft navigation" in str(pane.table.get_row_at(0)[2])
-        assert str(count.render()) == "1 pull request"
+        assert str(count.render()) == "1/1 matches · fresh"
         assert pane_title(app.query_screen, "#pull-requests-pane") == inventory
 
         lifecycle.value = "closed"
@@ -104,7 +106,7 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         await pilot.press("enter")
         await wait_until(lambda: pane.table.row_count == 2)
         assert "merged" in str(pane.table.get_row_at(1)[0])
-        assert str(count.render()) == "2 pull requests"
+        assert str(count.render()) == "2/2 matches · fresh"
 
         lifecycle.value = "all"
         await wait_until(lambda: pane.table.row_count == 4)
@@ -114,12 +116,43 @@ async def test_pull_request_lifecycle_and_submitted_search_keep_scoped_counts() 
         search.focus()
         await pilot.press("enter")
         await wait_until(lambda: pane.table.row_count == 0)
-        assert str(count.render()) == "0 pull requests"
+        assert str(count.render()) == "0/0 matches · fresh"
         empty = app.query_screen.query_one(
             "#pull-requests-pane .list-pane-empty", Static
         )
         assert str(empty.render()) == "No matching Pull Requests"
         assert collector.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_pull_request_filter_bar_counts_matches_beyond_the_page() -> None:
+    snapshot = workspace_snapshot(
+        issue("test/repo#1", "Issue"),
+        pull_requests=tuple(factories.pull_request(number) for number in range(1, 53)),
+    )
+    release = Event()
+    app = dashboard_app(SequenceCollector(snapshot), release=release)
+
+    try:
+        async with app.run_test(size=(160, 40)) as pilot:
+            await wait_until(
+                lambda: (
+                    app.store.revision == 1
+                    and {"issues", "pull-requests"} <= app.queries.busy
+                )
+            )
+            await show_query_peer(app, pilot)
+            count = app.query_screen.query_one("#pull-request-count", Static)
+            # A page still to land is not an empty result.
+            assert str(count.render()) == "Loading page"
+
+            release.set()
+            await wait_until(lambda: first_load_landed(app))
+            # The page holds fifty; the bar counts what the query matched.
+            await wait_until(lambda: str(count.render()) == "50/52 matches · fresh")
+            assert app.query_screen.pull_requests_pane().table.row_count == 50
+    finally:
+        release.set()
 
 
 @pytest.mark.asyncio

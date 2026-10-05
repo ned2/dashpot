@@ -26,6 +26,7 @@ from .source_queries import (
     AuxiliaryObservation,
     Continuation,
     InvalidContinuation,
+    PageObservation,
     ProjectTotals,
     QueryPage,
     QueryRequest,
@@ -35,6 +36,15 @@ from .source_queries import (
     SourceEnumeration,
     context_fingerprint,
     encode_continuation,
+)
+
+# A Markdown Project has no Pull Request source: a fact of its configuration,
+# not a fault, which every Pull Request observation reports the same way.
+PULL_REQUESTS_NOT_CONFIGURED = Diagnostic(
+    source="pull-requests",
+    severity="info",
+    code="pull-requests-not-configured",
+    message="Pull Requests are not configured for a Markdown Project",
 )
 
 
@@ -67,6 +77,44 @@ class MarkdownQuerySource(CachedQuerySource):
     @override
     def supports_sort(self, request: QueryRequest, column: str) -> bool:
         return is_issue_sort_column(column) and parse_search(request.query).sort is None
+
+    @override
+    def query_page(self, request: QueryRequest) -> PageObservation:
+        """Answer an Issue query, or a Pull Request one as not configured.
+
+        A Pull Request query reads no Local Issue: there is nothing it could
+        answer, so its page and totals are unavailable at once, reporting
+        the configuration as the export path does rather than as a failure.
+        """
+        if request.kind == "issues":
+            return super().query_page(request)
+        attempted = self.clock()
+        return PageObservation(
+            QueryPage(
+                context=self.context,
+                request=request,
+                effective_ordering=request.ordering,
+                status="unavailable",
+                attempted_at=attempted,
+                last_good_at=None,
+                diagnostics=(PULL_REQUESTS_NOT_CONFIGURED,),
+                returned_count=0,
+                matched_count=None,
+                next_cursor=None,
+                continuation="unavailable",
+                result_limit=None,
+            ),
+            ProjectTotals(
+                context=self.context,
+                kind=request.kind,
+                open_count=None,
+                closed_count=None,
+                status="unavailable",
+                attempted_at=attempted,
+                last_good_at=None,
+                diagnostics=(PULL_REQUESTS_NOT_CONFIGURED,),
+            ),
+        )
 
     @override
     def request_context(self) -> SourceContext:
@@ -123,8 +171,6 @@ class MarkdownQuerySource(CachedQuerySource):
         The Project Totals count the complete collection before the search is
         interpreted, so a search the source refuses still reports them.
         """
-        if request.kind != "issues":
-            raise ValueError("Pull Requests are not configured for a Markdown Project")
         if context.configuration != self.config.model_dump_json():
             raise ValueError(
                 "Project source configuration changed; reopen the dashboard"
@@ -154,8 +200,10 @@ class MarkdownQuerySource(CachedQuerySource):
             diagnostics=(),
         )
         parsed = parse_search(request.query)
-        if parsed.diagnostics:
-            raise ValueError("; ".join(parsed.diagnostics))
+        # A quote still being typed is searched as typed; only a qualifier
+        # the local search cannot answer fails the page.
+        if parsed.refusals:
+            raise ValueError("; ".join(parsed.refusals))
         terms = tuple(term.casefold() for term in parsed.terms)
         collection = {issue.id: issue for issue in self.records}
         records = [
@@ -250,14 +298,7 @@ class MarkdownQuerySource(CachedQuerySource):
                 status="unavailable",
                 attempted_at=self.clock(),
                 last_good_at=None,
-                diagnostics=(
-                    Diagnostic(
-                        source="pull-requests",
-                        severity="info",
-                        code="pull-requests-not-configured",
-                        message="Pull Requests are not configured for a Markdown Project",
-                    ),
-                ),
+                diagnostics=(PULL_REQUESTS_NOT_CONFIGURED,),
             )
         observation = self.export_source.refresh()
         return SourceEnumeration(

@@ -177,7 +177,9 @@ Runs to targeted identity evidence without changing Work Store Issue Bindings.
 Opening a selected Issue works from the Issues table; relationship titles in
 Issue Detail are resolved one level deep. Relevant identities are
 refreshed directly, including relationship changes without an Issue timestamp
-change.
+change. The dashboard keeps the Resolved Issues of the identities it last
+requested and no others. A page that lists an Issue keeps its row unless the
+Issue's Resolved Issue was observed after the page.
 
 A Query Page has its submitted request, effective ordering, matching count,
 returned count, continuation outcome and its own attempt/last-good times. Project
@@ -186,7 +188,10 @@ Totals are counted by the same request but have independent status and times
 Source caches retain at most 16 pages and 256 identities. Navigation retains eight accepted pages. Previous reuses its
 retained observation; eviction requires restart instead of reconstructing history.
 Refreshing a page discards its forward history. A failed Next leaves the accepted
-page under its original request and displays the navigation error. New submissions,
+page under its original request and displays the navigation error. A continuation
+the source refuses because its context changed — any Local Issue edit changes the
+Markdown revision — restarts the navigation at page one instead, whether a refresh
+or Next sent it, rather than repeating the refusal under the old page. New submissions,
 lifecycle/sort changes and manual restart create generations; old completions are
 discarded. Timer refresh does not supersede an in-flight user query.
 
@@ -354,11 +359,11 @@ The wide Issues & Pull Requests peer keeps both queries visible:
 | 1 Dashboard  *2 Issues & Pull Requests*        Open PRs: 2 | Open Issues: 18 | <fresh>             |
 +--------------------------------------------------------------------------------------------------+
 | PULL REQUESTS · Open 2 · Closed 3                                                            |
-| [Open v]  [Search Pull Requests____________________________]  2 pull requests                    |
+| [Open v]  [Search Pull Requests____________________________]  2/2 matches · fresh                |
 | ...rows up to the content cap; the table scrolls beyond it...                                   |
 +--------------------------------------------------------------------------------------------------+
 | ISSUES · Open 18 · Closed 7                                                                      |
-| [Open v]  [Search Issues___________________________________]  18 issues                           |
+| [Open v]  [Search Issues___________________________________]  18 shown · 18 matches · fresh       |
 | ...the Issue table owns the remaining height...                                                  |
 |                                                                                                  |
 +--------------------------------------------------------------------------------------------------+
@@ -392,11 +397,11 @@ the shipped breakpoint is 100 columns:
 | Open PRs: 2 | Open Issues: 18 | <fresh>                    |
 +----------------------------------------------------------+
 | PULL REQUESTS · Open 2 · Closed 3                        |
-| [Open v] [Search Pull Requests__________] 2 pull requests|
+| [Open v] [Search Pull Requests______] 2/2 matches · fresh|
 | ...bounded scrolling rows...                             |
 +----------------------------------------------------------+
 | ISSUES · Open 18 · Closed 7                              |
-| [Open v] [Search Issues________________] 18 issues       |
+| [Open v] [Search Issues_________] 18/18 matches · fresh  |
 | ...flexible scrolling table...                           |
 | ...                                                      |
 +----------------------------------------------------------+

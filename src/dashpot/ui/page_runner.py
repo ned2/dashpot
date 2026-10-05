@@ -23,10 +23,17 @@ from ..core.commands import RunningCommands, start_pool
 from ..core.event_log import EventLog, unrecorded_event_log
 from ..core.runtime_events import KeyOutcome, QueryAttributes
 from ..observation.paged_store import PagedObservationStore
-from ..queries.page_navigation import PageNavigation, PageQueryState, PageTicket
+from ..queries.page_navigation import (
+    ContinuationRefused,
+    PageNavigation,
+    PageQueryState,
+    PageTicket,
+)
 from ..queries.source_queries import (
     PAGED_KINDS,
     QUERY_SOURCE_KEYS,
+    InvalidContinuation,
+    PageObservation,
     QueryRequest,
     QuerySource,
     ResourceKind,
@@ -143,7 +150,7 @@ class PageRunner:
         """Query the page a ticket names, counting the kind's Project Totals."""
         self._launch(
             kind,
-            lambda: self.sources[kind].query_page(ticket.request),
+            partial(_observe_page, self.sources[kind], ticket.request),
             partial(PageFinished, kind, ticket),
             self._key_span(kind, refresh),
         )
@@ -151,7 +158,14 @@ class PageRunner:
     def request_identities(
         self, identities: tuple[str, ...], *, refresh: Refresh | None = None
     ) -> None:
-        """Resolve the named Issue Identities."""
+        """Resolve the named Issue Identities.
+
+        Asking for none forgets every outcome at once, unless a query still
+        running would land after it; that one then waits, and answers none.
+        """
+        if not identities and "identities" not in self.busy:
+            self.store.accept_identities(())
+            return
         self._launch(
             "identities",
             lambda: self.sources["identities"].resolve_identities(identities),
@@ -210,6 +224,9 @@ class PageRunner:
         queries answer in the order they were sent.
         """
         observation = message.observation
+        if isinstance(observation, ContinuationRefused):
+            self._restart_refused(message.kind, message.ticket, observation)
+            return
         page = observation.page if observation is not None else None
         accepted = self.navigation[message.kind].accept(
             message.ticket, page, message.error
@@ -223,6 +240,25 @@ class PageRunner:
             self.store.accept_totals(observation.totals)
         self._accept_source_diagnostics()
         self._release(message.kind, "landed" if accepted else "superseded")
+
+    def _restart_refused(
+        self, kind: ResourceKind, ticket: PageTicket, refused: ContinuationRefused
+    ) -> None:
+        """Begin a kind's navigation again at page one, its continuation refused.
+
+        The refusal counted no Project Totals; page one's query brings them,
+        and it waits for this query's key to be released.
+        """
+        navigation = self.navigation[kind]
+        current = ticket.generation == navigation.generation
+        restarted = navigation.refuse_continuation(ticket, refused)
+        if restarted is not None:
+            self._page_failures.discard(kind)
+            self.request_page(kind, restarted)
+        elif current:
+            self._page_failures.add(kind)
+        self._accept_source_diagnostics()
+        self._release(kind, "landed" if current else "superseded")
 
     def finish_identities(self, message: IdentitiesFinished) -> None:
         """Land the resolved identities in the store."""
@@ -252,3 +288,17 @@ class PageRunner:
         """Show each navigation's page in the store, in flight while its query runs."""
         for kind, navigation in self.navigation.items():
             self.store.accept_page(kind, navigation.shown, in_flight=kind in self.busy)
+
+
+def _observe_page(
+    source: QuerySource, request: QueryRequest
+) -> PageObservation | ContinuationRefused:
+    """Query one page, a refused continuation answering as a value.
+
+    Only an error's text crosses the off-loop boundary, so the refusal the
+    navigation restarts on is caught here, by its type.
+    """
+    try:
+        return source.query_page(request)
+    except InvalidContinuation as exc:
+        return ContinuationRefused(str(exc))
