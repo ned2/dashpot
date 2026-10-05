@@ -36,7 +36,7 @@ from ..github.github_wire import (
 )
 from ..issues.github_issues import (
     GitHubIssuesSource,
-    issue_activity,
+    graphql_issue_activity,
     label_colors,
     normalize_github_issue,
     open_blockers,
@@ -751,7 +751,7 @@ class GitHubQuerySource(CachedQuerySource):
                 raise ValueError(
                     "Linked Pull Request display completion is unavailable"
                 )
-            activity = issue_activity(complete)
+            activity = graphql_issue_activity(complete)
             if len(activity.linked_pull_requests) != min(linked["totalCount"], 20):
                 raise ValueError("Linked Pull Request observation is malformed")
             colors = label_colors(complete)

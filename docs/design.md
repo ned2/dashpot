@@ -135,7 +135,8 @@ twenty Linked Pull Requests require deliberate connection completion when more
 exist; there is no incremental bookkeeping or counterpart expansion.
 
 Query and complete-collection adapters retain distinct cache and failure policies.
-They share parsing, Profile completion, and collection retention; explicit export
+They share parsing, the Local Issue document reader, Profile completion, and
+collection retention ([ADR 0139](adr/0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md)); explicit export
 crosses the Query Source enumeration seam before the collector shapes snapshot
 output. [ADR 0043](adr/0043-retain-distinct-query-and-collection-adapters.md)
 records the caller trace, remaining duplication, and rejected consolidation options.

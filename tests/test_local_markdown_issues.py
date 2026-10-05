@@ -238,7 +238,7 @@ class LocalMarkdownIssuesSourceTests(unittest.TestCase):
             )
 
             with patch.object(
-                Path, "read_text", side_effect=PermissionError("permission denied")
+                Path, "read_bytes", side_effect=PermissionError("permission denied")
             ):
                 observation = source.refresh()
 

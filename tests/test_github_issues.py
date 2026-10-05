@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import threading
 import unittest
 from pathlib import Path
@@ -13,6 +14,7 @@ from dashpot.core.commands import CommandError, CommandResult
 from dashpot.core.issue_profile import IssueProfile, conform_issue, issue_location
 from dashpot.core.model import OpenBlocker
 from dashpot.github.github import RefreshBudget
+from dashpot.github.github_wire import ISSUE_NODE_FIELDS
 from dashpot.issues.github_issues import (
     GitHubIssuesSource,
     normalize_github_issue,
@@ -295,6 +297,23 @@ def with_linked_pull_requests(
     return record
 
 
+def overflowing_linked_pull_requests(record: dict[str, Any]) -> dict[str, Any]:
+    """Give ``record`` twenty-three Linked Pull Requests, twenty on its first page."""
+    record["closedByPullRequestsReferences"] = {
+        "totalCount": 23,
+        "nodes": [
+            {
+                "number": number,
+                "url": f"https://github.com/ned2/dashpot/pull/{number}",
+                "state": "MERGED",
+            }
+            for number in range(1, 21)
+        ],
+        "pageInfo": {"hasNextPage": True, "endCursor": "linked-20"},
+    }
+    return record
+
+
 def nested_page(
     nodes: list[dict[str, Any]],
     *,
@@ -410,6 +429,28 @@ def _linked_numbers(observation: Any, issue_id: str) -> set[int]:
         pull_request.number
         for pull_request in observation.issue_activity[issue_id].linked_pull_requests
     }
+
+
+def _braced(text: str, start: int) -> str:
+    """The text inside the braces that open just before ``start``."""
+    depth = 1
+    for index in range(start, len(text)):
+        depth += {"{": 1, "}": -1}.get(text[index], 0)
+        if depth == 0:
+            return text[start:index]
+    raise AssertionError("unbalanced selection")
+
+
+def paged_node_selections(query: str) -> dict[str, str]:
+    """Each paged connection's node selection in ``query``, whitespace collapsed."""
+    selections: dict[str, str] = {}
+    # An operation's own name is not a connection, so ``query Name(`` is skipped.
+    for match in re.finditer(r"(?<!query )\b(\w+)\([^)]*\)\s*\{", query):
+        body = _braced(query, match.end())
+        nodes = re.search(r"\bnodes\s*\{", body)
+        if match[1] != "node" and nodes and "pageInfo" in body:
+            selections[match[1]] = " ".join(_braced(body, nodes.end()).split())
+    return selections
 
 
 def graphql_failure(type: str, path: list[str], message: str) -> CommandResult:
@@ -743,6 +784,155 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         )
         self.assertIn(f"repositoryId={REPOSITORY_ID}", runner.calls[0][0])
         self.assertNotIn("owner=ned2", runner.calls[0][0])
+
+    def test_a_failed_linked_pull_request_completion_degrades_only_its_issue(
+        self,
+    ) -> None:
+        # Linked Pull Requests are presentation only (ADR 0033): a failure to
+        # complete one Issue's leaves the collection fresh and that Issue's
+        # engagement counted rather than listed.
+        failures: list[tuple[CommandResult | Exception, str]] = [
+            (CommandError("command timed out after 20s: gh"), "timed out"),
+            (completed(json.dumps({"data": {"node": None}})), "data.node"),
+        ]
+        for failure, reason in failures:
+            with self.subTest(reason=reason):
+                self._assert_one_issue_degrades(failure, reason)
+
+    def _assert_one_issue_degrades(
+        self, failure: CommandResult | Exception, reason: str
+    ) -> None:
+        failing = overflowing_linked_pull_requests(issue_record(1))
+        completing = overflowing_linked_pull_requests(issue_record(2))
+        runner = SequenceRunner(
+            [
+                completed(issue_page([failing, completing])),
+                failure,
+                completed(
+                    linked_pull_request_page(
+                        [
+                            {
+                                "number": number,
+                                "url": (
+                                    f"https://github.com/ned2/dashpot/pull/{number}"
+                                ),
+                                "state": "MERGED",
+                            }
+                            for number in range(21, 24)
+                        ]
+                    )
+                ),
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual([1, 2], [issue.number for issue in observation.issues])
+        degraded = observation.issue_activity["I_issue_1"]
+        self.assertEqual(3, degraded.comment_count)
+        self.assertEqual((), tuple(degraded.linked_pull_requests))
+        self.assertEqual(23, degraded.unlisted_pull_request_count)
+        complete = observation.issue_activity["I_issue_2"]
+        self.assertEqual(
+            list(range(1, 21)),
+            [pull.number for pull in complete.linked_pull_requests],
+        )
+        self.assertEqual(3, complete.unlisted_pull_request_count)
+        [diagnostic] = observation.diagnostics
+        self.assertEqual("github-linked-pull-requests", diagnostic.code)
+        self.assertEqual("warning", diagnostic.severity)
+        self.assertIn("Issue #1", diagnostic.message)
+        self.assertIn(reason, diagnostic.message)
+
+    def test_linked_pull_requests_are_completed_after_every_issue_page(self) -> None:
+        # Display completion runs once the collection is observed, so it can
+        # never spend the Refresh Budget a later page of Issues needs.
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page(
+                        [overflowing_linked_pull_requests(issue_record(1))],
+                        has_next_page=True,
+                        end_cursor="issues-1",
+                    )
+                ),
+                completed(issue_page([issue_record(2)])),
+                CommandError("command timed out after 20s: gh"),
+            ]
+        )
+
+        observation = source(runner, budget=RefreshBudget(requests=2)).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        self.assertEqual([1, 2], [issue.number for issue in observation.issues])
+        self.assertEqual(2, len(runner.calls))
+        self.assertIn("cursor=issues-1", runner.calls[1][0])
+        self.assertEqual(
+            23, observation.issue_activity["I_issue_1"].unlisted_pull_request_count
+        )
+        self.assertEqual("github-linked-pull-requests", observation.diagnostics[0].code)
+        self.assertIn("refresh abandoned", observation.diagnostics[0].message)
+
+    def test_several_unlisted_issues_share_one_warning(self) -> None:
+        runner = SequenceRunner(
+            [
+                completed(
+                    issue_page(
+                        [
+                            overflowing_linked_pull_requests(issue_record(number))
+                            for number in (4, 7)
+                        ]
+                    )
+                ),
+                CommandError("command timed out after 20s: gh"),
+                CommandError("command timed out after 20s: gh"),
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        [diagnostic] = observation.diagnostics
+        self.assertIn("2 Issues, first #4", diagnostic.message)
+
+    def test_every_continuation_selects_what_the_first_page_selects(self) -> None:
+        # The first page of each connection is selected in ISSUE_NODE_FIELDS
+        # and its continuation separately; a field added to only one would
+        # pass every test whose connections fit on one page.
+        record = overflowing_linked_pull_requests(raw_fixture())
+        first_page = paged_node_selections(ISSUE_NODE_FIELDS)
+        for connection in first_page.keys() - {"closedByPullRequestsReferences"}:
+            record[connection]["pageInfo"] = {
+                "hasNextPage": True,
+                "endCursor": f"{connection}-1",
+            }
+        nested = len(first_page) - 1
+        runner = SequenceRunner(
+            [
+                completed(issue_page([record])),
+                *(completed(nested_page([])) for _ in range(nested)),
+                completed(linked_pull_request_page([])),
+            ]
+        )
+
+        observation = source(runner).refresh()
+
+        self.assertEqual("fresh", observation.status)
+        continued: dict[str, str] = {}
+        for call in runner.calls[1:]:
+            continued.update(paged_node_selections(query_of(call)))
+        self.assertEqual(
+            {
+                "labels",
+                "assignees",
+                "subIssues",
+                "blockedBy",
+                "blocking",
+                "closedByPullRequestsReferences",
+            },
+            set(first_page),
+        )
+        self.assertEqual(first_page, continued)
 
     def test_outer_pagination_collects_more_than_two_hundred_issues(self) -> None:
         runner = SequenceRunner(
@@ -1331,6 +1521,17 @@ class GitHubIssuesFindTests(unittest.TestCase):
         self.assertIn("issue(number: $number)", query)
         self.assertIn("-F", runner.calls[0][0])
         self.assertIn("number=9", runner.calls[0][0])
+
+    def test_find_does_not_complete_linked_pull_requests(self) -> None:
+        # Resolution keeps only the Issue, so it pays for no display page.
+        runner = SequenceRunner(
+            [completed(issue_response(overflowing_linked_pull_requests(raw_fixture())))]
+        )
+
+        issue = source(runner).find(parse_issue_hint("9"))
+
+        self.assertEqual(expected_fixture(), issue)
+        self.assertEqual(1, len(runner.calls))
 
     def test_find_round_trips_the_printed_issue_url(self) -> None:
         runner = SequenceRunner([completed(issue_response(raw_fixture()))])

@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-09-17
+amended-by: 0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md
 ---
 
 # Retain distinct query and collection adapters
@@ -81,6 +82,12 @@ same parsing/traversal bug in both paths, a new provider demonstrates a shared
 contract, or measurements show material construction/export conversion cost.
 Any future consolidation must preserve the cache and failure distinctions above;
 reducing class or line counts alone is insufficient.
+
+Amended by [ADR 0139](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md)
+([#550](https://github.com/ned2/dashpot/issues/550)): the two Markdown
+traversals had diverged in their Diagnostic codes, duplicate messages and
+decoding, so the Markdown Query Source and the Issue Source now share one
+Local Issue document reader while each keeps its own contract.
 
 ## Verification evidence
 

@@ -1,8 +1,11 @@
 """Exercise page coverage, source scope and portable continuation at the public seam."""
 
 import json
+from contextlib import nullcontext
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import override
+from unittest.mock import patch
 
 import pydantic
 import pytest
@@ -1176,6 +1179,111 @@ def test_markdown_source_that_cannot_observe_has_no_last_good_page(tmp_path):
         path.unlink()
     (tmp_path / "issues").rmdir()
     assert source.query_page(QueryRequest()).page.status == "unavailable"
+
+
+def _refuse_markdown_collection(tmp_path, refusal):
+    """Leave ``markdown(tmp_path)``'s collection in the state ``refusal`` names.
+
+    A refusal the files cannot produce returns the read failure to raise.
+    """
+    directory = tmp_path / "issues"
+    if refusal == "missing":
+        for path in directory.iterdir():
+            path.unlink()
+        directory.rmdir()
+    elif refusal == "outside":
+        outside = tmp_path.parent / f"{tmp_path.name}-outside.md"
+        outside.write_text(
+            local_issue_document(issue_id="I_9", number=9, reference="out", title="Out")
+        )
+        (directory / "outside.md").symlink_to(outside)
+    elif refusal == "malformed":
+        (directory / "4.md").write_text("no front matter\n")
+    elif refusal == "undecodable":
+        (directory / "4.md").write_bytes(b"---\n\xff\n---\n")
+    elif refusal == "profile":
+        (directory / "4.md").write_text(
+            local_issue_document(
+                issue_id="I_4", number=4, reference="four", title="Four", state="lost"
+            )
+        )
+    elif refusal in {"duplicate-identity", "duplicate-number"}:
+        identity, number = ("I_1", 4) if refusal == "duplicate-identity" else ("I_4", 1)
+        (directory / "4.md").write_text(
+            local_issue_document(
+                issue_id=identity, number=number, reference="four", title="Four"
+            )
+        )
+    elif refusal == "vanished":
+        return FileNotFoundError("issues/1.md vanished while it was read")
+    elif refusal == "unreadable":
+        return PermissionError("permission denied")
+    elif refusal == "failing-disk":
+        return OSError("Input/output error")
+    else:
+        raise AssertionError(f"no such refusal: {refusal}")
+    return None
+
+
+@pytest.mark.parametrize(
+    ("refusal", "code"),
+    [
+        ("missing", "markdown-not-found"),
+        ("outside", "markdown-path"),
+        ("malformed", "markdown-malformed"),
+        ("undecodable", "markdown-malformed"),
+        ("profile", "markdown-profile"),
+        ("duplicate-identity", "markdown-duplicate-identity"),
+        ("duplicate-number", "markdown-duplicate-number"),
+        ("vanished", "markdown-not-found"),
+        ("unreadable", "markdown-permission"),
+        ("failing-disk", "markdown-io"),
+    ],
+)
+def test_markdown_pages_and_export_refuse_a_collection_alike(tmp_path, refusal, code):
+    # One enumeration serves both paths, so a page reports the code and the
+    # message the export reports for the same collection.
+    source = markdown(tmp_path)
+    failure = _refuse_markdown_collection(tmp_path, refusal)
+    exporter = MarkdownQuerySource(tmp_path, load_project_config(tmp_path))
+
+    reading = (
+        patch.object(Path, "read_bytes", side_effect=failure)
+        if failure
+        else nullcontext()
+    )
+    with reading:
+        page = source.query_page(QueryRequest()).page
+        export = exporter.enumerate_source("issues")
+
+    assert page.status == export.status == "unavailable"
+    assert [(d.code, d.message) for d in page.diagnostics] == [
+        (d.code, d.message) for d in export.diagnostics
+    ]
+    assert page.diagnostics[0].code == code
+
+
+def test_markdown_pages_and_export_read_a_crlf_document_alike(tmp_path):
+    source = markdown(tmp_path)
+    (tmp_path / "issues" / "4.md").write_bytes(
+        local_issue_document(
+            issue_id="I_4",
+            number=4,
+            reference="four",
+            title="Four",
+            body="First line.\n\nSecond line.",
+        )
+        .replace("\n", "\r\n")
+        .encode()
+    )
+
+    page = source.query_page(QueryRequest(page_size=10)).page
+    export = source.enumerate_source("issues")
+
+    paged = {issue.id: issue for issue in page.issues}
+    exported = {issue.id: issue for issue in export.issues}
+    assert paged == exported
+    assert paged["I_4"].body == "First line.\n\nSecond line."
 
 
 def test_page_failing_after_a_new_principal_never_shows_the_old_one(tmp_path):

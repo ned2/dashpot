@@ -55,6 +55,37 @@ def test_github_origin_initializes_with_resolved_identity(tmp_path: Path) -> Non
     assert messages[0] == f"created {root / '.dashpot' / 'config.json'}"
 
 
+@pytest.mark.parametrize(
+    "origin",
+    ["https://github.com/ned2/dashpot/", "ssh://git@github.com:22/ned2/dashpot.git"],
+)
+def test_github_origin_with_a_trailing_slash_or_a_port_initializes(
+    tmp_path: Path, origin: str
+) -> None:
+    root = init_repository(tmp_path / "repo", origin=origin)
+    calls, runner = gh_runner({"node_id": "R_dashpot", "full_name": "ned2/dashpot"})
+
+    initialize_project(root, runner=runner)
+
+    assert load_config(root).repository_id == "R_dashpot"
+    assert ["gh", "api", "repos/ned2/dashpot"] in calls
+
+
+def test_look_alike_host_is_no_github_origin(tmp_path: Path) -> None:
+    # A host merely ending in github.com must not bind the Project to the
+    # github.com repository that happens to share the owner and name.
+    root = init_repository(
+        tmp_path / "repo", origin="https://notgithub.com/ned2/dashpot"
+    )
+    calls, runner = gh_runner({"node_id": "R_dashpot", "full_name": "ned2/dashpot"})
+
+    with pytest.raises(InitError, match="no GitHub origin remote"):
+        initialize_project(root, runner=runner)
+
+    assert calls == []
+    assert not (root / ".dashpot").exists()
+
+
 def test_markdown_initializes_without_github(git_repository: Path) -> None:
     root = git_repository
 
