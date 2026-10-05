@@ -64,7 +64,7 @@ select machine-local settings. Naming the new file `config.toml` must not
 silently repurpose that option. Relevant boundaries are
 [workspace.py](../../src/dashpot/project/workspace.py),
 [project_config.py](../../src/dashpot/project/project_config.py),
-[cli.py](../../src/dashpot/cli.py), and [integrate](../../src/dashpot/sessions/integrate/).
+[cli/observe.py](../../src/dashpot/cli/observe.py), and [integrate](../../src/dashpot/sessions/integrate/).
 
 ## Parser, validation, and dependencies
 
@@ -217,7 +217,7 @@ are unnecessary for either change.
 | [settings.py](../../src/dashpot/project/settings.py) | Filename, TOML parser, normalized errors, diagnostics, settings-local alias policy |
 | [test_settings.py](../../tests/test_settings.py) | TOML fixtures and format behavior |
 | [test_worktrees.py](../../tests/test_worktrees.py) | Settings diagnostic source fixture and unchanged root precedence |
-| [cli.py](../../src/dashpot/cli.py) | Keep Workspace `--config` meaning; adjust help only if setting names change |
+| [cli/observe.py](../../src/dashpot/cli/observe.py) | Keep Workspace `--config` meaning; adjust help only if setting names change |
 | [README](../../README.md#issue-worktrees), [installation guide](../installation.md), [domain language](../domain-language.md#observation) | Canonical path, setting names, example, file responsibilities, one-time recreation guidance |
 | [ADR 0011](../adr/0011-prepare-issue-worktrees-by-convention.md) | Record a new accepted migration decision and amend the filename convention when implemented |
 | [Issue #146](https://github.com/ned2/dashpot/issues/146) | Update proposed settings syntax and missing/error semantics before implementation |

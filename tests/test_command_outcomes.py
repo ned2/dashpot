@@ -11,6 +11,11 @@ from unittest import mock
 import pytest
 
 from dashpot import cli
+from dashpot.cli import events as cli_events
+from dashpot.cli import init as cli_init
+from dashpot.cli import integrate as cli_integrate
+from dashpot.cli import work as cli_work
+from dashpot.cli import worktrees as cli_worktrees
 from dashpot.core.command_outcomes import (
     OutcomeNote,
     outcome_error,
@@ -113,7 +118,7 @@ def test_a_git_failure_in_a_command_is_recorded_by_class_never_its_output(
         stderr="fatal: '/w/secret' already exists",
     )
 
-    with mock.patch.object(cli, "create_issue_worktree", side_effect=failure):
+    with mock.patch.object(cli_worktrees, "create_issue_worktree", side_effect=failure):
         assert run(events, "worktree", "create", "35") == 2
 
     assert body(outcome(events)) == {
@@ -134,7 +139,7 @@ def test_a_github_failure_in_a_command_is_recorded_by_its_code_never_its_message
         "github-authentication", "gh: token for someone@example.com expired"
     )
 
-    with mock.patch.object(cli, "start_issue_work", side_effect=failure):
+    with mock.patch.object(cli_work, "start_issue_work", side_effect=failure):
         assert run(events, "work", "start", "7") == 2
 
     assert body(outcome(events))["error.type"] == "github-authentication"
@@ -143,7 +148,7 @@ def test_a_github_failure_in_a_command_is_recorded_by_its_code_never_its_message
 
 
 def test_a_created_worktree_names_its_path_branch_and_issue(events: Path) -> None:
-    with mock.patch.object(cli, "create_issue_worktree", return_value=PLAN):
+    with mock.patch.object(cli_worktrees, "create_issue_worktree", return_value=PLAN):
         assert run(events, "worktree", "create", "35") == 0
 
     record = outcome(events)
@@ -168,7 +173,9 @@ def test_a_plans_refusals_are_counted_never_quoted(events: Path) -> None:
         }
     )
 
-    with mock.patch.object(cli, "create_issue_worktree", return_value=refused):
+    with mock.patch.object(
+        cli_worktrees, "create_issue_worktree", return_value=refused
+    ):
         run(events, "worktree", "create", "35", "--dry-run")
 
     record = body(outcome(events))
@@ -182,7 +189,9 @@ def test_a_plans_refusals_are_counted_never_quoted(events: Path) -> None:
 def test_a_planned_worktree_is_recorded_as_planned(events: Path) -> None:
     planned = PLAN.model_copy(update={"dry_run": True, "created": False})
 
-    with mock.patch.object(cli, "create_issue_worktree", return_value=planned):
+    with mock.patch.object(
+        cli_worktrees, "create_issue_worktree", return_value=planned
+    ):
         assert run(events, "worktree", "create", "35", "--dry-run") == 0
 
     assert body(outcome(events))["dashpot.outcome.action"] == "planned"
@@ -235,7 +244,7 @@ def test_a_branch_deletion_records_how_it_came_out(
     preview = cleanup_preview("branch", cleanup_target("local-branch"))
     report = cleanup_report(preview, **report_changes)
 
-    with mock.patch.object(cli, "run_cleanup", return_value=report):
+    with mock.patch.object(cli_worktrees, "run_cleanup", return_value=report):
         run(events, "branch", "delete", "feat", "--local")
 
     record = body(outcome(events))
@@ -281,7 +290,7 @@ def test_a_worktree_removal_names_the_worktree_it_removed(
         ),
     )
 
-    with mock.patch.object(cli, "run_cleanup", return_value=report):
+    with mock.patch.object(cli_worktrees, "run_cleanup", return_value=report):
         assert run(events, "worktree", "remove", "../x") == 0
 
     assert body(outcome(events)) == {
@@ -305,7 +314,9 @@ def test_a_worktree_removal_names_the_worktree_it_removed(
 def test_an_integration_records_its_harness_and_what_it_did(
     events: Path, flags: tuple[str, ...], patched: str, action: str
 ) -> None:
-    with mock.patch.object(cli, patched, return_value=["done at /home/someone"]):
+    with mock.patch.object(
+        cli_integrate, patched, return_value=["done at /home/someone"]
+    ):
         assert run(events, "integrate", "claude-code", *flags) == 0
 
     assert body(outcome(events)) == {
@@ -326,7 +337,7 @@ def test_an_integration_across_harnesses_counts_the_harnesses_refused(
         HarnessReport("codex", "refused", note="refused", error="no /home/someone"),
         HarnessReport("opencode", "refused", note="refused", error="v1"),
     ]
-    with mock.patch.object(cli, "refresh_integrations", return_value=reports):
+    with mock.patch.object(cli_integrate, "refresh_integrations", return_value=reports):
         assert run(events, "integrate", "--installed") == 2
 
     assert body(outcome(events)) == {
@@ -346,7 +357,7 @@ def test_an_integration_across_harnesses_left_incomplete_is_a_failure(
         HarnessReport("codex", "incomplete", note="incomplete", error="disk full"),
         HarnessReport("opencode", "partial", ("left unchanged",), "partial"),
     ]
-    with mock.patch.object(cli, "install_integrations", return_value=reports):
+    with mock.patch.object(cli_integrate, "install_integrations", return_value=reports):
         assert run(events, "integrate", "codex", "opencode") == 2
 
     assert body(outcome(events)) == {
@@ -361,7 +372,7 @@ def test_an_integration_that_changed_no_harness_records_no_action(
     events: Path,
 ) -> None:
     reports = [HarnessReport("codex", "not integrated", note="not integrated")]
-    with mock.patch.object(cli, "refresh_integrations", return_value=reports):
+    with mock.patch.object(cli_integrate, "refresh_integrations", return_value=reports):
         assert run(events, "integrate", "--installed") == 0
 
     assert body(outcome(events)) == {
@@ -372,7 +383,9 @@ def test_an_integration_that_changed_no_harness_records_no_action(
 
 
 def test_init_names_the_checkout_it_initialized(events: Path, tmp_path: Path) -> None:
-    with mock.patch.object(cli, "initialize_project", return_value=["wrote config"]):
+    with mock.patch.object(
+        cli_init, "initialize_project", return_value=["wrote config"]
+    ):
         assert run(events, "init") == 0
 
     assert body(outcome(events)) == {
@@ -399,7 +412,7 @@ def test_init_names_the_project_it_declared(
         write_project_config(repository, project_id="project:declared")
         return ["wrote config"]
 
-    with mock.patch.object(cli, "initialize_project", side_effect=declare):
+    with mock.patch.object(cli_init, "initialize_project", side_effect=declare):
         assert run(events, "init") == 0
 
     lines = [json.loads(line) for line in written_text(events).splitlines()]
@@ -433,7 +446,7 @@ def test_a_checkout_whose_configuration_cannot_be_read_names_no_project(
     write_config_marker(tmp_path)
     destination = EventLogDestination(events, checkout=tmp_path)
 
-    with mock.patch.object(cli, "install_integration", return_value=["done"]):
+    with mock.patch.object(cli_integrate, "install_integration", return_value=["done"]):
         assert cli.main(["integrate", "claude-code"], event_log=destination) == 0
 
     record = outcome(events)
@@ -443,7 +456,9 @@ def test_a_checkout_whose_configuration_cannot_be_read_names_no_project(
 
 def test_a_command_that_crashes_records_a_failure_by_class(events: Path) -> None:
     with (
-        mock.patch.object(cli, "initialize_project", side_effect=KeyError("secret")),
+        mock.patch.object(
+            cli_init, "initialize_project", side_effect=KeyError("secret")
+        ),
         pytest.raises(KeyError),
     ):
         run(events, "init")
@@ -463,7 +478,7 @@ def test_the_outcome_names_the_session_and_issue_the_command_worked_for(
         outcome.action = "started"
         return ["started work on #7"]
 
-    with mock.patch.object(cli, "start_issue_work", side_effect=start):
+    with mock.patch.object(cli_work, "start_issue_work", side_effect=start):
         assert run(events, "work", "start", "7") == 0
 
     lines = [json.loads(line) for line in written_text(events).splitlines()]
@@ -502,8 +517,8 @@ def test_an_event_log_removal_names_the_directory_it_acted_on(
     )
 
     with (
-        mock.patch.object(cli, "owned_event_log", return_value=target),
-        mock.patch.object(cli, "remove_event_logs", return_value=removal),
+        mock.patch.object(cli_events, "owned_event_log", return_value=target),
+        mock.patch.object(cli_events, "remove_event_logs", return_value=removal),
     ):
         assert run(events, "events", "remove", "--before", "2026-09-01", *flags) == 0
 
@@ -538,8 +553,8 @@ def test_an_event_log_removal_that_left_a_file_is_recorded_as_failed(
     )
 
     with (
-        mock.patch.object(cli, "owned_event_log", return_value=target),
-        mock.patch.object(cli, "remove_event_logs", return_value=removal),
+        mock.patch.object(cli_events, "owned_event_log", return_value=target),
+        mock.patch.object(cli_events, "remove_event_logs", return_value=removal),
     ):
         assert run(events, "events", "remove", "--before", "2026-09-01") == 2
 
@@ -553,7 +568,7 @@ def test_an_event_log_removal_with_nowhere_to_remove_from_is_refused(
     events: Path,
 ) -> None:
     nowhere = EventLogError("no Event Log for this directory")
-    with mock.patch.object(cli, "owned_event_log", side_effect=nowhere):
+    with mock.patch.object(cli_events, "owned_event_log", side_effect=nowhere):
         assert run(events, "events", "remove", "--before", "2026-09-01") == 2
 
     assert body(outcome(events)) == {

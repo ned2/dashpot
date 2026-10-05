@@ -234,6 +234,11 @@ def create_collector(
     )
 
 
+def command_query_source(directory: Path, *, timeout: float) -> QuerySource:
+    """The configured Query Source of the Worktree ``directory`` lies in, for one command."""
+    return configured_query_source(worktree_root(directory), timeout=timeout)
+
+
 def create_query_sources(
     collector: ObservationCoordinator,
     latest_rate_limit: LatestRateLimit | None = None,

@@ -29,10 +29,11 @@ visible in the CLI's contract:
 
 - **Shared options are repeated on each command, not hoisted into a meta
   app.** `--timeout` and its siblings are declared per command as the shared
-  `_Timeout` annotation. An option therefore belongs to the command it
-  follows: `dashpot init --timeout 5`, never `dashpot --timeout 5 init`. The
-  meta-app launcher would let a known option appear anywhere in the token
-  stream, which reads as a global flag Dashpot does not have.
+  `Timeout` annotation of `cli/shared.py`. An option therefore belongs to the
+  command it follows: `dashpot init --timeout 5`, never
+  `dashpot --timeout 5 init`. The meta-app launcher would let a known option
+  appear anywhere in the token stream, which reads as a global flag Dashpot
+  does not have.
 - **Dashpot owns its exit codes.** `main()` calls the app with
   `exit_on_error=False` and `result_action="return_int_as_exit_code_else_zero"`
   and translates `CycloptsError` itself, so every command failure — invalid
@@ -40,10 +41,12 @@ visible in the CLI's contract:
   `dashpot: <message>` line on stderr and exit 2, with no traceback and no
   usage dump. Cyclopts' own default would exit 1 on a usage error and call
   `sys.exit` from inside the parse.
-- **`cli.py` keeps `from __future__ import annotations`, and every CLI
-  parameter type stays importable at module scope.** Cyclopts resolves
-  signatures with `typing.get_type_hints`, so a `TYPE_CHECKING`-only import of
-  a parameter type would fail at parse time rather than at type-check time.
+- **Every module of the `cli` package keeps `from __future__ import
+  annotations`, and every CLI parameter type stays importable at the module
+  scope of the command that takes it.** Cyclopts resolves signatures with
+  `typing.get_type_hints` against the defining module's globals, so a
+  `TYPE_CHECKING`-only import of a parameter type would fail at parse time
+  rather than at type-check time.
 
 ## Considered options
 

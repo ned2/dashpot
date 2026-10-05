@@ -96,7 +96,14 @@ agree on the Integration Branch by construction, and a test proves it.
 Root-level `composition.py` owns observation options, collector and Query Source
 construction, configured Cleanup protection, and preview/select/perform
 orchestration returning a report. The CLI retains argument parsing, commands,
-rendering, and exit-status mapping. Composition never imports the CLI. This is
+rendering, and exit-status mapping. `sessions/integrate/arguments.py` owns
+[ADR 0111](0111-integrate-several-harnesses-and-every-integrated-one-in-one-command.md)'s
+rules for `dashpot integrate`: which arguments it refuses, and what its
+harnesses' reports total to; the CLI maps those to its outcome and exit
+status. The dashboard's own collaborators (its
+attendance, the Remote Fetch and Cleanup adapters, and the Worktree launcher
+configuration) are assembled by `ui/launch.py` around the collector and Query
+Sources composition builds. Composition never imports the CLI. This is
 an intentional root-level file beside the entry points and serialization.
 The coordinator's `query_driven` flag names the existing mode in which source
 pages are observed separately from local Repository State and Agent Runs;
@@ -135,8 +142,9 @@ installed distributions.
 
 The ownership map below accounts for every shipped Python module. Package
 initializers belong to their package; they are empty except the documented
-Cleanup facade. Root `__init__.py` retains its existing public exports. Root
-`__main__.py`, `cli.py`, and `hook.py` are entry points, `composition.py` wires
+Cleanup facade and the `cli` package's, which re-exports `main`. Root
+`__init__.py` retains its existing public exports. Root `__main__.py`, the
+`cli` package, and `hook.py` are entry points, `composition.py` wires
 the application, and `serialization.py` owns published output. The only root
 assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
 
@@ -150,7 +158,7 @@ assets are `dashpot.tcss` and `py.typed`; `skills/` holds the bundled workflow.
 | `queries` | `github_queries`, `markdown_queries`, `page_navigation`, `query_source`, `source_queries` |
 | `repository` | `cleanup/adapter`, `cleanup/obstacles`, `cleanup/perform`, `cleanup/preview`, `cleanup/selection`, `cleanup/targets`, `fetch`, `repository`, `worktree_launcher`, `worktrees/base`, `worktrees/create`, `worktrees/records`, `worktrees/removability` |
 | `sessions` | `agent_bindings`, `agents`, `harnesses`, `hook_claims`, `hook_publish`, `hook_records`, `hook_scan`, `integrate`, `liveness`, `processes`, `session_labels`, `session_matching`, `work`, `work_reconciliation`, `work_store` |
-| `ui` | `alerts`, `app`, `branch_cells`, `cleanup_flow`, `cleanup_view`, `column_editor`, `detail_fields`, `fetch_flow`, `focus_table`, `glyphs`, `issue_cells`, `issue_table`, `issue_table_controller`, `issue_view`, `item_filter`, `keyed_table`, `legend`, `list_pane`, `list_queries`, `list_rows`, `marked_widgets`, `messages`, `observation_runner`, `page_runner`, `pane_layout`, `panes`, `pull_request_cells`, `session_cells`, `spread_table`, `worktree_cells`, `worktree_table` |
+| `ui` | `alerts`, `app`, `branch_cells`, `cleanup_flow`, `cleanup_view`, `column_editor`, `detail_fields`, `fetch_flow`, `focus_table`, `glyphs`, `issue_cells`, `issue_table`, `issue_table_controller`, `issue_view`, `item_filter`, `keyed_table`, `launch`, `legend`, `list_pane`, `list_queries`, `list_rows`, `marked_widgets`, `messages`, `observation_runner`, `page_runner`, `pane_layout`, `panes`, `pull_request_cells`, `session_cells`, `spread_table`, `worktree_cells`, `worktree_table` |
 
 ## Package layering
 
@@ -195,7 +203,12 @@ a `_private` name from another. The layers, from the fan-in floor up:
   longer loads `ui` or Textual to name the configured Query Sources; the
   boundary test covers that path.
 - `sessions`, `repository`, `observation`, and `ui` follow in that order; the
-  root entry points sit above them all.
+  root entry points sit above them all. The `cli` entry point is a package
+  only to hold one module per command group
+  ([#552](https://github.com/ned2/dashpot/issues/552)), so the boundary test
+  counts it in that root layer. It imports `ui` only inside the default
+  command, through `ui/launch.py`, once it opens the dashboard, so no other
+  command loads Textual; the boundary test covers that path too.
 
 `observation_store.StoreState` is the public revision the store commits and
 `PagedObservationStore` extends; it was the private `_StoreState` the

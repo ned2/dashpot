@@ -16,6 +16,10 @@ from cyclopts import CycloptsError
 from textual.app import App
 
 from dashpot import cli, event_logs, hook
+from dashpot.cli import observe as cli_observe
+from dashpot.cli import root as cli_root
+from dashpot.cli import shared as cli_shared
+from dashpot.cli import work as cli_work
 from dashpot.core import state_paths
 from dashpot.core.event_log import (
     DASHBOARD_KIND,
@@ -34,6 +38,7 @@ from dashpot.event_logs import (
 )
 from dashpot.github.github import GitHubRequestError
 from dashpot.sessions.hook_publish import HookPublication
+from dashpot.ui import launch
 from factories import init_repository, write_project_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -293,7 +298,7 @@ def test_a_log_opened_in_a_checkout_names_its_worktree(
 def test_a_command_line_runs_as_its_process_kind(
     tokens: list[str], kind: str, subcommand: str | None
 ) -> None:
-    assert cli.process_kind(tokens) == (kind, subcommand)
+    assert cli_root.process_kind(tokens) == (kind, subcommand)
 
 
 def test_a_command_records_its_start_and_exit_status(
@@ -304,9 +309,9 @@ def test_a_command_records_its_start_and_exit_status(
 
     with (
         mock.patch.object(
-            cli, "show_issue_work", return_value=["no active Issue work"]
+            cli_work, "show_issue_work", return_value=["no active Issue work"]
         ),
-        mock.patch.object(cli, "show_session_events", return_value=[]),
+        mock.patch.object(cli_work, "show_session_events", return_value=[]),
     ):
         assert cli.main(["work", "show"], event_log=EventLogDestination(tmp_path)) == 0
     assert cli.main(["work", "nope"], event_log=EventLogDestination(tmp_path)) == 2
@@ -331,13 +336,13 @@ def test_a_command_that_crashes_leaves_no_process_end(
     monkeypatch.setenv(LEVEL_VARIABLE, "standard")
 
     with (
-        mock.patch.object(cli, "show_issue_work", side_effect=AssertionError),
+        mock.patch.object(cli_work, "show_issue_work", side_effect=AssertionError),
         pytest.raises(AssertionError),
     ):
         cli.main(["work", "show"], event_log=EventLogDestination(tmp_path))
 
     assert [event["event.name"] for event in written(tmp_path)] == ["process.start"]
-    assert cli._EVENT_LOG.get() is None
+    assert cli_shared.EVENT_LOG.get() is None
 
 
 def test_an_interrupted_command_ends_with_its_exit_status(
@@ -346,7 +351,7 @@ def test_an_interrupted_command_ends_with_its_exit_status(
     monkeypatch.setenv(LEVEL_VARIABLE, "standard")
 
     with (
-        mock.patch.object(cli, "show_issue_work", side_effect=KeyboardInterrupt),
+        mock.patch.object(cli_work, "show_issue_work", side_effect=KeyboardInterrupt),
         pytest.raises(SystemExit),
     ):
         cli.main(["work", "show"], event_log=EventLogDestination(tmp_path))
@@ -359,7 +364,7 @@ def test_an_interrupted_command_ends_with_its_exit_status(
 
 @pytest.mark.parametrize(("code", "status"), [(None, 0), (3, 3), ("a message", 1)])
 def test_an_exit_status_follows_python(code: object, status: int) -> None:
-    assert cli.exit_status(SystemExit(code)) == status
+    assert cli_root.exit_status(SystemExit(code)) == status
 
 
 def test_the_dashboard_is_handed_the_command_lines_event_log(
@@ -373,9 +378,9 @@ def test_the_dashboard_is_handed_the_command_lines_event_log(
         return mock.Mock()
 
     with (
-        mock.patch.object(cli, "create_collector"),
-        mock.patch.object(cli, "create_query_sources", return_value={}),
-        mock.patch.object(cli, "DashpotApp", side_effect=app),
+        mock.patch.object(cli_observe, "create_collector"),
+        mock.patch.object(cli_observe, "create_query_sources", return_value={}),
+        mock.patch.object(launch, "DashpotApp", side_effect=app),
     ):
         assert (
             cli.main(["--workspace", "/repo"], event_log=EventLogDestination(tmp_path))
@@ -391,7 +396,7 @@ def test_the_dashboard_is_handed_the_command_lines_event_log(
         "process.start",
         "process.end",
     ]
-    assert cli._EVENT_LOG.get() is None
+    assert cli_shared.EVENT_LOG.get() is None
 
 
 class CrashingDashboard(App[None]):
@@ -415,9 +420,9 @@ def test_a_crashed_dashboard_exits_1_and_records_it(
     monkeypatch.setenv(LEVEL_VARIABLE, "standard")
 
     with (
-        mock.patch.object(cli, "create_collector"),
-        mock.patch.object(cli, "create_query_sources", return_value={}),
-        mock.patch.object(cli, "DashpotApp", CrashingDashboard),
+        mock.patch.object(cli_observe, "create_collector"),
+        mock.patch.object(cli_observe, "create_query_sources", return_value={}),
+        mock.patch.object(launch, "DashpotApp", CrashingDashboard),
     ):
         code = cli.main(
             ["--workspace", "/repo"], event_log=EventLogDestination(tmp_path)
@@ -673,9 +678,9 @@ def test_a_command_line_that_cannot_be_parsed_opens_no_dashboard() -> None:
     # Cyclopts parses leniently today; a stricter release must still leave
     # the usage error to dispatch rather than fail before it.
     with mock.patch.object(
-        type(cli.app), "parse_commands", side_effect=CycloptsError(msg="bad")
+        type(cli_root.app), "parse_commands", side_effect=CycloptsError(msg="bad")
     ):
-        assert cli.process_kind([]) == ("command:observe", "observe")
+        assert cli_root.process_kind([]) == ("command:observe", "observe")
 
 
 def test_with_no_home_directory_a_hook_records_nowhere_and_carries_on(

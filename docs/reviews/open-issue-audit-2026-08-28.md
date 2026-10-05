@@ -54,7 +54,7 @@ Workspaces only as secondary composition
 - loads `PROJECT_CONFIG_NAME = ".dashpot.json"`
   ([project_config.py](../../src/dashpot/project/project_config.py));
 - discovers that filename in no-argument CLI startup and exposes a global
-  `--state-dir` override ([cli.py](../../src/dashpot/cli.py));
+  `--state-dir` override ([cli/observe.py](../../src/dashpot/cli/observe.py));
 - publishes all Codex records to a platform-global application-state directory
   by default ([agents.py](../../src/dashpot/sessions/agents.py));
 - documents both old locations ([README.md](../../README.md)); and

@@ -13,6 +13,7 @@ import pytest
 from pydantic import Field
 
 from dashpot import cli, event_logs
+from dashpot.cli import events as cli_events
 from dashpot.core import runtime_events
 from dashpot.core.event_log import (
     DASHBOARD_KIND,
@@ -353,12 +354,12 @@ def test_an_unreadable_since_is_refused_as_usage(
 
 
 def test_a_since_instant_without_an_offset_is_utc() -> None:
-    assert cli.parse_since("2026-09-27T14:00:00") == datetime(
+    assert cli_events.parse_since("2026-09-27T14:00:00") == datetime(
         2026, 9, 27, 14, tzinfo=UTC
     )
-    assert cli.parse_since("2026-09-27") == datetime(2026, 9, 27, tzinfo=UTC)
-    assert cli.parse_since("90m", MIDDAY) == MIDDAY - timedelta(minutes=90)
-    assert cli.parse_since("7d", MIDDAY) == MIDDAY - timedelta(days=7)
+    assert cli_events.parse_since("2026-09-27") == datetime(2026, 9, 27, tzinfo=UTC)
+    assert cli_events.parse_since("90m", MIDDAY) == MIDDAY - timedelta(minutes=90)
+    assert cli_events.parse_since("7d", MIDDAY) == MIDDAY - timedelta(days=7)
 
 
 def test_events_report_unreadable_lines_and_read_the_rest(

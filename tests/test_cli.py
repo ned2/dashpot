@@ -13,6 +13,13 @@ import pytest
 from rich.console import Console
 
 from dashpot import cli, composition
+from dashpot.cli import init as cli_init
+from dashpot.cli import integrate as cli_integrate
+from dashpot.cli import observe as cli_observe
+from dashpot.cli import root as cli_root
+from dashpot.cli import sources as cli_sources
+from dashpot.cli import work as cli_work
+from dashpot.cli import worktrees as cli_worktrees
 from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.errors import DashpotError
 from dashpot.core.event_log import EventLogDestination
@@ -68,6 +75,7 @@ from dashpot.sessions.integrate import (
 )
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
 from dashpot.sessions.session_identity import IssueWorkError
+from dashpot.ui import launch
 from factories import git, init_repository, write_config_marker, write_project_config
 from helpers import issue_payload, table_lookup
 from test_cleanup import (
@@ -94,8 +102,8 @@ def project(root: Path) -> ResolvedProject:
 
 
 def test_workspace_argument_accepts_named_and_bare_paths(tmp_path: Path) -> None:
-    named = cli.parse_workspace_argument(f"portable={tmp_path}")
-    bare = cli.parse_workspace_argument(str(tmp_path))
+    named = cli_observe.parse_workspace_argument(f"portable={tmp_path}")
+    bare = cli_observe.parse_workspace_argument(str(tmp_path))
 
     assert named == Workspace("portable", (RepositoryAnchor(str(tmp_path)),))
     assert bare == Workspace(tmp_path.name, (RepositoryAnchor(str(tmp_path)),))
@@ -106,7 +114,7 @@ def test_workspace_argument_infers_name_from_resolved_dot_path(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    workspace = cli.parse_workspace_argument(".")
+    workspace = cli_observe.parse_workspace_argument(".")
 
     assert workspace == Workspace(tmp_path.name, (RepositoryAnchor(str(tmp_path)),))
 
@@ -114,7 +122,7 @@ def test_workspace_argument_infers_name_from_resolved_dot_path(
 @pytest.mark.parametrize("value", ["", "=", "name=", "=/anchor", " =/anchor", "/"])
 def test_workspace_argument_rejects_incomplete_values(value: str) -> None:
     with pytest.raises(ValueError, match="workspace must be"):
-        cli.parse_workspace_argument(value)
+        cli_observe.parse_workspace_argument(value)
 
 
 def test_no_argument_cli_defaults_to_configured_current_project(
@@ -268,7 +276,7 @@ def test_json_mode_prints_snapshot() -> None:
 
     with (
         mock.patch.object(
-            cli, "create_collector", return_value=collector
+            cli_observe, "create_collector", return_value=collector
         ) as create_collector,
         mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
     ):
@@ -298,12 +306,12 @@ def test_tui_mode_constructs_a_recurring_collector(
 
     with (
         mock.patch.object(
-            cli, "create_collector", return_value=collector
+            cli_observe, "create_collector", return_value=collector
         ) as create_collector,
         mock.patch.object(
-            cli, "create_query_sources", return_value=sources
+            cli_observe, "create_query_sources", return_value=sources
         ) as create_query_sources,
-        mock.patch.object(cli, "DashpotApp") as app,
+        mock.patch.object(launch, "DashpotApp") as app,
     ):
         result = cli.main(["--workspace", "/repo"])
 
@@ -347,9 +355,9 @@ def test_tui_mode_paces_each_refresh_from_its_flag_or_setting(
     sources = {key: source_of("github") for key in QUERY_SOURCE_KEYS}
 
     with (
-        mock.patch.object(cli, "create_collector") as create_collector,
-        mock.patch.object(cli, "create_query_sources", return_value=sources),
-        mock.patch.object(cli, "DashpotApp") as app,
+        mock.patch.object(cli_observe, "create_collector") as create_collector,
+        mock.patch.object(cli_observe, "create_query_sources", return_value=sources),
+        mock.patch.object(launch, "DashpotApp") as app,
     ):
         assert cli.main(["--workspace", "/repo", *argv]) == 0
 
@@ -375,9 +383,9 @@ def test_tui_mode_watches_attendance_from_its_flag_or_setting(
     sources = {key: source_of("github") for key in QUERY_SOURCE_KEYS}
 
     with (
-        mock.patch.object(cli, "create_collector"),
-        mock.patch.object(cli, "create_query_sources", return_value=sources),
-        mock.patch.object(cli, "DashpotApp") as app,
+        mock.patch.object(cli_observe, "create_collector"),
+        mock.patch.object(cli_observe, "create_query_sources", return_value=sources),
+        mock.patch.object(launch, "DashpotApp") as app,
     ):
         assert cli.main(["--workspace", "/repo", *argv]) == 0
 
@@ -395,9 +403,9 @@ def test_tui_mode_without_tmux_watches_only_idleness(
     sources = {key: source_of("github") for key in QUERY_SOURCE_KEYS}
 
     with (
-        mock.patch.object(cli, "create_collector"),
-        mock.patch.object(cli, "create_query_sources", return_value=sources),
-        mock.patch.object(cli, "DashpotApp") as app,
+        mock.patch.object(cli_observe, "create_collector"),
+        mock.patch.object(cli_observe, "create_query_sources", return_value=sources),
+        mock.patch.object(launch, "DashpotApp") as app,
     ):
         assert cli.main(["--workspace", "/repo"]) == 0
 
@@ -414,9 +422,9 @@ def test_tui_mode_without_a_github_query_source_never_pauses(
     sources = {key: source_of("local-markdown") for key in QUERY_SOURCE_KEYS}
 
     with (
-        mock.patch.object(cli, "create_collector"),
-        mock.patch.object(cli, "create_query_sources", return_value=sources),
-        mock.patch.object(cli, "DashpotApp") as app,
+        mock.patch.object(cli_observe, "create_collector"),
+        mock.patch.object(cli_observe, "create_query_sources", return_value=sources),
+        mock.patch.object(launch, "DashpotApp") as app,
     ):
         assert cli.main(["--workspace", "/repo"]) == 0
 
@@ -558,7 +566,7 @@ def test_a_dashboard_with_no_project_resolved_opens_with_its_anchor_diagnostics(
     monkeypatch.chdir(configured / "src")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 
-    with mock.patch.object(cli, "DashpotApp") as app:
+    with mock.patch.object(launch, "DashpotApp") as app:
         app.return_value.return_code = None
         assert cli.main(["--workspace", str(tmp_path / "missing")]) == 0
 
@@ -577,7 +585,7 @@ def test_compact_json_mode_has_no_recurring_polling_schedule() -> None:
 
     with (
         mock.patch.object(
-            cli, "create_collector", return_value=collector
+            cli_observe, "create_collector", return_value=collector
         ) as create_collector,
         mock.patch("sys.stdout", new_callable=io.StringIO),
     ):
@@ -595,7 +603,9 @@ def test_compact_json_mode_has_no_recurring_polling_schedule() -> None:
 def test_cli_reports_startup_error_without_traceback() -> None:
     with (
         mock.patch.object(
-            cli, "create_collector", side_effect=ProjectConfigError("bad config")
+            cli_observe,
+            "create_collector",
+            side_effect=ProjectConfigError("bad config"),
         ),
         mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
     ):
@@ -608,37 +618,49 @@ def test_cli_reports_startup_error_without_traceback() -> None:
 @pytest.mark.parametrize(
     ("argv", "seam", "error"),
     [
-        (["--json"], "create_collector", ProjectConfigError("bad config")),
-        (["--json"], "create_collector", DashpotError("stated refusal")),
         (
             ["--json"],
-            "create_collector",
+            "dashpot.cli.observe.create_collector",
+            ProjectConfigError("bad config"),
+        ),
+        (
+            ["--json"],
+            "dashpot.cli.observe.create_collector",
+            DashpotError("stated refusal"),
+        ),
+        (
+            ["--json"],
+            "dashpot.cli.observe.create_collector",
             GitError(("rev-parse", "--show-toplevel"), Path("/r"), detail="no git"),
         ),
-        (["issue", "show", "9"], "show_issue", IssueProfileError("Issue 9 incomplete")),
         (
             ["issue", "show", "9"],
-            "show_issue",
+            "dashpot.cli.sources.show_issue",
+            IssueProfileError("Issue 9 incomplete"),
+        ),
+        (
+            ["issue", "show", "9"],
+            "dashpot.cli.sources.show_issue",
             IssueSourceRefreshError("github-profile", "malformed Issue node"),
         ),
         (
             ["issue", "show", "9"],
-            "show_issue",
+            "dashpot.cli.sources.show_issue",
             LocalMarkdownIssueError("malformed Local Issue document"),
         ),
         (
             ["issue", "show", "9"],
-            "show_issue",
+            "dashpot.cli.sources.show_issue",
             IssueSourceRefreshError("gh-failed", "gh exited 1"),
         ),
         (
             ["work", "start", "9"],
-            "start_issue_work",
+            "dashpot.cli.work.start_issue_work",
             DashpotError("no supported agent session encloses this command"),
         ),
         (
             ["worktree", "check", "/nowhere"],
-            "check_worktree",
+            "dashpot.cli.worktrees.check_worktree",
             CleanupError("/nowhere is not a Worktree"),
         ),
     ],
@@ -655,7 +677,7 @@ def test_every_error_family_is_one_line_and_exits_two(
     # on stderr, nothing on stdout, exit 2, no traceback — per error family.
     monkeypatch.chdir(tmp_path)
 
-    with mock.patch.object(cli, seam, side_effect=error):
+    with mock.patch(seam, side_effect=error):
         assert cli.main(argv) == 2
 
     captured = capsys.readouterr()
@@ -723,11 +745,11 @@ def test_an_absolute_workspace_needs_no_working_directory(
 ) -> None:
     remove_working_directory(tmp_path, monkeypatch)
 
-    assert cli.parse_workspace_argument(str(tmp_path)) == Workspace(
+    assert cli_observe.parse_workspace_argument(str(tmp_path)) == Workspace(
         tmp_path.name, (RepositoryAnchor(str(tmp_path)),)
     )
     with pytest.raises(WorkingDirectoryError):
-        cli.parse_workspace_argument("relative")
+        cli_observe.parse_workspace_argument("relative")
 
 
 def test_an_unreadable_working_directory_is_refused_with_its_reason() -> None:
@@ -743,7 +765,9 @@ def test_a_refusal_without_text_is_named_by_its_type(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    with mock.patch.object(cli, "show_issue", side_effect=IssueResolutionError()):
+    with mock.patch.object(
+        cli_sources, "show_issue", side_effect=IssueResolutionError()
+    ):
         assert cli.main(["issue", "show", "1"]) == 2
 
     assert capsys.readouterr().err == "dashpot: IssueResolutionError\n"
@@ -814,7 +838,7 @@ def test_a_programmer_fault_is_not_stated_as_a_refusal(
 
     with (
         mock.patch.object(
-            cli, "create_collector", side_effect=RuntimeError("closed union")
+            cli_observe, "create_collector", side_effect=RuntimeError("closed union")
         ),
         pytest.raises(RuntimeError, match="closed union"),
     ):
@@ -870,7 +894,7 @@ def test_init_command_prints_messages_and_exits_cleanly(
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(
-        cli, "initialize_project", return_value=["created config"]
+        cli_init, "initialize_project", return_value=["created config"]
     ) as init:
         code = cli.main(["init", "--markdown", "issues"])
 
@@ -889,7 +913,7 @@ def test_init_command_reports_errors_like_observation(
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(
-        cli,
+        cli_init,
         "initialize_project",
         side_effect=InitError("already configured"),
     ):
@@ -907,7 +931,7 @@ def test_work_start_dispatches_with_reference_and_timeout(
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(
-        cli, "start_issue_work", return_value=["started work on #7"]
+        cli_work, "start_issue_work", return_value=["started work on #7"]
     ) as start:
         code = cli.main(["work", "start", "#7"])
 
@@ -927,7 +951,7 @@ def test_work_relocate_dispatches_with_the_target_worktree(
     target = tmp_path / "linked"
 
     with mock.patch.object(
-        cli, "relocate_issue_work", return_value=["prepared relocation"]
+        cli_work, "relocate_issue_work", return_value=["prepared relocation"]
     ) as relocate:
         code = cli.main(["work", "relocate", str(target)])
 
@@ -946,7 +970,7 @@ def test_work_forget_subagents_dispatches_with_the_session(
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(
-        cli, "forget_session_subagents", return_value=["forgot 1 sub-agent"]
+        cli_work, "forget_session_subagents", return_value=["forgot 1 sub-agent"]
     ) as forget:
         assert cli.main(["work", "forget-subagents", "0199-lead"]) == 0
         assert (
@@ -976,7 +1000,7 @@ def test_work_forget_subagents_fails_when_a_record_changed_meanwhile(
         outcome.incomplete = True
         return ["the record changed while it was read"]
 
-    with mock.patch.object(cli, "forget_session_subagents", side_effect=changed):
+    with mock.patch.object(cli_work, "forget_session_subagents", side_effect=changed):
         assert cli.main(["work", "forget-subagents", "0199-lead"]) == 2
 
     assert "changed while it was read" in capsys.readouterr().out
@@ -990,7 +1014,7 @@ def test_work_assign_and_unassign_dispatch_with_the_worker(
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(
-        cli, "assign_worker", return_value=["assigned Worker agent-1 to #7"]
+        cli_work, "assign_worker", return_value=["assigned Worker agent-1 to #7"]
     ) as assign:
         assert (
             cli.main(
@@ -1009,7 +1033,7 @@ def test_work_assign_and_unassign_dispatch_with_the_worker(
     assert "assigned Worker agent-1 to #7" in capsys.readouterr().out
 
     with mock.patch.object(
-        cli, "unassign_worker", return_value=["unassigned Worker agent-1 from #7"]
+        cli_work, "unassign_worker", return_value=["unassigned Worker agent-1 from #7"]
     ) as unassign:
         assert cli.main(["work", "unassign", "agent-1"]) == 0
     unassign.assert_called_once_with(Path.cwd().resolve(), "agent-1", outcome=mock.ANY)
@@ -1024,7 +1048,7 @@ def test_work_assign_refusal_is_reported_without_traceback(
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(
-        cli,
+        cli_work,
         "assign_worker",
         side_effect=IssueWorkError("lists no Sub-agent agent-1 as working"),
     ):
@@ -1044,7 +1068,7 @@ def test_work_stop_and_show_dispatch(
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(
-        cli, "stop_issue_work", return_value=["stopped work on #7"]
+        cli_work, "stop_issue_work", return_value=["stopped work on #7"]
     ) as stop:
         assert cli.main(["work", "stop"]) == 0
     stop.assert_called_once_with(
@@ -1052,7 +1076,7 @@ def test_work_stop_and_show_dispatch(
     )
 
     with mock.patch.object(
-        cli, "stop_issue_work", return_value=["stopped orphaned work on #7"]
+        cli_work, "stop_issue_work", return_value=["stopped orphaned work on #7"]
     ) as stop:
         assert cli.main(["work", "stop", "--session", "codex-42-abcd1234"]) == 0
     stop.assert_called_once_with(
@@ -1061,10 +1085,10 @@ def test_work_stop_and_show_dispatch(
 
     with (
         mock.patch.object(
-            cli, "show_issue_work", return_value=["no active Issue work"]
+            cli_work, "show_issue_work", return_value=["no active Issue work"]
         ) as show,
         mock.patch.object(
-            cli,
+            cli_work,
             "show_session_events",
             return_value=["recent events of codex pid 42:", "  an event"],
         ) as recent,
@@ -1086,7 +1110,7 @@ def test_work_errors_are_reported_without_traceback(
     monkeypatch.chdir(tmp_path)
 
     with mock.patch.object(
-        cli,
+        cli_work,
         "start_issue_work",
         side_effect=IssueWorkError("no supported agent session"),
     ):
@@ -1116,21 +1140,23 @@ def test_issue_show_prints_lines_or_the_issue_profile_json(
     )
     issue = conform_issue(payload)
 
-    with mock.patch.object(cli, "show_issue", return_value=issue) as show:
+    with mock.patch.object(cli_sources, "show_issue", return_value=issue) as show:
         assert cli.main(["issue", "show", "35"]) == 0
     show.assert_called_once_with(Path.cwd().resolve(), "35", timeout=10.0)
     lines = capsys.readouterr().out
     assert "ned2/dashpot#35: Worktree protocol" in lines
     assert "location: https://github.com/ned2/dashpot/issues/35" in lines
 
-    with mock.patch.object(cli, "show_issue", return_value=issue):
+    with mock.patch.object(cli_sources, "show_issue", return_value=issue):
         assert cli.main(["issue", "show", "#35", "--json", "--timeout", "2"]) == 0
     # The wire payload pins the JSON contract independently of the model's
     # own dump: camelCase keys and explicit nulls, exactly as the fixture.
     assert json.loads(capsys.readouterr().out) == payload
 
     with mock.patch.object(
-        cli, "show_issue", side_effect=IssueResolutionError("did not match an Issue")
+        cli_sources,
+        "show_issue",
+        side_effect=IssueResolutionError("did not match an Issue"),
     ):
         assert cli.main(["issue", "show", "99"]) == 2
     captured = capsys.readouterr()
@@ -1161,7 +1187,9 @@ def test_worktree_create_dispatches_every_option_and_prints_the_plan(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    with mock.patch.object(cli, "create_issue_worktree", return_value=PLAN) as create:
+    with mock.patch.object(
+        cli_worktrees, "create_issue_worktree", return_value=PLAN
+    ) as create:
         assert (
             cli.main(
                 [
@@ -1212,7 +1240,9 @@ def test_worktree_create_refusal_exits_2_in_both_output_modes(
         }
     )
 
-    with mock.patch.object(cli, "create_issue_worktree", return_value=refused):
+    with mock.patch.object(
+        cli_worktrees, "create_issue_worktree", return_value=refused
+    ):
         assert cli.main(["worktree", "create", "35"]) == 2
     captured = capsys.readouterr()
     assert (
@@ -1220,7 +1250,9 @@ def test_worktree_create_refusal_exits_2_in_both_output_modes(
     )
     assert captured.out.startswith("refused Worktree ")
 
-    with mock.patch.object(cli, "create_issue_worktree", return_value=refused):
+    with mock.patch.object(
+        cli_worktrees, "create_issue_worktree", return_value=refused
+    ):
         assert cli.main(["worktree", "create", "35", "--json"]) == 2
     payload = json.loads(capsys.readouterr().out)
     assert payload["created"] is False
@@ -1252,8 +1284,10 @@ def test_worktree_check_dispatches_and_prints_the_report(
 
     protected = [Path("/w/anchor")]
     with (
-        mock.patch.object(cli, "cleanup_protection", return_value=protected),
-        mock.patch.object(cli, "check_worktree", return_value=report) as check,
+        mock.patch.object(cli_worktrees, "cleanup_protection", return_value=protected),
+        mock.patch.object(
+            cli_worktrees, "check_worktree", return_value=report
+        ) as check,
     ):
         assert cli.main(["worktree", "check", "/w/x"]) == 0
     # The check protects what a Cleanup protects, by the same rule.
@@ -1264,7 +1298,7 @@ def test_worktree_check_dispatches_and_prints_the_report(
     assert "Removable  no" in out
     assert "  - dirty: 1 changed path\n      run: git -C /w/x status" in out
 
-    with mock.patch.object(cli, "check_worktree", return_value=report):
+    with mock.patch.object(cli_worktrees, "check_worktree", return_value=report):
         assert cli.main(["worktree", "check", "/w/x", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["removable"] is False
@@ -1294,10 +1328,10 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
     reports = {Path("/w/a"): report("/w/a", True), Path("/w/b"): report("/w/b", False)}
     with (
         mock.patch.object(
-            cli, "linked_worktrees", return_value=list(reports)
+            cli_worktrees, "linked_worktrees", return_value=list(reports)
         ) as listed,
         mock.patch.object(
-            cli,
+            cli_worktrees,
             "check_worktree",
             side_effect=lambda _c, p, protected, timeout: reports[p],
         ),
@@ -1314,9 +1348,11 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
     assert out.count("Sub-agents") == 1
 
     with (
-        mock.patch.object(cli, "linked_worktrees", return_value=list(reports)),
         mock.patch.object(
-            cli,
+            cli_worktrees, "linked_worktrees", return_value=list(reports)
+        ),
+        mock.patch.object(
+            cli_worktrees,
             "check_worktree",
             side_effect=lambda _c, p, protected, timeout: reports[p],
         ),
@@ -1327,7 +1363,7 @@ def test_worktree_check_without_a_path_reports_every_linked_worktree(
     assert [item["removable"] for item in payload] == [True, False]
     assert "Sub-agents" not in listed_json
 
-    with mock.patch.object(cli, "linked_worktrees", return_value=[]):
+    with mock.patch.object(cli_worktrees, "linked_worktrees", return_value=[]):
         assert cli.main(["worktree", "check"]) == 0
     assert capsys.readouterr().out.strip() == "no linked Worktrees in this Repository"
 
@@ -1832,7 +1868,7 @@ def test_worktree_check_says_which_sub_agents_go_unchecked(
     lookup = table_lookup({PARENT.pid: PARENT})
     check = partial(check_worktree, lookup=lookup)
 
-    with mock.patch.object(cli, "check_worktree", check):
+    with mock.patch.object(cli_worktrees, "check_worktree", check):
         assert cli.main(["worktree", "check", str(target)]) == 0
         lines = capsys.readouterr().out.splitlines()
         assert cli.main(["worktree", "check", str(target), "--json"]) == 0
@@ -1933,19 +1969,19 @@ def test_integrate_codex_dispatches_install_remove_and_status(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with mock.patch.object(
-        cli, "install_integration", return_value=["installed hooks"]
+        cli_integrate, "install_integration", return_value=["installed hooks"]
     ) as install:
         assert cli.main(["integrate", "codex"]) == 0
     install.assert_called_once_with("codex")
 
     with mock.patch.object(
-        cli, "remove_integration", return_value=["removed hooks"]
+        cli_integrate, "remove_integration", return_value=["removed hooks"]
     ) as remove:
         assert cli.main(["integrate", "claude-code", "--remove"]) == 0
     remove.assert_called_once_with("claude-code")
 
     with mock.patch.object(
-        cli, "integration_status", return_value=["installed in x"]
+        cli_integrate, "integration_status", return_value=["installed in x"]
     ) as status:
         assert cli.main(["integrate", "claude-code", "--status"]) == 0
     status.assert_called_once_with("claude-code", current=current_directory())
@@ -1960,7 +1996,7 @@ def test_integrate_errors_are_reported_without_traceback(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with mock.patch.object(
-        cli,
+        cli_integrate,
         "install_integration",
         side_effect=IntegrationError("no Codex configuration directory"),
     ):
@@ -1978,7 +2014,9 @@ def test_an_incomplete_integrate_reports_what_it_wrote_then_what_failed(
         ["could not install the Dashpot Second skill in /x: disk full"],
         ["installed Codex lifecycle hooks in /h", "installed Dashpot First skill"],
     )
-    with mock.patch.object(cli, "install_integration", side_effect=incomplete):
+    with mock.patch.object(
+        cli_integrate, "install_integration", side_effect=incomplete
+    ):
         code = cli.main(["integrate", "codex"])
 
     captured = capsys.readouterr()
@@ -2002,7 +2040,7 @@ def test_an_incomplete_removal_reports_what_it_removed_then_what_failed(
         ["could not remove Dashpot worker agent from /a: denied"],
         ["removed the OpenCode plugin /p", "removed the Dashpot First skill from /s"],
     )
-    with mock.patch.object(cli, "remove_integration", side_effect=incomplete):
+    with mock.patch.object(cli_integrate, "remove_integration", side_effect=incomplete):
         code = cli.main(["integrate", "opencode", "--remove"])
 
     captured = capsys.readouterr()
@@ -2028,7 +2066,9 @@ def test_integrate_runs_several_harnesses_together_and_groups_their_output(
             "opencode", "refused", note="refused", error="the opencode on PATH is 1.x"
         ),
     ]
-    with mock.patch.object(cli, "install_integrations", return_value=reports) as run:
+    with mock.patch.object(
+        cli_integrate, "install_integrations", return_value=reports
+    ) as run:
         code = cli.main(["integrate", "opencode", "claude-code", "codex", "opencode"])
 
     run.assert_called_once_with(("claude-code", "codex", "opencode"))
@@ -2052,7 +2092,9 @@ def test_installed_fails_only_for_a_harness_refused_or_left_incomplete(
 ) -> None:
     error = "disk full" if outcome == "incomplete" else None
     report = HarnessReport("codex", outcome, ("a line",), error=error)
-    with mock.patch.object(cli, "refresh_integrations", return_value=[report]) as run:
+    with mock.patch.object(
+        cli_integrate, "refresh_integrations", return_value=[report]
+    ) as run:
         assert cli.main(["integrate", "--installed"]) == code
 
     run.assert_called_once_with()
@@ -2073,7 +2115,9 @@ def test_integrate_status_without_a_harness_reports_every_harness(
         ),
         ("session records outside configured Projects: none",),
     )
-    with mock.patch.object(cli, "integrations_status", return_value=combined) as run:
+    with mock.patch.object(
+        cli_integrate, "integrations_status", return_value=combined
+    ) as run:
         assert cli.main(argv) == 0
 
     run.assert_called_once_with((), current=current_directory())
@@ -2088,7 +2132,9 @@ def test_integrate_status_without_a_harness_reports_every_harness(
 def test_one_harness_named_twice_is_integrated_as_one(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    with mock.patch.object(cli, "install_integration", return_value=["done"]) as run:
+    with mock.patch.object(
+        cli_integrate, "install_integration", return_value=["done"]
+    ) as run:
         assert cli.main(["integrate", "codex", "codex"]) == 0
 
     run.assert_called_once_with("codex")
@@ -2117,7 +2163,7 @@ def test_anchors_for_two_projects_are_refused_at_startup(tmp_path: Path) -> None
         roots.append(root)
 
     with (
-        mock.patch.object(cli, "DashpotApp") as app,
+        mock.patch.object(launch, "DashpotApp") as app,
         mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
     ):
         result = cli.main(
@@ -2134,7 +2180,7 @@ def test_anchors_for_two_projects_are_refused_at_startup(tmp_path: Path) -> None
 
 
 def parse(argv: list[str]) -> dict[str, object]:
-    _, bound, _ = cli.app.parse_args(argv, exit_on_error=False, print_error=False)
+    _, bound, _ = cli_root.app.parse_args(argv, exit_on_error=False, print_error=False)
     bound.apply_defaults()
     return dict(bound.arguments)
 
@@ -2142,7 +2188,7 @@ def parse(argv: list[str]) -> dict[str, object]:
 def help_text(argv: list[str]) -> str:
     output = io.StringIO()
     console = Console(file=output, width=100, force_terminal=False, color_system=None)
-    cli.app(argv, console=console, result_action="return_value")
+    cli_root.app(argv, console=console, result_action="return_value")
     return output.getvalue()
 
 
@@ -2204,11 +2250,11 @@ def test_timeout_is_accepted_after_the_subcommand_it_applies_to(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    with mock.patch.object(cli, "initialize_project", return_value=[]) as init:
+    with mock.patch.object(cli_init, "initialize_project", return_value=[]) as init:
         assert cli.main(["init", "--timeout", "5"]) == 0
     init.assert_called_once_with(Path.cwd().resolve(), markdown_path=None, timeout=5.0)
 
-    with mock.patch.object(cli, "start_issue_work", return_value=[]) as start:
+    with mock.patch.object(cli_work, "start_issue_work", return_value=[]) as start:
         assert cli.main(["work", "start", "12", "--timeout", "0.5"]) == 0
     start.assert_called_once_with(
         Path.cwd().resolve(), "12", timeout=0.5, outcome=mock.ANY
@@ -2265,7 +2311,7 @@ def test_timeout_is_accepted_after_the_subcommand_it_applies_to(
 def test_invalid_input_fails_with_a_diagnostic_and_no_traceback(
     argv: list[str], diagnostic: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    with mock.patch.object(cli, "create_collector") as create_collector:
+    with mock.patch.object(cli_observe, "create_collector") as create_collector:
         code = cli.main(argv)
 
     captured = capsys.readouterr()
@@ -2401,7 +2447,7 @@ def test_help_and_version_print_to_stdout_and_exit_zero(
 
 
 def test_harness_choices_track_the_supported_integrations() -> None:
-    assert set(get_args(cli.Harness)) == set(INTEGRATIONS)
+    assert set(get_args(cli_integrate.Harness)) == set(INTEGRATIONS)
 
 
 def test_python_dash_m_dashpot_exits_with_the_cli_result(
@@ -2413,3 +2459,14 @@ def test_python_dash_m_dashpot_exits_with_the_cli_result(
         runpy.run_module("dashpot", run_name="__main__")
 
     assert excinfo.value.code == 3
+
+
+def test_python_dash_m_dashpot_cli_exits_with_the_cli_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("dashpot.cli.main", lambda: 4)
+
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module("dashpot.cli", run_name="__main__")
+
+    assert excinfo.value.code == 4

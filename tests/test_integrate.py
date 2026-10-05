@@ -26,6 +26,7 @@ from dashpot.sessions.integrate import (
     BundledSkill,
     CombinedStatus,
     ConfigurationDirectory,
+    HarnessOutcome,
     HarnessReport,
     IncompleteRemovalError,
     IntegrationError,
@@ -35,8 +36,10 @@ from dashpot.sessions.integrate import (
     integration,
     integration_presence,
     integration_status,
+    integration_totals,
     integrations_status,
     refresh_integrations,
+    refuse_integrate_arguments,
     remove_integration,
     resolve_hook_command,
     skill_directory,
@@ -2131,3 +2134,85 @@ def test_a_configuration_variable_naming_no_directory_is_named_in_the_refusal(
         f"no Codex configuration directory at {missing} (from CODEX_HOME)"
     )
     assert list((user_home / ".codex").iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("named", "installed", "status", "remove", "refusal"),
+    [
+        (("codex",), True, False, False, "not both"),
+        ((), False, False, True, "--remove takes exactly one named harness"),
+        (
+            ("claude-code", "codex"),
+            False,
+            False,
+            True,
+            "--remove takes exactly one named harness",
+        ),
+        ((), True, False, True, "--remove takes exactly one named harness"),
+        ((), False, False, False, "name a harness to integrate"),
+    ],
+)
+def test_integrate_arguments_that_name_no_one_action_are_refused(
+    named: tuple[Harness, ...],
+    installed: bool,
+    status: bool,
+    remove: bool,
+    refusal: str,
+) -> None:
+    with pytest.raises(IntegrationError, match=refusal):
+        refuse_integrate_arguments(
+            named, installed=installed, status=status, remove=remove
+        )
+
+
+@pytest.mark.parametrize(
+    ("named", "installed", "status", "remove"),
+    [
+        (("codex",), False, False, False),
+        (("codex",), False, False, True),
+        (("codex",), False, True, False),
+        (("claude-code", "codex"), False, False, False),
+        (("claude-code", "codex"), False, True, False),
+        ((), True, False, False),
+        ((), True, True, False),
+        ((), False, True, False),
+    ],
+)
+def test_integrate_arguments_that_name_one_action_pass(
+    named: tuple[Harness, ...], installed: bool, status: bool, remove: bool
+) -> None:
+    refuse_integrate_arguments(named, installed=installed, status=status, remove=remove)
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "refusals", "incomplete", "installed", "failed"),
+    [
+        ((), 0, False, False, False),
+        (("installed", "partial", "not integrated"), 0, False, True, False),
+        (("partial", "not integrated"), 0, False, False, False),
+        (("installed", "incomplete"), 0, True, True, True),
+        (("refused", "refused", "installed"), 2, False, True, True),
+        (("refused", "not integrated"), 1, False, False, True),
+    ],
+)
+def test_harness_reports_total_to_the_commands_outcome(
+    outcomes: tuple[HarnessOutcome, ...],
+    refusals: int,
+    incomplete: bool,
+    installed: bool,
+    failed: bool,
+) -> None:
+    harnesses: tuple[Harness, ...] = ("claude-code", "codex", "opencode")
+    reports = [
+        HarnessReport(harness, outcome)
+        for harness, outcome in zip(harnesses, outcomes, strict=False)
+    ]
+
+    totals = integration_totals(reports)
+
+    assert (totals.refusals, totals.incomplete, totals.installed, totals.failed) == (
+        refusals,
+        incomplete,
+        installed,
+        failed,
+    )
