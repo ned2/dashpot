@@ -24,6 +24,11 @@ calls today's Workers **sub-agent Workers** and the alternative **root-session
 Workers**. Adopting the alternative would change that definition, which is one
 of the design's open decisions.
 
+[ADR 0124](../adr/0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md)
+decided #479 on 2026-10-05: sub-agent Workers stay, and root-session Workers
+are qualified one harness at a time, Claude Code first through a pilot. This
+analysis stays as the comparison behind that decision.
+
 This revision, made on 2026-10-05, reads the code and documents at `main`
 c8069ac, which is both this branch's HEAD and its merge base with
 `origin/main`, and the state of the Issues on that day. `origin/main` has

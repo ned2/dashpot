@@ -593,7 +593,7 @@ qualifications.
 
 Suggestions 1 to 10 are reflected in the design rather than adopted:
 suggestion 1 is part of its
-[leading candidate](lead-worker-design.md#leading-candidate), suggestion 2
+[pilot shape](lead-worker-design.md#the-decision-and-the-pilot), suggestion 2
 shapes its [communication core](lead-worker-design.md#communication), and
 the rest appear among its
 [open decisions](lead-worker-design.md#open-decisions). Suggestion 11 is new

@@ -19,6 +19,13 @@ reviewed the design critically. The factual fixes are already applied to
 the documents. The changes that would alter the design are listed under
 [candidate uplifts](#candidate-uplifts) for the maintainer to decide.
 
+**Outcome.** The maintainer accepted every recommendation below: U1–U9 and
+N1–N3 as recommended, the [re-ranked open decisions](#open-decisions-re-ranked)'
+statuses, and the [minimum viable decision](#minimum-viable-decision) as
+written.
+[ADR 0124](../adr/0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md)
+records the decision, and the design note now describes the pilot's shape.
+
 ## Verdict
 
 **Rework.** The direction holds for one reason that sub-agent Workers
@@ -193,8 +200,8 @@ The edits by kind:
     the [domain language](../domain-language.md#observation) it is unfinished
     work whose process is gone.
 - **Additions.**
-  - [If sub-agent Workers stay](../proposals/lead-worker-design.md#if-sub-agent-workers-stay),
-    a non-adoption branch.
+  - A non-adoption branch, since folded into the design's
+    [sequence](../proposals/lead-worker-design.md#sequence).
   - Each harness's measured doorbell timing: none interrupts a tool call,
     but Claude Code's `SendMessage` and OpenCode's `steer` arrive within a
     busy session's running turn.
@@ -346,9 +353,9 @@ before filing.
 
 This defers the link's implementation, `work workers` and `work wait`, pane
 grouping, the vocabulary ruling, and every Codex and OpenCode change.
-With this review, the comparison exists and the experiments ran. #479's
-last outcome, the decision recorded either way, waits for the maintainer's
-choice and its ADR.
+With this review, the comparison exists and the experiments ran, and
+[ADR 0124](../adr/0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md)
+records the decision.
 
 ## Remaining unknowns
 
