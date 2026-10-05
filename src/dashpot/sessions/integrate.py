@@ -83,15 +83,15 @@ SKILL_FILE = Path("SKILL.md")
 
 
 class IntegrationError(DashpotError):
-    """A hook or skill installation refused, or one left incomplete."""
+    """An installation or removal of an integration refused, or one left incomplete."""
 
 
 class IncompleteIntegrationError(IntegrationError):
-    """An installation that wrote every destination it could, past those it could not.
+    """An installation or removal that did every step it could, past those it could not.
 
-    Its message names each destination that failed; ``messages`` reports
-    what the installation did, as a complete one's return value would
-    (ADR 0110).
+    Its message names each step that failed; ``messages`` reports what the
+    command did, as a complete one's return value would (ADR 0110,
+    ADR 0130).
     """
 
     def __init__(
@@ -596,6 +596,12 @@ def _plan_hooks(
     path = home / spec.hooks_file
     # A hooks path holding anything but a file would be read as absent and
     # then fail only at the write, after the other destinations are written.
+    if path.is_symlink() and not path.exists():
+        raise IntegrationError(
+            f"cannot install the {spec.display} lifecycle hooks in {path}: the "
+            f"link leads to nothing at {os.readlink(path)}; restore what it names "
+            "or move it, and retry"
+        )
     if os.path.lexists(path) and not path.is_file():
         raise IntegrationError(
             f"cannot install the {spec.display} lifecycle hooks in {path}: the "
@@ -771,8 +777,10 @@ def _remove_hooks(spec: HarnessIntegration, home: Path) -> str:
         return (
             f"{spec.display} integration is not installed: no Dashpot hooks in {path}"
         )
+    # A link is the user's, so its file is rewritten rather than unlinked.
+    keep_file = bool(hooks or set(document) - {"description", "hooks"})
     try:
-        if hooks or set(document) - {"description", "hooks"} or path.is_symlink():
+        if keep_file or path.is_symlink():
             if not hooks:
                 del document["hooks"]
             _write_json(path, document)
@@ -976,11 +984,16 @@ def integration_presence(
         ),
     ]
     hooks = "plugin" if spec.plugin else "hooks"
+    # The variable that moved the directory is named, as ``--status`` names
+    # it, so a shell without it is seen looking in the default directory.
+    where = (
+        f" ({configuration.variable} names {home})" if configuration.variable else ""
+    )
     if left:
         return IntegrationPresence(
-            "partial", f"no Dashpot {hooks} at {path}, but {', '.join(left)}"
+            "partial", f"no Dashpot {hooks} at {path}{where}, but {', '.join(left)}"
         )
-    return IntegrationPresence("not integrated", f"no Dashpot {hooks} at {path}")
+    return IntegrationPresence("not integrated", f"no Dashpot {hooks} at {path}{where}")
 
 
 def _missing_hooks(spec: HarnessIntegration, path: Path) -> tuple[str, ...] | None:
@@ -2237,7 +2250,7 @@ def _plugin_helper(plugin: str) -> Path | None:
 # The skill directories in the home directory that OpenCode also reads, and
 # the harness whose integration writes there by default. OpenCode reads them
 # from the home directory whatever ``CLAUDE_CONFIG_DIR`` names.
-OPENCODE_DISCOVERED_SKILLS: tuple[tuple[Harness, Path], ...] = (
+_OPENCODE_DISCOVERED_SKILLS: tuple[tuple[Harness, Path], ...] = (
     ("claude-code", Path(".claude/skills")),
     ("codex", Path(".agents/skills")),
 )
@@ -2255,7 +2268,7 @@ def _opencode_skill_copies(destinations: list[tuple[BundledSkill, Path]]) -> lis
     """
     messages: list[str] = []
     for skill, own in destinations:
-        for owner, discovered in OPENCODE_DISCOVERED_SKILLS:
+        for owner, discovered in _OPENCODE_DISCOVERED_SKILLS:
             directory = Path.home() / discovered / skill.name
             if same_path(directory, own) or not _may_hold_a_skill(directory):
                 continue

@@ -1921,6 +1921,28 @@ def test_a_hooks_file_linked_into_a_read_only_directory_refuses_the_install(
     assert not (home / "skills").exists()
 
 
+def test_a_dangling_hooks_link_is_refused_naming_what_it_names(
+    tmp_path: Path,
+) -> None:
+    home = claude_home(tmp_path)
+    gone = tmp_path / "dotfiles" / "settings.json"
+    link = home / "settings.json"
+    link.symlink_to(gone)
+
+    with pytest.raises(IntegrationError) as refused:
+        install_integration(
+            "claude-code", home, command_path=claude_publisher(tmp_path)
+        )
+
+    assert str(refused.value) == (
+        f"cannot install the Claude Code lifecycle hooks in {link}: the link leads "
+        f"to nothing at {gone}; restore what it names or move it, and retry"
+    )
+    assert link.is_symlink()
+    assert not gone.exists()
+    assert not (home / "skills").exists()
+
+
 def test_a_hooks_file_that_is_not_utf8_is_refused_by_install_status_and_remove(
     tmp_path: Path,
 ) -> None:
@@ -2036,6 +2058,9 @@ def test_claude_code_is_integrated_where_claude_config_dir_names(
 
     assert f"removed {settings}; it contained only the Dashpot hooks" in removed
     assert not copy.exists()
+    assert integration_presence("claude-code").detail == (
+        f"no Dashpot hooks at {settings} (CLAUDE_CONFIG_DIR names {configured})"
+    )
 
 
 def test_codex_is_integrated_where_codex_home_names_with_its_skills_in_agents(
