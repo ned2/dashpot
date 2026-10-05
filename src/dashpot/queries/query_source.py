@@ -8,7 +8,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..core.errors import DashpotError
+from ..core.errors import DashpotError, failure_text
 from ..core.model import Diagnostic
 from ..core.observation_errors import QUERY_OBSERVATION_FAILURES
 from ..core.timestamps import utc_now
@@ -230,7 +230,7 @@ class CachedQuerySource(ABC):
             source=self.context.source,
             severity="warning",
             code=getattr(exc, "code", "source-query-unavailable"),
-            message=str(exc),
+            message=failure_text(exc),
         )
 
     @property
@@ -303,7 +303,7 @@ class UnresolvedQuerySource:
     """
 
     search_prompt = "No Project resolved"
-    message = "no Project resolved; the Diagnostics say why"
+    refusal = "no Project resolved; the Diagnostics say why"
 
     @property
     def context(self) -> SourceContext | None:
@@ -311,7 +311,7 @@ class UnresolvedQuerySource:
         return None
 
     def supports_sort(self, request: QueryRequest, column: str) -> bool:
-        """Sort by nothing: there are no rows."""
+        """Never sortable: there are no rows."""
         return False
 
     def source_diagnostics(self) -> tuple[Diagnostic, ...]:
@@ -320,7 +320,7 @@ class UnresolvedQuerySource:
 
     def query_page(self, request: QueryRequest) -> PageObservation:
         """Refuse the page: there is no Project to query."""
-        raise ProjectUnresolvedError(self.message)
+        raise ProjectUnresolvedError(self.refusal)
 
     def resolve_identities(
         self, identities: Sequence[str]
@@ -328,11 +328,11 @@ class UnresolvedQuerySource:
         """Resolve nothing; refuse when anything was asked."""
         if not identities:
             return ()
-        raise ProjectUnresolvedError(self.message)
+        raise ProjectUnresolvedError(self.refusal)
 
     def enumerate_source(self, kind: ResourceKind) -> SourceEnumeration:
         """Refuse the enumeration: there is no Project to enumerate."""
-        raise ProjectUnresolvedError(self.message)
+        raise ProjectUnresolvedError(self.refusal)
 
 
 def configured_query_source(

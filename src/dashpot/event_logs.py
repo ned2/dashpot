@@ -108,7 +108,7 @@ def owned_event_log(working_directory: Path) -> EventLogDestination:
         return _fallback_event_log()
     except RuntimeError as exc:
         raise EventLogError(
-            "no Event Log to remove from: no configured checkout encloses "
+            "no Event Log for this directory: no configured checkout encloses "
             "this directory and there is no home directory for the "
             "machine-local one"
         ) from exc

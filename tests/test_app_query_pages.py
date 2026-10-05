@@ -167,7 +167,7 @@ async def test_with_no_project_resolved_the_anchor_diagnostics_are_the_only_ones
         await pilot.pause()
         # Each page says why it is empty, in one line, and the Diagnostics
         # are the anchor's alone: nothing was asked of the working directory.
-        assert app.queries.navigation["issues"].error == UnresolvedQuerySource.message
+        assert app.queries.navigation["issues"].error == UnresolvedQuerySource.refusal
         assert [entry.diagnostic for entry in app.shown_diagnostics()] == [anchor]
 
 

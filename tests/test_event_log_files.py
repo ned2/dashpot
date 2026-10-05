@@ -45,6 +45,7 @@ from dashpot.core.runtime_events import (
 from dashpot.core.state_paths import machine_state_directory, project_state_directory
 from dashpot.event_logs import LEVEL_VARIABLE
 from factories import git, init_repository, write_project_config
+from test_cli import remove_working_directory
 
 RUN_A = "a" * 32
 RUN_B = "b" * 32
@@ -901,7 +902,9 @@ def test_events_remove_refuses_without_anywhere_to_remove_from(
         code = cli.main(["events", "remove", "--before", "2026-09-01"])
 
     assert code == 2
-    assert capsys.readouterr().err.startswith("dashpot: no Event Log to remove from")
+    assert capsys.readouterr().err.startswith(
+        "dashpot: no Event Log for this directory"
+    )
 
 
 def test_events_remove_in_a_removed_directory_leaves_the_fallback_alone(
@@ -913,10 +916,7 @@ def test_events_remove_in_a_removed_directory_leaves_the_fallback_alone(
     # fallback is not the log it meant, so nothing is removed.
     today = datetime.now(UTC).date()
     (old,) = seed_days(fallback_directory(), today - timedelta(days=10))
-    gone = tmp_path / "gone"
-    gone.mkdir()
-    monkeypatch.chdir(gone)
-    gone.rmdir()
+    remove_working_directory(tmp_path, monkeypatch)
 
     assert cli.main(["events", "remove", "--before", today.isoformat()]) == 2
 

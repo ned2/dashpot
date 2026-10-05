@@ -387,7 +387,8 @@ def relocate(
 ) -> int:
     """Prepare this Agent Run for a verified sequential Codex resume."""
     with command_outcome("work relocate") as outcome:
-        # Read first: a relative target resolves against it, and may not.
+        # Read the working directory first: a relative target resolves against
+        # it, and it may no longer exist.
         current = current_directory()
         relocate_target = (current / path.expanduser()).resolve()
         outcome.target_path = relocate_target
@@ -834,7 +835,8 @@ _PageSize = Annotated[
     int,
     Parameter(
         validator=validators.Number(gte=1, lte=100),
-        help="the most records the page holds, from 1 to 100",
+        show_default=False,
+        help="the most records the page holds, from 1 to 100 (50 when omitted)",
     ),
 ]
 _Cursor = Annotated[
@@ -868,10 +870,11 @@ def issue_list(
     query: Annotated[
         str,
         Parameter(
+            show_default=False,
             help=(
                 "the search: GitHub advanced search syntax for a GitHub Issue "
                 "Source, local text for a Local Issue Markdown one"
-            )
+            ),
         ),
     ] = "",
     state: Lifecycle = "open",
@@ -892,7 +895,10 @@ def issue_list(
 def pr_list(
     *,
     query: Annotated[
-        str, Parameter(help="the search, in GitHub advanced search syntax")
+        str,
+        Parameter(
+            show_default=False, help="the search, in GitHub advanced search syntax"
+        ),
     ] = "",
     state: Literal["open", "closed", "all"] = "open",
     page_size: _PageSize = 50,

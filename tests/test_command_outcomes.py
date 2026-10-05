@@ -552,7 +552,7 @@ def test_an_event_log_removal_that_left_a_file_is_recorded_as_failed(
 def test_an_event_log_removal_with_nowhere_to_remove_from_is_refused(
     events: Path,
 ) -> None:
-    nowhere = EventLogError("no Event Log to remove from")
+    nowhere = EventLogError("no Event Log for this directory")
     with mock.patch.object(cli, "owned_event_log", side_effect=nowhere):
         assert run(events, "events", "remove", "--before", "2026-09-01") == 2
 

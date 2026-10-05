@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from ..core.commands import CommandRunner, run_command
-from ..core.errors import DashpotError
+from ..core.errors import DashpotError, failure_text
 from ..core.git import Git, GitError
 from ..core.pydantic import describe_validation_error
 from ..core.state_paths import PROJECT_CONFIG_PATH
@@ -100,6 +100,6 @@ def initialize_project(
         with suppress(OSError):
             config_path.unlink(missing_ok=True)
         raise InitError(
-            f"cannot write Project configuration {config_path}: {exc}"
+            f"cannot write Project configuration {config_path}: {failure_text(exc)}"
         ) from exc
     return [f"created {config_path}"]

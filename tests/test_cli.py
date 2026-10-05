@@ -15,10 +15,12 @@ from rich.console import Console
 from dashpot import cli, composition
 from dashpot.core.command_outcomes import OutcomeNote
 from dashpot.core.errors import DashpotError
+from dashpot.core.event_log import EventLogDestination
 from dashpot.core.git import GitError
 from dashpot.core.issue_profile import IssueProfileError, conform_issue
 from dashpot.core.model import WorkspaceSnapshot
 from dashpot.core.working_directory import WorkingDirectoryError, current_directory
+from dashpot.event_logs import LEVEL_VARIABLE
 from dashpot.github.github import LatestRateLimit
 from dashpot.hook import publish_from_stream
 from dashpot.issues.issue_resolution import IssueResolutionError
@@ -755,8 +757,25 @@ def test_an_unreadable_configuration_never_hides_what_a_command_did(
     (checkout / ".dashpot").mkdir()
     (checkout / ".dashpot" / "config.json").write_bytes(b'{"projectId": "caf\xe9"}')
     monkeypatch.chdir(checkout)
+    monkeypatch.setenv(LEVEL_VARIABLE, "standard")
+    events = tmp_path / "events"
 
-    assert cli.main(["events", "remove", "--before", "2020-01-01"]) == 0
+    assert (
+        cli.main(
+            ["events", "remove", "--before", "2020-01-01"],
+            event_log=EventLogDestination(events),
+        )
+        == 0
+    )
+
+    (outcome,) = [
+        record
+        for path in events.glob("*.jsonl")
+        for line in path.read_text().splitlines()
+        if (record := json.loads(line))["event.name"] == "command.outcome"
+    ]
+    assert outcome["dashpot.outcome.result"] == "succeeded"
+    assert "dashpot.project.id" not in outcome
 
 
 def test_hook_stream_publishes_atomic_session_record(tmp_path: Path) -> None:
@@ -2286,6 +2305,7 @@ def test_subcommand_help_pages_describe_their_arguments() -> None:
         for option in ("--query", "--page-size", "--cursor", "--compact-json"):
             described = text.split(option, 1)[1].split(" --", 1)[0].strip()
             assert described and not described.startswith("["), option
+            assert "[default:" not in described, option
     remove = help_text(["worktree", "remove", "--help"])
     assert "Usage: dashpot worktree remove [OPTIONS] PATH" in remove
     for option in ("--delete-branch", "--delete-ignored", "--dry-run", "--json"):

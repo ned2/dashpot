@@ -192,7 +192,9 @@ A process whose working directory is inside a configured checkout — one
 whose Worktree root carries `.dashpot/config.json` — writes to that
 checkout's `.dashpot/state/events/`, which is ignored with the rest of
 `.dashpot/state/`. Any other process writes to
-`$XDG_STATE_HOME/dashpot/events/`, else `~/.local/state/dashpot/events/`, or
+`$XDG_STATE_HOME/dashpot/events/` when that is an absolute path (a relative
+one is ignored, as the XDG specification requires), else
+`~/.local/state/dashpot/events/`, or
 `~/Library/Application Support/dashpot/events/` on macOS. Hooks and
 commands share one file per UTC day, `events-YYYY-MM-DD.jsonl`; each
 dashboard run writes its own, `dashboard-<run>-YYYY-MM-DD.jsonl`. Each line
