@@ -129,6 +129,15 @@ def test_pull_request_filter_bar_counts_matches_beyond_the_page() -> None:
     assert listed.filter_count == "2/3 matches · fresh"
 
 
+def test_pull_request_filter_bar_shows_a_failed_first_query() -> None:
+    store = PagedObservationStore(workspace_snapshot())
+    navigation = PageNavigation(QueryRequest(kind="pull-requests"))
+    assert navigation.accept(navigation.restart(), None, "Source exploded")
+    failed = pull_request_pane_rows(context(store, navigation))
+    assert failed.rows == ()
+    assert failed.filter_count == "Source exploded"
+
+
 def test_pull_request_filter_bar_starts_from_the_default_query() -> None:
     bar = pull_request_filter_bar()
     assert isinstance(bar, ItemFilterBar)

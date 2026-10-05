@@ -171,8 +171,6 @@ class MarkdownQuerySource(CachedQuerySource):
         The Project Totals count the complete collection before the search is
         interpreted, so a search the source refuses still reports them.
         """
-        if request.kind != "issues":
-            raise ValueError("Pull Requests are not configured for a Markdown Project")
         if context.configuration != self.config.model_dump_json():
             raise ValueError(
                 "Project source configuration changed; reopen the dashboard"

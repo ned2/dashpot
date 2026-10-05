@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+import factories
 from app_harness import (
     SnapshotQuerySource,
     issue,
@@ -12,6 +13,7 @@ from app_harness import (
 )
 from dashpot.core.model import Diagnostic, WorkspaceSnapshot
 from dashpot.observation.paged_store import PagedObservationStore
+from dashpot.queries.markdown_queries import PULL_REQUESTS_NOT_CONFIGURED
 from dashpot.queries.source_queries import (
     ProjectTotals,
     QueryPage,
@@ -208,12 +210,7 @@ def test_only_the_identities_last_requested_keep_their_outcomes() -> None:
 
 def test_a_page_and_its_totals_reporting_alike_show_one_line() -> None:
     store, source, _issue_id = listed_store()
-    unavailable = Diagnostic(
-        source="local-markdown",
-        severity="info",
-        code="pull-requests-not-configured",
-        message="Pull Requests are not configured for a Markdown Project",
-    )
+    unavailable = PULL_REQUESTS_NOT_CONFIGURED
     store.accept_page(
         "pull-requests",
         store.pages["issues"].model_copy(
@@ -240,3 +237,50 @@ def test_a_page_and_its_totals_reporting_alike_show_one_line() -> None:
     )
     shown = [entry.diagnostic for entry in store.diagnostics()]
     assert shown.count(unavailable) == 1
+
+
+def test_only_a_bound_issue_outside_the_repository_is_a_warning() -> None:
+    run = factories.agent_run("one", target_path="/repo", issue_id="I_bound")
+    snapshot = workspace_snapshot(issue("test/repo#7", "Listed"), runs=[run])
+    store = PagedObservationStore(snapshot)
+    source = SnapshotQuerySource(snapshot)
+
+    def outside(issue_id: str) -> ResolvedIssue:
+        return ResolvedIssue(
+            context=source.context,
+            issue_id=issue_id,
+            outcome="outside-repository",
+            status="fresh",
+            attempted_at=BEFORE,
+            last_good_at=BEFORE,
+            reference=f"other/repo#{len(issue_id)}",
+            diagnostics=(
+                Diagnostic(
+                    source="github",
+                    severity="info",
+                    code="issue-outside-repository",
+                    message="Issue is outside the configured Repository",
+                ),
+            ),
+        )
+
+    # A relationship into another Repository is ordinary: no warning.
+    store.accept_identities((outside("I_related"),))
+    assert not [
+        entry for entry in store.diagnostics() if entry.diagnostic.severity == "warning"
+    ]
+
+    # The Issue a run is bound to has left the Project its work belongs to.
+    store.accept_identities((outside("I_bound"),))
+    warnings = [
+        entry.diagnostic
+        for entry in store.diagnostics()
+        if entry.diagnostic.severity == "warning"
+    ]
+    assert [(d.source, d.code, d.message) for d in warnings] == [
+        (
+            run.id,
+            "agent-issue-outside-repository",
+            "The bound Issue other/repo#7 is outside the configured Repository",
+        )
+    ]

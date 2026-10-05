@@ -191,7 +191,7 @@ Refreshing a page discards its forward history. A failed Next leaves the accepte
 page under its original request and displays the navigation error. A continuation
 the source refuses because its context changed — any Local Issue edit changes the
 Markdown revision — restarts the navigation at page one instead, whether a refresh
-or Next sent it, so no page past one is shown as fresh after the change. New submissions,
+or Next sent it, rather than repeating the refusal under the old page. New submissions,
 lifecycle/sort changes and manual restart create generations; old completions are
 discarded. Timer refresh does not supersede an in-flight user query.
 

@@ -30,7 +30,7 @@ class PageTicket:
 
 @dataclass(frozen=True, slots=True)
 class ContinuationRefused:
-    """A source refused a page's continuation: its context changed or expired.
+    """The refusal of a page's continuation, whose context changed or expired.
 
     A Markdown revision changes with every Local Issue edit, and a GitHub
     principal or source configuration can change too, so a continuation

@@ -283,6 +283,22 @@ class PagedObservationStore(WorkspaceObservationStore):
             )
         for run in self._state.agent_runs.values():
             outcome = self.resolved.get(run.issue_id or "")
+            # Outside the Repository, a relationship is ordinary, but a bound
+            # Issue has left the Project its Issue work belongs to.
+            if outcome and outcome.outcome == "outside-repository":
+                diagnostics.append(
+                    ObservedDiagnostic(
+                        Diagnostic(
+                            source=run.id,
+                            severity="warning",
+                            code="agent-issue-outside-repository",
+                            message=(
+                                f"The bound Issue {outcome.reference or run.issue_id}"
+                                " is outside the configured Repository"
+                            ),
+                        )
+                    )
+                )
             if (
                 outcome
                 and outcome.issue
@@ -299,6 +315,6 @@ class PagedObservationStore(WorkspaceObservationStore):
                         )
                     )
                 )
-        # A page and the totals its request counted report one failure, or one
-        # unconfigured kind, alike; it is one line however many report it.
+        # A Diagnostic several observations report alike, such as a page and
+        # the totals its request counted, is one line however many report it.
         return (*super().diagnostics(), *dict.fromkeys(diagnostics))
