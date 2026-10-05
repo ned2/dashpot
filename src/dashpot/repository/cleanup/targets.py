@@ -202,6 +202,11 @@ class BranchCleanupRequest:
     anchor: Path
     name: str
 
+    @property
+    def starting_directory(self) -> Path:
+        """Where the Cleanup's Git adapter is rooted: the Repository Anchor."""
+        return self.anchor
+
 
 @dataclass(frozen=True, slots=True)
 class WorktreeCleanupRequest:
@@ -210,16 +215,10 @@ class WorktreeCleanupRequest:
     current: Path
     path: Path
 
+    @property
+    def starting_directory(self) -> Path:
+        """Where the Cleanup's Git adapter is rooted: ``current``."""
+        return self.current
+
 
 CleanupRequest = BranchCleanupRequest | WorktreeCleanupRequest
-
-
-def repository_directory(request: CleanupRequest) -> Path:
-    """The directory ``request`` locates its Repository from, where its Git runs.
-
-    That is a Branch request's Repository Anchor or a Worktree request's
-    ``current``, never the working directory, which may be gone.
-    """
-    if isinstance(request, BranchCleanupRequest):
-        return request.anchor
-    return request.current

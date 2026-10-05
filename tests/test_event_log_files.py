@@ -52,8 +52,12 @@ from dashpot.core.runtime_events import (
 )
 from dashpot.core.state_paths import machine_state_directory, project_state_directory
 from dashpot.event_logs import LEVEL_VARIABLE
-from factories import git, init_repository, write_project_config
-from test_cli import remove_working_directory
+from factories import (
+    git,
+    init_repository,
+    remove_working_directory,
+    write_project_config,
+)
 
 RUN_A = "a" * 32
 RUN_B = "b" * 32

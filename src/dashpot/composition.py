@@ -39,7 +39,6 @@ from .repository.cleanup import (
     listed_in,
     perform_cleanup,
     protected_checkouts,
-    repository_directory,
 )
 
 DEFAULT_REFRESH_SECONDS = 15.0
@@ -138,7 +137,7 @@ def run_cleanup(
 ) -> CleanupReport:
     """Compose preview, selection, and confirmed Cleanup from this checkout."""
     protected = cleanup_protection()
-    git = cleanup_git(repository_directory(request), timeout)
+    git = cleanup_git(request, timeout)
     preview = inspect_cleanup(request, protected=protected, timeout=timeout, git=git)
     # A preview with nothing to select has already said why; ``perform``
     # repeats the refusal so the report carries it in every output shape.

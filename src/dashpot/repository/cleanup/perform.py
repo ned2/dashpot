@@ -57,7 +57,6 @@ from .targets import (
     CleanupTarget,
     TargetKind,
     WorktreeCleanupRequest,
-    repository_directory,
 )
 
 # What became of one target: the same four words its Runtime Event records.
@@ -144,7 +143,9 @@ class CleanupReport(PublishedModel):
         )
 
 
-def cleanup_git(root: Path, timeout: float, *, preview: bool = False) -> Git:
+def cleanup_git(
+    request: CleanupRequest, timeout: float, *, preview: bool = False
+) -> Git:
     """The production adapter for a Cleanup: non-interactive, under its own bound.
 
     A confirmed removal runs to completion: a dashboard exit interrupts
@@ -154,12 +155,12 @@ def cleanup_git(root: Path, timeout: float, *, preview: bool = False) -> Git:
     built for the preview alone is interruptible like any other observation
     and keeps ``timeout``. Either way its Git takes no optional lock, so the
     preview's ``git status`` in a Worktree an agent commits in never holds
-    that Worktree's ``index.lock``. It is rooted at ``root``, the directory
-    the request locates its Repository from (:func:`repository_directory`),
-    never at the working directory, which may be gone.
+    that Worktree's ``index.lock``. It is rooted at the ``request``'s
+    starting directory, from which each command retargets, never at the
+    working directory, which may be gone.
     """
     return Git(
-        root,
+        request.starting_directory,
         timeout if preview else mutation_timeout(timeout),
         git_runner(CLEANUP_ENVIRONMENT, non_interactive=True, interruptible=preview),
     )
@@ -190,11 +191,7 @@ def perform_cleanup(
     inspected again for occupants and processes, and anything but exactly the
     acknowledged sub-agents refuses that step (ADR 0112).
     """
-    adapter = (
-        git
-        if git is not None
-        else cleanup_git(repository_directory(confirmation.request), timeout)
-    )
+    adapter = git if git is not None else cleanup_git(confirmation.request, timeout)
     preview = inspect_cleanup(
         confirmation.request,
         lookup=lookup,

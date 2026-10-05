@@ -76,7 +76,13 @@ from dashpot.sessions.integrate import (
 from dashpot.sessions.processes import AgentAncestry, ProcessIdentity
 from dashpot.sessions.session_identity import IssueWorkError
 from dashpot.ui import launch
-from factories import git, init_repository, write_config_marker, write_project_config
+from factories import (
+    git,
+    init_repository,
+    remove_working_directory,
+    write_config_marker,
+    write_project_config,
+)
 from helpers import issue_payload, table_lookup
 from test_cleanup import (
     CLAUDE,
@@ -689,14 +695,6 @@ GONE = (
     "dashpot: the working directory no longer exists; change to a directory "
     "that does and run the command again\n"
 )
-
-
-def remove_working_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Leave this process in a directory that has been removed, as a shell can be."""
-    gone = tmp_path / "gone"
-    gone.mkdir()
-    monkeypatch.chdir(gone)
-    gone.rmdir()
 
 
 @pytest.mark.parametrize(

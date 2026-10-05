@@ -24,6 +24,7 @@ from dashpot.ui.attendance import (
     period_text,
     tmux_attachment,
 )
+from factories import remove_working_directory
 
 NOON = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
@@ -242,10 +243,7 @@ def test_the_probe_answers_from_a_removed_working_directory(
 ) -> None:
     # A stand-in for tmux, run as a real process, starts only where the probe
     # says to: a probe running at the working directory could not start it.
-    gone = tmp_path / "gone"
-    gone.mkdir()
-    monkeypatch.chdir(gone)
-    gone.rmdir()
+    remove_working_directory(tmp_path, monkeypatch)
 
     def stand_in(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         return run_command([sys.executable, "-c", "print(1)"], cwd, timeout)

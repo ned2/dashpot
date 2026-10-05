@@ -40,7 +40,6 @@ from .targets import (
     WorktreeCleanupRequest,
     fingerprint,
     held_by_blocked_worktree,
-    repository_directory,
 )
 
 CANONICAL_FETCH_REFSPEC = "+refs/heads/*:refs/remotes/{remote}/*"
@@ -67,7 +66,7 @@ def inspect_cleanup(
     process working directories, the host itself when omitted. ``lookup``
     observes the processes that Agent Sessions and Worktree locks record.
     """
-    adapter = git if git is not None else Git(repository_directory(request), timeout)
+    adapter = git if git is not None else Git(request.starting_directory, timeout)
     if isinstance(request, BranchCleanupRequest):
         return _inspect_branch(request, adapter)
     return _inspect_worktree(request, adapter, lookup, protected, timeout, scan)

@@ -13,6 +13,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from dashpot.core.commands import CommandResult
 from dashpot.core.git import Git
 from dashpot.core.issue_profile import IssueProfile
@@ -93,6 +95,14 @@ def git(root: Path, *args: str) -> str:
     return subprocess.run(
         ["git", *args], cwd=root, check=True, capture_output=True, text=True
     ).stdout.strip()
+
+
+def remove_working_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave this process in a directory that has been removed, as a shell can be."""
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
 
 
 def init_repository(root: Path, *, origin: str | None = None) -> Path:

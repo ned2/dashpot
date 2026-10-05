@@ -52,4 +52,3 @@ from .targets import TargetKind as TargetKind
 from .targets import (
     WorktreeCleanupRequest as WorktreeCleanupRequest,
 )
-from .targets import repository_directory as repository_directory
