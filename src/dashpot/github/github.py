@@ -30,7 +30,12 @@ from ..core.runtime_events import (
     RateLimitPauseChanged,
     span_attributes,
 )
-from ..core.timestamps import observed_instant, utc_stamp
+from ..core.timestamps import (
+    local_offset_text,
+    observed_instant,
+    reported_instant,
+    utc_stamp,
+)
 
 # Every GraphQL query Dashpot sends carries this selection beside its data,
 # so the rate limit is observed on the way rather than asked for separately.
@@ -100,6 +105,16 @@ class RateLimit:
         """Fewer than a tenth of the hour's points remain."""
         return self.remaining * 10 < self.limit
 
+    @property
+    def reset_text(self) -> str:
+        """``reset_at`` on the local clock with its UTC offset, or as GitHub sent it.
+
+        GitHub's own text stands when it does not read as an instant, rather
+        than a time Dashpot cannot vouch for.
+        """
+        reset = reported_instant(self.reset_at)
+        return self.reset_at if reset is None else local_offset_text(reset)
+
 
 @dataclass(frozen=True, slots=True)
 class RateLimitPause:
@@ -115,8 +130,11 @@ class RateLimitPause:
 
     @property
     def until_text(self) -> str:
-        """``until`` to the second, in UTC."""
-        return f"{self.until.astimezone(UTC):%Y-%m-%dT%H:%M:%SZ}"
+        """``until`` on the local clock, to the second, with its UTC offset.
+
+        It reaches headless output too, where no dashboard names the clock.
+        """
+        return local_offset_text(self.until)
 
     @property
     def limit_text(self) -> str:
@@ -300,7 +318,7 @@ def rate_limit_diagnostics(
             severity="warning",
             message=(
                 f"GitHub GraphQL rate limit is low: {reading.remaining} of "
-                f"{reading.limit} points remain until {reading.reset_at}; "
+                f"{reading.limit} points remain until {reading.reset_text}; "
                 f"the last request cost {reading.cost}"
             ),
         ),

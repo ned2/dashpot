@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -144,3 +146,19 @@ def no_host_processes(monkeypatch: pytest.MonkeyPatch) -> None:
         "dashpot.sessions.working_directories.host_working_directories",
         lambda: WorkingDirectories(),
     )
+
+
+@pytest.fixture
+def local_clock_ten_hours_ahead() -> Iterator[None]:
+    """Set the local clock ten hours ahead of UTC, so a UTC time on screen shows."""
+    before = os.environ.get("TZ")
+    os.environ["TZ"] = "<+10>-10"
+    time.tzset()
+    try:
+        yield
+    finally:
+        if before is None:
+            del os.environ["TZ"]
+        else:
+            os.environ["TZ"] = before
+        time.tzset()

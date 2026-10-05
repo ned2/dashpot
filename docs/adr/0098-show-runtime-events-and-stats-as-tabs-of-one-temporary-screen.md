@@ -1,6 +1,6 @@
 ---
 status: accepted
-date: 2026-10-04
+date: 2026-10-06
 ---
 
 # Show Runtime Events and Stats as tabs of one temporary screen
@@ -39,6 +39,18 @@ buffer, which keeps every level whatever the Event Level records.
   Only the detail pane shows an event's stored UTC time, which matches the
   event to its line in the Event Log
   ([#547](https://github.com/ned2/dashpot/issues/547)).
+- **Diagnostics keep the same clock.** A Diagnostic that names a time gives
+  it on the local clock too, to the second, so a pause read in the
+  Diagnostics is found on the Stats tab as it reads
+  ([#591](https://github.com/ned2/dashpot/issues/591)). A Diagnostic only a
+  dashboard reports, `github-unattended-paused`, shows the time as the tabs
+  do. One a Query Source reports also reaches headless output, a `--json`
+  document's Diagnostics among it, where no dashboard says which clock a
+  time is on, so it adds the clock's UTC offset: `github-rate-limit-paused`
+  and the refusal held by a Rate Limit Pause name when queries resume as
+  `23:00:00 +10:00`, and `github-rate-limit-low` names the reset GitHub
+  reported the same way. Every such time lies within an hour of the
+  message, so the time of day and its offset place it without a date.
 
 ### Tabs inside a temporary screen
 
@@ -93,6 +105,12 @@ they are on before pressing it.
   for the reason under _Escape is the only close_.
 - **Open Runtime over any screen, as `s` did**: rejected for the reason under
   _Opened from Peer Screens only_.
+- **Diagnostics in UTC, as they were**: rejected because the same pause read
+  as `22:01:00` on the Stats tab and as `…T12:01:00Z` in the Diagnostics,
+  and a person had to convert one to find the other.
+- **A full RFC 3339 stamp with its offset in headless Diagnostics**:
+  rejected because the date it adds says nothing a time within the hour
+  needs, and the dashboard shows the same message.
 
 ## Consequences
 

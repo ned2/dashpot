@@ -168,6 +168,7 @@ def test_ready_lists_the_open_issues_no_open_blocker_holds(
 
 
 @pytest.mark.parametrize("command", ["issue", "pr"])
+@pytest.mark.usefixtures("local_clock_ten_hours_ahead")
 def test_list_reports_a_low_rate_limit_beside_the_page(
     tmp_path, monkeypatch, capsys, command
 ):
@@ -191,4 +192,5 @@ def test_list_reports_a_low_rate_limit_beside_the_page(
     (warning,) = document["page"]["diagnostics"]
     assert warning["code"] == "github-rate-limit-low"
     assert warning["severity"] == "warning"
-    assert "400 of 5000 points remain until 2026-09-27T13:00:00Z" in warning["message"]
+    # A --json document has no dashboard to name the clock, so the offset does.
+    assert "400 of 5000 points remain until 23:00:00 +10:00;" in warning["message"]

@@ -8,6 +8,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, override
 
+import pytest
+
 from dashpot.core.commands import (
     CommandError,
     CommandResult,
@@ -370,6 +372,7 @@ class RequestTests(unittest.TestCase):
         shared.record(next_hour)
         self.assertIs(next_hour, shared.reading)
 
+    @pytest.mark.usefixtures("local_clock_ten_hours_ahead")
     def test_a_low_rate_limit_is_one_warning_naming_what_remains(self) -> None:
         low = RateLimit(cost=2, limit=5000, remaining=499, reset_at=RESET_AT)
         enough = RateLimit(cost=2, limit=5000, remaining=500, reset_at=RESET_AT)
@@ -381,9 +384,19 @@ class RequestTests(unittest.TestCase):
             (warning.source, warning.code, warning.severity),
         )
         self.assertIn("499 of 5000 points remain", warning.message)
-        self.assertIn(f"until {RESET_AT}", warning.message)
+        # The reset is on the local clock, with the offset that names it.
+        self.assertIn("until 23:00:00 +10:00;", warning.message)
         self.assertEqual((), rate_limit_diagnostics(enough, "github"))
         self.assertEqual((), rate_limit_diagnostics(None, "github"))
+
+    def test_a_reset_that_does_not_read_as_an_instant_is_shown_as_github_sent_it(
+        self,
+    ) -> None:
+        odd = RateLimit(cost=2, limit=5000, remaining=499, reset_at="soon")
+
+        (warning,) = rate_limit_diagnostics(odd, "github")
+
+        self.assertIn("499 of 5000 points remain until soon;", warning.message)
 
     def test_rest_returns_the_object(self) -> None:
         gate = gateway(completed(json.dumps({"node_id": "R_1", "full_name": "a/b"})))
@@ -456,6 +469,7 @@ class RateLimitPauseTests(unittest.TestCase):
         assert pause is not None
         return pause.until - self.clock.now
 
+    @pytest.mark.usefixtures("local_clock_ten_hours_ahead")
     def test_a_refusal_with_the_points_low_holds_every_gateway_until_the_reset(
         self,
     ) -> None:
@@ -472,7 +486,7 @@ class RateLimitPauseTests(unittest.TestCase):
             (pause.limit, pause.until),
         )
         self.assertIn(
-            "paused until 2026-09-27T13:00:00Z", self.held(second, second_runner)
+            "paused until 23:00:00 +10:00 after", self.held(second, second_runner)
         )
 
         self.clock.advance(minutes=30)
@@ -626,6 +640,7 @@ class RateLimitPauseTests(unittest.TestCase):
         gate.graphql(QUERY, {})
         self.assertEqual(2, len(runner.calls))
 
+    @pytest.mark.usefixtures("local_clock_ten_hours_ahead")
     def test_a_pause_is_one_warning_naming_when_queries_resume(self) -> None:
         until = datetime(2026, 9, 27, 13, 0, 5, 250_000, tzinfo=UTC)
 
@@ -637,7 +652,7 @@ class RateLimitPauseTests(unittest.TestCase):
             (primary.source, primary.code, primary.severity),
         )
         self.assertEqual(
-            "GitHub queries paused until 2026-09-27T13:00:05Z after GitHub refused "
+            "GitHub queries paused until 23:00:05 +10:00 after GitHub refused "
             "one for its rate limit; a manual refresh tries once",
             primary.message,
         )

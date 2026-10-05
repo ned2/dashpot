@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pydantic
+import pytest
 
 from dashpot.core.commands import CommandError, CommandResult
 from dashpot.core.issue_profile import IssueProfile, conform_issue, issue_location
@@ -1347,6 +1348,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
         for args, _cwd, _timeout in runner.calls:
             self.assertIn("rateLimit { cost limit remaining resetAt }", args[4])
 
+    @pytest.mark.usefixtures("local_clock_ten_hours_ahead")
     def test_a_low_rate_limit_warns_beside_a_fresh_collection(self) -> None:
         runner = SequenceRunner(
             [completed(with_rate_limit(issue_page([raw_fixture()]), remaining=499))]
@@ -1362,7 +1364,7 @@ class GitHubIssuesSourceTests(unittest.TestCase):
             (diagnostic.source, diagnostic.code, diagnostic.severity),
         )
         self.assertIn(
-            "499 of 5000 points remain until 2026-08-26T11:00:00Z", diagnostic.message
+            "499 of 5000 points remain until 21:00:00 +10:00", diagnostic.message
         )
 
         # A tenth of the hour left is not yet low.

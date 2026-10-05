@@ -40,7 +40,7 @@ from ..core.runtime_stats import (
     resident_memory,
     write_failures,
 )
-from ..core.timestamps import observed_instant
+from ..core.timestamps import local_clock_text, observed_instant
 from ..github.github import LatestRateLimit, RateLimit, RateLimitPause
 from .attendance import Attendance, UnattendedPause
 
@@ -105,11 +105,6 @@ def duration_text(seconds: float | None) -> str:
     if seconds < 60:
         return f"{seconds:.1f} s"
     return long_duration_text(seconds)
-
-
-def clock_text(instant: datetime) -> str:
-    """An instant on the local clock, to the second, as both Runtime tabs show it."""
-    return f"{instant.astimezone():%H:%M:%S}"
 
 
 def long_duration_text(seconds: float) -> str:
@@ -197,7 +192,7 @@ def allowance_text(
         (
             *paused,
             ("remaining", f"{reading.remaining:,} of {points_text(reading.limit)}"),
-            ("resets", f"{clock_text(reset)}, in {long_duration_text(left)}"),
+            ("resets", f"{local_clock_text(reset)}, in {long_duration_text(left)}"),
             ("last request", points_text(reading.cost)),
             (
                 "rest of account",
@@ -213,7 +208,7 @@ def pause_text(pause: RateLimitPause, now: datetime) -> str:
     """Until when GitHub queries are held, and which limit refused them."""
     left = max(0.0, (pause.until - now).total_seconds())
     return (
-        f"until {clock_text(pause.until)}, in {long_duration_text(left)} "
+        f"until {local_clock_text(pause.until)}, in {long_duration_text(left)} "
         f"({pause.limit_text})"
     )
 
@@ -224,7 +219,7 @@ def unattended_text(
     """Since when automatic GitHub refreshes are held, and what showed nobody attending."""
     held = max(0.0, (now - pause.since).total_seconds())
     return (
-        f"since {clock_text(pause.since)}, {long_duration_text(held)} ago "
+        f"since {local_clock_text(pause.since)}, {long_duration_text(held)} ago "
         f"({attendance.signal_text(pause)})"
     )
 
@@ -269,7 +264,7 @@ def spend_text(spend: Sequence[OperationSpend]) -> Text:
 def last_refresh_heading(refresh: RefreshSpend | None) -> str:
     if refresh is None:
         return f"{SPEND_LABEL} · last refresh"
-    at = clock_text(observed_instant(refresh.started))
+    at = local_clock_text(observed_instant(refresh.started))
     return f"{SPEND_LABEL} · last refresh, {refresh.trigger} at {at}"
 
 
