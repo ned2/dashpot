@@ -154,8 +154,7 @@ xfail_strict = true
 # scripts/ carries evidence about its own lines.
 source = ["dashpot"]
 source_dirs = ["scripts"]
-# The experiments run by hand in a disposable fixture, outside the suite; no
-# test runs them.
+# The experiments run by hand, outside the suite; no test runs them.
 omit = ["scripts/experiments/*"]
 
 [tool.coverage.report]

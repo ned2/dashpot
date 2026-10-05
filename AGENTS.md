@@ -130,8 +130,8 @@ change to a script shows its uncovered lines too
 ([local review gate](README.md#local-review-gate)). Line coverage measures
 execution, not assertion quality or every branch outcome. Record review
 results, finding dispositions, and source identity in the PR's validation
-section. An exception to independent
-review requires explicit user direction and a recorded reason.
+section. An exception to independent review requires explicit user direction
+and a recorded reason.
 
 Address findings, refresh validation for changed sources, and request focused
 follow-up review of the fixes. Changed tests, conflict resolutions, or

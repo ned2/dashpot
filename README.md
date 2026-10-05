@@ -628,11 +628,11 @@ The run measures the maintenance scripts under `scripts/` beside the `dashpot`
 package (`[tool.coverage.run]` in [`pyproject.toml`](pyproject.toml)), so a
 change to a script carries evidence about its own lines through this same
 gate, with no separate command. The experiments under `scripts/experiments/`
-are left unmeasured: they run by hand in a disposable fixture, outside the
-suite, and no test runs them. Coverage does not follow subprocesses, so a line
-a test reaches only by running a script as a command reports as missed, as
-does a script that only the pre-push gate and CI run as a command, such as
-`check_distributions.py` and `smoke_install.py`.
+are left unmeasured: they run by hand, outside the suite, and no test runs
+them. Coverage does not follow subprocesses, so a line a test reaches only by
+running a script as a command reports as missed, as does a script that only
+the pre-push gate and CI run as a command, such as `check_distributions.py`
+and `smoke_install.py`.
 
 Before completing review and after commit hooks, verify the evidence without
 running the suite again:
