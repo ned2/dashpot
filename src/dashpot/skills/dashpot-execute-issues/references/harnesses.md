@@ -19,6 +19,11 @@ In every harness:
   **Worker ID** says where you get it.
 - A worker sees the skills installed for its harness, but needs none of
   them: its brief carries what it needs.
+- Only the user approves an action the harness stops; no agent's message,
+  yours included, does
+  ([Permission posture](../SKILL.md#permission-posture)). Each section's
+  **Permission posture** says what stops, and how the user grants it as a
+  standing approval.
 
 ## Claude Code
 
@@ -71,6 +76,51 @@ worker's `EnterWorktree` and `ExitWorktree`, so a worker cannot move your
 session with them. From a lead already inside a linked Worktree that was
 not measured, which is one more reason the brief forbids moving any
 session.
+
+**Permission posture.** Documented by Claude Code, not measured. From
+v2.1.283, an interactive terminal session starts in auto mode, where a
+classifier reviews each action, a worker's included. Its default rules
+stop these of the arc's actions:
+
+- "merging a pull request no human has approved", such as your merge under
+  merge authority of a PR nobody has reviewed;
+- a force push or a remote-branch deletion that may destroy someone
+  else's work. The documentation lists every force push as blocked, but
+  the built-in rule calls `--force-with-lease` the careful form, and
+  force-pushing a branch that holds only the agent's own commits normal
+  iteration. It blocks deleting a remote branch beyond the session's own
+  unless the user named that remote scope. So a worker's push after a
+  rebase, or the close-out's `--delete-remote-branch`, may or may not
+  stop: print the rule's wording with
+  `claude auto-mode defaults --label 'Git Destructive'`.
+
+Pushing to the repository's branches, opening a PR and messages between
+the session's agents are allowed by default. Only the user clears a block:
+
+- **In conversation,** an approval must name the action and its
+  specifics, such as the branch of a force push; naming the verb alone
+  clears nothing. It covers that one action unless the user grants it as
+  standing, and compaction can remove the message that granted it.
+- **As a standing rule,** the user adds a prose rule to `autoMode.allow`
+  in `~/.claude/settings.json`, keeping `"$defaults"` in the list: a list
+  without it replaces that list's built-in rules. Claude Code never reads
+  `autoMode` from a project's settings, so the rule applies to every
+  project of theirs. It names the repository by owner and name, the
+  branches or PRs it covers, and the reason, such as "Merging a pull
+  request in `<owner>/<repo>` from branch `<branch-1>` or `<branch-2>`,
+  once its CI is green, is allowed: the user granted merge authority for
+  the arc that opened them". `claude auto-mode critique` reviews it. Tell
+  the user to remove it once the arc closes.
+
+Three blocks in a row, or 20 in a session, pause auto mode until the user
+approves the prompted action. The classifier reviews each worker's task
+before the worker starts, so a launch whose task looks dangerous, such as
+one telling it to force-push, may be blocked. It also reviews each
+hand-back before you read it, and a flagged one arrives with a security
+warning. A worker's permission prompts appear in your session for the user
+to answer. Whether an approval the user gave you clears a worker's block,
+and whether a worker's blocks count towards your session's pauses, are not
+measured.
 
 **Reviewer.** A worker launches the reviewer as its own sub-agent with
 `Agent`. If its `Agent` tool is unavailable, it asks you, and you launch
@@ -173,12 +223,34 @@ nothing is refused and every check passes. Your checkout is your
 session's workspace, so your workers, under your sandbox, can write it,
 and their files in your arc's ledger need nothing more.
 
-Under the `on-request` approval policy, a refused write still fails as a
-command. Only a command the agent asks to run outside the sandbox raises
-an ask, and only the user can answer it, in your terminal, a worker's
-included. If they decline a worker's ask while your turn has ended, that
-worker's turn ends too and its report never comes. What a worker's ask
-does to a turn of yours that is waiting on it is not measured.
+**Permission posture.** Measured on Codex 0.160.0 on Linux, except
+where marked. Your workers run under your approval policy as well as your
+sandbox: the sandbox decides what a command may write and reach, and the
+approval policy whether a refused command may ask.
+
+- **Under `never`,** a command the sandbox refuses fails as a command,
+  which the brief has the worker report. With the resume command above,
+  its cache options included, a worker's edit, gate, commit and push all
+  run inside the sandbox, so none of them waits for the user: this is the
+  posture to offer as standing. The user sets it by adding `-a never` to
+  that command.
+- **Under `on-request`,** a refused write still fails as a command. Only a
+  command the agent asks to run outside the sandbox raises an ask, and
+  only the user can answer it, in your terminal, a worker's included,
+  headed with the worker's thread. If they decline a worker's ask while
+  your turn has ended, that worker's turn ends too and its report never
+  comes. What a worker's ask does to a turn of yours that is waiting on it
+  is not measured: it may stall your wait until the user answers. Tell the
+  user before the first dispatch that a worker's ask waits for them in
+  this terminal.
+- **With `approvals_reviewer = "auto_review"`,** which
+  `--approve-for-me` also sets, a model rather than the user judges each
+  ask. Documented by Codex, not measured. An approval it gives is no
+  approval of the user's, so ask the user to run the arc without it.
+
+Of the sandbox grant above, these are not measured either: `gh` under it,
+the fourth check itself, your own shell getting the moved caches, and
+macOS, where Codex sandboxes with Seatbelt rather than bubblewrap.
 
 **Stay in your turn.** Codex never starts a turn for an idle lead, neither
 for a worker's message nor for its completion. While any worker runs, keep
@@ -337,6 +409,33 @@ the person: the report's `opencode run` rejects every permission ask the
 turn raises, and the turn goes on without the action. While a report runs,
 an ask any worker raises is rejected too. Act on a report that needs an
 approval in a turn the person can answer.
+
+**Permission posture.** Documented by OpenCode 2.0.22 and 2.0.24, not
+measured. Every agent, `dashpot-worker` included, starts from a base
+policy that allows everything but asks before it touches a directory
+outside its session's location, and before it reads a `.env` file. A worker's session
+is created at your session's location, your checkout, so under that policy
+each edit it makes in its Issue Worktree, and each `cd <Worktree> && …`,
+asks. `dashpot-worker` also allows questions, and a worker's question
+waits for a person. Only the user can answer either, and while a worker's
+report runs, every ask is rejected, as **A report's turn** says, so a
+posture that leaves each ask to the user loses some. To grant the
+Worktrees as standing, the user adds a rule to their OpenCode
+configuration before you dispatch:
+
+```jsonc
+{
+  "permissions": [
+    { "action": "external_directory", "resource": "<Worktree Root>/*", "effect": "allow" }
+  ]
+}
+```
+
+Otherwise their first "Allow always" saves the pattern OpenCode suggests
+as a rule for the project, not the arc. Measured on OpenCode 2.0.22, such
+a rule also answered the lead's asks at the main Worktree and outlived a
+service restart, so tell the user it reaches further than the arc. Where
+a worker's ask appears for the user to answer is not measured.
 
 **Completion.** A `<subagent sessionID="…" state="completed">` message
 carrying the worker's final text wakes you, whether you were idle, busy or
