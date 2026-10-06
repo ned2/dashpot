@@ -127,4 +127,5 @@ of date.
 | 0137 | [Hold only what was published last in the observation store](0137-hold-only-what-was-published-last-in-the-observation-store.md) | accepted | — |
 | 0139 | [Share the Local Issue reader and contain Linked Pull Request completion](0139-share-the-local-issue-reader-and-contain-linked-pull-request-completion.md) | accepted | — |
 | 0146 | [Stream the Event Log by UTC day, and select lines before validating them](0146-stream-the-event-log-by-utc-day-and-select-lines-before-validating-them.md) | accepted | — |
-| 0147 | [Keep an Arc's working record in a local Arc Ledger](0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md) | accepted | — |
+| 0147 | [Keep an Arc's working record in a local Arc Ledger](0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md) | amended | [0148](0148-let-workers-write-their-own-arc-ledger-files-and-commit-under-codexs-sandbox.md) |
+| 0148 | [Let Workers write their own Arc Ledger files, and commit under Codex's sandbox](0148-let-workers-write-their-own-arc-ledger-files-and-commit-under-codexs-sandbox.md) | accepted | — |

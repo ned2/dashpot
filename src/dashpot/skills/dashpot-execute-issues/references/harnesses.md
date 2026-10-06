@@ -90,6 +90,59 @@ tools; `codex debug models --bundled` shows each model's version. The
 model without v2 gets no tools to report with. Any other model gets v1, the
 fallback below.
 
+**Check your sandbox before you bind.** Your workers run under your
+session's sandbox, with its writable directories, and nothing you pass
+when you launch one changes either. Under `workspace-write`, a writable
+directory keeps its own `.git` read-only, so:
+
+- a worker can edit its Worktree only when your session can write the
+  **Worktree Root**, the directory Dashpot creates Worktrees in. It is
+  `<main checkout>.worktrees`, beside the main checkout, unless
+  `DASHPOT_WORKTREE_ROOT` or the user's `worktree_root` setting names
+  another; with the network on,
+  `<dashpot> worktree create <n> --dry-run --json` prints it as
+  `worktreeRoot`;
+- `git commit` and `git worktree add` in a linked Worktree write the main
+  checkout's Git directory, which
+  `git rev-parse --path-format=absolute --git-common-dir` prints, so no
+  agent of your session can commit there, or create a Worktree, unless
+  that directory is writable too;
+- pushing and `gh` need network access.
+
+Check all three from where you will bind:
+
+```bash
+touch <Worktree Root>/.execute-issues-check && rm <Worktree Root>/.execute-issues-check
+touch <Git directory>/execute-issues-check && rm <Git directory>/execute-issues-check
+git ls-remote --exit-code origin HEAD
+```
+
+`git ls-remote` also fails without credentials: read its error before you
+blame the sandbox. If a check fails for the sandbox, stop before binding.
+Ask the user to create the Worktree Root if it does not exist yet, exit
+this client, and resume your session with both directories writable and
+the network on:
+
+```bash
+codex resume <session-id> -C <checkout> --sandbox workspace-write --add-dir <Worktree Root> --add-dir <Git directory> -c sandbox_workspace_write.network_access=true
+```
+
+`<session-id>` is the Agent Session identity `<dashpot> integrate codex
+--status` confirms, and `<checkout>` the one you will bind in; a new session takes the same options after `codex`.
+`--sandbox workspace-write` matters: Codex ignores `--add-dir` under
+`read-only`. These options come from `codex --help`, not a measurement, so
+run the three checks again in the resumed session before you bind. Add any
+directory the repository's gates write outside these, such as a package
+manager's cache: a refused write shows only as a failed command in the
+shell that tried it. Tell the user, as you ask, what the Git directory
+costs: every agent of the session can then write its hooks and its
+configuration, and code planted there runs the next time anything runs
+`git` outside the sandbox, Dashpot's dashboard included. They may run the
+session without the sandbox (`--sandbox danger-full-access`) instead, where
+every check passes. Your checkout is your session's workspace, so your
+workers, under your sandbox, can write it, and their files in your arc's
+ledger need nothing more.
+
 **Stay in your turn.** Codex never starts a turn for an idle lead, neither
 for a worker's message nor for its completion. While any worker runs, keep
 your turn going with the wait loop below. If the turn ends or is
@@ -123,19 +176,15 @@ handed back. When a wait times out or your turn was interrupted, call
 **Worker reports (v2).** `{REPORTING}`: "Before anything else, call
 `send_message` to `/root` with `worker-id: ` followed by the output of
 `echo "$CODEX_THREAD_ID"`. To tell the lead something mid-flight, call
-`send_message` to `/root`, then carry on. Before each
-gate run, commit and push, read the file `execute-issues-lead` in your
-Worktree's Git directory (`git -C <path> rev-parse --absolute-git-dir`) if
-it exists: the lead writes its broadcasts there. Your final message is your
-hand-back."
+`send_message` to `/root`, then carry on. Run each gate, commit and push as
+a command of its own, so that the lead's messages reach you between them.
+Your final message is your hand-back."
 
-**Messaging a worker (v2).** `send_message` to a running worker's path
-queues the message for it. A busy lead gets its mail at its next model
-request, and mail to a finished worker only queues; whether a running
-worker gets it was not measured. So also write each broadcast to the file
-`execute-issues-lead` in the worker's Worktree Git directory
-(`git -C <path> rev-parse --absolute-git-dir`), which the worker reads
-before each gate run, commit and push.
+**Messaging a worker (v2).** `send_message` to a worker's path queues the
+message for it. A running worker gets it at its next model request, which
+comes when the command it is running ends, so broadcast with
+`send_message` alone. A busy lead gets its mail at its next model request,
+and mail to a finished worker only queues.
 
 **Completion (v2).** The worker's final message reaches your history as a
 `FINAL_ANSWER` message from its path, and `list_agents` shows it
@@ -148,14 +197,17 @@ with its earlier context. `send_message` to a finished worker only queues.
 `agent_id`, which is the worker's ID to assign, and `wait_agent` takes `targets` and `timeout_ms` and returns
 each finished worker's final text. A v1 session holds 6 workers by default,
 through the same `[agents] max_threads`. Workers have no tool to message
-you. `{REPORTING}`: "You cannot message the lead. Write anything it needs
-mid-flight to the file `execute-issues-status` in your Worktree's Git
-directory (`git -C <path> rev-parse --absolute-git-dir`), which is never
-committed. Before each gate run, commit and push, read the file
-`execute-issues-lead` beside it if it exists: the lead writes its
-broadcasts there. Your final message is your hand-back." Read the status
-files between waits, and broadcast through the `execute-issues-lead` files.
-Resume a finished worker with `send_input`.
+you, so they report in their files in your arc's ledger
+([Worker files](arc-ledger.md#worker-files)). `{REPORTING}`: "You cannot
+message the lead. To tell it something mid-flight, append an entry to
+`<arc directory>/workers/<worker name>.md` with one command,
+`{ date -u '+### %FT%TZ'; cat <<'EOF'; } >> <arc directory>/workers/<worker name>.md`, followed by your report, opening with your key line, then a line
+`-- end`, then the line `EOF`. Write nothing else outside your Worktree.
+Before each gate run, commit and push, read `<arc directory>/broadcast.md`
+if it exists: the lead appends its broadcasts there, and an entry without
+its `-- end` line is still being written. Your final message is your
+hand-back." Read the worker files between waits, and broadcast by
+appending to `broadcast.md`. Resume a finished worker with `send_input`.
 
 **Stopping a worker.** `interrupt_agent` on a worker mid-command publishes
 no stop, which leaves the `sub-agent` blocker up until your session ends,
@@ -233,10 +285,15 @@ from the `Agent Session identity claimed here` line of
 **Worker reports.** `{REPORTING}`: "To tell the lead something mid-flight,
 run `opencode run --session <lead-session-id> "<message>"` in a background
 shell (the shell tool's `background: true`), then carry on: the command
-waits until the lead's turn ends. If it fails, write the message to the
-file `execute-issues-status` in your Worktree's Git directory
-(`git -C <path> rev-parse --absolute-git-dir`), which is never committed.
-Your final message is your hand-back."
+waits until the lead's turn ends. If it fails, append an entry to
+`<arc directory>/workers/<worker name>.md` with one command,
+`{ date -u '+### %FT%TZ'; cat <<'EOF'; } >> <arc directory>/workers/<worker name>.md`, followed by your report, opening with your key line, then a line
+`-- end`, then the line `EOF`. Write nothing else outside your Worktree.
+Your final message is your hand-back." Read the worker files
+([Worker files](arc-ledger.md#worker-files)) at the start of each turn of
+yours and whenever a worker's report is overdue. Whether OpenCode asks
+permission for that write outside the worker's Worktree is not measured; a
+rejected ask leaves you only its hand-back.
 
 **A report's turn.** A lead turn that a worker's report starts cannot ask
 the person: the report's `opencode run` rejects every permission ask the

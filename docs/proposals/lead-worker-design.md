@@ -289,9 +289,12 @@ Prior art agrees.
 - **The hand-back travels in a status file** in the Worktree's git
   directory, keyed on Worker, Issue, PR and head commit
   ([decision 17](#decided)), so a lost or repeated doorbell is harmless.
-  The skill's `execute-issues-status` file already serves Codex v1 Workers
-  and OpenCode's fallback. It is removed with the Worktree, so the Lead
-  copies what it needs before Cleanup. A root-session Worker's final
+  It is removed with the Worktree, so the Lead copies what it needs before
+  Cleanup. The skill's Workers wrote such a file, `execute-issues-status`,
+  until [ADR 0148](../adr/0148-let-workers-write-their-own-arc-ledger-files-and-commit-under-codexs-sandbox.md)
+  moved their reports into the Arc Ledger: Codex's `workspace-write` sandbox
+  keeps every Git directory read-only, which a status file here would meet
+  too. A root-session Worker's final
   message no longer reaches its Lead.
 - **The Lead reads the Worker's own final output** beside the status file:
   `claude logs`, Codex's `-o` file, or the OpenCode session's outcome and

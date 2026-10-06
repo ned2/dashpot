@@ -55,7 +55,7 @@ You are a worker agent on {REPO}. A lead agent is executing {ARC} with several w
 - Issue: #{N}. Read it with `gh issue view {N} --json title,body,labels,comments`; later comments override the body, and a maintainer decision in a comment overrides it outright. For the design it belongs to, read {CONTEXT} the same way.
 - Worktree: {PATH}. It is already created, with its environment prepared.
 - Branch: {BRANCH}, based on {BASE_ON} at {BASE}.
-- Run every shell command as `cd {PATH} && …`, and give file tools absolute paths inside this Worktree. Other Worktrees and the main checkout belong to others.
+- Run every shell command as `cd {PATH} && …`, and give file tools absolute paths inside this Worktree. Other Worktrees and the main checkout belong to others, apart from your own file in the lead's arc ledger if your reporting rule below names one.
 
 ## Ground rules
 

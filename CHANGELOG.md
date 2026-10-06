@@ -127,7 +127,12 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   each Worktree from a freshly fetched tip, merges only what CI tested as
   it will land, and at close-out leaves a Worktree
   another session's sub-agents block to the user, with the
-  `--despite-subagents` value they may pass.
+  `--despite-subagents` value they may pass. A worker with no other channel
+  to its lead writes its reports in its own file in the lead's ledger, and
+  reads the lead's broadcasts from another there. Under Codex's
+  `workspace-write` sandbox, a lead checks before binding that its workers
+  can edit, commit and push, and otherwise gives the user the `codex
+  resume` command with `--add-dir` that lets them, with what it costs.
 - A lead assigns each worker to the Issue it implements with `dashpot work
   assign <issue> --worker <id> --worktree <path>`, and the Issues pane shows
   that Issue running while the lead's hooks report the worker working,

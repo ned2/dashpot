@@ -156,7 +156,11 @@ holds.
    match the installed Dashpot. Do not enter an Issue Worktree yourself.
    When it asks for a repair that must run from a checkout the user told
    you to leave alone, such as `integrate` from their main checkout, give
-   the user the command rather than running it.
+   the user the command rather than running it. Under Codex, check your
+   sandbox before you bind
+   ([Codex](references/harnesses.md#codex)): a sandbox that withholds the
+   Worktree Root, the Git directory or the network leaves your workers
+   unable to edit, commit or push.
 3. **Settle merge authority** now: see [Merge authority](#merge-authority).
 4. **Open the arc's ledger** in the checkout you bound in, after checking
    that Git ignores it, and write its `arc.json`

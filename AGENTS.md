@@ -376,11 +376,13 @@ context, and `docs/adr/` for decisions. If something is worth remembering,
 record it there.
 
 The Arc Ledger a Lead keeps under the bundled `dashpot-execute-issues`
-skill is not such a store: it is one Arc's working record, written only by
-that Arc's Lead, in the checkout's ignored `.dashpot/state/`, where the
-operator can read it. It is closed with the Arc and never published, and
-the Arc's outcomes go to GitHub by close-out
-([ADR 0147](docs/adr/0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md)).
+skill is not such a store: it is one Arc's working record, written by that
+Arc's Lead and by each of its Workers in that Worker's own file alone, in
+the checkout's ignored `.dashpot/state/`, where the operator can read it.
+It is closed with the Arc and never published, and the Arc's outcomes go to
+GitHub by close-out
+([ADR 0147](docs/adr/0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md),
+[ADR 0148](docs/adr/0148-let-workers-write-their-own-arc-ledger-files-and-commit-under-codexs-sandbox.md)).
 
 ## Agent skills
 
