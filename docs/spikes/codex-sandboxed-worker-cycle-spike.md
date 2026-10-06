@@ -34,20 +34,22 @@ On Linux, with the fixture repository described [below](#reproduce):
 | --- | --- | --- |
 | What does the skill's resume command give the lead? | `workspace-write`, with the Worktree Root and the main checkout's `.git` as writable roots and network access on, as Codex records in each turn's context. The skill's three checks pass, `git worktree add` works, and a write outside every root is still refused. | measured |
 | And each worker? | The same sandbox, roots and network setting, under the lead's approval policy. | measured |
-| What does Codex's default give instead? | `workspace-write` with no added roots and the network off. All three checks fail: the two writes with `Read-only file system`, and `git ls-remote` with `failed to open socket: Operation not permitted`. | measured |
-| Does the resume work straight after the old client exits? | Not at once when the old client's thread was hosted by Codex's background app-server. A resume that adds roots runs in-process instead, and is refused with `thread-store conflict: … already has an active writer` until that server unloads the idle thread, about 60 s after its last client leaves. The TUI shows the conversation read-only, says it is open in another app, and `r` retries. After a retry the prompt given on the command line is not sent. | measured |
+| What does Codex's default for a trusted project give instead? | `workspace-write` with no added roots and the network off. All three checks fail: the two writes with `Read-only file system`, and `git ls-remote` with `failed to open socket: Operation not permitted`. | measured |
+| Does the resume work straight after the old client exits? | Not at once when the old client's thread was hosted by Codex's background app-server. A resume that adds roots runs in-process instead, and is refused with `thread-store conflict: … already has an active writer` until that server unloads the idle thread, about 60 s after its last client leaves. The TUI shows the conversation read-only, says it is open in another app, and `r` retries. The retry that resumed sent no prompt within 5 s, so the runner typed the one the command line had carried. | measured |
 | What does `--add-dir` do under `--sandbox read-only`? | Codex prints `Error adding directories: Ignoring --add-dir (…) because the effective permissions do not allow additional writable roots. Switch to workspace-write or danger-full-access to allow them.` and the client exits with status 1, so no turn runs. | measured |
-| Which Worker-cycle steps does the grant alone allow? | Editing the Worktree, writing the Worker's Arc Ledger file, and pushing. Preparing the environment, the gate and the commit fail: uv and pre-commit write their caches under `~/.cache`, outside every root. | measured |
+| Which Worker-cycle steps does the grant alone allow? | Editing the Worktree, writing the worker's Arc Ledger file, and pushing. Preparing the environment, the gate and the commit fail: uv and pre-commit write their caches under `~/.cache`, outside every root. | measured |
 | What fixes those refused writes? | Either moving both caches inside the Worktree Root, with `UV_CACHE_DIR` and `PRE_COMMIT_HOME`, or adding `~/.cache` with one more `--add-dir`. Each completes the whole cycle, the commit's hook included. | measured |
-| Can the resume command set those variables for every shell? | Yes. `-c shell_environment_policy.set.UV_CACHE_DIR="<path>"` and its `PRE_COMMIT_HOME` twin reach each worker's shell and the Git hook its commit runs, with nothing in the worker's command. | measured |
+| Do the skill's three checks show that gap? | No. They all pass under the grant alone, while the gate and the commit fail. | measured |
+| Can the resume command set those variables for every shell? | Yes. `-c 'shell_environment_policy.set.UV_CACHE_DIR="<path>"'`, whose value is a TOML string, and its `PRE_COMMIT_HOME` twin reach each worker's shell and the Git hook its commit runs, with nothing in the worker's command. The unquoted form was not run. | measured |
 | What does a refused write do under `-a on-request`? | A plain command fails as it does under `never`, without an ask, for the lead and a worker alike. Only a command the agent itself marks for escalation raises an ask. | measured |
-| Who can answer that ask? | Only the person, in the lead's terminal. A worker's ask appears there too, labelled `Thread: Agent (<id>)` with `o to open thread`. The lead's turn had ended when it appeared, and the lead's own record holds nothing of it. | measured |
-| What does declining a worker's ask do? | Escape, "No, and tell Codex what to do differently", cuts the worker's command short with `aborted by user` and aborts the worker's whole turn. The worker sends no further request, so its lead gets no hand-back. | measured |
+| Who can answer that ask? | Only the person, in the lead's terminal. A worker's ask appears there too, labelled `Thread: Agent (<id>)` with `o to open thread`. The lead's turn had ended when it appeared. | measured |
+| What does declining a worker's ask do, with the lead's turn ended? | Escape, "No, and tell Codex what to do differently", cuts the worker's command short with `aborted by user` and aborts the worker's whole turn. The worker sends no further request, so its lead gets no hand-back. | measured |
+| What does a worker's ask do to a lead waiting on it, as the skill's lead waits in its turn? | Not measured: the fixture lead ended its turn after spawning its worker. | unknown |
 | Does `gh` work under the grant? | Not measured: the fixture has no forge, and a `gh` run against GitHub would need the person's credentials. `git ls-remote` and the push show the network setting reaches a worker; whether `gh` writes outside the roots, as its configuration or cache, is unknown. | unknown |
 | Does any of this hold on macOS? | Out of scope: no macOS host was available. Codex applies its Seatbelt sandbox there rather than bubblewrap. | unknown |
 
-Every check ran with `NoNewPrivs` set and under seccomp, so each refusal
-there is the sandbox's. A control write outside every writable root failed
+Every check ran with `NoNewPrivs` set and under a seccomp filter, so each
+refusal there is the sandbox's. A control write outside every writable root failed
 in every scenario that ran a turn.
 
 ## Reproduce
@@ -113,9 +115,12 @@ background app-server to unload the first thread.
   records.
 - [Retained trace](measurements/issue-639-codex-trace.jsonl) is the complete
   metadata stream of the run: 143 records, SHA-256
-  `9300d6ae7ee98dec51a2ee070041419de2b5dd69a522fe11e69e8a63d6aeb7b8`.
+  `26f6089adda613e930e65ac7df94170c73367249e2531b62d133292b318927f8`.
   The fixture root appears as `$ROOT`, the fixture's home as `$HOME`, the
   experiment directory as `$EXPERIMENT`, and the person's home as `~`.
+  Where a terminal's partial redraw broke the fixture root's path, its
+  name appears as `<fixture>`. One screen tail starts inside that name, so
+  the end of its random suffix shows there.
 
 ## Tested configuration and evidence boundary
 
@@ -135,6 +140,9 @@ The run leaves out:
 - **this Repository's own gates**: the fixture's gate is one pre-commit
   hook. A repository whose tools write other caches outside the roots
   shows them as refused writes the same way;
+- **a Python uv installs itself**, under `~/.local/share/uv` unless
+  `UV_PYTHON_INSTALL_DIR` names another: the fixture used the system
+  Python;
 - **a real model's choices**: the fixture model only issues the calls its
   plan names, and marks a command for escalation only where the plan says.
 
@@ -145,7 +153,7 @@ previous client exited.
 
 | Scenario | Command | Three checks | Outside write |
 | --- | --- | --- | --- |
-| Seed | `codex -C <checkout>`, Codex's default | all fail | refused |
+| Seed | `codex -C <checkout>`, Codex's default for a trusted project | all fail | refused |
 | Grant | the skill's resume command | all pass | refused |
 | Add-dir | the skill's command and `--add-dir ~/.cache` | all pass | refused |
 | Env | the skill's command and two `shell_environment_policy.set` overrides | all pass | refused |
@@ -157,9 +165,11 @@ TUI instead, as Codex's own log records, and the background server still
 held the seed's thread. The resume was refused until the server logged the
 thread as having no subscribers and unloaded it. The TUI showed the
 transcript read-only, said the conversation was open in another app, and
-offered `r` to retry; the runner pressed it every 10 s, and the fifth retry
-resumed, about 77 s after the seed exited. That retry did not send the
-prompt given on the command line, so the runner typed it. Later resumes
+offered `r` to retry. The runner pressed it about every 15 s, and the
+trace records the retry that resumed, about 77 s after the seed exited, as
+the fifth; the server's log puts the unload about 60 s after. That retry
+sent no prompt within 5 s, so the runner typed the one the command line
+had carried. Later resumes
 followed an in-process client, which releases the thread when it exits,
 and none waited.
 
@@ -207,27 +217,35 @@ The lead and then its worker each ran two writes outside every root.
    ran outside the sandbox.
 3. **The worker's escalated write** raised the same overlay in the lead's
    terminal, headed `Thread: Agent (<id>)` and offering `o to open thread`.
-   The lead's turn had already ended. The runner pressed Escape. Codex
+   The lead's turn had already ended. The runner pressed Escape, the
+   overlay's "3. No, and tell Codex what to do differently (esc)". Codex
    recorded the worker's command as `aborted by user` and its turn as
    aborted, and the worker sent no further model request.
 
-The lead's own rollout records nothing about the worker's ask or its end.
+The fixture lead ends its turn once it has spawned its worker. The skill's
+lead stays in its turn, waiting on its workers, and what it sees of a
+worker's ask then is not measured.
 
 ## What this means for the skill
 
-- **The resume command is right,** with one wait. Codex keeps the old
-  thread until about a minute after its last client leaves; until then the
-  resumed TUI is read-only, and `r` retries. The prompt on the command line
-  is lost after a retry, so the person repeats it.
-- **The grant needs the caches.** A Worker's gate and commit fail on the
-  first cache their tools write outside the roots. Moving each cache into
-  the Worktree Root with `-c shell_environment_policy.set.<NAME>=<path>`
-  completes the cycle without widening the sandbox, so the skill names that
-  first and `--add-dir ~/.cache` as the wider alternative.
+- **The resume command is right,** with one wait. When the old thread
+  ran in Codex's background app-server, that server keeps it until about a
+  minute after its last client leaves; until then the resumed TUI is
+  read-only, and `r` retries. A prompt on the command line may not be sent
+  after a retry, so the person repeats it.
+- **The grant needs the caches, and the checks do not show it.** A
+  Worker's gate and commit fail on the first cache their tools write
+  outside the roots, while the three checks pass. So the skill adds a
+  fourth check, of where the caches go. Moving each cache into the
+  Worktree Root with
+  `-c 'shell_environment_policy.set.<NAME>="<path>"'` completes the cycle
+  without widening the sandbox, so the skill's command carries those
+  options, and `--add-dir ~/.cache` is the wider alternative.
 - **`read-only` fails loudly.** `--add-dir` under `read-only` stops the
   client, rather than being ignored.
 - **`on-request` adds asks only the person can answer,** and declining a
-  worker's ask ends that worker's turn without a report to its Lead.
+  worker's ask while its lead's turn has ended ends that worker's turn
+  without a report.
   `never` remains the skill's assumption: a refused write fails as a
   command, which a Worker can report.
 - **Nothing here argues against ADR 0148's grant.** With the caches inside

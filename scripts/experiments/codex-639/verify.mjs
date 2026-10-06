@@ -13,7 +13,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [tracePath, expectedVersion = "0.160.0"] = process.argv.slice(2);
 assert(tracePath, "Pass the trace.jsonl path");
-const records = readFileSync(tracePath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+const raw = readFileSync(tracePath, "utf8");
+const records = raw.trim().split("\n").map((line) => JSON.parse(line));
+assert(!/dashpot-codex-639-\w{6}/.test(raw), "the fixture root's name is replaced everywhere, a redrawn screen's broken paths included");
 const of = (kind) => records.filter((record) => record.kind === kind);
 const one = (kind, predicate = () => true) => {
   const found = of(kind).filter(predicate);
@@ -51,6 +53,7 @@ assert.equal(checks.seed.networkDisabled, "1");
 for (const [label, report] of Object.entries(checks)) {
   assert.equal(report.gitDir, gitDir);
   assert.equal(report.noNewPrivs, "1", `${label} ran under the sandbox`);
+  assert.equal(report.seccomp, "2", `${label} ran under a seccomp filter`);
   assert.equal(report.results.outside.ok, false, `${label}'s write outside every root was refused`);
   assert.match(report.results.outside.error, /Read-only file system$/);
   if (label === "seed") continue;
@@ -114,7 +117,7 @@ assert.deepEqual(cycles["worker-override"].overrides, ["UV_CACHE_DIR", "PRE_COMM
 // The env scenario sets the caches through Codex's shell environment
 // policy alone, so the Worker's shell arrives with them.
 assert.deepEqual(cycles["worker-env"].overrides, []);
-assert.deepEqual(cycles["worker-env"].inherited, Object.fromEntries(environment.cacheOverrides.map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)])));
+assert.deepEqual(cycles["worker-env"].inherited, Object.fromEntries(environment.cacheOverrides.map((pair) => pair.split(/=(.*)/s).slice(0, 2))));
 assert.deepEqual(cycles["worker-default"].inherited, { UV_CACHE_DIR: null, PRE_COMMIT_HOME: null });
 const refs = one("remote.refs").refs;
 for (const label of Object.keys(cycles)) assert(refs.includes(`refs/heads/${label}`), `${label} pushed to the loopback remote`);
@@ -128,9 +131,16 @@ assert.deepEqual(one("ledger").files, ["worker-default", "worker-uv", "worker-ov
 const { entries: log } = one("codex.log");
 const grantStart = one("lead.started", (record) => record.name === "grant");
 assert(grantStart.conflicts >= 1 && grantStart.retries >= 1, "the grant's resume waited on the daemon");
+assert.match(screen("conflict"), /This conversation is open in another app/);
+assert.match(screen("conflict"), /r retry/);
+// The retry that resumed sent no model request within 5 s, so the runner
+// typed the prompt the command line had carried.
+assert.equal(grantStart.typed, true);
 assert(log.some((entry) => entry.method === "thread/start" && entry.transport === "unix_socket" && entry.pid === one("lead.started", (record) => record.name === "seed").daemonPid));
 assert(log.some((entry) => entry.pid === grantStart.hostPid && entry.method === "thread/resume" && entry.transport === "in-process" && /already has an active writer/.test(entry.message)));
-assert(log.some((entry) => entry.pid === grantStart.daemonPid && entry.message === `thread ${session} has no subscribers and is idle; shutting down`));
+const unloaded = log.find((entry) => entry.pid === grantStart.daemonPid && entry.message === `thread ${session} has no subscribers and is idle; shutting down`);
+const seedExit = one("terminal.exit", (record) => record.name === "seed").receiptTime / 1000;
+assert(unloaded.ts - seedExit >= 50 && unloaded.ts - seedExit <= 70, "the background server unloaded the seed's thread about 60 s after its client exited");
 assert.equal(grantStart.hostPid !== grantStart.daemonPid, true);
 // A resume after an in-process client waits for nothing.
 for (const name of ["adddir", "env", "ask"]) assert.equal(one("lead.started", (record) => record.name === name).conflicts, 0, `${name} resumed at once`);
@@ -153,6 +163,7 @@ assert.deepEqual(one("asks").answered, ["lead", "worker"]);
 assert.match(screen("ask-lead"), /Would you like to run the following command\?\s*Environment:\s*local\s*Reason:\s*Fixture: write outside every writable root\s*\$\s*touch \$ROOT\/outside\/escalated-lead-ask/);
 assert.match(screen("ask-worker"), /Would you like to run the following command\?\s*Thread:\s*Agent \([0-9a-f]{8}\)/);
 assert.match(screen("ask-worker"), /o to open thread/);
+assert.match(screen("ask-worker"), /3\.\s*No,\s*and\s*tell\s*Codex\s*what\s*to\s*do\s*differently\s*\(esc\)/);
 const leadEnded = requests("lead-ask").find((record) => record.action === null);
 assert(leadEnded.receipt < one("screen", (record) => record.label === "ask-worker").receipt, "the lead's turn had ended before the worker's ask");
 // The person approved the lead's ask, and the command ran. Escape on the

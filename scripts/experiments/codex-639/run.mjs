@@ -68,8 +68,10 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const home = os.homedir();
 const fixtureHome = path.join(root, "home");
 const hostName = new RegExp(`\\b${os.hostname().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
-const clean = (text) => String(text).replaceAll(fixtureHome, "$HOME").replaceAll(root, "$ROOT").replaceAll(here, "$EXPERIMENT")
-  .replaceAll(checkout, "$CHECKOUT").replaceAll(home, "~").replace(hostName, "<host>");
+// A terminal's partial redraw can break a path, as `/vr/tmp/<fixture>`, so
+// the fixture root's own name is replaced wherever it is left.
+const clean = (text) => String(text).replaceAll(fixtureHome, "$HOME").replaceAll(root, "$ROOT").replaceAll(path.basename(root), "<fixture>")
+  .replaceAll(here, "$EXPERIMENT").replaceAll(checkout, "$CHECKOUT").replaceAll(home, "~").replace(hostName, "<host>");
 const trace = (kind, fields = {}) => {
   const record = { kind, ...fields, receipt: records.length + 1, receiptTime: Date.now() };
   records.push(record);
@@ -186,8 +188,9 @@ const remoteServer = await listen(async (req, res) => {
   cgi.stderr.on("data", () => {});
   await once(cgi, "close");
   const response = Buffer.concat(out);
-  const split = response.indexOf("\r\n\r\n") >= 0 ? response.indexOf("\r\n\r\n") : response.indexOf("\n\n");
-  const separator = response.indexOf("\r\n\r\n") >= 0 ? 4 : 2;
+  const crlf = response.indexOf("\r\n\r\n");
+  const split = crlf >= 0 ? crlf : response.indexOf("\n\n");
+  const separator = crlf >= 0 ? 4 : 2;
   const headers = response.subarray(0, split).toString("utf8").split(/\r?\n/).map((line) => [line.slice(0, line.indexOf(":")), line.slice(line.indexOf(":") + 1).trim()]);
   const statusLine = headers.find(([name]) => name.toLowerCase() === "status")?.[1] ?? "200 OK";
   const status = Number(statusLine.split(" ")[0]);
@@ -212,9 +215,11 @@ const checksScript = path.join(here, "checks.mjs");
 const cycleScript = path.join(here, "cycle.mjs");
 const uvOverride = `UV_CACHE_DIR=${path.join(worktreeRoot, ".cache", "uv")}`;
 const cacheOverrides = [uvOverride, `PRE_COMMIT_HOME=${path.join(worktreeRoot, ".cache", "pre-commit")}`];
+const nameValue = (pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)];
+const grantWorkers = ["worker-default", "worker-uv", "worker-override"];
 const plans = {
   seed: [{ checks: [] }],
-  "lead-grant": [{ checks: ["worker-default", "worker-uv", "worker-override"] }, { spawn: ["worker_default", "worker-default"] },
+  "lead-grant": [{ checks: grantWorkers }, { spawn: ["worker_default", "worker-default"] },
     { spawn: ["worker_uv", "worker-uv"] }, { spawn: ["worker_override", "worker-override"] }],
   "worker-default": [{ cycle: [] }],
   // uv's cache moved alone, so the next refusal shows.
@@ -575,8 +580,8 @@ try {
   await leadStarted(granted, "lead-grant");
   await reported("CHECKS", "lead-grant", 90000);
   await finished("lead-grant");
-  for (const label of ["worker-default", "worker-uv", "worker-override"]) await reported("CYCLE", label, 300000);
-  for (const label of ["worker-default", "worker-uv", "worker-override"]) await finished(label);
+  for (const label of grantWorkers) await reported("CYCLE", label, 300000);
+  for (const label of grantWorkers) await finished(label);
   await delay(1500);
   granted.screen("grant-done");
   await exitTerminal(granted);
@@ -596,7 +601,8 @@ try {
   // The skill's command, with the session's shells given both cache
   // locations by configuration instead.
   trace("scenario", { name: "env" });
-  const shellEnv = cacheOverrides.flatMap((pair) => ["-c", `shell_environment_policy.set.${pair.slice(0, pair.indexOf("="))}="${pair.slice(pair.indexOf("=") + 1)}"`]);
+  // Each value is a TOML string, as the skill's shell-quoted option passes it.
+  const shellEnv = cacheOverrides.map(nameValue).flatMap(([name, value]) => ["-c", `shell_environment_policy.set.${name}="${value}"`]);
   const configured = terminal("env", ["resume", session, ...grant, ...shellEnv, "SPIKE:lead-env"]);
   await leadStarted(configured, "lead-env");
   await reported("CHECKS", "lead-env", 90000);
@@ -631,7 +637,7 @@ try {
   trace("reports.outcome", { reports: Object.fromEntries(reports) });
   trace("outside", { entries: readdirSync(outside).sort() });
   trace("remote.refs", { refs: execFileSync("git", ["-C", remote, "for-each-ref", "--format=%(refname)"], { encoding: "utf8" }).trim().split("\n") });
-  trace("ledger", { files: ["worker-default", "worker-uv", "worker-override", "worker-adddir", "worker-env"].filter((label) => existsSync(ledgerOf(label))) });
+  trace("ledger", { files: [...grantWorkers, "worker-adddir", "worker-env"].filter((label) => existsSync(ledgerOf(label))) });
   trace("rollouts", { threads: rollouts() });
   trace("codex.log", { entries: codexLog() });
   console.log(`All scenarios completed: ${root}`);

@@ -15,7 +15,8 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 const [label, main, ledger, ...overrides] = process.argv.slice(2);
-const env = { ...process.env, ...Object.fromEntries(overrides.map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)])) };
+const nameValue = (pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)];
+const env = { ...process.env, ...Object.fromEntries(overrides.map(nameValue)) };
 // A refused write shows as one of these errors; each path on such a line is
 // one the step tried to write.
 const refusal = /Read-only file system|Permission denied|Operation not permitted|os error (?:30|13|1)\b|EROFS|EACCES|EPERM/;
@@ -44,7 +45,7 @@ const steps = {
   push: run("git", ["push", "origin", `HEAD:refs/heads/${label}`]),
   report: write(() => { mkdirSync(path.dirname(ledger), { recursive: true }); appendFileSync(ledger, `### ${label}\nCycle finished.\n-- end\n`); }),
 };
-const report = { label, cwd: process.cwd(), main, thread: process.env.CODEX_THREAD_ID ?? null, overrides: overrides.map((pair) => pair.slice(0, pair.indexOf("="))),
+const report = { label, cwd: process.cwd(), main, thread: process.env.CODEX_THREAD_ID ?? null, overrides: overrides.map((pair) => nameValue(pair)[0]),
   // The cache locations the worker's shell itself was given, before any override.
   inherited: { UV_CACHE_DIR: process.env.UV_CACHE_DIR ?? null, PRE_COMMIT_HOME: process.env.PRE_COMMIT_HOME ?? null },
   sandboxEnv: process.env.CODEX_SANDBOX ?? null, networkDisabled: process.env.CODEX_SANDBOX_NETWORK_DISABLED ?? null, steps };

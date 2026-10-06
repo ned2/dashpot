@@ -107,58 +107,60 @@ directory keeps its own `.git` read-only, so:
   `git rev-parse --path-format=absolute --git-common-dir` prints, so no
   agent of your session can commit there, or create a Worktree, unless
   that directory is writable too;
-- pushing and `gh` need network access.
+- pushing and `gh` need network access;
+- the tools the repository's gates run write caches, which must be
+  writable too. uv writes `~/.cache/uv` and pre-commit
+  `~/.cache/pre-commit` unless `UV_CACHE_DIR` and `PRE_COMMIT_HOME` name
+  another directory. Where a repository uses them, a worker without them
+  can edit and push but cannot prepare its environment, run its gate, or
+  commit through a hook that runs either, and the refused write shows only
+  as a failed command in the shell that tried it. Other tools write
+  elsewhere, such as the Pythons uv installs itself, under
+  `~/.local/share/uv`.
 
-Check all three from where you will bind:
+Check all four from where you will bind:
 
 ```bash
 touch <Worktree Root>/.execute-issues-check && rm <Worktree Root>/.execute-issues-check
 touch <Git directory>/execute-issues-check && rm <Git directory>/execute-issues-check
 git ls-remote --exit-code origin HEAD
+echo "UV_CACHE_DIR=$UV_CACHE_DIR PRE_COMMIT_HOME=$PRE_COMMIT_HOME"
 ```
 
+The fourth passes when it names, inside the Worktree Root, the cache of
+each of those tools the repository's gates use. The first three pass under
+the grant below without it, so run the fourth whatever they say.
 `git ls-remote` also fails without credentials: read its error before you
 blame the sandbox. If a check fails for the sandbox, stop before binding.
 Ask the user to create the Worktree Root if it does not exist yet, exit
-this client, and resume your session with both directories writable and
-the network on:
+this client, and resume your session with both directories writable, the
+network on, and the caches in the Worktree Root:
 
 ```bash
-codex resume <session-id> -C <checkout> --sandbox workspace-write --add-dir <Worktree Root> --add-dir <Git directory> -c sandbox_workspace_write.network_access=true
+codex resume <session-id> -C <checkout> --sandbox workspace-write --add-dir <Worktree Root> --add-dir <Git directory> -c sandbox_workspace_write.network_access=true -c 'shell_environment_policy.set.UV_CACHE_DIR="<Worktree Root>/.cache/uv"' -c 'shell_environment_policy.set.PRE_COMMIT_HOME="<Worktree Root>/.cache/pre-commit"'
 ```
 
-`<session-id>` is the Agent Session identity `<dashpot> integrate codex
---status` confirms, and `<checkout>` the one you will bind in; a new session takes the same options after `codex`.
-This command is measured on Codex 0.160.0 on Linux: it gives you and every
-worker these writable directories with the network on. Still run the three
-checks again in the resumed session before you bind. `--sandbox
-workspace-write` matters: under `read-only`, Codex refuses `--add-dir` and
-the client exits. Tell the user that Codex keeps this thread for about a
-minute after this client exits. Until then the resumed client shows the
-conversation read-only, says it is open in another app, and retries when
-they press `r`. A retry drops a prompt given on the command line, so they
-type it again.
+Drop the option for a tool the repository does not use, and add one for
+each other cache its gates write. `<session-id>` is the Agent Session
+identity `<dashpot> integrate codex --status` confirms, and `<checkout>`
+the one you will bind in; a new session takes the same options after
+`codex`. This resume command is measured on Codex 0.160.0 on Linux: it
+gives you and every worker these writable directories with the network
+on, and every shell of the session, your workers' and their Git hooks
+included, the two cache locations, so a worker completes its whole cycle.
+Still run the four checks again in the resumed session before you bind.
+`--sandbox workspace-write` matters: under `read-only`, Codex refuses
+`--add-dir` and the client exits. Tell the user that Codex's background
+app-server may hold this thread for about a minute after this client
+exits. Until then the resumed client shows the conversation read-only,
+says it is open in another app, and retries when they press `r`. If the
+resumed session does not start on a prompt given on the command line,
+they type it again.
 
-**Move the gates' caches into the Worktree Root.** The tools a gate runs
-write caches outside these directories, and a refused write shows only as
-a failed command in the shell that tried it. uv writes `~/.cache/uv` and
-pre-commit `~/.cache/pre-commit`, so where a repository uses them, a
-worker under the grant alone can edit and push but cannot prepare its
-environment, run its gate, or commit through a hook that runs either. Give
-the resume command one option per cache the repository's gates write; for
-uv and pre-commit:
-
-```bash
--c shell_environment_policy.set.UV_CACHE_DIR=<Worktree Root>/.cache/uv -c shell_environment_policy.set.PRE_COMMIT_HOME=<Worktree Root>/.cache/pre-commit
-```
-
-Every shell of the session then gets them, your workers' and their Git
-hooks included, and a worker completes its whole cycle. `--add-dir
-~/.cache` works too, but it lets every agent of the session write every
-tool's cache, and code planted in one runs the next time that tool runs
-outside the sandbox.
-
-Tell the user, as you ask, what the Git directory
+`--add-dir ~/.cache` in place of the two cache options also completes a
+worker's cycle, but it lets every agent of the session write every tool's
+cache, and code planted in one runs the next time that tool runs outside
+the sandbox. Tell the user, as you ask, what the Git directory
 costs: every agent of the session can then write its hooks and its
 configuration, and code planted there runs the next time anything runs
 `git` outside the sandbox, Dashpot's dashboard included. They may run the
@@ -170,8 +172,9 @@ ledger need nothing more.
 Under the `on-request` approval policy, a refused write still fails as a
 command. Only a command the agent asks to run outside the sandbox raises
 an ask, and only the user can answer it, in your terminal, a worker's
-included. If they decline a worker's ask, that worker's turn ends and its
-report never comes.
+included. If they decline a worker's ask while your turn has ended, that
+worker's turn ends too and its report never comes. What a worker's ask
+does to a turn of yours that is waiting on it is not measured.
 
 **Stay in your turn.** Codex never starts a turn for an idle lead, neither
 for a worker's message nor for its completion. While any worker runs, keep
