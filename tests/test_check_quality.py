@@ -307,8 +307,8 @@ def recorded_hook_calls(record: Path) -> list[HookCall]:
     return calls
 
 
-def hook_call(checkout: Path, hook_type: str, *remaining: str) -> list[str]:
-    """The ``uv`` arguments a tracked hook script passes from ``checkout``."""
+def hook_call(hook_type: str, *remaining: str) -> list[str]:
+    """The ``uv`` arguments a tracked hook script passes, in any checkout."""
     return [
         "run",
         "--locked",
@@ -316,8 +316,6 @@ def hook_call(checkout: Path, hook_type: str, *remaining: str) -> list[str]:
         "hook-impl",
         "--config=.pre-commit-config.yaml",
         f"--hook-type={hook_type}",
-        "--hook-dir",
-        str((checkout / ".githooks").resolve()),
         "--",
         *remaining,
     ]
@@ -370,7 +368,7 @@ def test_each_checkout_runs_pre_commit_from_its_own_root(
         (after_removal, main_checkout),
     ):
         assert call.cwd == checkout.resolve()
-        assert call.arguments == hook_call(checkout, "pre-commit")
+        assert call.arguments == hook_call("pre-commit")
 
 
 def test_pre_push_passes_the_pushed_refs_on(
@@ -386,5 +384,5 @@ def test_pre_push_passes_the_pushed_refs_on(
 
     push = recorded_hook_calls(record)[-1]
     assert push.cwd == checkout.resolve()
-    assert push.arguments == hook_call(checkout, "pre-push", "origin", str(remote))
+    assert push.arguments == hook_call("pre-push", "origin", str(remote))
     assert push.stdin == f"refs/heads/main {head} refs/heads/main {'0' * 40}"

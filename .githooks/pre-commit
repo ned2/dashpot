@@ -6,9 +6,13 @@
 # and no interpreter path is written into the Git directory every checkout
 # shares.
 #
-# `pre-commit hook-impl` is internal to pre-commit: it is what the scripts
-# `pre-commit install` generates run, not a public interface, so an upgrade
-# of pre-commit must check that these scripts still work.
+# `pre-commit hook-impl` is a hidden pre-commit command, what the scripts
+# `pre-commit install` generates run, so an upgrade of pre-commit must check
+# that these scripts still work. It takes no `--hook-dir` here: that option
+# only runs a `<hook>.legacy` script beside the hook, which `.githooks/` has
+# none of. Leaving it out needs pre-commit 4.6.0 or later, which accepts a
+# missing `--hook-dir` for Git 2.54's configured hooks; the config's
+# `minimum_pre_commit_version` and `uv.lock` both hold that floor.
 set -e
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -16,7 +20,5 @@ if ! command -v uv >/dev/null 2>&1; then
     exit 1
 fi
 
-hook_dir="$(cd "$(dirname "$0")" && pwd)"
 exec uv run --locked pre-commit hook-impl \
-    --config=.pre-commit-config.yaml --hook-type=pre-commit --hook-dir "$hook_dir" \
-    -- "$@"
+    --config=.pre-commit-config.yaml --hook-type=pre-commit -- "$@"
