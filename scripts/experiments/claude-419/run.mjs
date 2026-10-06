@@ -143,7 +143,7 @@ env.SPIKE_SINK = sink.url;
 // Read from this checkout's integration: the hook subscriptions and the
 // skills directory `dashpot integrate claude-code` uses for this home.
 const integration = JSON.parse(execFileSync(python, ["-c",
-  "import json; from dashpot.sessions.integrate import CLAUDE_CODE as c; print(json.dumps({'events': c.events, 'matched': c.matched_events, 'skills': str(c.default_skills_home)}))"],
+  "import json, os; from dashpot.sessions.integrate import integration, user_skills_directory; c = integration('claude-code'); print(json.dumps({'events': c.events, 'matched': c.matched_events, 'skills': str(user_skills_directory(c, os.environ))}))"],
   { encoding: "utf8", env: { ...env, PATH: "/usr/bin:/bin" } }));
 assert.equal(integration.skills, path.join(env.CLAUDE_CONFIG_DIR, "skills"));
 const handler = { type: "command", command: `${process.execPath} ${path.join(here, "hook.mjs")}`, timeout: 15 };

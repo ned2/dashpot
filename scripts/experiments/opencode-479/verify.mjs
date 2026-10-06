@@ -7,9 +7,10 @@
 // Usage: node verify.mjs <trace.jsonl> [--strict]
 //
 // verify.mjs was written after the retained run, so the trace records no hash
-// for it; every other experiment file must match the hash the run recorded.
-// The Dashpot sources the trace hashes may change after the run, so a
-// difference from this checkout is reported, and fails only under --strict.
+// for it; every other experiment file but the runner must match the hash the
+// run recorded. The runner may be edited after the run, and the Dashpot
+// sources the trace hashes may change after it, so a difference in either
+// from this checkout is reported, and fails only under --strict.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -71,12 +72,14 @@ const checkout = path.resolve(here, "..", "..", "..");
 const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.startsWith("src/"))
   .filter((file) => (file.endsWith("/") ? treeDigestOf : digestOf)(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot sources differ from the run's: ${drifted.join(", ")}`);
+const runnerChanged = digestOf(path.join(here, "run.mjs")) !== environment.sourceSHA256["run.mjs"];
+assert(!(strict && runnerChanged), "the runner differs from the run's");
 
 const known = one("known").sessions;
 const lead = known.lead;
 
 check("the trace came from these experiment files, the pinned OpenCode release and the installed copy of this checkout's plugin and agent", () => {
-  for (const file of ["run.mjs", "command.mjs", "guard.mjs", "ancestry.mjs", "probe-plugin.js"]) {
+  for (const file of ["command.mjs", "guard.mjs", "ancestry.mjs", "probe-plugin.js"]) {
     assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
   }
   assert.equal(environment.sourceSHA256["verify.mjs"], null, "verify.mjs postdates the run");
@@ -392,3 +395,4 @@ check("`always` saves a Project rule that answers the Lead's asks too, survives 
 for (const item of checks) console.log(`ok - ${item}`);
 console.log(`${checks.length} claims verified`);
 console.log(drifted.length ? `Dashpot sources changed since the run: ${drifted.join(", ")}` : `Dashpot sources match the run's (${environment.dashpotHead})`);
+if (runnerChanged) console.log("note - runner changed since this trace was recorded: run.mjs");

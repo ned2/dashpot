@@ -137,7 +137,7 @@ env.SPIKE_SINK = sink.url;
 // The subscriptions `dashpot integrate claude-code` installs, read from this
 // checkout, each publishing; the compaction events beside them, observed only.
 const integration = JSON.parse(execFileSync(python, ["-c",
-  "import json; from dashpot.sessions.integrate import CLAUDE_CODE as c; print(json.dumps({'events': c.events, 'matched': c.matched_events}))"],
+  "import json; from dashpot.sessions.integrate import integration; c = integration('claude-code'); print(json.dumps({'events': c.events, 'matched': c.matched_events}))"],
   { encoding: "utf8", env: { ...env, PATH: "/usr/bin:/bin" } }));
 const observedOnly = ["PreCompact", "PostCompact"];
 const handler = { type: "command", command: `${process.execPath} ${path.join(here, "hook.mjs")}`, timeout: 15 };
@@ -501,7 +501,7 @@ scenario("fork-worker", async () => {
 
 const sha = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
 try {
-  const sources = ["sessions/hook_publish.py", "sessions/hook_records.py", "sessions/hook_scan.py", "sessions/integrate.py", "hook.py"];
+  const sources = ["sessions/hook_publish.py", "sessions/hook_records.py", "sessions/hook_scan.py", "sessions/integrate/registry.py", "hook.py"];
   daemonBaseline = daemonDirectories();
   trace("environment", { version, platform: os.platform(), release: os.release(), arch: os.arch(), node: process.version,
     binary, executable: execFileSync("readlink", ["-f", binary], { encoding: "utf8" }).trim(),

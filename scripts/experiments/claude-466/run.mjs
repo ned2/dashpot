@@ -137,7 +137,7 @@ env.SPIKE_SINK = sink.url;
 // The subscriptions `dashpot integrate claude-code` installs, read from this
 // checkout, each publishing.
 const integration = JSON.parse(execFileSync(python, ["-c",
-  "import json; from dashpot.sessions.integrate import CLAUDE_CODE as c; print(json.dumps({'events': c.events, 'matched': c.matched_events}))"],
+  "import json; from dashpot.sessions.integrate import integration; c = integration('claude-code'); print(json.dumps({'events': c.events, 'matched': c.matched_events}))"],
   { encoding: "utf8", env: { ...env, PATH: "/usr/bin:/bin" } }));
 const handler = { type: "command", command: `${process.execPath} ${path.join(here, "hook.mjs")}`, timeout: 15 };
 const subscriptions = {};

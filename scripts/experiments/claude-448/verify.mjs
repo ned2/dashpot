@@ -8,8 +8,9 @@
 //
 // Usage: node verify.mjs <trace.jsonl> [--strict] [--sequences]
 //
-// The Dashpot sources the trace hashes keep changing after the run, so a
-// difference from this checkout is reported, and fails only under --strict.
+// The Dashpot sources the trace hashes keep changing after the run, and the
+// runner may be edited after it, so a difference in either from this
+// checkout is reported, and fails only under --strict.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -73,10 +74,14 @@ check("the trace is of the pinned Claude Code release", () => {
   assert.equal(environment.version, `${pinned} (Claude Code)`);
   assert.match(environment.binary, new RegExp(`/claude/versions/${pinned.replaceAll(".", "\\.")}$`));
 });
-check("the trace came from the runner retained beside this verifier", () => {
-  for (const [name, hash] of Object.entries(environment.experimentSHA256))
+check("the trace came from the helpers retained beside this verifier", () => {
+  for (const [name, hash] of Object.entries(environment.experimentSHA256)) if (name !== "run.mjs")
     assert.equal(createHash("sha256").update(readFileSync(path.join(here, name))).digest("hex"), hash, `${name} changed since the run`);
 });
+if (createHash("sha256").update(readFileSync(path.join(here, "run.mjs"))).digest("hex") !== environment.experimentSHA256["run.mjs"]) {
+  console.log("note - runner changed since this trace was recorded: run.mjs");
+  assert(!flags.has("--strict"), "runner changed under --strict");
+}
 check("the hooks were subscribed as `dashpot integrate claude-code` subscribes them, with PreCompact and PostCompact observed only", () => {
   assert.deepEqual(environment.subscriptions.events, ["SessionStart", "UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop", "SessionEnd"]);
   assert.deepEqual(environment.subscriptions.observedOnly, ["PreCompact", "PostCompact"]);

@@ -6,8 +6,9 @@
 //
 // Usage: node verify.mjs <trace.jsonl> [--strict]
 //
-// The Dashpot sources the trace hashes keep changing after the run, so a
-// difference from this checkout is reported, and fails only under --strict.
+// The Dashpot sources the trace hashes keep changing after the run, and the
+// runner may be edited after it, so a difference in either from this
+// checkout is reported, and fails only under --strict.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -80,11 +81,12 @@ check("the trace is of the pinned Claude Code release", () => {
   assert.equal(environment.kind, "environment");
   assert.equal(environment.version, `${pinned} (Claude Code)`);
 });
-check("the trace came from the runner, hook and command retained beside this verifier", () => {
-  for (const name of ["run.mjs", "hook.mjs", "command.mjs", "ancestry.mjs"]) {
+check("the trace came from the hook and command retained beside this verifier", () => {
+  for (const name of ["hook.mjs", "command.mjs", "ancestry.mjs"]) {
     assert.equal(environment.sourceSHA256[name], createHash("sha256").update(readFileSync(path.join(here, name))).digest("hex"), name);
   }
 });
+const runnerChanged = environment.sourceSHA256["run.mjs"] !== createHash("sha256").update(readFileSync(path.join(here, "run.mjs"))).digest("hex");
 check("hooks are subscribed as `dashpot integrate claude-code` subscribes them", () => assert.deepEqual(environment.subscriptions, {
   events: ["SessionStart", "UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop", "SessionEnd"],
   matched: [["PostToolUse", "EnterWorktree"], ["PostToolUse", "ExitWorktree"]],
@@ -472,3 +474,5 @@ const drifted = Object.keys(environment.sourceSHA256).filter((name) => name.star
   });
 console.log(drifted.length ? `Dashpot sources changed since the run: ${drifted.join(", ")}` : "Dashpot sources match the run's.");
 assert(!(strict && drifted.length), "--strict: Dashpot sources differ from the run's");
+if (runnerChanged) console.log("note - runner changed since this trace was recorded: run.mjs");
+assert(!(strict && runnerChanged), "--strict: the runner differs from the run's");

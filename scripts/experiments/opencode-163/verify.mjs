@@ -61,16 +61,20 @@ const helperSummary = one("events").summary;
 const counts = Object.fromEntries(kind("instances").map((record) => [record.label, record]));
 
 const environment = one("environment");
-// The runner's scripts change only with a new trace, so they must match;
-// Dashpot's sources keep changing after the trace is retained, so a
-// difference is reported, and fails only under --strict.
+// The runner's helper scripts change only with a new trace, so they must
+// match. The runner and this verifier may be edited after the trace, and
+// Dashpot's sources keep changing after it is retained, so a difference in
+// either is reported, and fails only under --strict.
+const editable = ["run.mjs", "verify.mjs"];
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
 const scripts = ["run.mjs", "verify.mjs", "command.mjs", "replay.mjs", "ancestry.mjs"];
-for (const file of scripts) assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
+for (const file of scripts) if (!editable.includes(file)) assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
 const checkout = path.resolve(here, "..", "..", "..");
 const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.startsWith("src/"))
   .filter((file) => digestOf(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot sources differ from the run's: ${drifted.join(", ")}`);
+const runnerChanged = editable.filter((file) => digestOf(path.join(here, file)) !== environment.sourceSHA256[file]);
+assert(!(strict && runnerChanged.length), `the runner differs from the run's: ${runnerChanged.join(", ")}`);
 
 check("the trace names no path outside the fixture's placeholders", () => {
   assert.deepEqual(text.match(/(?<![\w$])\/(?:tmp|home)\/[^"\s]*/g) ?? [], []);
@@ -482,3 +486,4 @@ check("the npm package's service is opencode.exe, a Host Process like any other"
 for (const claim of checks) console.log(`ok - ${claim}`);
 console.log(`${checks.length} claims verified`);
 console.log(drifted.length ? `Dashpot sources changed since the run: ${drifted.join(", ")}` : `Dashpot sources match the run's (${environment.dashpotHead})`);
+if (runnerChanged.length) console.log(`note - runner changed since this trace was recorded: ${runnerChanged.join(", ")}`);

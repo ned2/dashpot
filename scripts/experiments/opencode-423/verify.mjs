@@ -54,9 +54,11 @@ const confirmedAt = (record, directory) => record.cwd === directory
 const moveAccepted = (result, directory) => { const answer = JSON.parse(result); return answer.directory === directory && /^ses_\w+$/.test(answer.sessionID); };
 
 const environment = one("environment");
-// The runner's scripts change only with a new trace, so they must match;
-// Dashpot's sources keep changing after the trace is retained, so a
-// difference is reported, and fails only under --strict.
+// The runner's helper scripts change only with a new trace, so they must
+// match. The runner and this verifier may be edited after the trace, and
+// Dashpot's sources keep changing after it is retained, so a difference in
+// either is reported, and fails only under --strict.
+const editable = ["run.mjs", "verify.mjs"];
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
 const treeDigestOf = (directory) => {
   if (!existsSync(directory)) return null;
@@ -67,12 +69,14 @@ const treeDigestOf = (directory) => {
   return hash.digest("hex");
 };
 for (const file of ["run.mjs", "verify.mjs", "command.mjs", "ancestry.mjs"]) {
-  assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
+  if (!editable.includes(file)) assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
 }
 const checkout = path.resolve(here, "..", "..", "..");
 const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.startsWith("src/"))
   .filter((file) => (file.endsWith("/") ? treeDigestOf : digestOf)(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot sources differ from the run's: ${drifted.join(", ")}`);
+const runnerChanged = editable.filter((file) => digestOf(path.join(here, file)) !== environment.sourceSHA256[file]);
+assert(!(strict && runnerChanged.length), `the runner differs from the run's: ${runnerChanged.join(", ")}`);
 
 const bound = sessionOf("Bound");
 const unbound = sessionOf("Unbound");
@@ -242,3 +246,4 @@ check("Sub-agents: a session waits while work show lists its Sub-agent, and move
 for (const item of checks) console.log(`ok - ${item}`);
 console.log(`${checks.length} claims verified`);
 console.log(drifted.length ? `Dashpot sources changed since the run: ${drifted.join(", ")}` : `Dashpot sources match the run's (${environment.dashpotHead})`);
+if (runnerChanged.length) console.log(`note - runner changed since this trace was recorded: ${runnerChanged.join(", ")}`);

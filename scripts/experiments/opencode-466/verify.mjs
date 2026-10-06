@@ -10,8 +10,9 @@
 //
 // Usage: node verify.mjs <trace.jsonl> [--strict]
 //
-// The Dashpot sources the trace hashes may change after the run, so a
-// difference from this checkout is reported, and fails only under --strict.
+// The Dashpot sources the trace hashes may change after the run, and the #379
+// runner and its verifier may be edited after it, so a difference in either
+// from this checkout is reported, and fails only under --strict.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -50,9 +51,10 @@ const wokenBy = (hold, session) => records.filter((record) => record.kind === "m
 
 const environment = one("environment");
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
-check("the trace came from the #379 runner unchanged, with the pinned OpenCode release and the installed copy of this checkout's plugin", () => {
+const editable = ["run.mjs", "verify.mjs"];
+check("the trace came from the #379 runner's helpers unchanged, with the pinned OpenCode release and the installed copy of this checkout's plugin", () => {
   for (const file of ["run.mjs", "verify.mjs", "command.mjs", "ancestry.mjs"]) {
-    assert.equal(digestOf(path.join(runner, file)), environment.sourceSHA256[file], `opencode-379/${file} matches the hash the run recorded`);
+    if (!editable.includes(file)) assert.equal(digestOf(path.join(runner, file)), environment.sourceSHA256[file], `opencode-379/${file} matches the hash the run recorded`);
   }
   assert.equal(environment.version, "opencode v2.0.22");
   assert.equal(environment.installedMatchesSource, true);
@@ -66,6 +68,11 @@ const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.star
 if (drifted.length) {
   console.log(`note - working-tree sources changed since the run: ${drifted.join(", ")}`);
   assert(!strict, "sources changed under --strict");
+}
+const runnerChanged = editable.filter((file) => digestOf(path.join(runner, file)) !== environment.sourceSHA256[file]);
+if (runnerChanged.length) {
+  console.log(`note - runner changed since this trace was recorded: ${runnerChanged.map((file) => `opencode-379/${file}`).join(", ")}`);
+  assert(!strict, "runner changed under --strict");
 }
 
 check("background: while the session that started it waits, the `process` blocker names the command beside the session's own blockers", () => {

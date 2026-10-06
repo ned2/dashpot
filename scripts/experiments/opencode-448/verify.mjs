@@ -50,17 +50,21 @@ const sessionStartsDuringHold = (prefix) => duringHold(prefix).filter((write) =>
 // The child's stop: written after its hold ended, leaving no live Sub-agent.
 const childStop = (prefix) => writes(known[prefix]).find((write) => write.name === "SubagentStop" && write.agentId === known[`${prefix}-child`]);
 
-// The runner's scripts change only with a new trace, so they must match;
-// Dashpot's sources keep changing after the trace is retained, so a
-// difference is reported, and fails only under --strict.
+// The runner's helper scripts change only with a new trace, so they must
+// match. The runner may be edited after the trace, and Dashpot's sources
+// keep changing after it is retained, so a difference in either is
+// reported, and fails only under --strict.
+const editable = ["run.mjs"];
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
 for (const file of ["run.mjs", "command.mjs", "ancestry.mjs", "probe-plugin.js", "helper_probe.py"]) {
-  assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
+  if (!editable.includes(file)) assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
 }
 const checkout = path.resolve(here, "..", "..", "..");
 const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.startsWith("src/"))
   .filter((file) => digestOf(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot sources differ from the run's: ${drifted.join(", ")}`);
+const runnerChanged = editable.filter((file) => digestOf(path.join(here, file)) !== environment.sourceSHA256[file]);
+assert(!(strict && runnerChanged.length), `the runner differs from the run's: ${runnerChanged.join(", ")}`);
 
 check("the trace names no path outside the fixture's placeholders", () => {
   assert.deepEqual(text.match(/(?<![\w$])\/(?:tmp|home)\/[^"\s]*/g) ?? [], []);
@@ -253,4 +257,5 @@ check("across every scenario, a root's SessionStart while its child held came on
 
 for (const claim of checks) console.log(`ok - ${claim}`);
 if (drifted.length) console.log(`note - Dashpot sources changed since the run: ${drifted.join(", ")}`);
+if (runnerChanged.length) console.log(`note - runner changed since this trace was recorded: ${runnerChanged.join(", ")}`);
 console.log(`${checks.length} claims verified`);
