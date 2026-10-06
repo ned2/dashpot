@@ -34,16 +34,18 @@ It builds on the Repository's records and does not repeat them:
 - **Observed**: seen in the Claude Code 2.1.291 session that wrote this
   note. That is not a pinned experiment.
 
-Each finding also says whether it is **new**, **recorded** (with a link), or
-**contradicts** a record.
+Each finding about a harness also says whether it is **new**, **recorded**
+(with a link), or **contradicts** a record. The gap analyses and the
+cross-harness sections draw on those findings and carry no mark of their own
+unless they add one.
 
 ## Releases researched
 
 | Harness | Accepted ([README](../../README.md#supported-harnesses)) | Installed here | Latest upstream on 2026-10-06 |
 | --- | --- | --- | --- |
 | Claude Code | 2.1.287 | 2.1.291 | 2.1.291 ([changelog][cc-changelog]) |
-| Codex | `codex-cli` 0.160.0 | 0.160.0 | 0.160.1 ([release][codex-01601]), a Windows MCP backport with nothing relevant here. 0.161 and 0.162 exist only as alphas |
-| OpenCode | 2.0.22 | 2.0.22 | tag `v2.0.24`. v2 tags get no GitHub Release, so `releases/latest` is still v1.18.34 |
+| Codex | `codex-cli` 0.160.0 | 0.160.0 | 0.160.1 ([release][codex-01601]), a Windows MCP backport with nothing relevant here. 0.161 and 0.162 exist only as alphas ([releases][codex-releases]) |
+| OpenCode | 2.0.22 | 2.0.22 | tag `v2.0.24`. v2 tags get no GitHub Release, so [`releases/latest`][oc-latest] is still v1.18.34 |
 
 **What was read for each harness.**
 - **Claude Code.**
@@ -59,7 +61,8 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
   - Source and documentation source at tag [`v2.0.24`][oc-tag].
   - The same files at `v2.0.22`, where a file differs between the two.
     `subagent.ts`, `file-access.ts`, `permissions.mdx` and `tools.mdx` are
-    identical at both tags. Only `skills.mdx` changed.
+    identical at both tags. Only `skills.mdx` changed, and it changed in
+    `v2.0.23`: its copy there is identical to the one at `v2.0.24`.
 
 ## Summary
 
@@ -73,14 +76,16 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
    Sub-agent Workers in Dashpot Issue Worktrees remain the right shape, as
    [ADR 0124](../adr/0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md)
    decided.
-2. **Three harness-reference instructions differ from what each harness now
-   does or from what was measured.**
+2. **Six harness-reference instructions differ from what each harness now
+   does or from what was measured**, as the
+   [table below](#stale-instructions-in-the-harness-reference) lists. The
+   three that change how a Lead launches or invokes:
    - Claude Code's interactive fork mode removes the `run_in_background`
      parameter that the skill's launch line names.
-   - Codex's `spawn_agent` defaults to a full-history fork. Every Codex
+   - Codex's `spawn_agent` defaults to a full-history fork. Every v2 Codex
      runner passed `fork_turns: "none"`, but the skill does not.
    - The OpenCode TUI's way to invoke a skill is now documented, and it
-     changed between 2.0.22 and 2.0.24.
+     changed in 2.0.23.
 3. **Permission posture is the largest gap.** The skill says nothing about
    it.
    - **Claude Code.** Auto mode blocks these by default:
@@ -91,7 +96,7 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
      Only the person can clear a block, and an approval must name the
      action.
    - **OpenCode.** OpenCode asks before any edit outside a session's
-     Location. A Worker's Location is its Lead's checkout, so editing its own
+     location. A Worker's location is its Lead's checkout, so editing its own
      Issue Worktree raises an ask. The OpenCode experiment that showed
      Workers working in their Worktrees ran with every action allowed.
 4. **A goal could keep a Lead going.**
@@ -119,8 +124,11 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
     off in `-p` and the Agent SDK. With it on, every sub-agent runs in the
     background, and "Claude Code also removes the Agent tool's
     `run_in_background` parameter" ([sub-agents][cc-fork-mode]).
-  - A call that names no type gets `general-purpose`. A fork comes only when
-    the call asks for the `fork` type.
+  - A call that names no type gets `general-purpose`. The `fork` sub-agent
+    type, which inherits the whole conversation, comes only when the call
+    asks for it. That is a Claude Code sub-agent, not the separate Agent
+    Session the [domain language](../domain-language.md) calls a fork; below,
+    "fork" means the sub-agent type.
   - Documented, and observed:
     - the Lead's Agent schema at 2.1.291 had no `run_in_background`, and a
       call that passed it ran in the background anyway;
@@ -161,8 +169,12 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
     `SubagentHandback` tool. The tool delivers the final report, and the
     classifier reviews the report before delivery. A sub-agent gets the tool
     even when its `disallowedTools` lists it ([tools reference][cc-tools]).
-  - Measured: a text-only report is re-prompted, and still lands
-    ([2.1.285 experiment](../spikes/claude-code-2-1-285-changes-spike.md#scenario-results)).
+  - Measured: a sub-agent that ends with a text-only report is re-prompted
+    three times to hand back, and the parent then takes one notification
+    turn ([2.1.285 experiment](../spikes/claude-code-2-1-285-changes-spike.md#scenario-results);
+    [verifier](../../scripts/experiments/claude-345/verify.mjs#L85)). The
+    experiment does not record what that turn carried, so whether such a
+    report reaches the parent is unmeasured.
   - This note's own sub-agent was offered the tool (observed).
 - **Agent definitions.**
   - A definition's frontmatter takes `tools`, `disallowedTools`, `model`,
@@ -204,9 +216,14 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
       cannot be turned off.
   - "The same enforcement covers every subagent Claude spawns from the
     isolated session" ([worktrees][cc-isolation]).
-  - Documented; partly recorded. A Bash `cd` to the main checkout being
-    reset was
-    [measured at 2.1.286](../agent-harness-server-client-reference.md#worktree-tools-between-issue-worktrees-at-21286).
+  - Documented, new. A Bash `cd` to the main checkout is also reset ("Shell
+    cwd was reset to …"), but that is Claude Code's general working-directory
+    reset. It was
+    [measured at 2.1.285](../agent-harness-server-client-reference.md#sub-agent-hooks-and-location-at-21285)
+    for any `cd` outside the project, in a session with no isolation, and at
+    2.1.286 in a session
+    [launched in a linked Worktree](../agent-harness-server-client-reference.md#worktree-tools-between-issue-worktrees-at-21286).
+    So it is not evidence for these checks.
   - Observed in this note's sub-agent, under an isolated Lead:
     - refused: `git rev-parse` in the main checkout, a `for` loop running
       `awk -v`, and a heredoc chained to a script run;
@@ -218,8 +235,8 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
     the queue is empty" among its uses.
   - It does not change the permission mode, and its documentation says to
     run it in auto mode when unattended.
-  - While a sub-agent or a background shell runs, evaluation is skipped. The
-    background work's result arrives as a new turn.
+  - While a sub-agent or a Background Command runs, evaluation is skipped.
+    The background work's result arrives as a new turn.
   - A check-in comes after 30 minutes of waiting, then at doubling
     intervals up to 2 hours. At most three idle check-ins run between
     prompts.
@@ -227,7 +244,7 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
     `disableAllHooks` or in an untrusted workspace.
   - Documented, new.
 - **Releases after the accepted one** ([changelog][cc-changelog]), all
-  documented:
+  documented and new:
   - **2.1.288**: the background time limit applies only to unattended
     sessions, and `idle_prompt` no longer fires while background agents
     run.
@@ -253,7 +270,7 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
   wrong with the first 2-3 files, then run on the full set"
   ([best practices][cc-bp-fanout]).
 - **Agent teams.** "Start with 3-5 teammates", partition files between them,
-  and expect that the lead "can stop early … tell it to keep going"
+  and expect that the team lead "can stop early … tell it to keep going"
   ([agent teams][cc-teams-size]).
   - The 3–5 ceiling is
     [recorded](../proposals/lead-worker-prior-art.md#human-limits-and-cost)
@@ -271,6 +288,7 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
       to be a strong lever";
     - "Every component in a harness encodes an assumption about what the
       model can't do on its own".
+  - Both posts are documented guidance, new to the Repository's records.
   - The multi-agent research system and C compiler posts are
     [recorded](../proposals/lead-worker-prior-art.md#summary).
 
@@ -281,8 +299,8 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
   says "`run_in_background: true`". In an interactive Lead the parameter is
   gone and is ignored. The section names no `subagent_type`, so an untyped
   call gets `general-purpose`, which is what the skill wants. Naming the
-  type explicitly would guard against a model that picks `fork`, and leaving
-  out `name` would guard against agent teams.
+  type explicitly would guard against a model that picks the `fork` type,
+  and leaving out `name` would guard against agent teams.
 - **The hand-back.** The `{REPORTING}` text says "Your final message is your
   hand-back", and the brief template's final report says "Your last message"
   ([brief template](../../src/dashpot/skills/dashpot-execute-issues/references/brief-template.md#the-template)).
@@ -290,15 +308,20 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
   reviews it.
 - **Long commands.** Neither the skill nor the brief tells a Worker to give a
   long background gate or CI watch a `timeout` at 2.1.285–2.1.287.
-- **Location.** The section's "From a lead already inside a linked Worktree
-  that was not measured" is now documented.
+- **Location.** The section says that whether a Worker's `EnterWorktree` or
+  `ExitWorktree` can move a Lead already inside a linked Worktree was not
+  measured. The documentation does not answer that, but it does document
+  another limit on such a Lead, when Claude Code isolated it there:
   - An isolated Lead cannot run the close-out's reflog check on the main
     checkout
     ([close-out step 9](../../src/dashpot/skills/dashpot-execute-issues/SKILL.md#5-close-out)).
   - Neither the Lead nor its Workers can run any command there.
-  - A Lead that bound in the main checkout is not isolated, and a Lead the
-    user launched in a linked Worktree is isolated only if Claude Code put
-    it there.
+  - Isolation covers a session started with `--worktree`, entered with
+    `EnterWorktree`, or resumed in a worktree. A Lead that bound in the main
+    checkout is not isolated. The documentation does not list a session the
+    user launched with plain `claude` in a linked Worktree. The working
+    directory reset measured for such a session at 2.1.286 is the general
+    reset [above](#affordances-and-their-limits), not these checks.
 - **Permission posture.** See [below](#permission-posture-for-an-unattended-arc).
 
 ## Codex
@@ -311,31 +334,52 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
   - `fork_turns` "Defaults to `all`" ([`spawn.rs`][codex-spawn] falls back
     to `"all"`), so a Worker inherits the Lead's whole history unless the
     call passes `"none"` or a number.
-  - Documented, new. Every Codex runner passed `fork_turns: "none"`
-    ([#420 runner](../../scripts/experiments/codex-420/run.mjs#L273)), so the
-    measured Workers started without the Lead's history. The skill's launch
-    line does not pass it.
+  - The v2 tool description warns that `"none"` "may cause the agent to lack
+    the context it needs to complete its task"
+    ([`multi_agents_spec.rs`][codex-spec]). A Worker launched that way
+    depends on a self-contained brief.
+  - Documented. The parameters are
+    [recorded](../spikes/codex-worker-mechanics-spike.md#1-launch); the `all`
+    default and the warning are new.
+  - Every v2 Codex runner passed `fork_turns: "none"`: codex-420 on its v2
+    branch ([`run.mjs`](../../scripts/experiments/codex-420/run.mjs#L273)),
+    [codex-448](../../scripts/experiments/codex-448/run.mjs#L220),
+    [codex-460](../../scripts/experiments/codex-460/run.mjs#L250) and
+    [codex-637](../../scripts/experiments/codex-637/run.mjs#L208). So the
+    measured v2 Workers started without the Lead's history. The v1 runners,
+    [codex-160](../../scripts/experiments/codex-160/run.mjs#L123) and
+    [codex-161](../../scripts/experiments/codex-161/run.mjs#L181), pass only
+    a `message`. v1 has no `fork_turns`, and its `fork_context` starts a
+    Worker with only its prompt when omitted. The skill's v2 launch line
+    does not pass `fork_turns`.
 - **Model overrides.**
   - The multi-agent prompt says: "Full-history forks (`fork_turns` omitted
     or `"all"`) inherit the parent model and reasoning effort and do not
     accept overrides. Only set `model` or `reasoning_effort` when explicitly
     requested by the user, applicable `AGENTS.md` instructions, or skill
-    instructions; when doing so, set `fork_turns` to `"none"`"
-    ([`multi_agent_instructions.rs`][codex-instr]).
+    instructions; when doing so, set `fork_turns` to `"none"` or a positive
+    integer string." ([`multi_agent_instructions.rs`][codex-instr], line 8).
   - This note found no code that refuses an override:
     [`child_config.rs`][codex-child] applies the requested model before it
     looks at the fork mode. So the rule reads as a prompt instruction.
   - Documented, new.
-- **The spawn tool's own guidance** ([`multi_agents_spec.rs`][codex-spec],
-  [`multi_agent_instructions.rs`][codex-instr]):
-  - spawn only when the user, AGENTS.md or a skill asks;
-  - give each delegated task a disjoint write set;
-  - make subtasks "concrete, well-defined, and self-contained";
-  - "Call wait_agent very sparingly", preferring longer waits;
-  - "All agents share the same directory".
-
-  Documented. The shared working directory is
-  [measured](../spikes/codex-worker-mechanics-spike.md#6-location).
+- **The spawn tools' own guidance** differs between the two tool sets.
+  - **v1.** `spawn_agent_tool_description` in
+    [`multi_agents_spec.rs`][codex-spec], which only the v1 tool uses, says:
+    - spawn only when the user, AGENTS.md or a skill asks;
+    - give each delegated task a disjoint write set;
+    - make subtasks "concrete, well-defined, and self-contained";
+    - "Call wait_agent very sparingly".
+  - **v2**, which the skill uses. Its tool description
+    (`spawn_agent_tool_description_v2`) explains task names and the
+    `fork_turns` warning above. The multi-agent instructions
+    ([`multi_agent_instructions.rs`][codex-instr]) add:
+    - "When calling `wait_agent`, prefer longer waits (minutes) to avoid
+      busy polling";
+    - "All agents share the same directory";
+    - the model-override rule above.
+  - Documented, new. The shared working directory is
+    [measured](../spikes/codex-worker-mechanics-spike.md#6-location).
 - **Concurrency.** The canonical key is
   `agents.max_concurrent_threads_per_session`, and `agents.max_threads` is a
   legacy alias ([`key_aliases.rs`][codex-alias];
@@ -364,10 +408,18 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
   - With a goal active, the goal extension's `on_thread_idle` calls
     `start_turn_if_idle` with `turn_trigger: "goal"`. Codex therefore
     starts a new turn on an idle thread ([`runtime.rs`][codex-goal-runtime]).
-    A turn error stops the continuation.
   - The goal tool says: "Create a goal only when explicitly requested by the
-    user or system/developer instructions". `blocked` comes only after three
-    consecutive goal turns hit the same blocker ([`spec.rs`][codex-goal-spec]).
+    user or system/developer instructions" ([`spec.rs`][codex-goal-spec]).
+  - A goal becomes `blocked` in two ways:
+    - **The model sets it.** The tool tells the model to set `blocked` only
+      after "the same blocking condition has recurred for at least three
+      consecutive goal turns" ([`spec.rs`][codex-goal-spec]).
+    - **The runtime sets it.** `stop_active_goal_for_turn` blocks the goal
+      on a turn error, on repeated empty responses, and when execution is
+      unavailable. A usage limit sets it `usage_limited` instead
+      ([`runtime.rs`][codex-goal-runtime]). The 0.155 notes record the
+      empty-response rule as "Block goals after three empty automatic
+      continuation turns" (openai/codex#44320, [0.155.0][codex-0155]).
   - The continuation prompt counts a "verified wait", one that "polls a
     specific process, session, job, or tool handle confirmed live now", as
     progress, and asks for a completion audit
@@ -383,10 +435,13 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
 - **Release notes after the records.**
   - 0.154 removed `codex mcp-server` and added experimental managed
     worktrees, `--worktree` and `/worktree` ([0.154.0][codex-0154]).
-  - 0.156 enabled worktrees by default.
+  - 0.156 enabled worktrees by default (openai/codex#44870,
+    [0.156.0][codex-0156]).
   - `codex review --base <BRANCH>` reviews non-interactively (`codex review
     --help`, 0.160.0).
-  - Documented.
+  - Documented. Managed worktrees are
+    [recorded](../design-research/integration-frequency-and-parallel-branches.md#openai-codex);
+    the `mcp-server` removal, the new default and `codex review` are new.
 
 ### Official guidance
 
@@ -403,8 +458,11 @@ Each finding also says whether it is **new**, **recorded** (with a link), or
 - **Subagents.** Be cautious with "parallel write-heavy workflows"
   ([subagents docs][codex-subagents]).
 
-The skill already follows all of these: an Issue Worktree per Worker, file
-ownership in the wave block, and gates and review before the PR.
+All documented. The write-heavy caution is
+[recorded](../proposals/lead-worker-prior-art.md#mechanism-sub-agents-or-independent-sessions);
+the rest is new. The skill already follows all of these: an Issue Worktree
+per Worker, file ownership in the wave block, and gates and review before
+the PR.
 
 ### Gap analysis
 
@@ -414,17 +472,21 @@ ownership in the wave block, and gates and review before the PR.
   - That spends each Worker's context on the Lead's.
   - It contradicts the skill's "Spend your context on decisions. Workers
     read the code", and its self-contained briefs.
-  - It forbids a per-Worker model.
-  - It is not what the Codex runners measured.
+  - The prompt says full-history forks take no model override, so by
+    instruction the default rules out a per-Worker model. No code enforces
+    that ([above](#affordances-and-their-limits-1)).
+  - It is not what the v2 Codex runners measured.
 - **Capacity.** The section names the legacy alias `[agents] max_threads`.
 - **Stay in your turn.** A goal is a candidate replacement for the wait-loop
   discipline, but four things about it are unmeasured:
   - how Dashpot's hooks see a `goal` turn;
-  - whether a Lead waiting in `wait_agent` across goal turns trips
-    `blocked`;
+  - whether a Lead waiting in `wait_agent` across goal turns is set
+    `blocked`, by the model or by the runtime;
   - what an unloaded Lead does
     ([#492](https://github.com/ned2/dashpot/issues/492)). By source, a goal
-    runs only in a loaded thread, so a goal is not a fix for #492.
+    runs only in a loaded thread, so a goal is not a fix for #492;
+  - whether a skill's instruction counts as the explicit request a goal
+    needs ([below](#goals-that-keep-a-lead-going)).
 - **Reviewer.** `codex review --base` from a Worker's shell would use no
   thread slot. It would, however, be its own Agent Session in the Worktree,
   like the `codex exec` case the section already describes. Not measured,
@@ -464,7 +526,8 @@ ownership in the wave block, and gates and review before the PR.
     the comparison with `general` is new.
 - **Paths outside a session.**
   - "A path outside both the active Location and its non-root project
-    worktree needs `external_directory` approval". The shell also checks its
+    worktree needs `external_directory` approval". (OpenCode's location is
+    its own term, not Dashpot's.) The shell also checks its
     working directory, and the directories its scanner infers from the
     command ([permissions][oc-permissions]; [`file-access.ts`][oc-fileaccess]).
   - A child session is created "at its parent's location"
@@ -498,15 +561,16 @@ ownership in the wave block, and gates and review before the PR.
 - **Skills.**
   - At 2.0.22 the docs list a `slash` field that "hide[s] the skill from
     interactive command catalogs" ([2.0.22][oc-skills-22]).
-  - At 2.0.24 that field is gone, `disable-model-invocation` has "the same
+  - From 2.0.23 that field is gone, `disable-model-invocation` has "the same
     effect as `opencode/autoinvoke: false`", and "To load a skill yourself,
-    mention it in your prompt as `@skill-id`" ([2.0.24][oc-skills-24]).
+    mention it in your prompt as `@skill-id`" ([2.0.23][oc-skills-23]). The
+    page is unchanged at [2.0.24][oc-skills-24].
   - Documented, new.
 - **Shell.** "Set `workdir` instead of putting `cd` in the command". A
   foreground command times out after two minutes ([tools][oc-tools]).
   Documented. `workdir` is
   [measured](../spikes/opencode-v2-worker-mechanics-spike.md#6-location),
-  and the timeout is in the skill.
+  and the timeout is in the skill; the advice to prefer `workdir` is new.
 - **Worktree API.** `worktree.create` takes `from` (a source directory),
   `branch`, `directory` and `name`, and no base commit. By default it creates
   the worktree under the server's data directory, then runs the project's
@@ -522,7 +586,7 @@ backlog or an epic. Its tool-level guidance is this:
   ([`subagent.ts`][oc-subagent]);
 - a complete prompt for a new child;
 - `workdir` rather than `cd`;
-- background shells for long work ([tools][oc-tools]);
+- Background Commands for long work ([tools][oc-tools]);
 - narrow shell allow-lists rather than patterns ([permissions][oc-permissions]).
 
 The research report's community sources (oh-my-opencode and its relatives)
@@ -539,7 +603,7 @@ are not cited here: they are not primary sources.
     person, and a running report cancels it. `general` denies it.
 - **Invoke.** "How the TUI invokes a skill was not measured" is now
   documented:
-  - at 2.0.24, by an `@dashpot-execute-issues` mention;
+  - from 2.0.23, by an `@dashpot-execute-issues` mention;
   - at 2.0.22, through the interactive command catalog that `slash` governs.
 - **Working directory.** The skill's `cd <path> && …` rule is measured to
   work. OpenCode's own advice is `workdir`. Either way an outside directory
@@ -565,9 +629,12 @@ Arc's actions wait for a person.
     rebase [AGENTS.md](../../AGENTS.md#integration-and-rebase) authorises.
     A Lead's merge under merge authority. The close-out's
     `--delete-remote-branch`.
-  - **Only the person can clear a block.**
-    - An approval must "name the action and its specifics" and "covers the
-      destructive action you named". A standing exception belongs in
+  - **Only the person can clear a block**
+    ([approvals][cc-pm-approvals]).
+    - An approval must "name the action and its specifics". It "covers the
+      destructive action you named, so a later action is blocked again
+      unless you granted the approval as standing". To stop approving a
+      routine pattern one action at a time, the page points to
       `autoMode.allow`.
     - `autoMode` is read from `~/.claude/settings.json`, managed settings
       or `--settings`, never from a project's settings.
@@ -578,7 +645,19 @@ Arc's actions wait for a person.
     authorisation reaches it through the import. Whether that clears a force
     push is unmeasured.
   - **Workers.** A Worker cannot be approved by its Lead. Its prompts
-    surface in the Lead's session ([sub-agents][cc-bg]).
+    surface in the Lead's session ([sub-agents][cc-bg]). The classifier
+    checks a sub-agent at three points ([permission modes][cc-pm-subagents],
+    "How auto mode handles subagents"):
+    - "Before a subagent starts, the delegated task description is
+      evaluated, so a dangerous-looking task is blocked at spawn time". A
+      brief that tells a Worker to force-push or merge could be blocked at
+      launch.
+    - While it runs, each action goes through the same rules as in the
+      parent.
+    - When it finishes, the classifier reviews its work and report. A
+      flagged report "is still delivered, prepended with a security
+      warning".
+  - All documented, new.
 - **Codex.** Workers inherit the Lead's sandbox and approval policy, and an
   approval from a Worker surfaces in the CLI
   ([subagents docs][codex-subagents]). Recorded: the skill's sandbox check
@@ -587,8 +666,10 @@ Arc's actions wait for a person.
 - **OpenCode.** `external_directory` asks for every Worker's Issue Worktree,
   as [above](#affordances-and-their-limits-2). An "always" reply saves a
   project-scoped rule ([permissions][oc-permissions]). Measured: such a rule
-  answered the Lead's next ask too
-  ([OpenCode evidence](../proposals/lead-worker-opencode-evidence.md#affordances-beyond-the-existing-experiments)).
+  also answered the Lead's asks at the main Worktree
+  ([#479 experiment](../spikes/root-session-workers-spike.md#opencode-2022);
+  recorded in the
+  [OpenCode evidence](../proposals/lead-worker-opencode-evidence.md#affordances-beyond-the-existing-experiments)).
 
 The vendors agree on a posture set before the work starts, rather than
 answers given mid-run:
@@ -600,17 +681,26 @@ answers given mid-run:
 
 | Harness | What a Worker starts with | Source |
 | --- | --- | --- |
-| Claude Code | A `general-purpose` sub-agent gets only its prompt and the project's CLAUDE.md. A `fork` would inherit the whole conversation | [sub-agents][cc-fork-mode] |
+| Claude Code | A `general-purpose` sub-agent gets only its prompt and the project's CLAUDE.md. The `fork` sub-agent type would inherit the whole conversation | [sub-agents][cc-fork-mode] |
 | Codex | The whole history, unless `fork_turns` is `"none"` or a number | [`spawn.rs`][codex-spawn] |
 | OpenCode | Fresh context, always | [`subagent.ts`][oc-subagent] |
 
 Only Codex's default differs from the skill's intent, and only Codex's
-measured configuration differs from its instruction.
+measured configuration differs from the skill's launch instruction. Codex's
+own tool description warns that a Worker launched without history "may
+cause the agent to lack the context it needs"
+([`multi_agents_spec.rs`][codex-spec]). On every harness, then, the brief
+must carry everything a Worker needs, as the skill's self-contained brief
+already intends.
 
 ### Enforcing Worker rules by agent definition
 
-The brief's ground rule 2 forbids every `work` command, Worktree creation,
-moving a session, and merging. That is prose.
+The brief's ground rule 2
+([brief template](../../src/dashpot/skills/dashpot-execute-issues/references/brief-template.md#the-template))
+leaves these to the Lead: "every Dashpot `work` command, harness integration
+commands, creating or removing any Worktree or Branch, moving any agent
+session, installing git hooks, and merging or enabling auto-merge". That is
+prose.
 
 - **OpenCode.** `dashpot-worker` enforces the session-move part
   ([ADR 0093](../adr/0093-install-an-opencode-worker-agent-that-cannot-move-sessions.md)).
@@ -638,7 +728,7 @@ New; documented only.
   - A Lead already gets a new turn when a background Worker finishes
     ([measured](../spikes/claude-code-worker-mechanics-spike.md#3-completion)).
   - What `/goal` adds is a check against stopping early, as the agent-teams
-    documentation warns a lead may.
+    documentation warns a team lead may.
   - Its evaluator is a Stop hook, and Dashpot records turn state from Stop.
     How the two interact is unmeasured.
 - **Both harnesses.**
@@ -654,10 +744,10 @@ New; documented only.
 | --- | --- | --- |
 | Claude Code launch with `run_in_background: true` | Removed in an interactive Lead by fork mode | Documented; observed |
 | Claude Code "Your final message is your hand-back" | `SubagentHandback` in auto mode | Documented; measured |
-| Codex launch without `fork_turns` | Full-history fork; runners measured `"none"` | Documented |
+| Codex launch without `fork_turns` | Full-history fork; the v2 runners measured `"none"` | Documented |
 | Codex `[agents] max_threads` | Legacy alias of `max_concurrent_threads_per_session` | Documented; recorded |
-| Codex "never starts a turn for an idle lead" | False with an active goal | Documented |
-| OpenCode "How the TUI invokes a skill was not measured" | `@skill-id` documented at 2.0.24 | Documented |
+| Codex "never starts a turn for an idle lead" | Contradicted by source with an active goal; unmeasured | Documented |
+| OpenCode "How the TUI invokes a skill was not measured" | `@skill-id` documented from 2.0.23 | Documented |
 
 [#438](https://github.com/ned2/dashpot/issues/438) carries the experiments'
 findings into the general harness reference, not into the skill's.
@@ -710,18 +800,28 @@ documented.
       ([worktrees docs][codex-worktrees]).
     - They belong to a top-level session, not a sub-agent, and the app
       keeps the 15 most recent.
-    - The v2 tools give a Worker no working directory, so `dashpot worktree
-      create` stays necessary.
+    - The v2 tools give a Worker no working directory
+      ([measured](../spikes/codex-worker-mechanics-spike.md#1-launch)), so
+      `dashpot worktree create` stays necessary.
+    - Recorded in the
+      [integration research](../design-research/integration-frequency-and-parallel-branches.md#openai-codex).
   - **OpenCode.** The worktree API has no base commit, defaults to a
     directory outside the Repository, and keeps its own inventory and
-    removal ([`worktree.ts` schema][oc-worktree-schema]).
-- **Cloud-only features.**
+    removal ([`worktree.ts` schema][oc-worktree-schema]). New.
+- **Features that run outside the machine or outside a Lead.**
   - Claude Code's Projects are cloud threads, in public beta on Pro and Max
     ([agents][cc-agents]).
-  - Codex's cloud tasks, GitHub review and automations run outside the
-    machine.
-  - Dashpot's hooks and Issue Worktrees do not reach either. Recorded in the
-    [prior art](../proposals/lead-worker-prior-art.md#mechanism-sub-agents-or-independent-sessions).
+  - Codex cloud tasks run "in the cloud" ([Codex cloud][codex-cloud]), and
+    Codex's GitHub review posts its comments on GitHub
+    ([code review][codex-review]).
+  - Codex's scheduled tasks, formerly automations, run on the web, or in
+    the desktop app in the project directory or a background worktree
+    ([scheduled tasks][codex-automations]). Each is its own task, not a
+    Worker a Lead launches.
+  - Dashpot's hooks and Issue Worktrees do not reach the cloud features.
+    Recorded in the
+    [prior art](../proposals/lead-worker-prior-art.md#mechanism-sub-agents-or-independent-sessions);
+    the Codex pages are new.
 - **Claude Code agent teams.**
   - They are experimental, behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
   - Their limits ([agent teams][cc-teams-limits]):
@@ -733,6 +833,9 @@ documented.
   - "Agent teams don't isolate teammates in worktrees" ([agents][cc-agents]).
   - The danger for this skill is the `name` parameter, which turns a
     Worker into a teammate.
+  - Agent teams are
+    [recorded](../proposals/lead-worker-prior-art.md#coordination-polling-doorbells-and-the-hand-back);
+    these limits are new.
 - **`/batch`.** It splits a change into 5 to 30 units and runs one
   background sub-agent per unit in an isolated worktree, and "Each subagent
   implements its unit, runs tests, and publishes its change"
@@ -741,15 +844,30 @@ documented.
   [prior art](../proposals/lead-worker-prior-art.md#mechanism-sub-agents-or-independent-sessions).
 - **Claude Code workflows.** A run takes "No mid-run user input", and runs
   up to 16 agents at once ([workflows][cc-workflows]). An Arc needs the
-  user's merge decisions and the Lead's judgement between waves. Recorded.
+  user's merge decisions and the Lead's judgement between waves. Workflows
+  are
+  [recorded](../proposals/lead-worker-prior-art.md#mechanism-sub-agents-or-independent-sessions).
 - **Codex `mcp-server`.** It was removed in 0.154 ([0.154.0][codex-0154]),
   so the cookbook's Agents SDK pipeline built on it no longer runs. The
-  app server is its successor, and it is a controller shape
+  removal is new. The app server is its successor, and it is a controller
+  shape
   ([Codex evidence](../proposals/lead-worker-codex-evidence.md#further-affordances)).
-- **The OpenCode worktree API.** See the first bullet. The system prompt's
-  suggestion to `session_move` into a created worktree conflicts with "Stay
-  where you bound"
-  ([rules](../../src/dashpot/skills/dashpot-execute-issues/SKILL.md#rules-for-the-whole-arc)).
+- **The OpenCode worktree API.** See the first bullet. OpenCode's tools
+  plugin adds to every session's system prompt: "When you create a worktree
+  outside the current working directory and intend to use it as your
+  primary working directory, consider using `execute` to call
+  `tools.opencode.session_move`" ([`opencode.ts`][oc-tools-plugin], line
+  75).
+  - That reaches the Lead too, and a Lead that creates Issue Worktrees could
+    take it as a reason to move. The skill's "Stay where you bound"
+    ([rules](../../src/dashpot/skills/dashpot-execute-issues/SKILL.md#rules-for-the-whole-arc))
+    is the only guard. `dashpot-worker` denies the move to Workers, but no
+    agent denies it to the Lead, since
+    [ADR 0094](../adr/0094-let-a-root-opencode-session-move-itself-for-issue-work.md)
+    lets a root session move itself for Issue work.
+  - Documented, new.
+    [#645](https://github.com/ned2/dashpot/issues/645) carries it into the
+    skill's OpenCode reference.
 
 ## Claims not carried over
 
@@ -764,10 +882,10 @@ corrected:
   in the permission-modes page. The source is the sub-agents page's "No
   message from any agent counts as your approval"
   ([sub-agents][cc-messages]), which is restated above.
-- **The skill risks forks.** The Claude Code report said the skill never
-  names a non-fork type, so Workers risk being forks. The documentation says
-  an untyped call gets `general-purpose`, so the skill risks a fork only
-  when a model chooses one.
+- **The skill risks the `fork` type.** The Claude Code report said the
+  skill never names a type other than `fork`, so Workers risk being that
+  type. The documentation says an untyped call gets `general-purpose`, so
+  the skill risks the `fork` type only when a model chooses it.
 - **Full-history forks refuse model overrides.** The Codex report said they
   do. This holds for the prompt text, but no refusing code was found.
 - **Unconfirmed Codex claims.** These were not confirmed and are not used:
@@ -781,7 +899,8 @@ corrected:
 
 Changes:
 
-- [#642](https://github.com/ned2/dashpot/issues/642): Refresh the skill's Claude Code reference and brief:
+- [#642](https://github.com/ned2/dashpot/issues/642): Refresh the skill's
+  Claude Code reference and brief:
   - **Launch.** Drop `run_in_background`, pass `subagent_type:
     "general-purpose"`, and never pass `name`.
   - **The hand-back in auto mode.** It is a `SubagentHandback` call.
@@ -790,41 +909,53 @@ Changes:
     deadlines are at most 30 minutes.
   - **Isolation.** State its consequences for a Lead isolated in a linked
     Worktree, including close-out step 9.
-- [#643](https://github.com/ned2/dashpot/issues/643): Add a permission-posture step to the skill's set-up for every
-  harness:
+- [#643](https://github.com/ned2/dashpot/issues/643): Add a
+  permission-posture step to the skill's set-up for every harness:
   - **What it covers.** What each harness's default blocks or asks. How the
-    user grants standing approvals: `autoMode.allow` in the user's settings
-    for Claude Code, and an `external_directory` rule for OpenCode. That an
-    agent's message never approves anything.
-  - **Blockers.** [#648](https://github.com/ned2/dashpot/issues/648) and [#467](https://github.com/ned2/dashpot/issues/467), with
+    user grants standing approvals: a standing approval in conversation or
+    `autoMode.allow` in the user's settings for Claude Code, and an
+    `external_directory` rule for OpenCode. That an agent's message never
+    approves anything.
+  - **Blockers.** [#648](https://github.com/ned2/dashpot/issues/648) and
+    [#467](https://github.com/ned2/dashpot/issues/467), with
     [#639](https://github.com/ned2/dashpot/issues/639) for Codex.
-- [#644](https://github.com/ned2/dashpot/issues/644): Launch Codex Workers with `fork_turns: "none"`, as every
-  runner measured, and name `max_concurrent_threads_per_session` as the
-  canonical limit.
-- [#645](https://github.com/ned2/dashpot/issues/645): Deny `question` in `dashpot-worker`, as `general` does. In the
-  skill's OpenCode reference, document how to invoke the skill from the TUI
-  and `workdir`. Assess the recorded environment copy from a Worker's
+- [#644](https://github.com/ned2/dashpot/issues/644): Launch Codex Workers
+  with `fork_turns: "none"`, as every v2 runner measured, with a brief that
+  carries all the context the Worker needs. Name
+  `max_concurrent_threads_per_session` as the canonical limit.
+- [#645](https://github.com/ned2/dashpot/issues/645): Deny `question` in
+  `dashpot-worker`, as `general` does. In the skill's OpenCode reference,
+  document how to invoke the skill from the TUI, `workdir`, and that the
+  system prompt's `session_move` suggestion does not apply to a Lead. Assess
+  the recorded environment copy from a Worker's
   `opencode run --session <lead>` report into the Lead.
-- [#646](https://github.com/ned2/dashpot/issues/646): Decide whether `integrate` installs Worker agent definitions
-  for Claude Code and Codex that enforce the brief's ground rules, measure
-  that they bind, and amend ADR 0093's "Only OpenCode". A change after a
-  measurement in the same Issue.
-- [#647](https://github.com/ned2/dashpot/issues/647): Add a baseline gate at `{BASE}` before a Worker's first edit
-  to the brief, and to the Arc map a per-Issue model choice made only on the
-  user's direction.
+- [#646](https://github.com/ned2/dashpot/issues/646): Decide whether
+  `integrate` installs Worker agent definitions for Claude Code and Codex
+  that enforce the brief's ground rules, measure that they bind, and amend
+  ADR 0093's "Only OpenCode". Measure first, then change, in the same Issue.
+- [#647](https://github.com/ned2/dashpot/issues/647): Add a baseline gate at
+  `{BASE}` before a Worker's first edit to the brief, and to the Arc map a
+  per-Issue model choice made only on the user's direction.
 
 Measurements:
 
-- [#648](https://github.com/ned2/dashpot/issues/648): Measure Claude Code auto mode against an Arc's actions with a
-  real classifier:
+- [#648](https://github.com/ned2/dashpot/issues/648): Measure Claude Code
+  auto mode against an Arc's actions with a real classifier:
   - a Worker's `--force-with-lease` push that AGENTS.md authorises;
   - a Lead's `gh pr merge` under granted merge authority;
   - `--delete-remote-branch`;
   - how Worker blocks count towards the 3/20 thresholds;
-  - the classifier's review of a `SubagentHandback`.
-- [#649](https://github.com/ned2/dashpot/issues/649): Measure whether a goal keeps a Lead going on Codex and Claude
-  Code, and how Dashpot records goal-started turns. Then decide whether to
-  replace "Stay in your turn".
+  - whether the spawn-time check blocks a brief that authorises a force
+    push or a merge;
+  - the classifier's review of a `SubagentHandback`, including the security
+    warning on a flagged report;
+  - whether an approval granted as standing in conversation covers a whole
+    Arc.
+- [#649](https://github.com/ned2/dashpot/issues/649): Measure whether a goal
+  keeps a Lead going on Codex and Claude Code, and how Dashpot records
+  goal-started turns, including which of Codex's runtime conditions sets a
+  waiting Lead's goal `blocked`. Then decide whether to replace "Stay in
+  your turn".
 
 Existing Issues:
 
@@ -845,7 +976,8 @@ Existing Issues:
   goal does not reload an unloaded Lead, and goals survive a daemon restart.
 - [#416](https://github.com/ned2/dashpot/issues/416): add the post-2.1.287
   changes this note lists, and OpenCode 2.0.23's
-  `disable-model-invocation`, to the re-pin checklist.
+  `disable-model-invocation` and `@skill-id` ([2.0.23][oc-skills-23]), to
+  the re-pin checklist.
 - [#438](https://github.com/ned2/dashpot/issues/438): carry Codex's
   `fork_turns` default and Claude Code's fork mode into the general harness
   reference.
@@ -866,6 +998,7 @@ Existing Issues:
 [cc-goal]: https://code.claude.com/docs/en/goal
 [cc-pm-subagents]: https://code.claude.com/docs/en/permission-modes#how-auto-mode-evaluates-actions
 [cc-pm-blocked]: https://code.claude.com/docs/en/permission-modes#what-the-classifier-blocks-by-default
+[cc-pm-approvals]: https://code.claude.com/docs/en/permission-modes#approvals-you-state-in-conversation
 [cc-am-config]: https://code.claude.com/docs/en/auto-mode-config#where-the-classifier-reads-configuration
 [cc-bp-verify]: https://code.claude.com/docs/en/best-practices#give-claude-a-way-to-verify-its-work
 [cc-bp-review]: https://code.claude.com/docs/en/best-practices#add-an-adversarial-review-step
@@ -881,6 +1014,8 @@ Existing Issues:
 [codex-01601]: https://github.com/openai/codex/releases/tag/rust-v0.160.1
 [codex-0154]: https://github.com/openai/codex/releases/tag/rust-v0.154.0
 [codex-0155]: https://github.com/openai/codex/releases/tag/rust-v0.155.0
+[codex-0156]: https://github.com/openai/codex/releases/tag/rust-v0.156.0
+[codex-releases]: https://github.com/openai/codex/releases
 [codex-spec]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/tools/handlers/multi_agents_spec.rs
 [codex-spawn]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs
 [codex-child]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/agent/child_config.rs
@@ -893,13 +1028,19 @@ Existing Issues:
 [codex-long]: https://learn.chatgpt.com/docs/long-running-work
 [codex-bp]: https://learn.chatgpt.com/guides/best-practices
 [codex-worktrees]: https://learn.chatgpt.com/docs/environments/git-worktrees
+[codex-cloud]: https://learn.chatgpt.com/docs/cloud
+[codex-review]: https://learn.chatgpt.com/docs/code-review
+[codex-automations]: https://learn.chatgpt.com/docs/automations
 [oc-tag]: https://github.com/anomalyco/opencode/tree/v2.0.24
+[oc-latest]: https://github.com/anomalyco/opencode/releases/latest
+[oc-tools-plugin]: https://github.com/anomalyco/opencode/blob/v2.0.24/packages/core/src/tool/plugin/opencode.ts#L75
 [oc-subagent]: https://github.com/anomalyco/opencode/blob/v2.0.24/packages/core/src/tool/plugin/subagent.ts
 [oc-permissions]: https://github.com/anomalyco/opencode/blob/v2.0.24/services/www/src/docs/content/permissions.mdx
 [oc-fileaccess]: https://github.com/anomalyco/opencode/blob/v2.0.24/packages/core/src/file-access.ts
 [oc-session-api]: https://github.com/anomalyco/opencode/blob/v2.0.24/packages/protocol/src/groups/session.ts
 [oc-run]: https://github.com/anomalyco/opencode/blob/v2.0.24/packages/cli/src/run/noninteractive.ts
 [oc-skills-22]: https://github.com/anomalyco/opencode/blob/v2.0.22/services/www/src/docs/content/skills.mdx
+[oc-skills-23]: https://github.com/anomalyco/opencode/blob/v2.0.23/services/www/src/docs/content/skills.mdx
 [oc-skills-24]: https://github.com/anomalyco/opencode/blob/v2.0.24/services/www/src/docs/content/skills.mdx
 [oc-tools]: https://github.com/anomalyco/opencode/blob/v2.0.24/services/www/src/docs/content/tools.mdx
 [oc-worktree-schema]: https://github.com/anomalyco/opencode/blob/v2.0.24/packages/schema/src/worktree.ts
