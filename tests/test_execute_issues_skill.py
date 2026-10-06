@@ -630,8 +630,25 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
         "--add-dir <Worktree Root> --add-dir <Git directory> "
         "-c sandbox_workspace_write.network_access=true"
     ) in codex
-    assert "Codex ignores `--add-dir` under `read-only`" in codex
+    # Issue #639 measured the command: it is no longer offered as documented
+    # only, `--add-dir` under `read-only` stops the client, and a resumed
+    # client waits for Codex to release the thread.
+    assert "codex --help" not in codex
+    assert "This command is measured on Codex 0.160.0 on Linux" in codex
+    assert "under `read-only`, Codex refuses `--add-dir` and the client exits" in codex
+    assert "Codex keeps this thread for about a minute after this client exits" in codex
     assert "run the three checks again in the resumed session" in codex
+    # A gate's caches outside the grant fail a worker's gate and commit, so
+    # the skill moves them into the Worktree Root for every shell.
+    assert "**Move the gates' caches into the Worktree Root.**" in codex
+    assert (
+        "-c shell_environment_policy.set.UV_CACHE_DIR=<Worktree Root>/.cache/uv "
+        "-c shell_environment_policy.set.PRE_COMMIT_HOME="
+        "<Worktree Root>/.cache/pre-commit"
+    ) in codex
+    assert "`--add-dir ~/.cache` works too" in codex
+    assert "If they decline a worker's ask, that worker's turn ends" in codex
+    assert "fails their gates and commits" in " ".join(shipped("SKILL.md").split())
     # The dry run needs the network, so the default root is named as well.
     assert "`<main checkout>.worktrees`, beside the main checkout" in codex
     assert "can then write its hooks and its configuration" in codex

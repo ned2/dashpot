@@ -129,12 +129,36 @@ codex resume <session-id> -C <checkout> --sandbox workspace-write --add-dir <Wor
 
 `<session-id>` is the Agent Session identity `<dashpot> integrate codex
 --status` confirms, and `<checkout>` the one you will bind in; a new session takes the same options after `codex`.
-`--sandbox workspace-write` matters: Codex ignores `--add-dir` under
-`read-only`. These options come from `codex --help`, not a measurement, so
-run the three checks again in the resumed session before you bind. Add any
-directory the repository's gates write outside these, such as a package
-manager's cache: a refused write shows only as a failed command in the
-shell that tried it. Tell the user, as you ask, what the Git directory
+This command is measured on Codex 0.160.0 on Linux: it gives you and every
+worker these writable directories with the network on. Still run the three
+checks again in the resumed session before you bind. `--sandbox
+workspace-write` matters: under `read-only`, Codex refuses `--add-dir` and
+the client exits. Tell the user that Codex keeps this thread for about a
+minute after this client exits. Until then the resumed client shows the
+conversation read-only, says it is open in another app, and retries when
+they press `r`. A retry drops a prompt given on the command line, so they
+type it again.
+
+**Move the gates' caches into the Worktree Root.** The tools a gate runs
+write caches outside these directories, and a refused write shows only as
+a failed command in the shell that tried it. uv writes `~/.cache/uv` and
+pre-commit `~/.cache/pre-commit`, so where a repository uses them, a
+worker under the grant alone can edit and push but cannot prepare its
+environment, run its gate, or commit through a hook that runs either. Give
+the resume command one option per cache the repository's gates write; for
+uv and pre-commit:
+
+```bash
+-c shell_environment_policy.set.UV_CACHE_DIR=<Worktree Root>/.cache/uv -c shell_environment_policy.set.PRE_COMMIT_HOME=<Worktree Root>/.cache/pre-commit
+```
+
+Every shell of the session then gets them, your workers' and their Git
+hooks included, and a worker completes its whole cycle. `--add-dir
+~/.cache` works too, but it lets every agent of the session write every
+tool's cache, and code planted in one runs the next time that tool runs
+outside the sandbox.
+
+Tell the user, as you ask, what the Git directory
 costs: every agent of the session can then write its hooks and its
 configuration, and code planted there runs the next time anything runs
 `git` outside the sandbox, Dashpot's dashboard included. They may run the
@@ -142,6 +166,12 @@ session without the sandbox (`--sandbox danger-full-access`) instead, where
 every check passes. Your checkout is your session's workspace, so your
 workers, under your sandbox, can write it, and their files in your arc's
 ledger need nothing more.
+
+Under the `on-request` approval policy, a refused write still fails as a
+command. Only a command the agent asks to run outside the sandbox raises
+an ask, and only the user can answer it, in your terminal, a worker's
+included. If they decline a worker's ask, that worker's turn ends and its
+report never comes.
 
 **Stay in your turn.** Codex never starts a turn for an idle lead, neither
 for a worker's message nor for its completion. While any worker runs, keep

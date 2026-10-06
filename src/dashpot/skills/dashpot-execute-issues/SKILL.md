@@ -160,7 +160,8 @@ holds.
    sandbox before you bind
    ([Codex](references/harnesses.md#codex)): a sandbox that withholds the
    Worktree Root, the Git directory or the network leaves your workers
-   unable to edit, commit or push.
+   unable to edit, commit or push, and one that keeps the gates' caches
+   outside them fails their gates and commits.
 3. **Settle merge authority** now: see [Merge authority](#merge-authority).
 4. **Open the arc's ledger** in the checkout you bound in, after checking
    that Git ignores it, and write its `arc.json`

@@ -133,6 +133,9 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   `workspace-write` sandbox, a lead checks before binding that its workers
   can edit, commit and push, and otherwise gives the user the `codex
   resume` command with `--add-dir` that lets them, with what it costs.
+  The command also moves the gates' caches, such as uv's and pre-commit's,
+  into the Worktree Root, so a sandboxed worker can run its gate and commit
+  through its hooks as well as push.
 - A lead assigns each worker to the Issue it implements with `dashpot work
   assign <issue> --worker <id> --worktree <path>`, and the Issues pane shows
   that Issue running while the lead's hooks report the worker working,
