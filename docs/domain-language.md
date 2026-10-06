@@ -632,9 +632,13 @@ Binding names only one of them; sprint or batch
 The local working record of one Arc, kept by its Lead under
 `.dashpot/state/skills/dashpot-execute-issues/` in the checkout where the
 Lead bound: a summary other Leads read, the record appended as the Arc
-runs, the filled brief template, and the Arc's reserved numbers. Only the
-Lead writes it, and nothing in it is published; the Arc's outcomes go to
-GitHub as PRs, Issues and comments
+runs, the filled brief template, the Arc's reserved numbers, the Lead's
+broadcasts, and a file of reports for each Worker that has no other channel
+to the Lead. Each Worker writes only its own file, and the Lead writes the
+rest
+([ADR 0148](adr/0148-let-workers-write-their-own-arc-ledger-files-and-commit-under-codexs-sandbox.md)).
+Nothing in it is published; the Arc's outcomes go to GitHub as PRs, Issues
+and comments
 ([ADR 0147](adr/0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md)).
 _Avoid_: record Issue or run records for the ledger; reading it as a private
 memory store, or as Dashpot state Dashpot's own code reads

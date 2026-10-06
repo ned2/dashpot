@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-06
+amended-by: 0148-let-workers-write-their-own-arc-ledger-files-and-commit-under-codexs-sandbox.md
 ---
 
 # Keep an Arc's working record in a local Arc Ledger
@@ -144,3 +145,8 @@ outcomes go to GitHub.
 - The status and broadcast files the skill's harness notes put in a
   Worktree's Git directory are a separate defect under Codex's sandbox
   ([#637](https://github.com/ned2/dashpot/issues/637)).
+- Amended by
+  [ADR 0148](0148-let-workers-write-their-own-arc-ledger-files-and-commit-under-codexs-sandbox.md):
+  each Worker writes its own file in the Arc's directory, and reads the
+  Lead's broadcasts from another, in place of those Git-directory files.
+  The Lead still alone writes the rest of the ledger.
