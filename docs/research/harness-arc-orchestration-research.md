@@ -405,7 +405,8 @@ unless they add one.
     under other policies are open in
     [#639](https://github.com/ned2/dashpot/issues/639).
 - **Goals.**
-  - With a goal active, the goal extension's `on_thread_idle` calls
+  - With a goal active, the goal extension's `on_thread_idle`
+    ([`extension.rs`][codex-goal-ext]) calls `continue_if_idle`, which calls
     `start_turn_if_idle` with `turn_trigger: "goal"`. Codex therefore
     starts a new turn on an idle thread ([`runtime.rs`][codex-goal-runtime]).
   - The goal tool says: "Create a goal only when explicitly requested by the
@@ -801,7 +802,9 @@ documented.
     - They belong to a top-level session, not a sub-agent, and the app
       keeps the 15 most recent.
     - The v2 tools give a Worker no working directory
-      ([measured](../spikes/codex-worker-mechanics-spike.md#1-launch)), so
+      ([recorded](../spikes/codex-worker-mechanics-spike.md#1-launch)), and
+      Workers share the Lead's
+      ([measured](../spikes/codex-worker-mechanics-spike.md#6-location)), so
       `dashpot worktree create` stays necessary.
     - Recorded in the
       [integration research](../design-research/integration-frequency-and-parallel-branches.md#openai-codex).
@@ -812,7 +815,8 @@ documented.
   - Claude Code's Projects are cloud threads, in public beta on Pro and Max
     ([agents][cc-agents]).
   - Codex cloud tasks run "in the cloud" ([Codex cloud][codex-cloud]), and
-    Codex's GitHub review posts its comments on GitHub
+    Codex's automatic review of a GitHub pull request runs in the cloud,
+    with a person choosing which findings to post
     ([code review][codex-review]).
   - Codex's scheduled tasks, formerly automations, run on the web, or in
     the desktop app in the project directory or a background worktree
@@ -856,8 +860,8 @@ documented.
   plugin adds to every session's system prompt: "When you create a worktree
   outside the current working directory and intend to use it as your
   primary working directory, consider using `execute` to call
-  `tools.opencode.session_move`" ([`opencode.ts`][oc-tools-plugin], line
-  75).
+  `tools.opencode.session_move` and make the worktree the session's working
+  directory." ([`opencode.ts`][oc-tools-plugin], line 75).
   - That reaches the Lead too, and a Lead that creates Issue Worktrees could
     take it as a reason to move. The skill's "Stay where you bound"
     ([rules](../../src/dashpot/skills/dashpot-execute-issues/SKILL.md#rules-for-the-whole-arc))
@@ -1021,6 +1025,7 @@ Existing Issues:
 [codex-child]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/agent/child_config.rs
 [codex-instr]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/prompts/src/multi_agent_instructions.rs
 [codex-alias]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/config/src/key_aliases.rs
+[codex-goal-ext]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/ext/goal/src/extension.rs
 [codex-goal-runtime]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/ext/goal/src/runtime.rs
 [codex-goal-spec]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/ext/goal/src/spec.rs
 [codex-goal-cont]: https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/ext/goal/templates/goals/continuation.md
