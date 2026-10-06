@@ -127,11 +127,14 @@ git ls-remote --exit-code origin HEAD
 echo "UV_CACHE_DIR=$UV_CACHE_DIR PRE_COMMIT_HOME=$PRE_COMMIT_HOME"
 ```
 
-The fourth passes when it names, inside the Worktree Root, the cache of
-each of those tools the repository's gates use. The first three pass under
-the grant below without it, so run the fourth whatever they say.
-`git ls-remote` also fails without credentials: read its error before you
-blame the sandbox. If a check fails for the sandbox, stop before binding.
+The fourth passes when the cache of each of those tools the repository's
+gates use is writable: inside the Worktree Root, or under a directory your
+session was given as writable, as `--add-dir ~/.cache` gives their default
+locations. Without the sandbox, every check passes. The first three pass
+under the grant below without the caches, so run the fourth whatever they
+say. `git ls-remote` also fails without credentials: read its error before
+you blame the sandbox. If a check fails for the sandbox, or the fourth
+does, stop before binding.
 Ask the user to create the Worktree Root if it does not exist yet, exit
 this client, and resume your session with both directories writable, the
 network on, and the caches in the Worktree Root:
@@ -146,9 +149,10 @@ identity `<dashpot> integrate codex --status` confirms, and `<checkout>`
 the one you will bind in; a new session takes the same options after
 `codex`. This resume command is measured on Codex 0.160.0 on Linux: it
 gives you and every worker these writable directories with the network
-on, and every shell of the session, your workers' and their Git hooks
-included, the two cache locations, so a worker completes its whole cycle.
-Still run the four checks again in the resumed session before you bind.
+on, and your workers' shells and their Git hooks the two cache locations,
+so a worker completes its whole cycle. Your own shell gets them by the
+same setting, though that was not measured, so still run the four checks
+again in the resumed session before you bind.
 `--sandbox workspace-write` matters: under `read-only`, Codex refuses
 `--add-dir` and the client exits. Tell the user that Codex's background
 app-server may hold this thread for about a minute after this client
@@ -165,9 +169,9 @@ costs: every agent of the session can then write its hooks and its
 configuration, and code planted there runs the next time anything runs
 `git` outside the sandbox, Dashpot's dashboard included. They may run the
 session without the sandbox (`--sandbox danger-full-access`) instead, where
-every check passes. Your checkout is your session's workspace, so your
-workers, under your sandbox, can write it, and their files in your arc's
-ledger need nothing more.
+nothing is refused and every check passes. Your checkout is your
+session's workspace, so your workers, under your sandbox, can write it,
+and their files in your arc's ledger need nothing more.
 
 Under the `on-request` approval policy, a refused write still fails as a
 command. Only a command the agent asks to run outside the sandbox raises

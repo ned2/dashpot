@@ -645,6 +645,13 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
         codex
     )
     assert "so run the fourth whatever they say" in codex
+    # A cache under an added directory, or no sandbox at all, passes it too,
+    # so the alternatives the lead offers do not fail its own check.
+    assert (
+        "inside the Worktree Root, or under a directory your session was given "
+        "as writable, as `--add-dir ~/.cache` gives their default locations. "
+        "Without the sandbox, every check passes."
+    ) in codex
     assert "run the four checks again in the resumed session" in codex
     # The command is no longer offered as documented only, `--add-dir` under
     # `read-only` stops the client, and a resume may wait for Codex's

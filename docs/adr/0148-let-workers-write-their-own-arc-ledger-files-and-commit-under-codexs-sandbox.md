@@ -87,9 +87,11 @@ The grant alone lets a Worker edit, push and write its ledger file, but
 not run a gate or commit when the repository's tools write caches outside
 the named directories: uv's `~/.cache/uv` and pre-commit's
 `~/.cache/pre-commit` refused every such step, though the three checks
-passed. So the Lead also checks where those caches go, and the command
-gains one option per cache the repository's gates use, moving it into the
-Worktree Root for every shell of the session:
+passed. So the Lead also checks where those caches go, a check that
+passes when each is inside the Worktree Root or another writable
+directory, and the command gains one option per cache the repository's
+gates use, moving it into the Worktree Root for every shell of the
+session:
 
 ```bash
 -c 'shell_environment_policy.set.UV_CACHE_DIR="<Worktree Root>/.cache/uv"' \
@@ -108,7 +110,8 @@ The Lead names the security cost to the user once, when it asks:
   sandbox, Dashpot's own dashboard included.
 
 The user may instead run the session without the sandbox
-(`--sandbox danger-full-access`), where every check passes.
+(`--sandbox danger-full-access`), where nothing is refused and every check
+passes.
 
 ## Considered options
 
@@ -148,6 +151,11 @@ The user may instead run the session without the sandbox
   whole Lead's checkout is writable to every Worker. A Worker that skips its
   `cd` therefore edits the Lead's checkout, which is one more reason every
   command starts with `cd <Worktree> &&`.
+- The Codex sandbox check gains a fourth check, of where the gates'
+  caches go, since the first three pass while those caches are refused
+  ([#639](https://github.com/ned2/dashpot/issues/639)). The fourth check
+  itself, and the Lead's own shell getting the moved caches, are not
+  measured; the Lead's Workers getting them is.
 - Under Codex, a sandboxed Worker's gate, commit with hooks, and push are
   measured, with the caches moved into the Worktree Root. A repository
   whose gates write other caches moves them the same way. `gh` under the
