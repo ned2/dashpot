@@ -625,13 +625,51 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     assert "prints it as `worktreeRoot`" in codex
     assert "`git rev-parse --path-format=absolute --git-common-dir`" in codex
     assert "git ls-remote --exit-code origin HEAD" in codex
+    # Issue #639 measured the resume command, with the cache options in the
+    # TOML-string form it ran: a gate's caches outside the grant fail a
+    # worker's gate and commit, so every shell gets them in the Worktree Root.
     assert (
         "codex resume <session-id> -C <checkout> --sandbox workspace-write "
         "--add-dir <Worktree Root> --add-dir <Git directory> "
-        "-c sandbox_workspace_write.network_access=true"
+        "-c sandbox_workspace_write.network_access=true "
+        "-c 'shell_environment_policy.set.UV_CACHE_DIR="
+        '"<Worktree Root>/.cache/uv"'
+        "' -c 'shell_environment_policy.set.PRE_COMMIT_HOME="
+        '"<Worktree Root>/.cache/pre-commit"'
+        "'"
     ) in codex
-    assert "Codex ignores `--add-dir` under `read-only`" in codex
-    assert "run the three checks again in the resumed session" in codex
+    # The three checks pass under the grant without the caches, so a fourth
+    # check reads where they go, and the lead runs it whatever the others say.
+    assert "Check all four from where you will bind" in codex
+    assert 'echo "UV_CACHE_DIR=$UV_CACHE_DIR PRE_COMMIT_HOME=$PRE_COMMIT_HOME"' in (
+        codex
+    )
+    assert "so run the fourth whatever they say" in codex
+    # A cache under an added directory, or no sandbox at all, passes it too,
+    # so the alternatives the lead offers do not fail its own check.
+    assert (
+        "inside the Worktree Root, or under a directory your session was given "
+        "as writable, as `--add-dir ~/.cache` gives their default locations. "
+        "Without the sandbox, every check passes."
+    ) in codex
+    assert "run the four checks again in the resumed session" in codex
+    # The command is no longer offered as documented only, `--add-dir` under
+    # `read-only` stops the client, and a resume may wait for Codex's
+    # background app-server to release the thread.
+    assert "codex --help" not in codex
+    assert "This resume command is measured on Codex 0.160.0 on Linux" in codex
+    assert "under `read-only`, Codex refuses `--add-dir` and the client exits" in codex
+    assert (
+        "Codex's background app-server may hold this thread for about a minute"
+    ) in codex
+    assert "`--add-dir ~/.cache` in place of the two cache options" in codex
+    # A declined worker ask was measured only with the lead's turn ended.
+    assert (
+        "If they decline a worker's ask while your turn has ended, that worker's "
+        "turn ends too"
+    ) in codex
+    assert "does to a turn of yours that is waiting on it is not measured" in codex
+    assert "fails their gates and commits" in " ".join(shipped("SKILL.md").split())
     # The dry run needs the network, so the default root is named as well.
     assert "`<main checkout>.worktrees`, beside the main checkout" in codex
     assert "can then write its hooks and its configuration" in codex

@@ -72,9 +72,36 @@ codex resume <session-id> -C <checkout> --sandbox workspace-write \
   -c sandbox_workspace_write.network_access=true
 ```
 
-`--sandbox workspace-write` is needed because Codex ignores `--add-dir`
-under `read-only`. The options are documented by `codex --help` rather than
-measured, so the Lead runs its checks again in the resumed session.
+[#639](https://github.com/ned2/dashpot/issues/639) revised this part of
+the Decision after the
+[Codex sandboxed Worker cycle experiment](../spikes/codex-sandboxed-worker-cycle-spike.md)
+measured the command on codex-cli 0.160.0 on Linux. It gives the Lead and
+every Worker those writable roots with the network on, and the Lead's
+three checks pass under it; the Lead still runs its checks again in the
+resumed session. `--sandbox workspace-write` is needed: under `read-only`,
+Codex refuses `--add-dir` and the client exits. When the old thread ran in
+Codex's background app-server, the resume waits about a minute until that
+server unloads it.
+
+The grant alone lets a Worker edit, push and write its ledger file, but
+not run a gate or commit when the repository's tools write caches outside
+the named directories: uv's `~/.cache/uv` and pre-commit's
+`~/.cache/pre-commit` refused every such step, though the three checks
+passed. So the Lead also checks where those caches go, a check that
+passes when each is inside the Worktree Root or another writable
+directory, and the command gains one option per cache the repository's
+gates use, moving it into the Worktree Root for every shell of the
+session:
+
+```bash
+-c 'shell_environment_policy.set.UV_CACHE_DIR="<Worktree Root>/.cache/uv"' \
+  -c 'shell_environment_policy.set.PRE_COMMIT_HOME="<Worktree Root>/.cache/pre-commit"'
+```
+
+With those, a Worker completed its whole cycle, its commit's hook included.
+`--add-dir ~/.cache` does too, but it opens every tool's cache to every
+agent of the session, so it is the user's alternative rather than the
+default.
 
 The Lead names the security cost to the user once, when it asks:
 
@@ -83,7 +110,8 @@ The Lead names the security cost to the user once, when it asks:
   sandbox, Dashpot's own dashboard included.
 
 The user may instead run the session without the sandbox
-(`--sandbox danger-full-access`), where every check passes.
+(`--sandbox danger-full-access`), where nothing is refused and every check
+passes.
 
 ## Considered options
 
@@ -123,9 +151,22 @@ The user may instead run the session without the sandbox
   whole Lead's checkout is writable to every Worker. A Worker that skips its
   `cd` therefore edits the Lead's checkout, which is one more reason every
   command starts with `cd <Worktree> &&`.
-- Under Codex, the gates and push a sandboxed Worker runs, and the caches
-  they write outside the named directories, are not measured. A repository
-  whose gates need more directories adds them the same way.
+- The Codex sandbox check gains a fourth check, of where the gates'
+  caches go, since the first three pass while those caches are refused
+  ([#639](https://github.com/ned2/dashpot/issues/639)). The fourth check
+  itself, and the Lead's own shell getting the moved caches, are not
+  measured; the Lead's Workers getting them is.
+- Under Codex, a sandboxed Worker's gate, commit with hooks, and push are
+  measured, with the caches moved into the Worktree Root. A repository
+  whose gates write other caches moves them the same way. `gh` under the
+  grant, and macOS, where Codex uses its Seatbelt sandbox, are not
+  measured.
+- Under `on-request`, a refused write still fails as a command; only a
+  command an agent asks to run outside the sandbox raises an ask. The
+  person answers every ask, a Worker's included, in the Lead's terminal.
+  Declining a Worker's ask while the Lead's turn had ended ended that
+  Worker's turn without a report; what an ask does to a Lead waiting on
+  the Worker is not measured.
 - An OpenCode Worker writing outside its Worktree may raise a permission
   ask, which is not measured. A rejected ask leaves only the Worker's
   hand-back.

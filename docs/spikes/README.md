@@ -19,6 +19,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Codex sandboxed Worker cycle experiment](codex-sandboxed-worker-cycle-spike.md) | research | 2026-10-06 |
 | [Codex workspace-write Workers experiment](codex-workspace-write-workers-spike.md) | research | 2026-10-06 |
 | [Background commands and Cleanup experiment](background-commands-and-cleanup-spike.md) | research | 2026-10-05 |
 | [Conversation switch through the resume picker experiment](conversation-switch-picker-spike.md) | research | 2026-10-05 |

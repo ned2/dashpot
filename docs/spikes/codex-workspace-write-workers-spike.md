@@ -41,7 +41,7 @@ says what that leaves out.
 | Can a lead bound in a linked Worktree write the main checkout's `.dashpot/state/`? | No. It can read it, and it writes only within its own Worktree's files. It cannot commit there either. | measured |
 | Does a v2 lead's `send_message` reach a running worker? | It is queued. It does not cut short the command the worker is running. The worker's next model request carries it, after that command's output. | measured |
 | How does a person grant the writable roots? | At session start, with `--add-dir <DIR>`, "additional directories that should be writable alongside the primary workspace", or `[sandbox_workspace_write] writable_roots` in configuration. This run set the configuration key per thread; `--add-dir` was not run. | documented |
-| Can a worker escalate a refused write under another approval policy? | Not measured. Every thread ran `approval_policy = "never"`, which refuses without asking. | unknown |
+| Can a worker escalate a refused write under another approval policy? | Not measured here. Every thread ran `approval_policy = "never"`, which refuses without asking. The [Codex sandboxed Worker cycle experiment](codex-sandboxed-worker-cycle-spike.md#3-asks-under-on-request) has since measured `on-request`. | unknown |
 
 A control write outside every writable root failed in every probe. Every
 probe's shell ran with `CODEX_SANDBOX_NETWORK_DISABLED=1` and `NoNewPrivs`
@@ -199,8 +199,9 @@ network use:
   so only the person, or a command outside the sandbox, could commit for
   them.
 - **`L/.git` writable as well.** A Worker can commit. Whether it can then run
-  this Repository's commit hooks, gates and push is not measured; the
-  sandbox's network setting decides the push. The grant also opens
+  this Repository's commit hooks, gates and push is not measured here; the
+  [Codex sandboxed Worker cycle experiment](codex-sandboxed-worker-cycle-spike.md#2-the-worker-cycle)
+  has since measured a fixture's gate, hook and push under that grant. The grant also opens
   `.git/hooks/` and `.git/config` to the agent, which is a decision for the
   person rather than a default.
 - **Messaging.** Wherever a Worker can work, it can read and write the main
