@@ -628,6 +628,17 @@ dispatched to Workers together
 _Avoid_: reading an Arc's other Issues as bound, since the Lead's Issue
 Binding names only one of them; sprint or batch
 
+**Arc Ledger**:
+The local working record of one Arc, kept by its Lead under
+`.dashpot/state/skills/dashpot-execute-issues/` in the checkout where the
+Lead bound: a summary other Leads read, the record appended as the Arc
+runs, the filled brief template, and the Arc's reserved numbers. Only the
+Lead writes it, and nothing in it is published; the Arc's outcomes go to
+GitHub as PRs, Issues and comments
+([ADR 0147](adr/0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md)).
+_Avoid_: record Issue or run records for the ledger; reading it as a private
+memory store, or as Dashpot state Dashpot's own code reads
+
 **Session Liveness**:
 An observation of whether an Agent Session's recorded Host Process is live,
 gone, or unknown. Unknown means the process could not be observed, or that it

@@ -1,8 +1,8 @@
 # Worker brief template
 
 Reference for [dashpot-execute-issues](../SKILL.md). Copy the template below
-to your scratch directory and fill it once per arc, then render one brief per
-Issue from it.
+into the arc's ledger directory ([arc-ledger.md](arc-ledger.md#opening-an-arc))
+and fill it once per arc, then render one brief per Issue from it.
 
 **Per-arc placeholders**, filled at setup:
 
@@ -133,11 +133,11 @@ heading, or delete it.
 **Live siblings.** Each in its own Worktree, all based on <integration branch> <sha>:
 - #<a>: <one line>
 
-**Reserved numbers.** Use only your own: #<a>: <numbers>. <number> is spare and belongs to no one. Other arcs hold <numbers, by record Issue>: never take them.
+**Reserved numbers.** Use only your own: #<a>: <numbers>. <number> is spare and belongs to no one. Other arcs hold <numbers, by arc>: never take them.
 
 **Who owns which files.** An edit outside your area goes to the lead first.
 - #<a>: <files, functions, document sections>
-- Another arc, record Issue #<t>: <files>. Leave them to it.
+- Another arc, <arc-id>: <files>. Leave them to it.
 
 **Shared core.** Tell the lead before you change a signature or behaviour in: <modules>.
 

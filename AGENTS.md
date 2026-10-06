@@ -320,10 +320,11 @@ In this Repository:
   [ADR 0089](docs/adr/0089-leave-the-pr-merge-to-the-operator.md) decides.
 - Reserve ADR numbers per Issue, with a spare, before dispatch. Scan
   `origin/main`, open PRs, the Remote-Tracking Branches after a fetch,
-  every local Worktree's Branch, and every open Arc's record Issue: the
-  operator's own Worktrees take numbers too. ADR numbers may have gaps, so
-  while another Arc is open, start your block ten above the highest number
-  it holds, which leaves its later reservations clear of yours.
+  every local Worktree's Branch, and the reservations in every open Arc
+  Ledger: the operator's own Worktrees take numbers too. ADR numbers may
+  have gaps, so while another Arc is open, start your block ten above the
+  highest number it holds, which leaves its later reservations clear of
+  yours.
 - Every checkout runs the tracked hooks in `.githooks/`, through its own
   `.venv`, once `core.hooksPath` names `.githooks`
   ([development setup](README.md#development-setup)). Never run
@@ -373,6 +374,13 @@ lives where humans read it: GitHub Issues (this Project's Issue Source) for
 plans and follow-ups, the [README](README.md) and `docs/*.md` for shared project
 context, and `docs/adr/` for decisions. If something is worth remembering,
 record it there.
+
+The Arc Ledger a Lead keeps under the bundled `dashpot-execute-issues`
+skill is not such a store: it is one Arc's working record, written only by
+that Arc's Lead, in the checkout's ignored `.dashpot/state/`, where the
+operator can read it. It is closed with the Arc and never published, and
+the Arc's outcomes go to GitHub by close-out
+([ADR 0147](docs/adr/0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md)).
 
 ## Agent skills
 

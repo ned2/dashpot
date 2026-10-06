@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-04
-amended-by: 0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md, 0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md, 0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md
+amended-by: 0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md, 0108-keep-opencode-self-move-and-leading-workers-on-the-shared-service.md, 0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md, 0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md
 ---
 
 # Ship a user-invoked execute-issues skill for every harness
@@ -224,3 +224,8 @@ release, and a second check that could only agree with the first.
   Workers are qualified one harness at a time, starting with a Claude Code
   pilot. Each Arc names one accountable person, and the Worker ceiling counts
   per person across their Arcs.
+- Amended by
+  [ADR 0147](0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md):
+  the Arc's working record moves from Issue comments to a local Arc Ledger
+  in the Lead's checkout, and only reviewed outcomes go to GitHub. A list
+  Arc opens no tracking Issue.

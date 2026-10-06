@@ -77,14 +77,15 @@ step 2.
   only the user can check: show the user the refusal and let them decide.
   Never pass it yourself, and never brief a worker to.
 - **Merge only with authority.** See [Merge authority](#merge-authority).
-- **Keep the record on GitHub.** The arc's record goes in comments on the
-  epic, or on a tracking Issue you open for a list, in the shape
-  [run-records.md](references/run-records.md) defines. Keep no private
-  notes file. Your scratch directory holds only working files, such as the
-  filled brief template, and everything needed to resume the arc after a
-  lost scratch directory is in those comments: the template's per-arc
-  values, each gotcha you add to it, and each finding you have not yet
-  filed.
+- **Keep the arc's record in its ledger.** The arc map, waves, merges,
+  decisions, gotchas, unverified findings and close-out go in the arc's
+  local ledger, in the repository's ignored Dashpot state, in the shape
+  [arc-ledger.md](references/arc-ledger.md) defines. Only the reviewed
+  outcomes
+  [What goes to GitHub](references/arc-ledger.md#what-goes-to-github)
+  lists are posted.
+  Keep no other notes file: your scratch directory holds only throwaway
+  working files, and everything needed to resume the arc is in the ledger.
 
 ## 1. Map the arc
 
@@ -116,10 +117,11 @@ step 2.
   remove them. If your session already sits in a Worktree, check whether
   its work has merged (`gh pr list --state all --head <branch>`).
 - Read the **other open arcs**: another lead may be landing its own arc in
-  this repository at the same time. Every arc's record Issue opens with
-  the same line ([run-records.md](references/run-records.md)), so
-  `gh issue list --state open --search '"Tracking Issue for a dashpot-execute-issues arc" in:body'`
-  finds them all. From each one's arc map and wave comments, note the files
+  this repository at the same time. Every lead keeps an `arc.json` for each
+  arc in its checkout's ledger, so listing them across every checkout of
+  the repository finds them all
+  ([Finding other open arcs](references/arc-ledger.md#finding-other-open-arcs)).
+  From each one's `arc.json`, ledger and reservations, note the files
   its collision plan owns, the numbers it reserved, its share of the
   machine's cores, and the person accountable for it (step 2's
   "Size the waves") with the workers it has live. For every file both arcs
@@ -156,22 +158,28 @@ holds.
    you to leave alone, such as `integrate` from their main checkout, give
    the user the command rather than running it.
 3. **Settle merge authority** now: see [Merge authority](#merge-authority).
-4. **Reserve** anything the repository's checks require to be unique, one
+4. **Open the arc's ledger** in the checkout you bound in, after checking
+   that Git ignores it, and write its `arc.json`
+   ([Opening an arc](references/arc-ledger.md#opening-an-arc)).
+5. **Reserve** anything the repository's checks require to be unique, one
    set per Issue, plus a spare, before any dispatch. Scan the integration
    branch, open PRs, the Remote-Tracking Branches after a `git fetch`,
    every local Worktree's Branch, and the reservations of every other open
    arc, read while mapping the arc: the user's own Worktrees take
    numbers too, and another arc's numbers are taken long before any branch
-   holds them. A clash found before dispatch: the arc whose arc map posted
-   later takes the next free numbers. A clash found after dispatch: the arc
-   that dispatched the number later renumbers, and its lead broadcasts the
-   new number to its workers. When the other arc must change, tell the
-   user, who passes it on.
-5. **Size the waves.** Divide the machine's cores between every live arc,
+   holds them. Take each number with its own reservation directory
+   ([Reservations](references/arc-ledger.md#reservations)), which no other
+   lead sharing your ledger root can take as well. A clash found before
+   dispatch with a lead in another checkout: the arc whose arc map was
+   written later takes the next free numbers. A clash found after dispatch:
+   the arc that dispatched the number later renumbers, and its lead
+   broadcasts the new number to its workers. When the other arc must
+   change, tell the user, who passes it on.
+6. **Size the waves.** Divide the machine's cores between every live arc,
    yours included: take the share the repository's instructions name, or
    what the other arcs' recorded shares leave, and record yours in the arc
-   map. When they leave too little, tell the user, who asks the other lead
-   to shrink its share. Find your harness's worker limit in
+   map and `arc.json`. When they leave too little, tell the user, who asks
+   the other lead to shrink its share. Find your harness's worker limit in
    [harnesses.md](references/harnesses.md), and split your share between
    your workers' test runs. A documentation-only Issue runs no suite and
    costs almost nothing alongside the others.
@@ -187,21 +195,22 @@ holds.
    record it in the arc map as their direction. Your live workers are
    bounded by the smallest of three limits: your cores, your harness's
    worker limit, and that ceiling.
-6. **Fill the brief template.** Copy
-   [brief-template.md](references/brief-template.md) to your scratch
+7. **Fill the brief template.** Copy
+   [brief-template.md](references/brief-template.md) into the arc's ledger
    directory and fill its per-arc placeholders, which that file lists.
    Render briefs with a script or a quoted heredoc (`<<'EOF'`): an unquoted
    heredoc runs backtick spans as commands.
-7. **Post the arc map** comment on the record Issue, whose body opens with
-   the line [run-records.md](references/run-records.md) gives, before you
-   create the first Worktree: until it is posted, no other lead can see
-   your reservations or your share of the cores. Then read the other open
-   arcs once more, in case one posted while you set up. Settle any clash as
-   step 4 above says, and post each number you change.
+8. **Write the arc map** to the ledger
+   ([arc-ledger.md](references/arc-ledger.md#the-arc-map)), and update
+   `arc.json` to match, before you create the first Worktree: until then,
+   no other lead can see your files or your share of the cores. Then read
+   the other open arcs once more, in case one opened while you set up.
+   Settle any clash as step 5 above says, and record each number you
+   change.
 
-Done when the session is bound, the record Issue opens with that line,
-the reservations and the arc map are posted with no clash outstanding, and
-the filled template exists.
+Done when the session is bound, the arc's ledger is open with its
+`arc.json`, the reservations are taken and the arc map written with no
+clash outstanding, and the filled template exists.
 
 ## 3. Dispatch a wave
 
@@ -211,12 +220,12 @@ covers starting before a blocker merges, splitting a large Issue, stacking
 on an open PR, pairing a measurement with its consumers, and paying down a
 flaky check.
 
-Before dispatching, run the open-arc search from step 1 again. When an arc
-has started or ended since your last wave, settle its files and numbers as
-in steps 1 and 2, re-split the cores between the live arcs, and record your
-new share in the wave comment. Recount the accountable person's live
-workers across their arcs against the ceiling from step 2. Then look for
-collisions between the wave's Issues:
+Before dispatching, read the other open arcs again, as in step 1. When an
+arc has started or ended since your last wave, settle its files and numbers
+as in steps 1 and 2, re-split the cores between the live arcs, and record
+your new share in the wave's ledger entry and `arc.json`. Recount the
+accountable person's live workers across their arcs against the ceiling
+from step 2. Then look for collisions between the wave's Issues:
 
 - **Shared files and functions.** Give every file, function and document
   section one owner. An owned module's user-facing edge, such as the
@@ -269,8 +278,9 @@ For each Issue in the wave:
 4. Assign each worker to its Issue, as
    [Assign each worker](#assign-each-worker) says.
 
-Post the wave comment. Done when every startable Issue has a live, assigned
-worker.
+Record the wave in the ledger, and its live workers in `arc.json`
+([arc-ledger.md](references/arc-ledger.md#a-wave)). Done when every
+startable Issue has a live, assigned worker.
 
 ### Assign each worker
 
@@ -394,10 +404,10 @@ before you act:
    whether they must rebase now, with any regeneration that now falls to
    them. This curbs merge skew: siblings building on a stale base, and
    changes that pass alone but break together.
-6. Record the merge with the SHA you broadcast, at once
-   ([run-records.md](references/run-records.md)): the next broadcast starts
-   from it. Tell the user in one line what merged, what is live and what is
-   next. Then dispatch whatever the merge unblocked (step 3).
+6. Record the merge with the SHA you broadcast in the ledger, at once
+   ([arc-ledger.md](references/arc-ledger.md#a-merge)): the next broadcast
+   starts from it. Tell the user in one line what merged, what is live and
+   what is next. Then dispatch whatever the merge unblocked (step 3).
 
 Merge in order of readiness, not of plan. When the PR planned to land
 second is ready first, land it and move the follow-on work to the worker
@@ -418,22 +428,22 @@ Issue's options to the user, check its terms against the repository's
 glossary: an Issue's own framing can be wrong. With each blocker you take
 to the user, add the one line a merge gets: what merged, what is live and
 what is next. Tell the user no more than that line per merge or blocker,
-not a running commentary: the record Issue carries the detail, and the
-user may be away for much of the arc.
+not a running commentary: the ledger carries the detail, and the user
+may be away for much of the arc.
 
 On every hand-back and mid-flight message:
 
 - Verify each defect it reports with one command or one search, then file
   it at once with the repository's triage labels, so the worker's PR can
-  link a durable Issue. A finding you cannot verify yet goes in your next
-  record comment
-  ([run-records.md](references/run-records.md#an-unverified-finding)), for
+  link a durable Issue. A finding you cannot verify yet goes in the ledger
+  at once
+  ([arc-ledger.md](references/arc-ledger.md#an-unverified-finding)), for
   close-out to verify and file; hold none in a scratch file.
 - Route a finding to the sibling that owns the file and the acceptance
   box, not to whoever found it.
 - Approve an edit outside a worker's area explicitly, with its conditions.
-- Add each new friction item to the template's gotchas, post it to the
-  record ([run-records.md](references/run-records.md#a-gotcha)), and
+- Add each new friction item to the template's gotchas, record it in the
+  ledger ([arc-ledger.md](references/arc-ledger.md#a-gotcha)), and
   broadcast the workaround to live workers at once.
 - Close off optional extras a worker offers: the Issue's text sets its
   scope.
@@ -442,7 +452,10 @@ On every hand-back and mid-flight message:
   downstream decision to that Issue.
 
 Anything you post publicly restates evidence. Check it against the primary
-source, not against a worker's summary or your own earlier comment.
+source, not against a worker's summary, your own earlier comment or the
+ledger, and keep out of it what
+[What goes to GitHub](references/arc-ledger.md#what-goes-to-github) keeps
+out.
 
 ## 5. Close out
 
@@ -502,13 +515,15 @@ every Issue has merged:
    Issues their PRs closed automatically.
 5. Gather the follow-ups the hand-backs raised for the close-out record.
    You filed each one as its hand-back arrived, so this step files only a
-   finding that could not be verified then: verify it now, from the record
-   that holds it, and file it with the repository's triage labels. Comment
+   finding that could not be verified then: verify it now, from the ledger
+   entry that holds it, and file it with the repository's triage labels. Comment
    on any Issue outside the arc that inherits deferred scope.
-6. Record the arc on its goal: for an epic, close it with a comment mapping
-   each Issue to its PR; for a list, comment on each Issue the arc unblocked
-   with what landed and what it now needs.
-7. Post the close-out record ([run-records.md](references/run-records.md)).
+6. Record the arc's outcome: for an epic, close it with a comment mapping
+   each Issue to its PR and merge commit. For a list, post that mapping on
+   the Issue you bound, and comment on each Issue the arc unblocked with
+   what landed and what it now needs.
+7. Write the close-out to the ledger, mark the arc closed and release your
+   reservations ([arc-ledger.md](references/arc-ledger.md#the-close-out)).
    File the repository-specific lessons as Issues against its agent
    instructions, and list the lessons about this skill for the user.
 8. Once every worker you launched has finished, end your Issue work as
@@ -518,7 +533,7 @@ every Issue has merged:
    that changes.
 
 Done when no PR you opened is unaccounted for, no Worktree you created
-remains, and the goal carries the record.
+remains, the goal carries the record, and the arc's ledger is closed.
 
 ## Merge authority
 
