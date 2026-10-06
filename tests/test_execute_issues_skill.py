@@ -122,7 +122,7 @@ def test_integrate_installs_checks_and_removes_the_skill(
         Path("references/brief-template.md"),
         Path("references/harnesses.md"),
         Path("references/reviewer.md"),
-        Path("references/run-records.md"),
+        Path("references/arc-ledger.md"),
         Path("references/strategies.md"),
     } == set(SKILL.files)
     home = configuration_directory(integration(harness), os.environ).path
@@ -237,7 +237,8 @@ def test_the_lead_binds_through_the_issue_work_skill_before_any_worktree() -> No
     assert "Never move your own session to another Worktree while a worker runs" in (
         rules
     )
-    assert "Keep no private notes file" in rules
+    assert "**Keep the arc's record in its ledger.**" in rules
+    assert "Keep no other notes file" in rules
     # The sub-agent override is the user's assertion alone (ADR 0112).
     override = " ".join(rules.split())
     assert "**Leave the sub-agent override to the user.**" in override
@@ -268,20 +269,22 @@ def test_a_maintainers_instruction_is_checked_before_it_is_briefed() -> None:
     ) in mapping
 
 
-def test_the_lead_finds_every_other_open_arc_by_its_opening_line() -> None:
+def test_the_lead_finds_every_other_open_arc_in_each_checkouts_ledger() -> None:
     mapping = section(shipped("SKILL.md"), "1. Map the arc")
-    search = re.search(
-        r"`gh issue list --state open --search '\"(.+?)\" in:body'`", mapping
+    assert (
+        "[Finding other open arcs](references/arc-ledger.md#finding-other-open-arcs)"
+        in mapping
     )
-    assert search is not None
-    records = shipped("references/run-records.md")
-    opening = re.search(r"```markdown\n(Tracking Issue for a .+?)\n```", records)
-    assert opening is not None
-    # GitHub's search ignores the backticks the opening line carries.
-    assert opening.group(1).replace("`", "").startswith(search.group(1))
-    flowed_records = " ".join(records.split())
-    assert "For an epic, add it at the top of the epic's body" in flowed_records
-    assert "The record Issue's body opens with this line" in flowed_records
+    assert "gh issue list" not in mapping
+    finding = section(shipped("references/arc-ledger.md"), "Finding other open arcs")
+    assert "for each path `git worktree list --porcelain` prints" in finding
+    assert (
+        "`<path>/.dashpot/state/skills/dashpot-execute-issues/arcs/*/arc.json`"
+        in finding
+    )
+    assert "keep those whose `state` is `open`" in finding
+    # A crashed lead leaves its arc open; only the user frees its holdings.
+    assert "ask the user before you treat its files and numbers as free" in finding
     assert (
         "note the files its collision plan owns, the numbers it reserved, its "
         "share of the machine's cores, and the person accountable for it "
@@ -299,25 +302,40 @@ def test_reservations_and_cores_are_shared_with_every_live_arc() -> None:
     setup = section(shipped("SKILL.md"), "2. Set up")
     assert "and the reservations of every other open arc" in setup
     assert (
-        "A clash found before dispatch: the arc whose arc map posted later "
-        "takes the next free numbers. A clash found after dispatch: the arc "
-        "that dispatched the number later renumbers, and its lead broadcasts "
-        "the new number to its workers."
+        "Take each number with its own reservation directory "
+        "([Reservations](references/arc-ledger.md#reservations)), which no other "
+        "lead sharing your ledger root can take as well."
+    ) in setup
+    assert (
+        "A clash found before dispatch with a lead in another checkout: the arc "
+        "whose arc map was written later takes the next free numbers. A clash "
+        "found after dispatch: the arc that dispatched the number later "
+        "renumbers, and its lead broadcasts the new number to its workers."
     ) in setup
     assert "Divide the machine's cores between every live arc, yours included" in setup
-    assert "record yours in the arc map" in setup
+    assert "record yours in the arc map and `arc.json`" in setup
     assert "who asks the other lead to shrink its share" in setup
-    assert "create the first Worktree: until it is posted" in setup
+    assert "before you create the first Worktree: until then" in setup
     dispatch = section(shipped("SKILL.md"), "3. Dispatch a wave")
     assert "re-split the cores between the live arcs" in dispatch
-    arc_map = section(shipped("references/run-records.md"), "The arc map")
-    assert "Posted once, at setup, before you create the first Worktree:" in arc_map
+    ledger = shipped("references/arc-ledger.md")
+    arc_map = section(ledger, "The arc map")
+    assert "Written once, at setup, before you create the first Worktree:" in arc_map
     assert "your share of the machine's cores" in arc_map
+    reservations = section(ledger, "Reservations")
+    assert "mkdir <ledger root>/reservations/<kind>-<value> &&" in reservations
+    assert (
+        "remove every reservation directory your arc map or a later entry lists, "
+        "including each number you changed after a clash"
+    ) in reservations
+    summary = section(ledger, "The summary: arc.json")
+    for key in ("state", "accountable", "ceiling", "cores", "liveWorkers", "files"):
+        assert f'"{key}":' in summary, key
     wave = " ".join(
         shipped("references/brief-template.md").split("## The wave block", 1)[1].split()
     )
-    assert "Other arcs hold <numbers, by record Issue>: never take them." in wave
-    assert "- Another arc, record Issue #<t>: <files>." in wave
+    assert "Other arcs hold <numbers, by arc>: never take them." in wave
+    assert "- Another arc, <arc-id>: <files>." in wave
 
 
 def test_each_worktree_is_cut_from_a_freshly_fetched_tip() -> None:
@@ -354,11 +372,11 @@ def test_a_merge_lands_only_what_ci_tested() -> None:
         "`git log --oneline <last-broadcast>..origin/<integration-branch>`"
     ) in merge
     assert "names every merge in that range, whoever made it" in merge
-    assert "Record the merge with the SHA you broadcast, at once" in merge
-    record = section(shipped("references/run-records.md"), "A merge")
+    assert "Record the merge with the SHA you broadcast in the ledger, at once" in merge
+    record = section(shipped("references/arc-ledger.md"), "A merge")
     assert (
-        "the merge SHA and the SHA you broadcast are posted at once: the next "
-        "broadcast starts from the SHA you broadcast."
+        "Written when each PR lands, at once: the next broadcast starts from the "
+        "SHA you broadcast."
     ) in record
     assert "how you checked that CI tested what lands" in record
 
@@ -399,7 +417,7 @@ def test_close_out_waits_for_another_sessions_sub_agents() -> None:
         "Record that you handed the user the override, their instruction and "
         "each check's result"
     ) in flowed
-    record = section(shipped("references/run-records.md"), "The close-out")
+    record = section(shipped("references/arc-ledger.md"), "The close-out")
     assert "each Worktree the user removed despite listed sub-agents" in record
 
 
@@ -454,24 +472,29 @@ def test_measuring_stacked_and_waiting_workers_are_briefed() -> None:
     ) in dispatch
 
 
-def test_a_lost_brief_template_can_be_rebuilt_from_the_record() -> None:
-    records = shipped("references/run-records.md")
-    arc_map = section(records, "The arc map")
+def test_the_brief_template_and_findings_are_kept_in_the_ledger() -> None:
+    ledger = shipped("references/arc-ledger.md")
+    arc_map = section(ledger, "The arc map")
+    assert "the reservations, by Issue, and the spare" in arc_map
+    opening = section(ledger, "Opening an arc")
+    assert "Copy the [brief template](brief-template.md) into the arc's directory" in (
+        opening
+    )
+    setup = section(shipped("SKILL.md"), "2. Set up")
     assert (
-        "the brief template's per-arc placeholder values: each value, or a link "
-        "to where it lives"
-    ) in arc_map
-    gotcha = section(records, "A gotcha")
-    assert "Posted when you add a gotcha to the brief template mid-arc" in gotcha
-    assert "a lost template be rebuilt from the record alone" in gotcha
+        "Copy [brief-template.md](references/brief-template.md) into the arc's "
+        "ledger directory"
+    ) in setup
+    gotcha = section(ledger, "A gotcha")
+    assert "Written when you add a gotcha to the brief template mid-arc" in gotcha
     handling = section(shipped("SKILL.md"), "4. Handle each hand-back")
     assert (
-        "Add each new friction item to the template's gotchas, post it to the "
-        "record ([run-records.md](references/run-records.md#a-gotcha))"
+        "Add each new friction item to the template's gotchas, record it in the "
+        "ledger ([arc-ledger.md](references/arc-ledger.md#a-gotcha))"
     ) in handling
     assert "hold none in a scratch file" in handling
-    assert "(references/run-records.md#an-unverified-finding)" in handling
-    finding = section(records, "An unverified finding")
+    assert "(references/arc-ledger.md#an-unverified-finding)" in handling
+    finding = section(ledger, "An unverified finding")
     assert "Close-out verifies and files each one from here" in finding
 
 
@@ -508,7 +531,7 @@ def test_waves_count_workers_per_accountable_person() -> None:
     assert "Recount the accountable person's live workers across their arcs" in (
         dispatch
     )
-    arc_map = section(shipped("references/run-records.md"), "The arc map")
+    arc_map = section(shipped("references/arc-ledger.md"), "The arc map")
     assert "the person accountable for the arc, and the ceiling on their live" in (
         arc_map
     )
@@ -643,10 +666,16 @@ def test_the_bundled_reviewer_runs_without_the_repositorys_own_process() -> None
     assert "[reviewer prompt](references/reviewer.md)" in skill
 
 
-def test_run_records_go_to_github_comments() -> None:
-    text = shipped("references/run-records.md")
+def test_the_arc_record_stays_in_a_local_ledger() -> None:
+    text = shipped("references/arc-ledger.md")
     headings = re.findall(r"^## (.+)$", text, re.M)
     assert headings == [
+        "Where it lives",
+        "Opening an arc",
+        "The summary: arc.json",
+        "Reservations",
+        "Finding other open arcs",
+        "The record: ledger.md",
         "The arc map",
         "A wave",
         "A merge",
@@ -654,8 +683,36 @@ def test_run_records_go_to_github_comments() -> None:
         "An unverified finding",
         "A decision",
         "The close-out",
+        "What goes to GitHub",
     ]
-    flowed = " ".join(text.split())
-    assert "not in a private notes file" in flowed
-    assert "`gh issue comment <record-issue> --body-file <file>`" in flowed
-    assert "Keep out of it local paths" in flowed
+    where = section(text, "Where it lives")
+    assert ".dashpot/state/skills/dashpot-execute-issues/" in where
+    assert "`git check-ignore -q .dashpot/state/skills/dashpot-execute-issues`" in (
+        where
+    )
+    assert "If it is not ignored, stop and tell the user" in where
+    assert "**You alone write your arc's files.**" in where
+    published = section(text, "What goes to GitHub")
+    assert "Compose each from the primary source, not by copying ledger entries" in (
+        published
+    )
+    assert "Keep out local paths, machine names and load" in published
+    # No record Issue remains for a lead to open, post to or search for.
+    for relative, shipped_text in shipped_texts().items():
+        flowed = " ".join(shipped_text.split())
+        for phrase in ("record Issue", "tracking Issue", "gh issue comment <record"):
+            assert phrase not in flowed, (relative, phrase)
+    close_out = section(text, "The close-out")
+    assert 'When the arc ends, set `"state": "closed"`' in close_out
+    # A pause keeps the arc open, with its files and reservations.
+    assert "headed as a pause, and stays open" in close_out
+    assert "A paused arc keeps its reservations." in section(text, "Reservations")
+    assert "delete only those they confirm" in close_out
+    # A linked Worktree holding the ledger outlives the arc.
+    assert "removing the checkout when it is a linked Worktree" in where
+    # The lead posts what the reference lists, so the two cannot drift.
+    rules = section(shipped("SKILL.md"), "Rules for the whole arc")
+    assert "[What goes to GitHub](references/arc-ledger.md#what-goes-to-github)" in (
+        rules
+    )
+    assert "on the epic, or for a list on the Issue you bound" in published

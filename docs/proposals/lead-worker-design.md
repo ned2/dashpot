@@ -541,7 +541,7 @@ merged into 7, and 16 into 2.
   The pilot's hand-back uses it ([communication](#communication)).
 - **U5. An accountable person per Arc,** a direction for the skill under
   either mechanism, adopted in the bundled skill by #534: the skill's Arc
-  record (the record Issue's [arc map](../../src/dashpot/skills/dashpot-execute-issues/references/run-records.md#the-arc-map))
+  record (the Arc Ledger's [arc map](../../src/dashpot/skills/dashpot-execute-issues/references/arc-ledger.md#the-arc-map))
   names the person accountable for the Arc, and
   [wave sizing](../../src/dashpot/skills/dashpot-execute-issues/SKILL.md#2-set-up) counts the three-to-five Worker
   ceiling ([prior art](lead-worker-prior-art.md#suggestions-for-the-design))

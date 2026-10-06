@@ -118,12 +118,14 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   installs for Claude Code, Codex and OpenCode. A lead session lands an arc
   of GitHub Issues through background workers, one Issue Worktree each,
   quoting the repository's own gates and review process into each worker's
-  brief and recording the arc in Issue comments. It merges only when the
-  user grants it, and bundles a reviewer prompt for repositories that name
-  no review process. Concurrent leads find each other's arcs by the opening
-  line of each record Issue, and share out files, reserved numbers and
-  cores. A lead cuts each Worktree from a freshly fetched tip, merges only
-  what CI tested as it will land, and at close-out leaves a Worktree
+  brief and keeping the arc's working record in a local ledger under
+  `.dashpot/state/`: only PRs, Issues, scope decisions, closing comments
+  and an Issue-to-PR mapping reach GitHub. It merges only when the user
+  grants it, and bundles a reviewer prompt for repositories that name no
+  review process. Concurrent leads find each other's arcs in their
+  ledgers, and share out files, reserved numbers and cores. A lead cuts
+  each Worktree from a freshly fetched tip, merges only what CI tested as
+  it will land, and at close-out leaves a Worktree
   another session's sub-agents block to the user, with the
   `--despite-subagents` value they may pass.
 - A lead assigns each worker to the Issue it implements with `dashpot work
