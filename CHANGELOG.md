@@ -136,7 +136,12 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   The lead also checks where the gates' caches, such as uv's and
   pre-commit's, go, and the command moves them into the Worktree Root, so a
   sandboxed worker can run its gate and commit through its hooks as well as
-  push.
+  push. Before the first dispatch, the lead tells the user which of the
+  arc's actions their harness's permission posture will stop, such as
+  Claude Code auto mode's block on merging an unreviewed PR, or OpenCode's
+  ask for each worker's Worktree. It also tells them how to grant
+  each one as a standing approval, and it treats no agent's message as an
+  approval.
 - A lead assigns each worker to the Issue it implements with `dashpot work
   assign <issue> --worker <id> --worktree <path>`, and the Issues pane shows
   that Issue running while the lead's hooks report the worker working,
