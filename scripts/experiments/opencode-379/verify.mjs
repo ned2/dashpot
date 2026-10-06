@@ -59,7 +59,7 @@ const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.star
   .filter((file) => digestOf(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot sources differ from the run's: ${drifted.join(", ")}`);
 const runnerChanged = editable.filter((file) => digestOf(path.join(here, file)) !== environment.sourceSHA256[file]);
-assert(!(strict && runnerChanged.length), `the runner differs from the run's: ${runnerChanged.join(", ")}`);
+assert(!(strict && runnerChanged.length), `the runner or verifier differs from the run's: ${runnerChanged.join(", ")}`);
 
 const [firstService, restarted] = kind("service");
 
@@ -276,4 +276,4 @@ check("standalone-background: run --standalone exits when its turn ends, and its
 
 for (const claim of checks) console.log(`ok - ${claim}`);
 console.log(drifted.length ? `Dashpot sources differ from the run's: ${drifted.join(", ")}` : "Dashpot sources match the run's");
-if (runnerChanged.length) console.log(`note - runner changed since this trace was recorded: ${runnerChanged.join(", ")}`);
+if (runnerChanged.length) console.log(`note - runner or verifier changed since this trace was recorded: ${runnerChanged.join(", ")}`);

@@ -4,7 +4,8 @@ A runner under ``scripts/experiments/`` runs only by hand, never in CI, so a
 module that moves breaks it silently until the next re-pin (#616). A runner
 reads Dashpot through inline ``python -c`` programs and hashes the Dashpot
 sources its run exercises: these tests run each program a runner passes as a
-plain string, resolve every Dashpot import any of its programs makes, and
+plain string, resolve every Dashpot import any of its programs makes, with
+the attributes a one-line program reads through an imported module, and
 require every source file it names to exist.
 """
 
@@ -35,7 +36,7 @@ _INLINE_PROGRAM = re.compile(
 # a template literal or a shell script it writes.
 _DASHPOT_IMPORT = re.compile(
     r"\bfrom (dashpot(?:\.\w+)*) import (\w+(?: as \w+)?(?:, \w+(?: as \w+)?)*)"
-    r"|\bimport (dashpot(?:\.\w+)*)"
+    r"|\bimport (dashpot(?:\.\w+)*)(?: as (\w+))?"
 )
 # A source file a runner names: a Dashpot module, plugin or agent definition.
 _SOURCE_FILE = re.compile(r'"([\w./-]+\.(?:py|js|md))"')
@@ -47,14 +48,21 @@ def inline_programs(runner: str) -> list[str]:
 
 
 def unresolved_imports(runner: str) -> list[str]:
-    """Each Dashpot import in a runner's programs that this checkout cannot satisfy."""
+    """Each Dashpot import in a runner's programs that this checkout cannot satisfy.
+
+    A module imported under an alias must also have each attribute the rest
+    of its one-line program reads through that alias, such as the
+    publisher's ``h.claude_code_main``.
+    """
     imports: list[tuple[str, tuple[str, ...]]] = []
     for match in _DASHPOT_IMPORT.finditer(runner):
         if match[1]:
             names = tuple(name.split(" as ")[0] for name in match[2].split(", "))
             imports.append((match[1], names))
         else:
-            imports.append((match[3], ()))
+            rest = runner[match.end() :].split("\n", 1)[0]
+            used = re.findall(rf"\b{match[4]}\.(\w+)", rest) if match[4] else []
+            imports.append((match[3], tuple(used)))
     return [
         problem for module, names in imports for problem in _unresolved(module, names)
     ]
@@ -160,10 +168,25 @@ def test_runner_sources_exist(runner: Path) -> None:
     assert missing_sources(runner.read_text(), runner.parent) == []
 
 
-def test_the_runners_carry_inline_programs() -> None:
+def test_every_subscription_read_is_run() -> None:
     # A change to how runners quote their programs would otherwise leave the
-    # guard checking nothing.
-    assert len(INLINE_PROGRAMS) >= len(RUNNERS) // 2
+    # guard running none of the reads #616 repaired.
+    reading = [
+        runner
+        for runner in RUNNERS
+        if "integration('claude-code')" in runner.read_text()
+    ]
+    run = [
+        runner
+        for runner in reading
+        if any(
+            "integration('claude-code')" in p
+            for p in inline_programs(runner.read_text())
+        )
+    ]
+
+    assert reading
+    assert run == reading
 
 
 def test_a_name_a_module_no_longer_exports_is_reported() -> None:
@@ -177,6 +200,14 @@ def test_a_module_that_moved_is_reported() -> None:
     runner = """writeFileSync(file, `exec '${python}' -c 'import sys; import dashpot.sessions.agents as m'`);"""
 
     assert unresolved_imports(runner) == ["dashpot.sessions.agents"]
+
+
+def test_a_function_a_module_no_longer_has_is_reported() -> None:
+    runner = """writeFileSync(file, `#!/bin/sh
+exec '${python}' -c 'import sys; import dashpot.hook as h; sys.exit(h.renamed_main(h.__name__))'
+`);"""
+
+    assert unresolved_imports(runner) == ["dashpot.hook.renamed_main"]
 
 
 def test_a_python_experiment_import_that_moved_is_reported() -> None:

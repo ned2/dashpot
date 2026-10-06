@@ -71,8 +71,8 @@ if (drifted.length) {
 }
 const runnerChanged = editable.filter((file) => digestOf(path.join(runner, file)) !== environment.sourceSHA256[file]);
 if (runnerChanged.length) {
-  console.log(`note - runner changed since this trace was recorded: ${runnerChanged.map((file) => `opencode-379/${file}`).join(", ")}`);
-  assert(!strict, "runner changed under --strict");
+  console.log(`note - runner or verifier changed since this trace was recorded: ${runnerChanged.map((file) => `opencode-379/${file}`).join(", ")}`);
+  assert(!strict, "runner or verifier changed under --strict");
 }
 
 check("background: while the session that started it waits, the `process` blocker names the command beside the session's own blockers", () => {

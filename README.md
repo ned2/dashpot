@@ -659,9 +659,10 @@ package (`[tool.coverage.run]` in [`pyproject.toml`](pyproject.toml)), so a
 change to a script carries evidence about its own lines through this same
 gate, with no separate command. The experiments under `scripts/experiments/`
 are left unmeasured: they run by hand, outside the suite, and no test runs
-them, though `tests/test_experiment_runners.py` checks that the Dashpot
-imports and sources they name still exist. Coverage does not follow subprocesses, so a line a test reaches only by
-running a script as a command reports as missed, as does a script that only
+them, though `tests/test_experiment_runners.py` runs their inline Python and
+checks that the Dashpot imports and sources they name still exist. Coverage
+does not follow subprocesses, so a line a test reaches only by running a
+script as a command reports as missed, as does a script that only
 the pre-push gate and CI run as a command, such as `check_distributions.py`
 and `smoke_install.py`.
 

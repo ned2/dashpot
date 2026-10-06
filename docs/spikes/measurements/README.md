@@ -19,20 +19,23 @@ document's claims against the trace. A trace too large for the repository's
 large-file check is kept gzipped as `.jsonl.gz`; the SHA-256 its document
 gives is of the uncompressed JSONL, and its verifier reads the file as kept.
 
-A trace records the SHA-256 of its runner and the runner's helper scripts,
-and of the Dashpot sources the run exercised. The verifier checks the
-experiment files against the copies beside it, and reports a Dashpot source
-changed since the run without failing, except under `--strict`. A runner can
-be edited after its trace without re-recording it, when a Dashpot module it
-imports or hashes moves: [#616](https://github.com/ned2/dashpot/issues/616)
-did so after the integrate package split. The change that edits a runner
-also edits its verifier, and any verifier that checks the same runner, to
-report `note - runner changed since this trace was recorded` instead of
-failing; `--strict` still fails. A verifier that hashes itself treats its own
-edit the same way. The trace keeps the hash of the runner that made it, and
-the runner's Git history holds that version. The helper scripts change only
-with a new trace. The PR that commits a trace still checks every hash it
-records against its head. `tests/test_experiment_runners.py` runs each
+Most traces record the SHA-256 of their runner and its helper scripts, and
+of the Dashpot sources the run exercised. A verifier that checks those
+hashes compares the experiment files it names with the retained copies, and
+one that takes `--strict` reports a Dashpot source changed since the run
+without failing, except under that flag. A runner can be edited after its
+trace without re-recording it, when a Dashpot module it imports or hashes
+moves: [#616](https://github.com/ned2/dashpot/issues/616) did so after the
+integrate package split. The change that edits a runner also edits each
+verifier that checks the runner's hash, to report `note - runner changed
+since this trace was recorded` instead of failing; `--strict` still fails. A
+verifier that hashes itself treats its own edit the same way, and its note
+says `runner or verifier changed`. Some older verifiers, such as
+`claude-162`'s, check no runner hash, so an edit there shows only in the
+runner's Git history. The trace keeps the hash of the runner that made it,
+and the runner's Git history holds that version. The helper scripts change
+only with a new trace. The PR that commits a trace still checks every hash
+it records against its head. `tests/test_experiment_runners.py` runs each
 runner's inline Python and requires every source it hashes to exist, so a
 module move fails the suite instead of the next run.
 

@@ -86,7 +86,7 @@ const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.star
   .filter((file) => (file.endsWith("/") ? treeDigestOf : digestOf)(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot sources differ from the run's: ${drifted.join(", ")}`);
 const runnerChanged = editable.filter((file) => digestOf(path.join(here, file)) !== environment.sourceSHA256[file]);
-assert(!(strict && runnerChanged.length), `the runner differs from the run's: ${runnerChanged.join(", ")}`);
+assert(!(strict && runnerChanged.length), `the runner or verifier differs from the run's: ${runnerChanged.join(", ")}`);
 
 const known = one("known").sessions;
 const lead = sessionOf("Lead");
@@ -381,4 +381,4 @@ check("Q8: a user invokes the hidden skill by naming it in the prompt", () => {
 for (const item of checks) console.log(`ok - ${item}`);
 console.log(`${checks.length} claims verified`);
 console.log(drifted.length ? `Dashpot sources changed since the run: ${drifted.join(", ")}` : `Dashpot sources match the run's (${environment.dashpotHead})`);
-if (runnerChanged.length) console.log(`note - runner changed since this trace was recorded: ${runnerChanged.join(", ")}`);
+if (runnerChanged.length) console.log(`note - runner or verifier changed since this trace was recorded: ${runnerChanged.join(", ")}`);
