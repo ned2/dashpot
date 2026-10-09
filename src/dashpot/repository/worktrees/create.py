@@ -370,7 +370,7 @@ def _check_existing_issue_worktrees(
 
 
 def _add_worktree(git: Git, plan: WorktreePlan) -> None:
-    """Run the one mutation, verify it, and roll back only what it created.
+    """Create the Branch atomically, add its Worktree, and verify the result.
 
     The add is a named mutation, so it is given
     :func:`~dashpot.core.git.mutation_timeout` rather than the Git timeout.
@@ -381,31 +381,35 @@ def _add_worktree(git: Git, plan: WorktreePlan) -> None:
         # A plan with refusals never reaches here; a plan without a resolved
         # base is a programming error, and one -O must not silence.
         raise RuntimeError("worktree plan has no base commit to create from")
-    # Read again just before the add: another creator may have made the
-    # Branch since the plan's collision check, and it is never this
-    # invocation's to delete.
-    branch_existed = commit_of(git, f"refs/heads/{plan.branch}") is not None
     created_directories = _make_directories(path.parent)
     # The add keeps the default runner and with it Dashpot's session, so a
     # hook, Git LFS or a credential helper can prompt on the terminal; a
     # timeout then stops ``git`` alone, and a helper may run on (ADR 0019).
     mutating_git = git.at(git.root, timeout=mutation_timeout(git.timeout))
+    branch_created = False
+    operation = f"git update-ref at {path}"
     failure: str | None = None
     error: GitError | None = None
     try:
         with nonzero_exit_fails(WorktreeCreateError):
             result = mutating_git.run(
-                "worktree", "add", "-b", plan.branch, str(path), plan.base_commit
+                "update-ref", f"refs/heads/{plan.branch}", plan.base_commit, ""
             )
+            # An empty old value makes Git refuse an existing ref atomically.
+            # Only a confirmed success authorizes Branch rollback (ADR 0011).
+            if result.returncode == 0:
+                branch_created = True
+                operation = "git worktree add"
+                result = mutating_git.run("worktree", "add", str(path), plan.branch)
     except GitError as exc:
         error = exc
-        failure = f"git worktree add did not complete: {exc.detail}"
+        failure = f"{operation} did not complete: {exc.detail}"
     else:
         if result.returncode != 0:
             detail = result.stderr.strip() or f"exit {result.returncode}"
-            failure = f"git worktree add failed: {detail}"
+            failure = f"{operation} failed: {detail}"
     if failure is not None:
-        leftovers = _roll_back(git, plan, created_directories, branch_existed)
+        leftovers = _roll_back(git, plan, created_directories, branch_created)
         raise WorktreeCreateError(
             failure + "".join(f"; {item}" for item in leftovers)
         ) from error
@@ -455,15 +459,15 @@ def _roll_back(
     git: Git,
     plan: WorktreePlan,
     created_directories: list[Path],
-    branch_existed: bool,
+    branch_created: bool,
 ) -> list[str]:
     """Remove only this invocation's Branch and empty directories; report the rest.
 
-    A Branch that existed before the add is never this invocation's, wherever
-    it points. When Git cannot say what the add left, nothing is removed.
+    Only confirmed atomic creation establishes Branch ownership. When Git
+    cannot say what the add left, nothing is removed.
     """
     try:
-        return _remove_what_this_created(git, plan, created_directories, branch_existed)
+        return _remove_what_this_created(git, plan, created_directories, branch_created)
     except GitError as exc:
         return [
             f"what it left could not be inspected ({exc.detail}); check with: "
@@ -478,7 +482,7 @@ def _remove_what_this_created(
     git: Git,
     plan: WorktreePlan,
     created_directories: list[Path],
-    branch_existed: bool,
+    branch_created: bool,
 ) -> list[str]:
     """Delete this invocation's Branch and empty directories; Git must answer."""
     path = Path(plan.path)
@@ -488,10 +492,15 @@ def _remove_what_this_created(
     if registered is not None:
         lock = registered.get("locked")
         if lock is not None and INITIALIZING_LOCK in lock:
+            recovery = (
+                f"if it stays locked, recover with: {_removal_commands(path, plan.branch)}"
+                if branch_created
+                else f"it was left alone; inspect it with: {shell_command('git', 'worktree', 'list')}"
+            )
             messages.append(
                 f"a Worktree is registered at {path} locked '{lock}': another "
                 f"creator may still be adding it, or a killed add left it behind; "
-                f"if it stays locked, recover with: {_removal_commands(path, plan.branch)}"
+                + recovery
             )
         else:
             messages.append(
@@ -505,9 +514,9 @@ def _remove_what_this_created(
             )
         return messages
     branch_commit = commit_of(git, f"refs/heads/{plan.branch}")
-    if branch_commit is not None and branch_existed:
+    if branch_commit is not None and not branch_created:
         messages.append(
-            f"Branch {plan.branch} existed before this command and was left alone"
+            f"Branch {plan.branch} was left alone: this command did not confirm creating it"
         )
     elif branch_commit is not None:
         checked_out = any(

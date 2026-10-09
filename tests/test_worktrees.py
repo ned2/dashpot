@@ -622,6 +622,71 @@ def test_settings_diagnostics_ride_the_plan_as_warnings(tmp_path: Path) -> None:
 # --- Concurrent creators and partial failure -----------------------------------
 
 
+@pytest.mark.parametrize(
+    "interleaving",
+    ["during-creation", "before-registration", "before-path-check", "initializing"],
+)
+def test_a_losing_creator_never_owns_the_winners_branch(
+    tmp_path: Path, interleaving: str
+) -> None:
+    root = sim(tmp_path)
+    path = tmp_path / "p" / "sim.worktrees" / "worktree-protocol"
+    base = git(root, "rev-parse", "HEAD")
+    commands: list[list[str]] = []
+    raced = False
+    winner_finished = False
+
+    def finish_winner() -> None:
+        nonlocal winner_finished
+        git(root, "worktree", "add", str(path), "worktree-protocol")
+        winner_finished = True
+        if interleaving == "initializing":
+            git(root, "worktree", "lock", "--reason", "initializing", str(path))
+
+    def racing(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
+        nonlocal raced
+        commands.append(list(args))
+        creates_branch = list(args[:3]) == ["git", "worktree", "add"] or list(
+            args[:3]
+        ) == ["git", "update-ref", "refs/heads/worktree-protocol"]
+        if creates_branch and not raced:
+            raced = True
+            git(root, "branch", "worktree-protocol", base)
+            if interleaving in {"during-creation", "initializing"}:
+                finish_winner()
+        result = run_command(args, cwd, timeout)
+        if raced and not winner_finished:
+            if interleaving == "before-registration" and list(args[:3]) == [
+                "git",
+                "worktree",
+                "list",
+            ]:
+                # The loser receives the snapshot taken before registration.
+                finish_winner()
+            elif interleaving == "before-path-check" and (
+                "refs/heads/worktree-protocol^{commit}" in args
+            ):
+                # Registration follows the rollback's snapshot and Branch read.
+                finish_winner()
+        return result
+
+    with pytest.raises(WorktreeCreateError) as failure:
+        create(root, git_adapter=Git(root, runner=racing))
+
+    assert raced and winner_finished
+    message = str(failure.value)
+    assert str(path) in message
+    assert "was created" not in message
+    assert "git branch -D" not in message
+    assert not any(command[:3] == ["git", "branch", "-D"] for command in commands)
+    assert worktree_paths(root) == [str(root), str(path)]
+    assert local_branches(root) == {"main", "worktree-protocol"}
+    assert git(root, "rev-parse", "worktree-protocol") == base
+    assert git(path, "symbolic-ref", "--short", "HEAD") == "worktree-protocol"
+    assert git(root, "status", "--porcelain") == ""
+    assert git(path, "status", "--porcelain") == ""
+
+
 def test_concurrent_creators_yield_one_worktree_one_branch_and_one_error(
     tmp_path: Path,
 ) -> None:
@@ -645,23 +710,24 @@ def test_concurrent_creators_yield_one_worktree_one_branch_and_one_error(
     # refusal computed after the winner finished.
     assert len(errors) + len([plan for plan in plans if plan.refusals]) == 1
     for error in errors:
-        assert "git worktree add failed" in str(error)
-        assert f"at {expected}" in str(error)
+        assert expected in str(error)
     assert worktree_paths(root) == [str(root), expected]
     assert local_branches(root) == {"main", "worktree-protocol"}
     assert git(root, "status", "--porcelain") == ""
+    assert git(Path(expected), "status", "--porcelain") == ""
 
 
 def test_lost_race_rolls_back_only_the_branch_this_invocation_created(
     tmp_path: Path,
 ) -> None:
-    """A ``git worktree add`` that fails after creating its Branch."""
+    """A failed add rolls back the Branch whose atomic creation succeeded."""
     root = sim(tmp_path)
-    base = git(root, "rev-parse", "HEAD")
 
     def failing_add(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         if list(args[:3]) == ["git", "worktree", "add"]:
-            git(root, "branch", "worktree-protocol", base)
+            assert git(root, "rev-parse", "worktree-protocol") == git(
+                root, "rev-parse", "HEAD"
+            )
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         return run_command(args, cwd, timeout)
 
@@ -682,7 +748,7 @@ def test_a_branch_left_pointing_elsewhere_is_never_deleted(tmp_path: Path) -> No
 
     def failing_add(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         if list(args[:3]) == ["git", "worktree", "add"]:
-            git(root, "branch", "worktree-protocol", "pre-config")
+            git(root, "update-ref", "refs/heads/worktree-protocol", "pre-config")
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         return run_command(args, cwd, timeout)
 
@@ -695,13 +761,11 @@ def test_a_branch_left_pointing_elsewhere_is_never_deleted(tmp_path: Path) -> No
 def test_a_timed_out_add_is_rolled_back(tmp_path: Path) -> None:
     """A ``git worktree add`` stopped at its timeout after creating its Branch."""
     root = sim(tmp_path)
-    base = git(root, "rev-parse", "HEAD")
     adds: list[float] = []
 
     def timing_out_add(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         if list(args[:3]) == ["git", "worktree", "add"]:
             adds.append(timeout)
-            git(root, "branch", "worktree-protocol", base)
             raise CommandError(
                 f"command timed out after {timeout:g}s: git", code="command-timed-out"
             )
@@ -727,44 +791,76 @@ def test_a_timed_out_add_is_rolled_back(tmp_path: Path) -> None:
 def test_a_branch_made_after_the_plan_is_never_rolled_back(
     tmp_path: Path, ending: str
 ) -> None:
-    """Another creator's Branch, made between the collision check and the add.
+    """Another creator's Branch, made between the plan and atomic creation.
 
-    Whether Git refuses the add or the add is stopped at its timeout, the
-    Branch was there before it and is left alone.
+    A refusal or timeout cannot confirm Branch ownership.
     """
     root = sim(tmp_path)
     base = git(root, "rev-parse", "HEAD")
-    asked: list[Sequence[str]] = []
 
     def racing(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
-        if "refs/heads/worktree-protocol^{commit}" in args:
-            asked.append(args)
-            if len(asked) == 2:
-                # The second look is the one just before the add.
-                git(root, "branch", "worktree-protocol", base)
-        if ending == "timed-out" and list(args[:3]) == ["git", "worktree", "add"]:
-            raise CommandError(
-                f"command timed out after {timeout:g}s: git", code="command-timed-out"
-            )
+        if list(args[:3]) == ["git", "update-ref", "refs/heads/worktree-protocol"]:
+            git(root, "branch", "worktree-protocol", base)
+            if ending == "timed-out":
+                raise CommandError(
+                    f"command timed out after {timeout:g}s: git",
+                    code="command-timed-out",
+                )
         return run_command(args, cwd, timeout)
 
     with pytest.raises(WorktreeCreateError) as failure:
         create(root, git_adapter=Git(root, runner=racing))
 
     message = str(failure.value)
-    if ending == "refused":
-        assert message.startswith("git worktree add failed: ")
-        assert "a branch named 'worktree-protocol' already exists" in message
-    else:
-        assert message.startswith(
-            "git worktree add did not complete: command timed out after 300s: git; "
-        )
-    assert (
-        "Branch worktree-protocol existed before this command and was left alone"
-        in message
-    )
+    assert message.startswith("git update-ref at ")
+    assert (" failed: " if ending == "refused" else " did not complete: ") in message
+    assert "Branch worktree-protocol was left alone" in message
+    assert "git branch -D" not in message
     assert "worktree-protocol" in local_branches(root)
     assert not (tmp_path / "p" / "sim.worktrees").exists()
+
+
+@pytest.mark.parametrize("ending", ["refused", "missing", "timed-out", "unconfirmed"])
+def test_branch_creation_without_confirmed_success_never_authorizes_deletion(
+    tmp_path: Path, ending: str
+) -> None:
+    root = sim(tmp_path)
+    path = tmp_path / "p" / "sim.worktrees" / "worktree-protocol"
+    commands: list[list[str]] = []
+
+    def failing_creation(
+        args: Sequence[str], cwd: Path, timeout: float
+    ) -> CommandResult:
+        commands.append(list(args))
+        if list(args[:3]) == ["git", "update-ref", "refs/heads/worktree-protocol"]:
+            assert args[-1] == ""
+            assert timeout == MUTATION_TIMEOUT
+            if ending == "refused":
+                return CommandResult(list(args), 128, "", "fatal: simulated refusal")
+            if ending == "missing":
+                raise FileNotFoundError("git disappeared")
+            if ending == "unconfirmed":
+                # The ref was committed, but the caller never received success.
+                result = run_command(args, cwd, timeout)
+                assert result.returncode == 0
+            raise CommandError("command timed out after 300s: git")
+        return run_command(args, cwd, timeout)
+
+    with pytest.raises(WorktreeCreateError) as failure:
+        create(root, git_adapter=Git(root, runner=failing_creation))
+
+    message = str(failure.value)
+    assert str(path) in message
+    assert "was created" not in message
+    assert "git branch -D" not in message
+    assert not any(command[:3] == ["git", "branch", "-D"] for command in commands)
+    assert not any(command[:3] == ["git", "worktree", "add"] for command in commands)
+    assert local_branches(root) == (
+        {"main", "worktree-protocol"} if ending == "unconfirmed" else {"main"}
+    )
+    assert worktree_paths(root) == [str(root)]
+    assert not path.parent.exists()
+    assert git(root, "status", "--porcelain") == ""
 
 
 # A Worktree Root a pasted recovery command would split at its space.
@@ -789,7 +885,6 @@ def test_a_rollback_git_cannot_inspect_removes_nothing(tmp_path: Path) -> None:
     command quotes.
     """
     root = sim(tmp_path)
-    base = git(root, "rev-parse", "HEAD")
     branch = "fix-$HOME"
     added: list[bool] = []
 
@@ -798,7 +893,6 @@ def test_a_rollback_git_cannot_inspect_removes_nothing(tmp_path: Path) -> None:
     ) -> CommandResult:
         if list(args[:3]) == ["git", "worktree", "add"]:
             added.append(True)
-            git(root, "branch", branch, base)
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         if added and list(args[:3]) == ["git", "worktree", "list"]:
             raise CommandError("command timed out after 10s: git")
@@ -868,14 +962,14 @@ def test_a_partial_worktree_refusal_quotes_a_root_with_a_space(
 
 
 def test_a_rolled_back_add_left_locked_quotes_its_recovery(tmp_path: Path) -> None:
-    """A killed add's lock, left by another creator under a root with a space."""
+    """A killed add's lock, left after confirmed Branch creation."""
     root = sim(tmp_path)
     pool = tmp_path / SPACED_ROOT
     path = pool / "worktree-protocol"
 
     def killed_add(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         if list(args[:3]) == ["git", "worktree", "add"]:
-            git(root, "worktree", "add", "-b", "worktree-protocol", str(path))
+            git(root, "worktree", "add", str(path), "worktree-protocol")
             git(root, "worktree", "lock", "--reason", "initializing", str(path))
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         return run_command(args, cwd, timeout)
@@ -903,12 +997,10 @@ def test_a_branch_the_rollback_cannot_delete_names_a_quoted_command(
 ) -> None:
     """A Branch name may carry a shell metacharacter Git allows, such as ``$``."""
     root = sim(tmp_path)
-    base = git(root, "rev-parse", "HEAD")
     branch = "fix-$HOME"
 
     def stuck_branch(args: Sequence[str], cwd: Path, timeout: float) -> CommandResult:
         if list(args[:3]) == ["git", "worktree", "add"]:
-            git(root, "branch", branch, base)
             return CommandResult(list(args), 128, "", "fatal: simulated failure")
         if list(args[:3]) == ["git", "branch", "-D"]:
             return CommandResult(list(args), 1, "", "error: simulated refusal\n")
