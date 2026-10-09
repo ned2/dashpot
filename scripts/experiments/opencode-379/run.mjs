@@ -89,9 +89,13 @@ const dashpot = path.join(venv, "bin", "dashpot");
 const helper = path.join(venv, "bin", "dashpot-opencode-hook");
 const installed = execFileSync(path.join(venv, "bin", "python"), ["-c", "import dashpot, os; print(os.path.dirname(dashpot.__file__))"], { encoding: "utf8" }).trim();
 // The Dashpot sources the run exercises; the installed copies must be them.
-const exercised = ["plugins/opencode.js", "sessions/opencode_publish.py", "sessions/opencode_publishers.py", "sessions/hook_claims.py",
+const exercised = ["plugins/opencode.js", "sessions/opencode_publish.py", "sessions/opencode_publisher_records.py", "sessions/hook_claims.py",
   "sessions/hook_scan.py", "sessions/hook_publish.py", "sessions/hook_records.py", "sessions/harnesses.py", "sessions/work.py",
-  "sessions/work_store.py", "sessions/integrate.py", "sessions/agent_bindings.py", "repository/cleanup/obstacles.py", "hook.py", "agents/dashpot-worker.md"];
+  "sessions/work_store.py", "sessions/integrate/across.py", "sessions/integrate/agent_copies.py", "sessions/integrate/arguments.py",
+  "sessions/integrate/diagnostics.py", "sessions/integrate/environment.py", "sessions/integrate/harness.py",
+  "sessions/integrate/installer.py", "sessions/integrate/opencode_plugin.py", "sessions/integrate/publisher.py",
+  "sessions/integrate/registry.py", "sessions/integrate/skill_copies.py", "sessions/integrate/writes.py", "sessions/agent_bindings.py",
+  "repository/cleanup/obstacles.py", "hook.py", "agents/dashpot-worker.md"];
 
 const env = {
   HOME: path.join(root, "home"),

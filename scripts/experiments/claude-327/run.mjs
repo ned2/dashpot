@@ -254,7 +254,7 @@ env.ANTHROPIC_BASE_URL = model.url;
 // Subscribe the hook exactly as `dashpot integrate claude-code` does, with the
 // #162 wrapper in place of the publisher.
 const integration = JSON.parse(execFileSync(python, ["-c",
-  "import json; from dashpot.sessions.integrate import CLAUDE_CODE as c; print(json.dumps({'events': c.events, 'matched': c.matched_events}))"], { encoding: "utf8" }));
+  "import json; from dashpot.sessions.integrate import integration; c = integration('claude-code'); print(json.dumps({'events': c.events, 'matched': c.matched_events}))"], { encoding: "utf8" }));
 const handler = { type: "command", command: `${process.execPath} ${path.join(shared, "hook.mjs")}`, timeout: 15 };
 const subscriptions = {};
 for (const event of integration.events) (subscriptions[event] ??= []).push({ hooks: [handler] });

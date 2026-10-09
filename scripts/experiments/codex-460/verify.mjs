@@ -36,7 +36,11 @@ assert.equal(environment.kind, "environment");
 assert.equal(environment.version, `codex-cli ${expectedVersion}`);
 const scripts = ["ancestry.mjs", "command.mjs", "hook.mjs", "run.mjs", "uds-websocket.mjs"];
 assert.deepEqual(Object.keys(environment.scriptSHA256).sort(), [...scripts].sort());
-for (const file of scripts) assert.equal(sha256(readFileSync(path.join(here, file))), environment.scriptSHA256[file], `${file} matches the hash the run recorded`);
+for (const file of scripts.filter((name) => name !== "run.mjs")) assert.equal(sha256(readFileSync(path.join(here, file))), environment.scriptSHA256[file], `${file} matches the hash the run recorded`);
+// The runner may be edited after its trace, as when a Dashpot module it
+// hashes moves; that is reported, and fails only under --strict.
+const runnerChanged = sha256(readFileSync(path.join(here, "run.mjs"))) !== environment.scriptSHA256["run.mjs"];
+assert(!(strict && runnerChanged), "the runner differs from the run's");
 const after = one("sources.after");
 assert.deepEqual(after.scriptSHA256, environment.scriptSHA256, "no script changed during the run");
 assert.deepEqual(after.publishers, environment.publishers.map(({ name, sourceSHA256 }) => ({ name, sourceSHA256 })), "no installed publisher changed during the run");
@@ -141,3 +145,4 @@ finding(`control: --no-daemon resume after the daemon stopped published SessionS
 
 console.log(findings.join("\n"));
 console.log(`Verified ${records.length} records${drifted.length ? `; publisher sources drifted since the run: ${drifted.join(", ")}` : ""}.`);
+if (runnerChanged) console.log("note - runner changed since this trace was recorded: run.mjs");

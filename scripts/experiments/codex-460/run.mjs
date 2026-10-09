@@ -73,7 +73,7 @@ const sha256 = (file) => existsSync(file) ? createHash("sha256").update(readFile
 // outside every Worktree, so an edit to the checkout during the run changes
 // nothing the run executes.
 const exercised = ["hook.py", "sessions/hook_records.py", "sessions/hook_publish.py", "sessions/hook_scan.py", "sessions/harnesses.py",
-  "sessions/processes.py", "sessions/agents.py", "repository/cleanup/obstacles.py"];
+  "sessions/processes.py", "sessions/agent_runs.py", "repository/cleanup/obstacles.py"];
 const publishers = publisherSpecs.map(({ name, source }) => {
   const build = path.join(root, `build-${name}`);
   let revision = null;

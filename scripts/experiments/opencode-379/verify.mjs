@@ -45,17 +45,21 @@ const processAt = (label) => labelled("process", label);
 const exitOf = (name) => one("client.exit", (record) => record.name === name);
 
 const environment = one("environment");
-// The runner's scripts change only with a new trace, so they must match;
-// Dashpot's sources keep changing after the trace is retained, so a
-// difference is reported, and fails only under --strict.
+// The runner's helper scripts change only with a new trace, so they must
+// match. The runner and this verifier may be edited after the trace, and
+// Dashpot's sources keep changing after it is retained, so a difference in
+// either is reported, and fails only under --strict.
+const editable = ["run.mjs", "verify.mjs"];
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
 for (const file of ["run.mjs", "verify.mjs", "command.mjs", "ancestry.mjs"]) {
-  assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
+  if (!editable.includes(file)) assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
 }
 const checkout = path.resolve(here, "..", "..", "..");
 const drifted = Object.keys(environment.sourceSHA256).filter((file) => file.startsWith("src/"))
   .filter((file) => digestOf(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot sources differ from the run's: ${drifted.join(", ")}`);
+const runnerChanged = editable.filter((file) => digestOf(path.join(here, file)) !== environment.sourceSHA256[file]);
+assert(!(strict && runnerChanged.length), `the runner or verifier differs from the run's: ${runnerChanged.join(", ")}`);
 
 const [firstService, restarted] = kind("service");
 
@@ -272,3 +276,4 @@ check("standalone-background: run --standalone exits when its turn ends, and its
 
 for (const claim of checks) console.log(`ok - ${claim}`);
 console.log(drifted.length ? `Dashpot sources differ from the run's: ${drifted.join(", ")}` : "Dashpot sources match the run's");
+if (runnerChanged.length) console.log(`note - runner or verifier changed since this trace was recorded: ${runnerChanged.join(", ")}`);

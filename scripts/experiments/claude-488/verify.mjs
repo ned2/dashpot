@@ -9,8 +9,9 @@
 //
 // Usage: node verify.mjs <trace.jsonl> [--strict] [--sequences]
 //
-// The Dashpot sources the trace hashes may change after the run, so a
-// difference from this checkout is reported, and fails only under --strict.
+// The Dashpot sources the trace hashes may change after the run, and the
+// runner may be edited after it, so a difference in either from this
+// checkout is reported, and fails only under --strict.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -75,11 +76,15 @@ check("the trace is of the pinned Claude Code release, with the updater off and 
   assert.equal(environment.flags.DISABLE_AUTOUPDATER, "1");
   assert.equal(environment.flags.CLAUDE_CONFIG_DIR, "$ROOT/home/.claude");
 });
-check("the trace came from the runner retained beside this verifier", () => {
+check("the trace came from the helpers retained beside this verifier", () => {
   assert.deepEqual(Object.keys(environment.experimentSHA256).sort(), ["ancestry.mjs", "command.mjs", "hook.mjs", "run.mjs"]);
-  for (const [name, hash] of Object.entries(environment.experimentSHA256))
+  for (const [name, hash] of Object.entries(environment.experimentSHA256)) if (name !== "run.mjs")
     assert.equal(createHash("sha256").update(readFileSync(path.join(here, name))).digest("hex"), hash, `${name} changed since the run`);
 });
+if (createHash("sha256").update(readFileSync(path.join(here, "run.mjs"))).digest("hex") !== environment.experimentSHA256["run.mjs"]) {
+  console.log("note - runner changed since this trace was recorded: run.mjs");
+  assert(!flags.has("--strict"), "runner changed under --strict");
+}
 check("the hooks were subscribed as `dashpot integrate claude-code` subscribes them, and every publish succeeded", () => {
   assert.deepEqual(environment.subscriptions.events, ["SessionStart", "UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop", "SessionEnd"]);
   for (const record of records.filter((entry) => entry.kind === "hook")) {
