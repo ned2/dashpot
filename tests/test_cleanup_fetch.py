@@ -8,13 +8,13 @@ from textual.widgets import Button, Checkbox, Footer, Static
 
 from app_harness import (
     SequenceCollector,
+    await_cleanup,
     dashboard_app,
     first_load_landed,
     settle_screen,
     with_first_project_snapshot,
 )
 from dashpot.repository.fetch import FetchReport, RemoteFetch
-from dashpot.ui.cleanup_view import CleanupScreen
 from helpers import wait_until
 from test_dashboard_cleanup import (
     ANCHOR,
@@ -46,8 +46,7 @@ async def open_preview(app, pilot, kind):
         WORKTREE_KEY if kind == "worktree" else BRANCH_KEY,
     )
     await pilot.press("x")
-    await wait_until(lambda: isinstance(app.screen, CleanupScreen))
-    return app.screen
+    return await await_cleanup(app)
 
 
 @pytest.mark.asyncio
@@ -722,8 +721,7 @@ async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
             table.focus()
             table.move_cursor(row=selected)
             await pilot.press("x")
-            await wait_until(lambda: isinstance(app.screen, CleanupScreen))
-            screen = app.screen
+            screen = await await_cleanup(app)
             await pilot.press("f")
             await wait_until(collector.entered.is_set)
             assert screen.busy and len(cleaner.requests) == 1

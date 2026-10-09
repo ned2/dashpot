@@ -74,11 +74,12 @@ from dashpot.repository.fetch import RemoteFetcher
 from dashpot.repository.worktree_launcher import LauncherConfiguration
 from dashpot.ui.app import DashpotApp, IssuesPullRequestsScreen
 from dashpot.ui.attendance import Attendance
+from dashpot.ui.cleanup_view import CleanupScreen
 from dashpot.ui.detail_fields import detail_items_text
 from dashpot.ui.issue_view import IssueScreen, issue_metadata_items, selection_title
 from dashpot.ui.list_pane import ListPane, ListRow
 from dashpot.ui.pane_layout import PANE_MARGIN
-from helpers import settled, snapshot_of, wait_until
+from helpers import required, settled, snapshot_of, wait_until
 
 NOW = "2026-08-25T01:00:00Z"
 
@@ -745,6 +746,24 @@ async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     screen = app.screen
     assert isinstance(screen, IssueScreen)
     return screen
+
+
+def mounted_cleanup(app: DashpotApp) -> CleanupScreen | None:
+    """The current Cleanup dialog once it has mounted, or ``None``.
+
+    The dashboard pushes a Cleanup preview without awaiting it, and Textual
+    puts a pushed screen on the stack before it composes its widgets and runs
+    its mount handler, so a test that read the dialog as soon as it became the
+    current screen could read it half built.
+    """
+    screen = app.screen
+    return screen if isinstance(screen, CleanupScreen) and screen.is_mounted else None
+
+
+async def await_cleanup(app: DashpotApp) -> CleanupScreen:
+    """Wait until a Cleanup dialog has mounted, and return it."""
+    await wait_until(lambda: mounted_cleanup(app) is not None)
+    return required(mounted_cleanup(app))
 
 
 async def await_resolved_identities(app: DashpotApp, *issue_ids: str) -> None:

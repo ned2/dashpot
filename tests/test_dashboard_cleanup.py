@@ -22,11 +22,13 @@ import factories
 from app_harness import (
     RELEASE_TIMEOUT,
     SequenceCollector,
+    await_cleanup,
     dashboard_app,
     first_load_landed,
     footer_showing,
     issue,
     legend_keys_text,
+    mounted_cleanup,
     settle_screen,
     toast_titles,
     toasts,
@@ -374,7 +376,7 @@ async def test_x_on_a_branch_row_previews_selects_performs_and_notifies() -> Non
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
 
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await pilot.pause()
 
         assert cleaner.requests == [BRANCH_REQUEST]
@@ -425,7 +427,7 @@ async def test_a_refused_cleanup_keeps_its_detailed_report() -> None:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await pilot.press("space")
         await pilot.click("#cleanup-confirm")
         await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
@@ -456,7 +458,7 @@ async def test_a_report_carrying_git_text_and_bracketed_paths_shows_them_verbati
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await pilot.press("space")
         await pilot.click("#cleanup-confirm")
         await wait_until(lambda: isinstance(app.screen, CleanupReportScreen))
@@ -519,7 +521,7 @@ async def test_an_unavailable_target_can_never_stay_selected() -> None:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await pilot.pause()
 
         targets = choices(app)
@@ -540,7 +542,7 @@ async def test_escape_cancels_and_performs_nothing() -> None:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await pilot.press("space")
         await pilot.press("escape")
         await pilot.pause()
@@ -577,11 +579,11 @@ async def test_a_changed_preview_reopens_for_another_confirmation() -> None:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await pilot.press("space")
         await pilot.click("#cleanup-confirm")
         await wait_until(
-            lambda: isinstance(app.screen, CleanupScreen) and app.screen.changed
+            lambda: (screen := mounted_cleanup(app)) is not None and screen.changed
         )
         await pilot.pause()
 
@@ -621,7 +623,7 @@ async def test_a_worktree_starts_with_its_branch_and_discloses_ignored_content()
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await pilot.pause()
 
         assert cleaner.requests == [WORKTREE_REQUEST]
@@ -722,7 +724,7 @@ async def test_a_blocked_worktree_holds_its_branch_unavailable() -> None:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await settle_screen(app, pilot, "the Cleanup preview")
 
         screen = cleanup_screen(app)
@@ -767,7 +769,7 @@ async def test_a_removable_worktree_says_its_processes_went_unchecked() -> None:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await settle_screen(app, pilot, "the Cleanup preview")
 
         screen = cleanup_screen(app)
@@ -803,7 +805,7 @@ async def test_a_process_inside_the_worktree_is_named_beside_it() -> None:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await settle_screen(app, pilot, "the Cleanup preview")
 
         screen = cleanup_screen(app)
@@ -866,7 +868,7 @@ async def test_a_live_sub_agent_blocks_the_worktree_until_a_person_vouches(
             app, pilot, "worktrees-pane", row_key("worktree", PROJECT, str(target_path))
         )
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await settle_screen(app, pilot, "the Cleanup preview")
 
         screen = cleanup_screen(app)
@@ -952,7 +954,7 @@ async def test_a_removable_worktree_says_which_sub_agents_go_unchecked(
             app, pilot, "worktrees-pane", row_key("worktree", PROJECT, str(target_path))
         )
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await settle_screen(app, pilot, "the Cleanup preview")
 
         screen = cleanup_screen(app)
@@ -986,7 +988,7 @@ async def test_a_live_session_here_is_named_with_its_way_out(tmp_path: Path) -> 
             app, pilot, "worktrees-pane", row_key("worktree", PROJECT, str(target_path))
         )
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await settle_screen(app, pilot, "the Cleanup preview")
 
         screen = cleanup_screen(app)
@@ -1075,7 +1077,7 @@ async def test_cleanup_and_fetch_exclude_each_other_per_project() -> None:
             await wait_until(lambda: first_load_landed(app))
             await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
             await pilot.press("x")
-            await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+            await await_cleanup(app)
             await pilot.press("space")
             await pilot.click("#cleanup-confirm")
             await wait_until(lambda: len(cleaner.confirmations) == 1)
@@ -1162,7 +1164,7 @@ async def test_the_keyboard_alone_reaches_delete_in_a_small_terminal() -> None:
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "worktrees-pane", WORKTREE_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await settle_screen(app, pilot, "the Cleanup preview")
 
         # The first choice has focus, never the button, so a stray Enter
@@ -1214,7 +1216,7 @@ async def test_pressing_delete_too_early_explains_and_focuses_what_is_missing() 
         await wait_until(lambda: first_load_landed(app))
         await focus_row(app, pilot, "branches-pane", BRANCH_KEY)
         await pilot.press("x")
-        await wait_until(lambda: isinstance(app.screen, CleanupScreen))
+        await await_cleanup(app)
         await pilot.pause()
 
         # No Branch preview starts with anything selected, and the callout
