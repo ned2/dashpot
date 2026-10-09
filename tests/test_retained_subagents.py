@@ -298,7 +298,10 @@ def test_integration_status_names_what_keeps_an_ended_record(
     summary = summarize_session_records(session_directory(a), present(DAEMON))
 
     (kept,) = summary.stale
-    assert (kept.outcome, kept.retained_subagents) == ("ended", (WORKER,))
+    assert (kept.outcome, kept.retained_subagents) == (
+        "ended",
+        ((WORKER, DAEMON.key),),
+    )
     (gone,) = summarize_session_records(session_directory(a), absent()).stale
     assert gone.retained_subagents == ()
 

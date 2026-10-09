@@ -262,7 +262,11 @@ The plugin publishes OpenCode's own events, in OpenCode's own order:
   event in the new store writes `SessionStart`.
 - **Deletion.** `session.deleted` records the deletion in its store's
   Publisher Record, and every later publication for the session is refused,
-  the stray `execution.started` included.
+  the stray `execution.started` included. Recovery may still publish a
+  retained child's `SubagentStop` after its root was deleted, under
+  [ADR 0107](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md).
+  It begins no incarnation of the deleted root, and a child's own deletion
+  still refuses every later publication for that child.
 - **Background children.** A background child holds its root running through
   its own execution events after the root's execution has succeeded
   ([ADR 0016](0016-hold-a-session-running-while-its-sub-agents-work.md)).

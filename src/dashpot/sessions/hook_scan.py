@@ -23,6 +23,7 @@ from .hook_records import (
     names_another_process,
     session_directory,
     state_directory,
+    subagent_hosts,
 )
 from .liveness import (
     LivenessObservation,
@@ -162,8 +163,9 @@ class StaleSessionRecord:
     last_activity_at: str | None
     pid: int | None
     outcome: Literal["gone", "ended"]
-    # The sub-agents an ended record still holds, which keep it (ADR 0095).
-    retained_subagents: tuple[str, ...] = ()
+    # Each Sub-agent keeping an ended or gone record, with the Host Process
+    # that runs it; None means its process is unreadable (ADR 0107).
+    retained_subagents: tuple[tuple[str, ProcessKey | None], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -819,6 +821,7 @@ def summarize_session_records(
             reason = record.reason or "host process identity is unavailable"
             unknown_by_reason[reason] = unknown_by_reason.get(reason, 0) + 1
         else:
+            hosts = subagent_hosts(record.published)
             stale.append(
                 StaleSessionRecord(
                     session_id=record.session_id,
@@ -827,8 +830,14 @@ def summarize_session_records(
                     last_activity_at=record.last_activity_at,
                     pid=record.process_key[0] if record.process_key else None,
                     outcome="gone" if record.outcome == "gone" else "ended",
-                    retained_subagents=(
-                        record.live_subagents if record.retains_subagents else ()
+                    retained_subagents=tuple(
+                        (
+                            agent,
+                            None
+                            if (host := hosts[agent]) is None
+                            else host.identity.key,
+                        )
+                        for agent in record.live_subagents
                     ),
                 )
             )

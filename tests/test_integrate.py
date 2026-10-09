@@ -53,7 +53,7 @@ from factories import (
     init_repository,
     write_config_marker,
 )
-from helpers import absent, present, unobservable
+from helpers import absent, present, table_lookup, unobservable
 
 
 def session_record(session_id: str, state: str = "waiting") -> dict[str, Any]:
@@ -524,8 +524,55 @@ def test_status_names_the_sub_agents_that_keep_an_ended_record(
     assert (
         "  stale: Codex session 0199-ended last event SessionEnd at "
         "2026-08-24T15:00:00Z, ended by SessionEnd, kept for its 1 sub-agent "
-        "listed as working (0199-worker) until they stop or pid 4242 exits"
+        "listed as working (0199-worker on pid 4242) until each stops or its Host Process exits"
     ) in "\n".join(messages)
+
+
+@pytest.mark.parametrize("ended", [False, True])
+@pytest.mark.parametrize("unknown_host", [False, True])
+def test_status_names_the_other_host_that_keeps_a_stale_records_subagent(
+    tmp_path: Path, ended: bool, unknown_host: bool
+) -> None:
+    home = codex_home(tmp_path)
+    install_integration("codex", home, command_path=publisher(tmp_path))
+    state = tmp_path / "state"
+    other = dataclasses.replace(CODEX, pid=4243, started_at="Tue Aug 25 03:00:00 2026")
+    another = dataclasses.replace(other, pid=4244)
+    state.mkdir()
+    HookRecordStore(state).replace(
+        "0199-stale",
+        {
+            **session_record("0199-stale", state="ended" if ended else "waiting"),
+            "event": "SessionEnd" if ended else "Stop",
+            "liveSubagents": ["0199-another-worker", "0199-dead-worker", "0199-worker"],
+            "subagentProcesses": {
+                "0199-worker": {"pid": 0} if unknown_host else other.as_record(),
+                "0199-another-worker": another.as_record(),
+            },
+        },
+    )
+
+    messages = integration_status(
+        "codex",
+        home,
+        state_dir=state,
+        current=tmp_path,
+        environment=IntegrationEnvironment(
+            lookup=table_lookup({other.pid: other, another.pid: another})
+        ),
+    )
+
+    description = next(line for line in messages if line.startswith("  stale:"))
+    assert ("ended by SessionEnd" if ended else "pid 4242 gone") in description
+    assert (
+        "0199-worker on an unknown Host Process"
+        if unknown_host
+        else "0199-worker on pid 4243"
+    ) in description
+    assert "0199-another-worker on pid 4244" in description
+    assert "0199-dead-worker" not in description
+    assert "until each stops or its Host Process exits" in description
+    assert (state / "0199-stale.json").exists()
 
 
 def test_status_shows_unknown_liveness_reasons(tmp_path: Path) -> None:

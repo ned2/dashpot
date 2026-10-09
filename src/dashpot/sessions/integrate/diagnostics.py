@@ -189,13 +189,23 @@ def _describe_stale(record: StaleSessionRecord) -> str:
         f"{display} session {record.session_id} last event "
         f"{record.event or 'unknown'} at {record.last_activity_at or 'unknown time'}, "
     )
+    process = f"pid {record.pid}" if record.pid is not None else "process"
+    ending = (
+        "ended by SessionEnd"
+        if record.outcome == "ended"
+        else f"{process} gone (no SessionEnd delivered)"
+    )
     if record.retained_subagents:
+        agents = [
+            f"{agent} on pid {host[0]}"
+            if host is not None
+            else f"{agent} on an unknown Host Process"
+            for agent, host in record.retained_subagents
+        ]
         return text + (
-            f"ended by SessionEnd, kept for its "
-            f"{named_subagents(record.retained_subagents)} until they stop or "
-            f"pid {record.pid} exits"
+            f"{ending}, kept for its {named_subagents(agents)} "
+            "until each stops or its Host Process exits"
         )
     if record.outcome == "ended":
         return text + "ended by SessionEnd (legacy record; pruned on next observation)"
-    process = f"pid {record.pid}" if record.pid is not None else "process"
-    return text + f"{process} gone (no SessionEnd delivered)"
+    return text + ending
