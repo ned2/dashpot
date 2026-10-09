@@ -41,7 +41,12 @@ from ..core.state_paths import ensure_state_directory, is_configured_checkout
 from ..core.worktree_paths import repository_worktrees, same_path
 from .harnesses import HookSessionIdentity
 from .hook_publish import HookPublication, publish_hook_event
-from .hook_records import HookRecord, HookRecordStore, session_directory
+from .hook_records import (
+    HookRecord,
+    HookRecordStore,
+    session_directory,
+    subagents_hosted_by,
+)
 from .hook_scan import stored_session_records
 from .opencode_publisher_records import (
     NO_LIVE_INSTANCE,
@@ -53,6 +58,7 @@ from .opencode_publisher_records import (
 from .processes import (
     ProcessIdentity,
     ProcessLookup,
+    SessionProcessRecord,
     host_process_lookup,
     observe_agent_ancestry,
 )
@@ -159,7 +165,7 @@ def parse_request(raw: str) -> PluginRequest:
 
 
 class RecoveredSession(PublishedModel):
-    """A root session recorded on the registering Host Process, with its Sub-agents."""
+    """A root hosted here or listing Sub-agents hosted here, with only those Sub-agents."""
 
     id: HookSessionIdentity
     subagents: list[HookSessionIdentity] = Field(default_factory=list)
@@ -276,22 +282,25 @@ def _location(raw: str) -> Path:
 def _register(request: PluginRequest, host: ProcessIdentity) -> OpenCodeOutcome:
     """Accept a registration, returning the root sessions to recover there.
 
-    They are the roots its location's store records on this Host Process,
-    with their recorded Sub-agents, which the plugin reads back from
-    OpenCode to repair a deletion no live instance received.
+    They are roots its location's store records on this Host Process, or
+    listing Sub-agents it hosts. Only this process's Sub-agents are offered,
+    which the plugin reads back from OpenCode to repair a deletion no live
+    instance received (ADR 0107).
     """
     place = None if request.location is None else place_of(_location(request.location))
     if place is None:
         return _acknowledge("accepted", sessions=[])
-    sessions = [
-        RecoveredSession(id=record.session_id, subagents=list(record.live_subagents))
-        for _key, record in _host_roots(place.store, host)
-    ]
+    sessions: list[RecoveredSession] = []
+    for record in _opencode_roots(place.store):
+        subagents = subagents_hosted_by(record, SessionProcessRecord.of(host))
+        process = record.session_process
+        if subagents or (process is not None and process.identity.key == host.key):
+            sessions.append(RecoveredSession(id=record.session_id, subagents=subagents))
     return _acknowledge("accepted", sessions=sessions[:RECOVERY_LIMIT])
 
 
-def _host_roots(store: Path, host: ProcessIdentity) -> Iterator[tuple[str, HookRecord]]:
-    """Every root OpenCode record in ``store`` naming ``host``, by its record key."""
+def _opencode_roots(store: Path) -> Iterator[HookRecord]:
+    """Every readable root OpenCode record in ``store``, in record-path order."""
     if not store.is_dir():
         return
     for path in sorted(store.glob("*.json")):
@@ -299,15 +308,10 @@ def _host_roots(store: Path, host: ProcessIdentity) -> Iterator[tuple[str, HookR
             record = HookRecord.model_validate(json.loads(path.read_text()))
         except (OSError, ValueError):
             continue
-        process = record.session_process
         # A Sub-agent's events are written on its root's record, so every
         # OpenCode record is a root's.
-        if (
-            record.harness == "opencode"
-            and process is not None
-            and process.identity.key == host.key
-        ):
-            yield path.stem, record
+        if record.harness == "opencode":
+            yield record
 
 
 def _unobserved(request: PluginRequest, host: ProcessIdentity) -> OpenCodeOutcome:
@@ -325,8 +329,10 @@ def _unobserved(request: PluginRequest, host: ProcessIdentity) -> OpenCodeOutcom
         if place is not None and not any(same_path(place.store, s) for s in stores):
             stores.append(place.store)
     for store in stores:
-        for _key, record in _host_roots(store, host):
-            _rewrite_record(store, record.session_id, host, _mark_unobserved_record)
+        for record in _opencode_roots(store):
+            process = record.session_process
+            if process is not None and process.identity.key == host.key:
+                _rewrite_record(store, record.session_id, host, _mark_unobserved_record)
     return _acknowledge("accepted")
 
 
@@ -340,7 +346,23 @@ def _mark_unobserved_record(raw: dict[str, Any]) -> bool:
 
 
 def _forget_subagents(raw: dict[str, Any]) -> bool:
-    raw["liveSubagents"] = []
+    """Forget only the marked root's own Host Process's Sub-agents (ADR 0107)."""
+    record = HookRecord.model_validate(raw)
+    forgotten = set(subagents_hosted_by(record, record.session_process))
+    if not forgotten:
+        return False
+    raw["liveSubagents"] = [
+        agent for agent in record.live_subagents if agent not in forgotten
+    ]
+    tags = {
+        agent: tag
+        for agent, tag in raw.get("subagentProcesses", {}).items()
+        if agent not in forgotten
+    }
+    if tags:
+        raw["subagentProcesses"] = tags
+    else:
+        raw.pop("subagentProcesses", None)
     return True
 
 
@@ -442,19 +464,28 @@ def _publish(
     publishers = PublisherStore(route.place.store, checkout=route.place.worktree)
     with publishers.locked(PUBLISHER_KEY):
         record = publishers.read()
-        if record.refuses(session.id, session.root):
+        # Recovery may clear another Host Process's retained child after
+        # the root was deleted. Activity and a deleted child's own id stay
+        # refused; the hook store still checks the stopping child's host.
+        recovering_child = child and event is None
+        if record.refuses(session.id, session.root) and (
+            not recovering_child or session.id in record.deleted
+        ):
             return _acknowledge("refused", "session-deleted")
         entry = record.sessions.get(session.id)
         if event is not None and entry is not None and event.sequence <= entry.sequence:
             return _acknowledge("stale")
         names: list[str] = []
         if name is not None:
-            if _begins_incarnation(route.place.store, session.root, host, name):
+            if session.root not in record.deleted and _begins_incarnation(
+                route.place.store, session.root, host, name
+            ):
                 names.append("SessionStart")
             if name != "SessionStart" or not names:
                 names.append(name)
-        # A marked root's recorded Sub-agents may have ended unseen; a live
-        # one's next event adds it again (ADR 0090).
+        # This server's Sub-agents may have ended unseen; a live one's next
+        # event adds it again (ADR 0090). Another server still observes its
+        # own, so their listings stay (ADR 0107).
         if names and names[0] != "SessionStart":
             _rewrite_record(
                 route.place.store,

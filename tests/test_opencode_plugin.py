@@ -487,14 +487,14 @@ def test_registration_recovers_only_what_opencode_says_it_deleted(
 
     _result, requests = drive(tmp_path, "recover", STUB_SESSIONS=json.dumps(roots))
 
-    gone = sorted(
+    gone = [
         (request["session"]["id"], request["session"]["root"])
         for request in requests
         if request["kind"] == "gone"
-    )
+    ]
     # A failed read, or one that does not answer in time, is never read as a
     # deletion.
-    assert gone == [("ses_gone", "ses_gone"), ("ses_gone_child", "ses_gone")]
+    assert gone == [("ses_gone_child", "ses_gone"), ("ses_gone", "ses_gone")]
     assert {
         request["session"]["location"]
         for request in requests

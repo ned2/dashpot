@@ -13,6 +13,7 @@ show`` and ``assess_worktree_occupancy`` (ADR 0107).
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from dashpot.sessions.processes import ProcessIdentity, ProcessKey, ProcessLooku
 from dashpot.sessions.work import show_issue_work, start_issue_work
 from helpers import table_lookup
 from test_opencode import CHILD, ROOT, SERVER, SHELL_PID, STANDALONE, Server
+from test_opencode_plugin import drive
 from test_work import CLAUDE_ENVIRON, CLAUDE_SESSION, linked_worktree, repository
 from test_work import target as observation_target
 
@@ -190,6 +192,123 @@ def test_the_gone_record_goes_once_the_service_exits_too(
     assert sub_agent_blockers(linked, worktrees, nothing) == []
     assert observed(nothing, *worktrees) == []
     assert not (session_directory(main) / f"{ROOT}.json").exists()
+
+
+@pytest.mark.usefixtures("shell")
+@pytest.mark.parametrize("own_child", [None, "ses_client_child"])
+def test_a_marked_roots_next_publication_keeps_the_other_servers_child(
+    worktrees: list[Path], own_child: str | None
+) -> None:
+    main, linked = worktrees
+    service, client = resumed_by_a_standalone_client(main)
+    if own_child is not None:
+        client.turn(main, own_child, root=ROOT)
+    client.unobserved(main)
+
+    assert client.finish(main) == "accepted"
+
+    resumed = record(main, ROOT)
+    assert resumed["liveSubagents"] == [CHILD]
+    assert resumed["subagentProcesses"][CHILD]["pid"] == SERVICE.pid
+    assert resumed["sessionProcessUnobservable"] is None
+    both = alive(SERVICE, CLIENT)
+    (blocker,) = sub_agent_blockers(linked, worktrees, both)
+    assert f"({CHILD}; session live)" in blocker
+
+    assert service.finish(main, CHILD, root=ROOT) == "accepted"
+    assert sub_agent_blockers(linked, worktrees, both) == []
+
+
+@pytest.mark.usefixtures("shell")
+def test_registration_recovers_only_the_subagents_its_server_hosts(
+    worktrees: list[Path],
+) -> None:
+    main, linked = worktrees
+    service, client = resumed_by_a_standalone_client(main)
+    own_child = "ses_client_child"
+    client.turn(main, own_child, root=ROOT)
+
+    assert service.register(main) == {
+        "result": "accepted",
+        "sessions": [{"id": ROOT, "subagents": [CHILD]}],
+    }
+    assert client.register(main) == {
+        "result": "accepted",
+        "sessions": [{"id": ROOT, "subagents": [own_child]}],
+    }
+
+    assert service.gone(main, CHILD, root=ROOT) == "accepted"
+    resumed = record(main, ROOT)
+    assert resumed["liveSubagents"] == [own_child]
+    assert resumed["subagentProcesses"][own_child]["pid"] == CLIENT.pid
+    both = alive(SERVICE, CLIENT)
+    (blocker,) = sub_agent_blockers(linked, worktrees, both)
+    assert f"({own_child}; session live)" in blocker
+    assert client.register(main) == {
+        "result": "accepted",
+        "sessions": [{"id": ROOT, "subagents": [own_child]}],
+    }
+
+
+@pytest.mark.usefixtures("shell")
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
+def test_plugin_recovery_clears_a_missing_foreign_roots_missing_child(
+    tmp_path: Path, worktrees: list[Path]
+) -> None:
+    main, linked = worktrees
+    service, _client = resumed_by_a_standalone_client(main)
+    recovered = service.register(main)
+    assert recovered["sessions"] == [{"id": ROOT, "subagents": [CHILD]}]
+
+    # Neither root nor child exists in the fake OpenCode server. Replay the
+    # shipped plugin's actual recovery order through the real publisher.
+    _result, requests = drive(
+        tmp_path, "recover", STUB_SESSIONS=json.dumps(recovered["sessions"])
+    )
+    for request in requests:
+        if request["kind"] == "gone":
+            session = request["session"]
+            assert service.gone(main, session["id"], root=session["root"]) == "accepted"
+
+    assert not (session_directory(main) / f"{ROOT}.json").exists()
+    assert sub_agent_blockers(linked, worktrees, alive(SERVICE, CLIENT)) == []
+
+
+@pytest.mark.usefixtures("shell")
+@pytest.mark.parametrize("native_deletion", [False, True])
+def test_recovery_clears_a_retained_child_after_its_root_was_deleted(
+    worktrees: list[Path], native_deletion: bool
+) -> None:
+    main, linked = worktrees
+    service, client = resumed_by_a_standalone_client(main)
+    own_child = "ses_client_child"
+    client.turn(main, own_child, root=ROOT)
+    assert service.gone(main, CHILD, root=ROOT) == "accepted"
+    if native_deletion:
+        assert (
+            service.event("deleted", main, sequence=client.sequences[ROOT] + 1).result
+            == "accepted"
+        )
+    else:
+        assert service.gone(main) == "accepted"
+    ended = record(main, ROOT)
+    assert (ended["state"], ended["liveSubagents"]) == ("ended", [own_child])
+    assert ended["subagentProcesses"][own_child]["pid"] == CLIENT.pid
+    assert client.register(main) == {
+        "result": "accepted",
+        "sessions": [{"id": ROOT, "subagents": [own_child]}],
+    }
+
+    assert client.turn(main, own_child, root=ROOT) == "refused"
+    recovered = client.send(
+        "gone", session={"id": own_child, "root": ROOT, "location": str(main)}
+    )
+    assert (recovered.result, recovered.written) == ("accepted", ("SubagentStop",))
+    assert not (session_directory(main) / f"{ROOT}.json").exists()
+    assert sub_agent_blockers(linked, worktrees, alive(SERVICE, CLIENT)) == []
+    assert client.turn(main) == "refused"
+    assert client.turn(main, own_child, root=ROOT) == "refused"
+    assert client.gone(main, own_child, root=ROOT) == "refused"
 
 
 def publish(

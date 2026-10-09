@@ -293,12 +293,14 @@ const admit = (shared, generation, event) => {
 };
 
 // Publish a deletion no live instance received: the helper returned the
-// roots its store records on this server, and OpenCode answers that it has
-// no such session. A timeout or an error is never read as a deletion.
+// roots hosted here or listing Sub-agents hosted here, with only this
+// server's Sub-agents. A timeout or an error is never read as a deletion.
 const recover = async (shared, generation, location, sessions) => {
   for (const recovered of sessions ?? []) {
     if (typeof recovered?.id !== "string") continue;
-    const ids = [recovered.id, ...(Array.isArray(recovered.subagents) ? recovered.subagents : [])];
+    // A root's deletion makes the helper refuse later publications for
+    // that root. Recover its missing children before that boundary.
+    const ids = [...(Array.isArray(recovered.subagents) ? recovered.subagents : []), recovered.id];
     for (const id of ids) {
       if (typeof id !== "string") continue;
       const answer = await read(shared, id, METADATA_DEADLINE_MS);

@@ -178,13 +178,24 @@ that process lives, whichever process the session's own events come from.
 - The publisher probes a process only for a session whose records name a
   sub-agent's process other than the event's. A record of one Host Process,
   the only kind before this decision, costs nothing more.
+- [#520](https://github.com/ned2/dashpot/issues/520) applies the same ownership
+  rule to OpenCode's reset and recovery, and to integration status:
+  - A marked root's next publication forgets only the Sub-agents its own
+    Host Process runs. Those another process runs keep their listing and
+    tags.
+  - Registration offers the roots the registering Host Process hosts and
+    those listing Sub-agents it hosts, with only that process's Sub-agents.
+    The plugin can then recover a deletion missed by that process even
+    after another process took the root on. It recovers children before
+    their root. A root's deletion refuses later activity in the Publisher
+    Record, but recovery can still stop a retained child another Host
+    Process runs. That stop begins no incarnation of the deleted root;
+    once the child's own deletion is recorded, its later publications stay
+    refused too.
+  - `dashpot integrate <harness> --status` names every Sub-agent keeping an
+    ended or gone record and the Host Process that runs it. A process that
+    cannot be read is described as unknown, never as the record's own.
 - Not changed:
-  - OpenCode's `_forget_subagents` empties a marked root's whole listing on
-    its own server's next publication, tagged sub-agents included, and
-    registration recovers only the roots a server's records name as their
-    own.
-  - `dashpot integrate <harness> --status` reports a kept gone record as a
-    gone record, without naming the sub-agents that keep it.
   - A conversation switch adopts only the sub-agents the switching process
     runs ([ADR 0101](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md)).
 - Amends ADR 0097: a `SessionStart` from another named Host Process carries
