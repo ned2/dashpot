@@ -748,22 +748,22 @@ async def open_issue_view(app: DashpotApp, pilot: Pilot[None]) -> IssueScreen:
     return screen
 
 
-def mounted_cleanup(app: DashpotApp) -> CleanupScreen | None:
-    """The current Cleanup dialog once it has mounted, or ``None``.
+def mounted_cleanup_preview(app: DashpotApp) -> CleanupScreen | None:
+    """The current Cleanup preview once it has mounted, or ``None``.
 
     The dashboard pushes a Cleanup preview without awaiting it, and Textual
     puts a pushed screen on the stack before it composes its widgets and runs
-    its mount handler, so a test that read the dialog as soon as it became the
-    current screen could read it half built.
+    its mount handler, so a test that read the preview as soon as it became
+    the current screen could read it half built.
     """
     screen = app.screen
     return screen if isinstance(screen, CleanupScreen) and screen.is_mounted else None
 
 
-async def await_cleanup(app: DashpotApp) -> CleanupScreen:
-    """Wait until a Cleanup dialog has mounted, and return it."""
-    await wait_until(lambda: mounted_cleanup(app) is not None)
-    return required(mounted_cleanup(app))
+async def await_cleanup_preview(app: DashpotApp) -> CleanupScreen:
+    """Wait until a Cleanup preview has mounted, and return it."""
+    await wait_until(lambda: mounted_cleanup_preview(app) is not None)
+    return required(mounted_cleanup_preview(app))
 
 
 async def await_resolved_identities(app: DashpotApp, *issue_ids: str) -> None:

@@ -8,7 +8,7 @@ from textual.widgets import Button, Checkbox, Footer, Static
 
 from app_harness import (
     SequenceCollector,
-    await_cleanup,
+    await_cleanup_preview,
     dashboard_app,
     first_load_landed,
     settle_screen,
@@ -46,7 +46,7 @@ async def open_preview(app, pilot, kind):
         WORKTREE_KEY if kind == "worktree" else BRANCH_KEY,
     )
     await pilot.press("x")
-    return await await_cleanup(app)
+    return await await_cleanup_preview(app)
 
 
 @pytest.mark.asyncio
@@ -721,7 +721,7 @@ async def test_paged_dashboard_fetch_waits_for_its_target_observation(tmp_path):
             table.focus()
             table.move_cursor(row=selected)
             await pilot.press("x")
-            screen = await await_cleanup(app)
+            screen = await await_cleanup_preview(app)
             await pilot.press("f")
             await wait_until(collector.entered.is_set)
             assert screen.busy and len(cleaner.requests) == 1
