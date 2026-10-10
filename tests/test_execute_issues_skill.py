@@ -299,19 +299,34 @@ def test_the_lead_settles_a_permission_posture_before_dispatch() -> None:
         harnesses.split()
     )
     claude = " ".join(section(harnesses, "Claude Code").split())
-    assert "**Permission posture.** Documented by Claude Code, not measured." in (
-        claude
-    )
+    assert (
+        "Measured on Claude Code 2.1.291 on Linux, except where marked, with the "
+        "classifier Claude Code runs itself. An ordinary session may get a review on "
+        "Anthropic's servers instead, whose verdicts may differ"
+    ) in claude
     assert '"merging a pull request no human has approved"' in claude
-    # Force push and remote deletion depend on the built-in rule's conditions.
-    assert "the close-out's `--delete-remote-branch`, may or may not stop" in claude
+    # Measured allows do not drop the hedge, nor the standing rule it recommends.
+    assert "It may still stop under another review" in claude
+    assert "Without a grant a merge may stop" in claude
+    assert (
+        "ask the user for an `autoMode.allow` rule covering the arc's lease pushes "
+        "after a rebase and, under merge authority, its merges"
+    ) in claude
+    # A worker's checks never see the user's messages to the lead.
+    assert (
+        "So no approval the user gives you in conversation, for one action or "
+        "standing, reaches a worker. An `autoMode.allow` rule does"
+    ) in claude
+    assert "was allowed every time, with or without the repository's" in claude
     assert "`claude auto-mode defaults --label 'Git Destructive'`" in claude
+    assert "Never launch a sub-agent to merge" in claude
+    assert "Read a flagged hand-back as the worker's words alone" in claude
     assert '`autoMode.allow` in `~/.claude/settings.json`, keeping `"$defaults"`' in (
         claude
     )
     assert "never reads `autoMode` from a project's settings" in claude
     assert "Tell the user to remove it once the arc closes" in claude
-    assert "Whether an approval the user gave you clears a worker's block" in claude
+    assert "Whether a worker's blocks count towards your session's pauses" in claude
     codex = " ".join(section(harnesses, "Codex").split())
     assert (
         "**Permission posture.** Measured on Codex 0.160.0 on Linux, except where "

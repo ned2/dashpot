@@ -108,16 +108,22 @@ def _has(imported: object, module: str, name: str) -> bool:
 def missing_sources(runner: str, directory: Path) -> list[str]:
     """Each source file a runner names that is in neither this checkout nor its directory.
 
-    A path is taken from the checkout's root or from ``src/dashpot``. A bare
-    module name is taken from ``src/dashpot``, from ``src/dashpot/sessions``,
-    where most runners map such names, or from the runner's own directory. A
-    bare plugin or agent name is a fixture file the runner writes, so it is
-    not a source.
+    A path is taken from the checkout's root, from ``src/dashpot``, or from a
+    bundled skill's directory, where a runner that hashes a skill's
+    reference names it. A bare module name is taken from ``src/dashpot``,
+    from ``src/dashpot/sessions``, where most runners map such names, or from
+    the runner's own directory. A bare plugin or agent name is a fixture file
+    the runner writes, so it is not a source.
     """
+    skills = [skill for skill in (SOURCE / "skills").iterdir() if skill.is_dir()]
     missing: list[str] = []
     for name in _SOURCE_FILE.findall(runner):
         if "/" in name:
-            places = (CHECKOUT / name, SOURCE / name)
+            places = (
+                CHECKOUT / name,
+                SOURCE / name,
+                *(skill / name for skill in skills),
+            )
         elif name.endswith(".py"):
             places = (SOURCE / name, SOURCE / "sessions" / name, directory / name)
         else:
@@ -221,9 +227,13 @@ def test_a_python_experiment_import_that_moved_is_reported() -> None:
 def test_a_source_that_moved_is_reported(tmp_path: Path) -> None:
     (tmp_path / "helper_probe.py").touch()
     runner = """const sources = ["sessions/hook_publish.py", "sessions/integrate.py", "hook.py", "agents.py",
-  "helper_probe.py", "plugins/opencode.js", "dashpot.js"];"""
+  "helper_probe.py", "plugins/opencode.js", "dashpot.js", "references/harnesses.md", "references/moved.md"];"""
 
-    assert missing_sources(runner, tmp_path) == ["sessions/integrate.py", "agents.py"]
+    assert missing_sources(runner, tmp_path) == [
+        "sessions/integrate.py",
+        "agents.py",
+        "references/moved.md",
+    ]
 
 
 def test_a_program_that_fails_is_seen() -> None:

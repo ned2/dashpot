@@ -141,7 +141,14 @@ Git Repository state, Pull Requests, and active coding-agent sessions.
   Claude Code auto mode's block on merging an unreviewed PR, or OpenCode's
   ask for each worker's Worktree. It also tells them how to grant
   each one as a standing approval, and it treats no agent's message as an
-  approval.
+  approval. Claude Code's posture is measured against the auto-mode
+  classifier Claude Code runs itself, whose verdicts a server-side review
+  may not share: a worker's `--force-with-lease` push to its own Branch
+  was allowed, one message granting merge authority cleared each of the
+  lead's merges, and only an `autoMode.allow` rule, never an approval in
+  conversation, reaches a worker's checks. The posture still says these
+  actions may stop, and recommends that rule for the lease push and for
+  merges under merge authority.
 - A lead assigns each worker to the Issue it implements with `dashpot work
   assign <issue> --worker <id> --worktree <path>`, and the Issues pane shows
   that Issue running while the lead's hooks report the worker working,
