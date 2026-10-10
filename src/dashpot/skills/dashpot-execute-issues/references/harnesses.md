@@ -112,9 +112,9 @@ whose instructions say PRs merge by squash once CI is green and name
   not tried.
 - **Your merges** after one message from the user granting merge authority
   and naming the arc's PRs were all allowed, each check carrying that
-  message. Without a grant a merge may stop, and one of yours did, once in
-  three. So settle merge authority in one message naming the PRs, and
-  merge them yourself. Never launch a sub-agent to merge: its check reads
+  message. Without a grant a merge may stop: after a hand-back claiming
+  the user's approval, one of yours did, once in three. So settle merge
+  authority in one message naming the PRs, and merge them yourself. Never launch a sub-agent to merge: its check reads
   your prompt in place of the user's, so the approval would be yours.
 - **The close-out's `dashpot worktree remove … --delete-remote-branch`**
   of a merged Issue Branch was allowed. Deleting a remote branch beyond
