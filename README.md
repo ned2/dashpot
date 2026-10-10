@@ -875,8 +875,10 @@ Issue Binding through the repository's delivery workflow. The
 user-invoked `dashpot-execute-issues` skill lands an arc of Issues, an
 epic's sub-issues or a list, through background workers that each take one
 Issue to a PR in its own Issue Worktree, under Claude Code, Codex or
-OpenCode; its record goes in Issue comments
-([ADR 0092](docs/adr/0092-ship-a-user-invoked-execute-issues-skill-for-every-harness.md)).
+OpenCode; its working record stays in a local Arc Ledger under
+`.dashpot/state/skills/dashpot-execute-issues/`, and reviewed outcomes go to
+GitHub
+([ADR 0147](docs/adr/0147-keep-an-arcs-working-record-in-a-local-arc-ledger.md)).
 Its lead assigns each worker to its Issue with `dashpot work assign`, so the
 Issues pane shows that Issue running while the worker works
 ([ADR 0096](docs/adr/0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)).
