@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-06
+date: 2026-10-10
 ---
 
 # Research
@@ -15,7 +15,7 @@ behind that decision, not as a description of the code.
 
 | Document | Status | Date |
 | --- | --- | --- |
-| [Harness support for leading an Arc of Issues](harness-arc-orchestration-research.md) | research | 2026-10-06 |
+| [Harness support for leading an Arc of Issues](harness-arc-orchestration-research.md) | research | 2026-10-10 |
 | [OpenCode v2 and Dashpot's OpenCode integration](opencode-v2-research.md) | research | 2026-10-02 |
 | [Machine-local settings migration to config.toml](toml-settings-migration-research.md) | superseded | 2026-09-12 |
 | [GitHub Pull Request search and state colours](github-pull-request-search-research.md) | research | 2026-09-06 |

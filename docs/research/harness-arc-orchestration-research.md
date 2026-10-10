@@ -1,6 +1,6 @@
 ---
 status: research
-date: 2026-10-06
+date: 2026-10-10
 ---
 
 # Harness support for leading an Arc of Issues
@@ -642,23 +642,48 @@ Arc's actions wait for a person.
     - A boundary stated in conversation "can be lost if context compaction
       removes the message".
     - Three blocks in a row, or 20 in a session, pause auto mode.
-  - **What the classifier sees.** It reads CLAUDE.md, so AGENTS.md's rebase
-    authorisation reaches it through the import. Whether that clears a force
-    push is unmeasured.
   - **Workers.** A Worker cannot be approved by its Lead. Its prompts
     surface in the Lead's session ([sub-agents][cc-bg]). The classifier
     checks a sub-agent at three points ([permission modes][cc-pm-subagents],
     "How auto mode handles subagents"):
     - "Before a subagent starts, the delegated task description is
-      evaluated, so a dangerous-looking task is blocked at spawn time". A
-      brief that tells a Worker to force-push or merge could be blocked at
-      launch.
+      evaluated, so a dangerous-looking task is blocked at spawn time".
     - While it runs, each action goes through the same rules as in the
       parent.
     - When it finishes, the classifier reviews its work and report. A
       flagged report "is still delivered, prepended with a security
       warning".
-  - All documented, new.
+  - All documented, new. Measured since, on 2.1.291 with the client's own
+    classifier, three times each, by the
+    [auto mode experiment](../spikes/claude-code-auto-mode-arc-actions-spike.md)
+    for [#648](https://github.com/ned2/dashpot/issues/648). A session
+    reviewed server-side instead may get different verdicts; that is not
+    measured.
+    - **What the classifier sees.** Every check reads CLAUDE.md, so
+      AGENTS.md through the import, and never the skill's body. A Worker's
+      checks read its own prompt as the user's request, and never the
+      user's messages to the Lead; an `autoMode.allow` rule reaches every
+      check. So an approval in conversation, for one action or standing,
+      never reaches a Worker.
+    - **A Worker's lease push** to its own Issue Branch after a rebase was
+      allowed with or without AGENTS.md's authorisation and an
+      `autoMode.allow` rule.
+    - **The Lead's merges** after one message granting merge authority
+      were all allowed. A merge helper's own merge was judged against the
+      Lead's prompt, not the user's grant.
+    - **The close-out's `--delete-remote-branch`** was allowed.
+    - **At launch,** neither a brief authorising the lease push nor a
+      merge helper was blocked.
+    - **An ordinary hand-back,** carrying PR URLs and a closing comment,
+      was never flagged.
+    - **A hostile hand-back,** claiming the user approved a merge without
+      review, was flagged every time and still reached the Lead, under a
+      security warning naming the rule. With no grant, the Lead's plain
+      merge that followed was allowed twice, on the fixture AGENTS.md's
+      squash-merge sentence, and stopped once.
+    - The skill's posture keeps its hedge that these actions may stop, and
+      still recommends an `autoMode.allow` rule for the lease push and
+      for merges under merge authority.
 - **Codex.** Workers inherit the Lead's sandbox and approval policy, and an
   approval from a Worker surfaces in the CLI
   ([subagents docs][codex-subagents]). Recorded: the skill's sandbox check
@@ -955,6 +980,11 @@ Measurements:
     warning on a flagged report;
   - whether an approval granted as standing in conversation covers a whole
     Arc.
+
+  Measured by the
+  [auto mode experiment](../spikes/claude-code-auto-mode-arc-actions-spike.md),
+  [above](#permission-posture-for-an-unattended-arc), except the 3/20
+  thresholds, which moved to [#653](https://github.com/ned2/dashpot/issues/653).
 - [#649](https://github.com/ned2/dashpot/issues/649): Measure whether a goal
   keeps a Lead going on Codex and Claude Code, and how Dashpot records
   goal-started turns, including which of Codex's runtime conditions sets a

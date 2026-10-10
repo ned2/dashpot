@@ -101,6 +101,7 @@ line per write, the seconds since the previous write and the bytes written.
 | [`issue-488-claude-trace.jsonl`](issue-488-claude-trace.jsonl) | JSONL trace, Claude Code 2.1.289 | [#488](https://github.com/ned2/dashpot/issues/488), with [#490](https://github.com/ned2/dashpot/issues/490)'s `/fork` | [`claude-488`](../../../scripts/experiments/claude-488/) | [Idle SessionStart and /fork experiment](../idle-session-start-and-fork-spike.md) |
 | [`issue-637-codex-trace.jsonl`](issue-637-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#637](https://github.com/ned2/dashpot/issues/637) | [`codex-637`](../../../scripts/experiments/codex-637/) | [Codex workspace-write Workers experiment](../codex-workspace-write-workers-spike.md) |
 | [`issue-639-codex-trace.jsonl`](issue-639-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#639](https://github.com/ned2/dashpot/issues/639) | [`codex-639`](../../../scripts/experiments/codex-639/) | [Codex sandboxed Worker cycle experiment](../codex-sandboxed-worker-cycle-spike.md) |
+| [`issue-648-claude-2.1.291-trace.jsonl.gz`](issue-648-claude-2.1.291-trace.jsonl.gz) | Gzipped JSONL trace, Claude Code 2.1.291 with its auto-mode classifier | [#648](https://github.com/ned2/dashpot/issues/648) | [`claude-648`](../../../scripts/experiments/claude-648/) | [Claude Code auto mode against an Arc's actions](../claude-code-auto-mode-arc-actions-spike.md) |
 
 The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are
 the ones whose writeups are not spikes: their findings went straight into the
