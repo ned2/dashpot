@@ -11,6 +11,11 @@ Issues, and what their makers advise. It sets both against the bundled
 [`dashpot-execute-issues` skill](../../src/dashpot/skills/dashpot-execute-issues/SKILL.md)
 and its [harness reference](../../src/dashpot/skills/dashpot-execute-issues/references/harnesses.md).
 
+The cross-harness comparison below records the 6 October investigation.
+The [9 October Codex changelog review](#codex-changelog-since-01600-2026-10-09)
+extends it through stable 0.162.0, distinguishes release changes from the
+0.160.0 runtime measurements, and prioritizes useful follow-up experiments.
+
 It builds on the Repository's records and does not repeat them:
 - the Lead and Worker proposals: [prior art](../proposals/lead-worker-prior-art.md),
   [Claude Code evidence](../proposals/lead-worker-claude-code-evidence.md),
@@ -40,6 +45,9 @@ cross-harness sections draw on those findings and carry no mark of their own
 unless they add one.
 
 ## Releases researched
+
+This table is the 6 October snapshot; the dated Codex update below records
+the later releases and the installed version observed on 9 October.
 
 | Harness | Accepted ([README](../../README.md#supported-harnesses)) | Installed here | Latest upstream on 2026-10-06 |
 | --- | --- | --- | --- |
@@ -359,6 +367,9 @@ unless they add one.
     requested by the user, applicable `AGENTS.md` instructions, or skill
     instructions; when doing so, set `fork_turns` to `"none"` or a positive
     integer string." ([`multi_agent_instructions.rs`][codex-instr], line 8).
+  - The quoted instruction is from 0.160.0. At 0.162.0 numeric forks
+    inherit all history; model overrides are directed to `none`, as the
+    [changelog update](#codex-changelog-since-01600-2026-10-09) explains.
   - This note found no code that refuses an override:
     [`child_config.rs`][codex-child] applies the requested model before it
     looks at the fork mode. So the rule reads as a prompt instruction.
@@ -492,6 +503,184 @@ the PR.
   thread slot. It would, however, be its own Agent Session in the Worktree,
   like the `codex exec` case the section already describes. Not measured,
   and not proposed here.
+
+### Codex changelog since 0.160.0 (2026-10-09)
+
+The latest stable release checked on **2026-10-09 is 0.162.0**.
+The installed launcher reported `codex-cli 0.162.0` the same day; that
+version observation is not an acceptance run.
+Dashpot's Worker experiments remain measured at **0.160.0**; the existing
+cross-harness research had already reviewed **0.160.1** on 6 October.
+This update reviews every later stable release, including the complete
+change lists beyond their feature summaries. Release statements and tagged
+source reading are documented evidence; none is a new Dashpot runtime
+experiment.
+
+| Release | Published, UTC | Review outcome |
+| --- | --- | --- |
+| [0.160.1](https://github.com/openai/codex/releases/tag/rust-v0.160.1) | 2026-10-05 | Previously reviewed Windows remote-stdio MCP environment backport; no Linux Worker-cycle change. |
+| [0.161.0](https://github.com/openai/codex/releases/tag/rust-v0.161.0) | 2026-10-07 | Permission continuity, replay, coordinated tree shutdown, and Guardian interruption notifications merit follow-up. GPT-6.1 Sol becomes the bundled default. |
+| [0.162.0](https://github.com/openai/codex/releases/tag/rust-v0.162.0) | 2026-10-08 | Mail retention across eviction, unload repairs, all-or-none history inheritance, opt-in dynamic-tool inheritance, and richer turn/activity diagnostics are the strongest changes for Dashpot. |
+
+#### Changes that could help
+
+- **Worker mail survives local eviction.** [#50087](https://github.com/openai/codex/pull/50087)
+  transfers unread queue-only mail into a runtime mailbox before eviction.
+  Queue-only delivery to a locally evicted child can retain mail without
+  loading it; a turn-triggering follow-up loads it. Cold-restored children
+  still reload on a message. The mailbox is explicitly in memory, so this
+  does not establish delivery across daemon restarts
+  ([0.162.0 mailbox](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/core/src/agent/control/mailbox.rs#L1),
+  [delivery](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/core/src/agent/control/api.rs#L139)).
+  **Benefit, inferred:** stronger reporting and follow-up across long waves
+  that exceed residency capacity. The 0.160.0 experiment's unloaded-worker
+  follow-up and long-wave unknowns remain unmeasured.
+- **Disconnect and slow-shutdown unloads are repaired.**
+  [#50380](https://github.com/openai/codex/pull/50380) ensures an unsubscribe
+  during MCP startup still leaves a listener able to unload the idle thread.
+  [#51420](https://github.com/openai/codex/pull/51420) keeps awaiting shutdown
+  after the ten-second warning instead of leaving the thread loaded
+  ([tagged source](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/app-server/src/request_processors/thread_lifecycle.rs#L444)).
+  **Benefit, inferred:** fewer stranded writers during exit/resume and Issue
+  Worktree dispatch. Neither change demonstrates that the roughly sixty-second
+  last-client idle delay measured in codex-639 has shortened.
+- **Launch permissions remain explicit through reconnect.**
+  [#49809](https://github.com/openai/codex/pull/49809) preserves explicit local
+  launch permissions through TUI reconnects and new sessions.
+  [#49353](https://github.com/openai/codex/pull/49353) allows an approved
+  filesystem escalation to widen writes while retaining denied reads and
+  network restrictions. It does not make an ordinary failing command escalate
+  itself or make command allow rules widen filesystem access.
+  [#49880](https://github.com/openai/codex/pull/49880) binds grants to the
+  originating turn, including background work.
+  **Benefit, inferred:** better continuity for the explicit Worker grant and
+  safer review of individual cache/gate commands. Existing cache-root
+  requirements still apply; permission continuity needs a new experiment.
+- **Guardian-stopped V2 Workers notify their parent.**
+  [#49312](https://github.com/openai/codex/pull/49312) routes a typed
+  `TooManyDenials` child error into a parent notification with user-confirmation
+  guidance under the strict circuit-break setting. The child remains
+  interrupted, and an ordinary interrupt stays silent. This is a progress-reporting
+  improvement; it provides no evidence that the missing `SubagentStop` hook
+  under `interrupt_agent` in the 0.160.0 experiment is fixed.
+- **Tree teardown has stronger coordination and diagnostics.**
+  [#49814](https://github.com/openai/codex/pull/49814) adds a core Rust API
+  fencing new starts and tracking shutdown of sessions sharing a local runtime.
+  [#51515](https://github.com/openai/codex/pull/51515) adds bounded, payload-free
+  failure reports with operation, phase, thread id and error kind
+  ([shutdown API](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/core/src/thread_manager/shutdown.rs#L111)).
+  **Benefit, inferred:** better fixture diagnosis of incomplete shutdown or
+  persistence handoff. This is not an app-server agent-tree observation
+  endpoint or authorization for Dashpot to terminate trees.
+
+#### Capability changes and limits
+
+- **Correct the history-inheritance advice.**
+  [#51329](https://github.com/openai/codex/pull/51329) removes partial-history
+  forks. At 0.162.0 the schema advertises only `all` and `none`, with `all`
+  the default. Legacy positive integer strings are still parsed, but map to
+  full history instead of the most recent N turns
+  ([schema](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/core/src/tools/handlers/multi_agents_spec.rs#L664),
+  [parser](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs#L286)).
+  Use `none` for a self-contained bounded brief; do not offer numeric forks
+  as a way to control context costs. The existing source-reading advice that
+  permits numeric forks for model overrides must be version-qualified.
+- **Fresh V2 children can inherit client dynamic tools, behind an opt-in.**
+  [#50082](https://github.com/openai/codex/pull/50082) adds
+  `multi_agent_v2_dynamic_tools`, under development and disabled by default.
+  It copies parent dynamic tools when creating a fresh child without history.
+  **Benefit, inferred:** a future app-server integration can give a bounded
+  Worker host-supplied tools without copying the Lead's conversation. This
+  does not prove that every connector, MCP server or permission profile is
+  inherited, and should be tested before adoption.
+- **Turn and activity metadata can improve attribution.**
+  [#51415](https://github.com/openai/codex/pull/51415) publishes/persists turn
+  lineage. [#51463](https://github.com/openai/codex/pull/51463) adds resolved
+  `model` and `reasoningEffort` to sub-agent creation activity; older records
+  and other activity can omit them
+  ([item contract](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/app-server-protocol/src/protocol/v2/item.rs#L397)).
+  These are possible diagnostic inputs. Dashpot currently observes Codex
+  through lifecycle hooks, so an app-server observation adapter would be
+  separate work; the metadata does not establish new lifecycle-hook fields
+  or replace Agent Session Identity or Issue Identity.
+- **Durable-sleep fixes do not establish ordinary idle wake-up.**
+  [#51419](https://github.com/openai/codex/pull/51419) preserves turn attribution
+  when queue-only mail wakes an extension-marked durable sleep;
+  [#51427](https://github.com/openai/codex/pull/51427) prevents an invalidated
+  wake reservation starting a turn. Durable-sleep handling already exists
+  in [0.160.0](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/core/src/tasks/mod.rs#L422).
+  The latest [core](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/core/src/tasks/mod.rs#L427)
+  requires turn-triggering mail or an outstanding extension sleep marker.
+  Keep the measured ordinary-idle-Lead boundary and #492 open; this review
+  establishes no replacement for `wait_agent` or a measured goal lifecycle.
+- **Managed worktree tools need an explicit lifecycle decision.**
+  [#50148](https://github.com/openai/codex/pull/50148) introduces
+  `create_worktree`, `list_worktrees` and status through the worktrees feature.
+  **Benefits, inferred:** host-supervised asynchronous creation and recovery
+  could simplify explicitly requested preparation; persisted task attachments
+  could help a Lead find and reuse its earlier managed Worktrees. The
+  [tool contracts](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/tui/src/managed_worktree_tool_specs.rs)
+  encourage reuse, avoid duplicate pending creation, and scope listing to the
+  task's attachments rather than the Repository's whole inventory.
+  Creating a Worktree leaves the thread cwd/environment and filesystem
+  permissions unchanged. The tools therefore do not relocate an Agent Session,
+  place a Worker, or establish Issue work.
+  The [creation service](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/tui/src/managed_worktree_tools.rs)
+  accepts a base `ref`, but no path or new Branch argument; the
+  [manager](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/worktree/src/lib.rs#L62)
+  creates a detached checkout under Codex's configured pool. Using it for an
+  Issue Worktree would need an explicit design for Dashpot's Branch/path
+  conventions, Project configuration checks, dependency preparation and
+  ownership. A future observation adapter could expose the attachment as
+  Codex provenance, while Issue Binding would still require `work start`.
+  These are integration candidates to assess; keep the current explicit
+  lifecycle commands while they remain unqualified.
+- **Other practical improvements:** authoritative committed replay on resume
+  ([#49599](https://github.com/openai/codex/pull/49599)); promise-settlement
+  streaming for parallel Code Mode reads
+  ([#51126](https://github.com/openai/codex/pull/51126)); Linux sandbox fixes
+  for multiple deny masks and sandbox-construction executables
+  ([0.162.0 notes](https://github.com/openai/codex/releases/tag/rust-v0.162.0)).
+  None removes the requirement to grant needed cache paths explicitly.
+
+#### Follow-up experiment priorities
+
+1. **P1, unload/resume ([#663](https://github.com/ned2/dashpot/issues/663)):** rerun codex-639's exit/resume case at 0.162.0,
+   adding slow MCP startup and delayed shutdown. Capture lock release, hook
+   order, cwd, Issue Binding preservation, and exact permission roots.
+2. **P1, eviction/reporting ([#664](https://github.com/ned2/dashpot/issues/664)):** extend codex-420 with more children than
+   residency slots, queue-only mail before/after eviction, and explicit
+   follow-ups. Record delivery order, `list_agents` visibility and post-resume
+   Worker context; distinguish local eviction from daemon restart.
+3. **P1, approvals/interruption ([#665](https://github.com/ned2/dashpot/issues/665)):** rerun codex-639 while the Lead remains
+   in `wait_agent`; test child asks, reconnect, background grants and a
+   Guardian denial-limit stop. Retest ordinary interrupts for `SubagentStop`
+   rather than inferring a hook fix from notifications.
+4. **P2, fresh-child tools and attribution ([#666](https://github.com/ned2/dashpot/issues/666)):** test the dynamic-tool flag off
+   and on with `fork_turns:none`, a full-history control, model/effort activity,
+   and lineage across follow-up/compaction. Test extension sleep separately
+   if that integration is being considered.
+5. **P2, managed Worktree integration ([#668](https://github.com/ned2/dashpot/issues/668)):** assess Codex-assisted preparation/recovery and passive
+   task/worktree provenance together. Qualify the interfaces, reuse and
+   recovery behavior, and concrete benefits while preserving Dashpot's
+   Branch/path conventions, setup, Issue Binding and Cleanup contracts.
+
+#### Prerelease boundary
+
+[0.163.0-alpha.1](https://github.com/openai/codex/releases/tag/rust-v0.163.0-alpha.1)
+was published on 8 October UTC, and
+[0.163.0-alpha.2](https://github.com/openai/codex/releases/tag/rust-v0.163.0-alpha.2)
+on 9 October. Both release bodies are release stubs. The
+[tag comparison](https://github.com/openai/codex/compare/rust-v0.162.0...rust-v0.163.0-alpha.2)
+is divergent, not a simple forward patch series; commit titles suggest
+follow-up areas including child eviction/cleanup, capability inheritance,
+instant interruption and sandbox integrity. They are watch-list topics,
+not stable capabilities or runtime evidence, and do not justify an alpha
+adoption recommendation. The stable changes do not establish either Codex
+trigger in [ADR 0124](../adr/0124-keep-sub-agent-workers-and-qualify-root-session-workers-per-harness.md):
+`codex queue` working from `workspace-write`, or a running `exec` accepting
+mail. Sub-agent Workers remain the shipped mechanism.
+
 
 ## OpenCode
 
@@ -708,7 +897,7 @@ answers given mid-run:
 | Harness | What a Worker starts with | Source |
 | --- | --- | --- |
 | Claude Code | A `general-purpose` sub-agent gets only its prompt and the project's CLAUDE.md. The `fork` sub-agent type would inherit the whole conversation | [sub-agents][cc-fork-mode] |
-| Codex | The whole history, unless `fork_turns` is `"none"` or a number | [`spawn.rs`][codex-spawn] |
+| Codex | At 0.160.0, the whole history unless `fork_turns` is `"none"` or a number; at 0.162.0, only `"none"` starts fresh, and legacy numbers inherit all history | [`spawn.rs`][codex-spawn]; [0.162.0 update](#codex-changelog-since-01600-2026-10-09) |
 | OpenCode | Fresh context, always | [`subagent.ts`][oc-subagent] |
 
 Only Codex's default differs from the skill's intent, and only Codex's

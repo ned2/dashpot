@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-06
+date: 2026-10-09
 ---
 
 # Agent harness server and client reference
@@ -35,6 +35,11 @@ and source branches can change independently
 of an installed binary. Version-sensitive commands and identity mappings need
 checking when the supported release changes. Statements marked as inference or
 unverified are not runtime findings.
+
+The [9 October Codex changelog review](research/harness-arc-orchestration-research.md#codex-changelog-since-01600-2026-10-09)
+covers stable releases after the measured 0.160.0 baseline through 0.162.0.
+It identifies changes to Worker mail, permissions, unload and history
+inheritance, and the experiments needed before updating these runtime claims.
 
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
