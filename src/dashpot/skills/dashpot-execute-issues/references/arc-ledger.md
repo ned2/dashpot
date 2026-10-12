@@ -191,8 +191,9 @@ Written once, at setup, before you create the first Worktree:
 - the other open arcs you read, with the files, numbers and cores each
   holds, and how each file both arcs touch was settled;
 - who holds merge authority for the arc;
-- the permission posture: each action it stops, and whether the user
-  granted it as standing or will answer each prompt;
+- the permission posture and reviewer routing, including automatic review
+  when selected: each action it may stop, any standing grants already
+  supplied, and any remaining decisions requiring the user's answer;
 - the waves you plan, which may change.
 
 ## A wave
