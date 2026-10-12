@@ -321,7 +321,7 @@ your wait loop.
 0.162.0, Codex unloads the finished worker you used least recently to make
 room, even one holding unread mail. A launch with 3 workers running fails
 with "agent thread limit reached", and so does a `followup_task` to an
-unloaded worker. Raise the limit with
+unloaded worker while 3 run. Raise the limit with
 `[agents] max_threads` in the user's Codex configuration, with their
 agreement; otherwise queue.
 
