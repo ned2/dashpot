@@ -377,17 +377,34 @@ def test_the_lead_settles_a_permission_posture_before_dispatch() -> None:
     assert "macOS, where Codex sandboxes with Seatbelt" in codex
     # Issue #671: the preflight reports every failure with one remedy, and
     # names the failures a grant, a read or a launch flag does not reveal.
-    assert "Run every check before you report." in codex
+    assert "Run every check, and `gh auth status`, before you report." in codex
     assert "give the user every failure in one message" in codex
-    assert "shows files root owns as owned by uid 65534" in codex
+    assert "beside it each choice that only the user can make" in codex
+    assert "the third may still fail over SSH" in codex
+    # Each claim from the #671 probes and observations names its evidence.
+    assert (
+        "root-owned files in `/etc/ssh` showed as owned by uid 65534 "
+        "(Codex 0.162.1, not in a retained experiment)"
+    ) in codex
+    assert "it blocks binding as the other failures do" in codex
     assert "Never change a remote yourself." in codex
     assert "A directory your session can write is not a variable its shells have" in (
         codex
     )
+    assert "the daemon started with (measured on Codex 0.160.0)" in codex
     assert "Never pass a credential that way" in codex
     assert "If the user's Codex configuration sets `default_permissions`" in codex
+    assert "What the two do together is not measured" in codex
+    assert "(seen with Codex 0.162.1, not measured). Treat your first write" in codex
     assert "Treat your first write of each kind as its check" in codex
     assert "`--approve-for-me` cannot be combined with `-a`" in codex
+    assert "(seen with Codex 0.162.1, not measured), so drop the `-a` option" in codex
+    # The note on `--sandbox workspace-write` stays beside the resume command.
+    assert (
+        codex.index("again in the resumed session before you bind.")
+        < (codex.index("`--sandbox workspace-write` matters"))
+        < codex.index("`--add-dir ~/.cache` in place of the two cache options")
+    )
     opencode = " ".join(section(harnesses, "OpenCode").split())
     assert (
         "**Permission posture.** Documented by OpenCode 2.0.22 and 2.0.24, not "
