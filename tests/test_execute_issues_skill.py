@@ -742,7 +742,7 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     assert "even one holding unread mail" in codex
     assert "omits a worker Codex has unloaded" in codex
     assert "in the `followup_task` itself" in messaging
-    assert "reloading the worker first if Codex unloaded it" in codex
+    assert "On Codex 0.162.0, it reloads a worker Codex unloaded" in codex
     fallback = codex.split("**Fallback: v1.**", 1)[1]
     assert "`<arc directory>/workers/<worker name>.md` with one command" in fallback
     assert (

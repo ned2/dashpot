@@ -39,7 +39,7 @@ Each answer is marked:
 - **documented**: read from the 0.162.0 source at tag
   [`rust-v0.162.0`](https://github.com/openai/codex/tree/rust-v0.162.0),
   commit `c1382380de69521303b416720a52f42d51af6248`, paths under
-  `codex-rs/core/src/`;
+  `codex-rs/core/src/` unless they begin with `codex-rs/`;
 - **trace only**: the retained trace shows it, but the verifier does not
   check it;
 - **unknown**: with the reason it is unknown.
@@ -49,18 +49,18 @@ Each answer is marked:
 | Question | Answer | Basis |
 | --- | --- | --- |
 | How many workers stay loaded? | 3 by default, `max_concurrent_threads_per_session − 1`, and the same `[agents] max_threads` sets it. Finished workers count until Codex evicts them. | measured; documented, `agent/control/residency.rs` |
-| Is that the limit on running workers? | It is a separate counter with the same default: at most 3 workers run a turn at once (`agent/control/execution.rs`). With three running, a fourth spawn and a follow-up to an evicted worker both failed with `agent thread limit reached`. The two refusals read the same, so the lead cannot tell which limit it hit. | measured; the two counters documented |
+| Is that the limit on running workers? | Codex keeps a separate counter with the same default, for workers running a turn (`agent/control/execution.rs`). With three running, a fourth spawn and a follow-up to an evicted worker both failed with `agent thread limit reached`. Running workers cannot be evicted either, so the run cannot tell which counter refused them, and neither can a lead: the two refusals read the same. | measured for the refusals; the two counters documented |
 | Does unread mail keep a finished worker loaded? | No, unlike 0.160.0. Workers A and F, finished and each holding unread `send_message` mail, were evicted to make room for B, C and D. Only mail that starts a turn keeps a worker loaded. | measured; documented, `is_unloadable` in `agent/control/residency.rs` |
-| Does mail to a locally evicted worker reload or start it? | Neither. With every slot free again, A and F stayed unloaded, made no model request and published no hook, after two and one messages each. | measured; documented, `agent/control/api.rs` |
+| Does mail to a locally evicted worker reload or start it? | Neither. With no worker running, A and F stayed unloaded, made no model request and published no hook, after two and one messages each. | measured; documented, `send` in `agent/control/api.rs` |
 | Does `followup_task` reach an evicted worker? | Yes. It reloads the worker into the least recently used finished worker's slot and starts its turn: A took B's slot, then F took C's. | measured |
 | Is held mail delivered in order and exactly once? | Yes. A's first request after reload carried its task, its final answer, its four messages in send order, from before and after its eviction, then the follow-up task. A second follow-up delivered no message again. The follow-up refused at the limit never arrived. | measured |
 | Does a reloaded worker keep its context? | Yes. A, spawned with `fork_turns: "none"`, held only its own turns; F, spawned with the full history, still held the lead's two earlier prompts. | measured |
 | Does the follow-up's completion reach the lead? | Yes. Each `wait_agent` returned `Wait completed.` on the worker's completion, and the lead's history carried each `FINAL_ANSWER` once. | measured |
 | Does `list_agents` show an evicted worker? | No. It lists loaded workers only, so A and F were missing from it until their follow-ups reloaded them. | measured; documented, `list_agents` in `agent/control.rs` |
-| What does Dashpot show of a follow-up turn? | A worker's follow-up turn publishes `SubagentStop` but no `SubagentStart`. Dashpot therefore does not list A as working while its follow-up runs, and the `sub-agent` Cleanup blocker does not cover it. | measured |
-| What happens to held mail when the lead unloads? | It is lost. A lead's runtime goes with the lead: after the lead was resumed, the evicted worker's two messages were never delivered. | measured |
+| What does Dashpot show of a follow-up turn? | A worker's follow-up turn publishes `SubagentStop` but no `SubagentStart`. Dashpot therefore does not list A as working while its follow-up runs, and the `sub-agent` Cleanup blocker does not cover it ([#674](https://github.com/ned2/dashpot/issues/674)). | measured |
+| What happens to held mail when the lead unloads? | It is lost: after the lead was resumed, the evicted worker's two messages were never delivered. The mail is held by the runtime, which the run suggests goes with the lead, though R2 stayed loaded after it. | measured for the loss; the holder documented, `agent/control/residency.rs` |
 | And when the daemon restarts? | It is lost too. The replacement daemon reloads the leads but no worker, and the evicted worker's two messages were never delivered. | measured |
-| What does mail do to a cold worker? | It reloads the worker without starting a turn: `list_agents` showed it `pending_init`. The message waited, and the worker's next follow-up got it once, then the task, with its earlier turns. | measured; documented, `agent/control/api.rs` |
+| What does mail do to a cold worker? | It reloads the worker without starting a turn: `list_agents` showed it `pending_init`. The message waited, and the worker's next follow-up got it once, then the task, with its earlier turns. | measured; documented, `send` in `agent/control/api.rs` |
 | Is Codex's held mail durable? | No. It is held in memory by the runtime, and the run lost it across a lead's unload and across a daemon restart. Only what a worker already received survives, in its rollout. | measured; documented, `agent/control/residency.rs` |
 
 ## Reproduce
@@ -122,7 +122,8 @@ unload.
   records.
 - [Retained trace](measurements/issue-664-codex-trace.jsonl) is the complete
   metadata stream of the successful run: 310 records. The fixture root
-  appears as `$ROOT`, and the home directory as `~`. It holds no prompts
+  appears as `$ROOT`, or as `<root>` inside Codex's own command output, and
+  the home directory as `~`. It holds no prompts
   beyond the fixture's markers.
 
 ## Tested configuration and evidence boundary
@@ -158,7 +159,7 @@ unload.
 | After A and F finished, both stayed loaded beside the lead, each holding unread mail. | measured |
 | B, C and D spawned while A and F sat finished. The daemon then held B, C and D, and read A and F as `notLoaded`. | measured |
 | With B, C and D running, a fourth spawn failed with `collab spawn failed: agent thread limit reached`, and E never ran. A `followup_task` to evicted A failed with `collab tool failed: agent thread limit reached`. | measured |
-| Residency capacity and the running-turn limit are separate counters. Each defaults to `max_concurrent_threads_per_session − 1`. Each refusal is `AgentLimitReached`, which reads `agent thread limit reached`; only Codex's internal error context, `ExecutionCapacity` or `ResidencyCapacity`, tells them apart, and the model does not see it. | documented, `agent/control/residency.rs`, `agent/control/execution.rs`, `protocol/src/error.rs` |
+| Residency capacity and the running-turn limit are separate counters. Each defaults to `max_concurrent_threads_per_session − 1`. Each refusal is `AgentLimitReached`, which reads `agent thread limit reached`; only Codex's internal error context, `ExecutionCapacity` or `ResidencyCapacity`, tells them apart, and the model does not see it. | documented, `agent/control/residency.rs`, `agent/control/execution.rs`, `codex-rs/protocol/src/agent_error.rs`, `codex-rs/protocol/src/error.rs` |
 | A finished worker is evictable unless it has a running turn, a durable sleep, or mail that starts a turn. Queue-only mail does not count: Codex drains it into the runtime's in-memory mailboxes before unloading the worker. | documented, `is_unloadable` and `try_unload_one_resident` in `agent/control/residency.rs` |
 | Eviction picks the least recently used loaded worker. When A's follow-up reloaded it, B, the first of the three to be spawned, was evicted. When F's follow-up reloaded it, C went next. | measured; the order documented, `touch_resident` in `agent/control/residency.rs` |
 
@@ -168,9 +169,9 @@ unload.
 | --- | --- |
 | `send_message` returns an empty string whether its recipient is loaded, evicted or cold. | measured |
 | Mail to a finished, loaded worker only queues: neither A nor F ran a turn. | measured |
-| Mail to a locally evicted worker neither reloads nor starts it. After B, C and D had finished, A and F got two messages and one, and stayed unloaded, with no model request and no hook. | measured |
-| A message to a worker that is not loaded reloads it unless the runtime holds its eviction record. Only a locally evicted worker keeps its mail without reloading. | documented, `send_input` in `agent/control/api.rs` |
-| When a follow-up reloads A, its first request carries, in order: its task, its final answer, the messages `a-pre1`, `a-pre2`, `a-post1` and `a-post2`, then the follow-up task. The messages read `Message Type: MESSAGE` and the tasks `Message Type: NEW_TASK`. No message appears twice in any request of A's or F's. F's reload is the same with its own `f-pre1` and `f-post1`. | measured |
+| Mail to a locally evicted worker neither reloads nor starts it. After B, C and D had finished, while they still filled every slot, A and F got two messages and one, and stayed unloaded, with no model request and no hook. | measured |
+| A message to a worker that is not loaded reloads it unless the runtime holds its eviction record. Only a locally evicted worker keeps its mail without reloading. | documented, `send` in `agent/control/api.rs` |
+| When a follow-up reloads A, its first request carries, in order: its task, its final answer, the messages `a-pre1`, `a-pre2`, `a-post1` and `a-post2`, then the follow-up task. The messages read `Message Type: MESSAGE` and the tasks `Message Type: NEW_TASK`. F's first request after reload ends the same way: its task, its final answer, `f-pre1`, `f-post1`, then the follow-up task. No message appears twice in any request of A's or F's. | measured |
 | A second follow-up to A delivers no message again: its first request carries the earlier history once, then A's second final answer and the new task. | measured |
 | The follow-up refused at the limit is dropped: its task never reached A. | measured |
 
@@ -187,16 +188,16 @@ unload.
 
 | Claim | Basis |
 | --- | --- |
-| While B, C and D ran, `work show` listed `3 sub-agents listed as working`, and the `sub-agent` blocker named them on the `other` Worktree. Once they finished, neither did. | measured |
-| A follow-up turn publishes `SubagentStop` for the worker but no `SubagentStart`. A and F each published one `SubagentStart`, at the spawn, and a `SubagentStop` per turn. Neither published `SessionStart` or `SessionEnd`. | measured |
+| While B, C and D ran, `work show` named them in `3 sub-agents listed as working`, and the `other` Worktree had a `sub-agent` blocker. Once they finished, neither did. | measured |
+| A follow-up turn publishes `SubagentStop` for the worker but no `SubagentStart`. A and F each published one `SubagentStart`, at the spawn, and at least two `SubagentStop`s; the trace has one per turn. Neither published `SessionStart` or `SessionEnd`. | measured; one stop per turn trace only |
 | So Dashpot does not list a followed-up worker while it works. Taken while A's follow-up command ran, the view showed L's run `running`, which follows the lead's turn, but listed no sub-agent working and gave the `other` Worktree no blocker. | measured |
-| The 0.160.0 trace shows the same: its resumed worker's follow-up fired `SubagentStop` alone. | trace only, [#420's trace](measurements/issue-420-codex-trace.jsonl) |
+| The cold-restored R1 and S1 likewise published only `SubagentStop` for their follow-ups. The 0.160.0 trace shows the same: its resumed worker's follow-up fired `SubagentStop` alone. | trace only; for 0.160.0, [#420's trace](measurements/issue-420-codex-trace.jsonl) |
 
 ## 5. Lead unload and cold restoration
 
 | Claim | Basis |
 | --- | --- |
-| With a capacity of one, R2's spawn evicted finished R1. R1 then held `r1-pre`, sent before its eviction, and `r1-post`, sent after. | measured |
+| With a capacity of one, finished R1 was sent `r1-pre`, then R2 spawned, then R1 was sent `r1-post`. By the time R's client left, R1 was unloaded and R2 loaded. That R2's spawn evicted R1, so that `r1-post` reached an evicted worker, follows from the capacity but is not observed between the two sends. | measured; the moment of eviction documented, `agent/control/residency.rs` |
 | The daemon unloaded R 60.3 s after its last client left, with `SessionEnd`. R2, finished, stayed loaded. | measured |
 | `thread/resume` reloaded R. Its `list_agents` named R2 but not R1. | measured |
 | A message to R1 then reloaded it without a turn: `list_agents` read it `pending_init`, and R1 made no model request. R1 reloaded beside R2 though R was resumed with the capacity-one override. Why it did is not established. | measured; the cause unknown |
@@ -235,15 +236,21 @@ and changes with this evidence:
 - **A follow-up turn is invisible to the `sub-agent` blocker.** Codex
   publishes no `SubagentStart` for a worker's follow-up turn, so Dashpot
   does not list the worker while it works, and Cleanup's `sub-agent`
-  blocker does not cover it. A Worker assigned an Issue reads `running`
-  only while Dashpot lists it working
+  blocker does not cover it. An Issue assigned to a Worker reads
+  `running` only while Dashpot lists that Worker working
   ([ADR 0096](../adr/0096-attribute-a-leads-workers-to-their-issues-by-explicit-assignment.md)),
-  so its Issue would not read `running` either; the run made no
-  assignment. 0.160.0 does the same. This is reported, not fixed here.
+  so it would not read `running` either; the run made no assignment.
+  0.160.0 does the same. This is reported, not fixed here:
+  [#674](https://github.com/ned2/dashpot/issues/674) tracks it.
 
 ## Validation
 
 The retained trace passed the independent verifier with `--strict` at the
-run's base, `6227e7a`: every script and Dashpot module it names matched the
-hash the run recorded. After the run's `daemon stop`, no fixture Codex
+run's base, `6227e7a`, and again on the branch rebased onto `3f4731a`,
+whose change touched none of those files: every script and Dashpot module
+it names matched the hash the run recorded. The verifier checks only the
+form of the binary's SHA-256; the value above is the one the trace
+records. Its checks that a worker made no model request between two steps
+read the request lists the runner recorded for that window, though an
+extra turn would also break the exact deliveries it checks. After the run's `daemon stop`, no fixture Codex
 process remained, and every hook reached Dashpot's publisher and exited 0.

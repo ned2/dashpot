@@ -317,11 +317,11 @@ shell holds its own thread ID in `CODEX_THREAD_ID`, and the worker's first
 message reports it. Assign the worker by it when that message arrives in
 your wait loop.
 
-**Capacity.** A session holds 3 open workers by default, and runs at most
-3 at once. On Codex 0.162.0, Codex unloads the finished worker you used
-least recently to make room, even one holding unread mail. A launch past
-either limit fails with "agent thread limit reached", and so does a
-`followup_task` to an unloaded worker while 3 run. Raise the limit with
+**Capacity.** A session holds 3 open workers by default. On Codex
+0.162.0, Codex unloads the finished worker you used least recently to make
+room, even one holding unread mail. A launch with 3 workers running fails
+with "agent thread limit reached", and so does a `followup_task` to an
+unloaded worker. Raise the limit with
 `[agents] max_threads` in the user's Codex configuration, with their
 agreement; otherwise queue.
 
@@ -354,9 +354,9 @@ finished worker must act on in the `followup_task` itself.
 `completed`.
 
 **Resume (v2).** `followup_task` to a finished worker starts a new turn
-with its earlier context, reloading the worker first if Codex unloaded it.
-On Codex 0.162.0, the mail waiting for it arrives ahead of the task, in
-order and once. `send_message` to a finished worker only queues. Dashpot
+with its earlier context. On Codex 0.162.0, it reloads a worker Codex
+unloaded, and the mail waiting for it arrives ahead of the task, in order
+and once. `send_message` to a finished worker only queues. Dashpot
 does not list a worker as working during a follow-up turn
 ([Known Dashpot gaps](../SKILL.md#known-dashpot-gaps)).
 
