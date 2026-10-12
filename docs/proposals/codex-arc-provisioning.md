@@ -82,7 +82,8 @@ as current.
   where it creates.
 - **Result**: no machine-local `config.toml` exists and
   `DASHPOT_WORKTREE_ROOT` is unset in a Claude Code session. So
-  `dashpot worktree create 671 --json` there reported
+  `dashpot worktree create 671 --json`, when it created this Issue's
+  Worktree there, reported
   `"worktreeRootSource": "default-sibling"` and `<main checkout>.worktrees`.
   The Codex qualification Lead's grants and probes name another directory,
   `~/projects/.worktrees/dashpot` (observed), and `git worktree list` shows
@@ -211,11 +212,12 @@ as current.
   `source_env` on the main checkout's. The other is a launcher wrapper. A
   third is `ned2/env#8`'s launcher, which runs Codex under `direnv exec`
   of an explicitly approved environment source. By the 0.160.0
-  measurements, that launcher's environment reaches tool commands in three
-  cases: when its client starts the daemon, when it runs with
-  `--disable daemon_auto_start` while no daemon runs, or when the session
-  runs in-process, as a resume adding roots did. Which of these applies at
-  0.162.x is unknown.
+  measurements, that launcher's environment reaches tool commands when its
+  client starts the daemon, or when it runs with
+  `--disable daemon_auto_start` while no daemon runs. By inference from
+  the same rule, it also reaches them when the session runs in-process, as
+  a resume adding roots did; no retained run measured that resume's
+  environment. Which of these applies at 0.162.x is unknown.
 - **Unknown**: inheritance at 0.162.1 for a fresh Lead, a resumed Lead and
   a fresh Worker. `ned2/env#8`'s acceptance asks for exactly those
   measurements.

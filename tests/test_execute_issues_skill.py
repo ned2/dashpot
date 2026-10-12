@@ -399,6 +399,11 @@ def test_the_lead_settles_a_permission_posture_before_dispatch() -> None:
     assert "Treat your first write of each kind as its check" in codex
     assert "`--approve-for-me` cannot be combined with `-a`" in codex
     assert "(seen with Codex 0.162.1, not measured), so drop the `-a` option" in codex
+    # Each moved paragraph starts a paragraph of its own in the raw Markdown.
+    raw_codex = harnesses.split("## Codex\n", 1)[1].split("\n## ", 1)[0]
+    assert "\n\nA directory your session can write" in raw_codex
+    assert "\n\n`gh auth status` shows" in raw_codex
+    assert "\n\n`--add-dir ~/.cache` in place" in raw_codex
     # The note on `--sandbox workspace-write` stays beside the resume command.
     assert (
         codex.index("again in the resumed session before you bind.")

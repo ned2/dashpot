@@ -233,9 +233,10 @@ root nor the user, and under `codex sandbox` on Ubuntu, root-owned files
 in `/etc/ssh` showed as owned by uid 65534 (Codex 0.162.1, not in a
 retained experiment). The host file needs no repair, and neither the
 network option nor credentials fixes it. Your workers could not push
-either, so it blocks binding as the other failures do, but its remedy is
-the user's choice: pushing outside the sandbox, as their posture allows,
-or a transport they choose. Never change a remote yourself.
+from inside the sandbox either, so it blocks binding as the other
+failures do, but its remedy is the user's choice: pushing outside the
+sandbox, as their posture allows, or a transport they choose. Record the
+remedy they choose and do not ask again. Never change a remote yourself.
 
 Run every check, and `gh auth status`, before you report. If any fails,
 stop before binding and give the user every failure in one message: one
