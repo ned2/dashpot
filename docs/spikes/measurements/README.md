@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-07
+date: 2026-10-13
 ---
 
 # Measurements
@@ -103,6 +103,7 @@ line per write, the seconds since the previous write and the bytes written.
 | [`issue-639-codex-trace.jsonl`](issue-639-codex-trace.jsonl) | JSONL trace, Codex CLI 0.160.0 | [#639](https://github.com/ned2/dashpot/issues/639) | [`codex-639`](../../../scripts/experiments/codex-639/) | [Codex sandboxed Worker cycle experiment](../codex-sandboxed-worker-cycle-spike.md) |
 | [`issue-648-claude-2.1.291-trace.jsonl.gz`](issue-648-claude-2.1.291-trace.jsonl.gz) | Gzipped JSONL trace, Claude Code 2.1.291 with its auto-mode classifier | [#648](https://github.com/ned2/dashpot/issues/648) | [`claude-648`](../../../scripts/experiments/claude-648/) | [Claude Code auto mode against an Arc's actions](../claude-code-auto-mode-arc-actions-spike.md) |
 | [`issue-664-codex-trace.jsonl`](issue-664-codex-trace.jsonl) | JSONL trace, Codex CLI 0.162.0 | [#664](https://github.com/ned2/dashpot/issues/664) | [`codex-664`](../../../scripts/experiments/codex-664/) | [Codex Worker mail and follow-up across eviction experiment](../codex-worker-mail-eviction-spike.md) |
+| [`issue-665-codex-trace.jsonl.gz`](issue-665-codex-trace.jsonl.gz) | Gzipped JSONL trace, Codex CLI 0.162.0 with a fixture Guardian classifier | [#665](https://github.com/ned2/dashpot/issues/665) | [`permissions-run.mjs`](../../../scripts/experiments/codex-639/permissions-run.mjs), verified by [`permissions-verify.mjs`](../../../scripts/experiments/codex-639/permissions-verify.mjs) | [Codex Worker approvals, turn grants and Guardian stops](../codex-worker-permissions-spike.md) |
 
 The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are
 the ones whose writeups are not spikes: their findings went straight into the

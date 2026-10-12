@@ -1,6 +1,6 @@
 ---
 status: research
-date: 2026-10-10
+date: 2026-10-13
 ---
 
 # Harness support for leading an Arc of Issues
@@ -653,10 +653,13 @@ experiment.
    follow-ups. Record delivery order, `list_agents` visibility and post-resume
    Worker context; distinguish local eviction from daemon restart. Done in
    the [Codex Worker mail and follow-up across eviction experiment](../spikes/codex-worker-mail-eviction-spike.md).
-3. **P1, approvals/interruption ([#665](https://github.com/ned2/dashpot/issues/665)):** rerun codex-639 while the Lead remains
-   in `wait_agent`; test child asks, reconnect, background grants and a
-   Guardian denial-limit stop. Retest ordinary interrupts for `SubagentStop`
-   rather than inferring a hook fix from notifications.
+3. **Measured, approvals/interruption ([#665](https://github.com/ned2/dashpot/issues/665)):** the
+   [0.162.0 experiment](../spikes/codex-worker-permissions-spike.md) records
+   child asks while the Lead waits, reconnect protocol controls, turn-grant
+   isolation and strict/default Guardian stops. Ordinary interruption still
+   lacks `SubagentStop`; workspace-write restoration after a real daemon
+   reconnect remains unqualified. Its evidence boundaries name the remaining
+   permission cases rather than inferring a hook fix from parent notifications.
 4. **P2, fresh-child tools and attribution ([#666](https://github.com/ned2/dashpot/issues/666)):** test the dynamic-tool flag off
    and on with `fork_turns:none`, a full-history control, model/effort activity,
    and lineage across follow-up/compaction. Test extension sleep separately

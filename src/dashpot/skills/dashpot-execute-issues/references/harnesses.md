@@ -320,10 +320,13 @@ approval policy whether a refused command may ask.
   raises an ask for the user, in your terminal, a worker's included,
   headed with the worker's thread. If they decline a worker's ask while
   your turn has ended, that worker's turn ends too and its report never
-  comes. What a worker's ask does to a turn of yours that is waiting on it
-  is not measured: it may stall your wait until the user answers. Tell the
-  user before the first dispatch that a worker's ask waits for them in
-  this terminal.
+  comes. On Codex 0.162.0 on Linux, a scripted fixture measures the wait:
+  approval lets the worker finish and wakes the wait; Escape
+  interrupts the worker without a hand-back, so the wait times out. In
+  both cases the ask appears in the Lead's terminal, and the Lead's model
+  receives no approval prompt while waiting. Tell the user before the first
+  dispatch that a worker's ask waits for them in this terminal. After a
+  timeout, inspect the child's status before assuming it completed.
 - **With `approvals_reviewer = "auto_review"`,** which
   `--approve-for-me` also sets, Codex routes eligible approval requests
   to an automatic reviewer. This is acceptable for the lead and its
@@ -341,6 +344,13 @@ approval policy whether a refused command may ask.
 Of the sandbox grant above, these are not measured either: `gh` under it,
 the fourth check itself, your own shell getting the moved caches, and
 macOS, where Codex sandboxes with Seatbelt rather than bubblewrap.
+
+The 0.162.0 fixture also measures a strict Guardian stop. Report
+its user-confirmation guidance and wait for explicit confirmation before
+resuming that Worker or retrying its blocked work. Its parent notification
+does not clear the missing `SubagentStop`: Dashpot can still show that Worker
+running and block Cleanup. Workspace-write permission restoration across
+reconnect remains unqualified by that experiment's protocol control.
 
 **Stay in your turn.** Codex never starts a turn for an idle lead, neither
 for a worker's message nor for its completion. While any worker runs, keep
