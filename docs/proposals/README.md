@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-05
+date: 2026-10-13
 ---
 
 # Proposals
@@ -15,6 +15,7 @@ wins.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Codex Arc provisioning and preflight](codex-arc-provisioning.md) | proposal | 2026-10-13 |
 | [Claude Code evidence for Lead and Worker mechanisms](lead-worker-claude-code-evidence.md) | research | 2026-10-05 |
 | [Codex evidence for Lead and Worker mechanisms](lead-worker-codex-evidence.md) | research | 2026-10-05 |
 | [Lead and Worker design analysis](lead-worker-design-analysis.md) | research | 2026-10-05 |

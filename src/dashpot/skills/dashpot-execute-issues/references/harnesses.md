@@ -224,11 +224,22 @@ session was given as writable, as `--add-dir ~/.cache` gives their default
 locations. Without the sandbox, every check passes. The first three pass
 under the grant below without the caches, so run the fourth whatever they
 say. `git ls-remote` also fails without credentials: read its error before
-you blame the sandbox. If a check fails for the sandbox, or the fourth
-does, stop before binding.
-Ask the user to create the Worktree Root if it does not exist yet, exit
-this client, and resume your session with both directories writable, the
-network on, and the caches in the Worktree Root:
+you blame the sandbox. Over SSH it can fail before connecting, with
+`Bad owner or permissions on` a file under `/etc/ssh/ssh_config.d/`. On
+Linux, Codex's sandbox shows files root owns as owned by uid 65534, and
+OpenSSH refuses an included configuration file whose owner is neither root
+nor the user. The host file needs no repair, and neither the network
+option nor credentials fixes it (seen with `codex sandbox` on Codex
+0.162.1 and Ubuntu, not in a retained experiment). Report it as the transport, and leave the remedy to the user:
+pushing outside the sandbox, as their posture allows, or a transport they
+choose. Never change a remote yourself.
+
+Run every check before you report. If any fails for the sandbox, or the
+fourth does, stop before binding and give the user every failure in one
+message, with one command that remedies them all, rather than one at a
+time. Ask the user to create the Worktree Root if it does not exist yet,
+exit this client, and resume your session with both directories writable,
+the network on, and the caches in the Worktree Root:
 
 ```bash
 codex resume <session-id> -C <checkout> --sandbox workspace-write --add-dir <Worktree Root> --add-dir <Git directory> -c sandbox_workspace_write.network_access=true -c 'shell_environment_policy.set.UV_CACHE_DIR="<Worktree Root>/.cache/uv"' -c 'shell_environment_policy.set.PRE_COMMIT_HOME="<Worktree Root>/.cache/pre-commit"'
@@ -244,6 +255,27 @@ on, and your workers' shells and their Git hooks the two cache locations,
 so a worker completes its whole cycle. Your own shell gets them by the
 same setting, though that was not measured, so still run the four checks
 again in the resumed session before you bind.
+
+A directory your session can write is not a variable its shells have, so
+read the variables from inside the session, as the fourth check does. A
+variable the terminal or a wrapper exports when it starts or resumes your
+client, a cache location or a `GH_TOKEN`, may never reach your commands:
+under Codex's managed daemon, every command runs with the environment the
+daemon started with (measured on Codex 0.160.0). The resume command's
+`shell_environment_policy.set` reached each worker's shell and its Git
+hook whatever the terminal held. Never pass a credential that way, since a `-c` value shows in the process
+list. If the user's Codex configuration sets `default_permissions`, a
+named permissions profile, Codex documents that it must not be combined
+with `sandbox_mode` or `[sandbox_workspace_write]`, which this command
+sets. What the two do together is not measured, so tell the user, and
+trust only the checks you run in the resumed session.
+
+`gh auth status` shows whether `gh` has credentials. A read that succeeds
+does not show that the same credentials can create an Issue, open a PR or
+merge one: a token that read this repository has refused an Issue with
+`Resource not accessible by personal access token`. Treat your first write
+of each kind as its check, and report a refusal as a blocker naming the
+operation. Never switch to other credentials yourself.
 `--sandbox workspace-write` matters: under `read-only`, Codex refuses
 `--add-dir` and the client exits. Tell the user that Codex's background
 app-server may hold this thread for about a minute after this client
@@ -293,6 +325,10 @@ approval policy whether a refused command may ask.
   and was not measured in the retained 0.160.0 experiments. Preserve
   that qualification when using the measurements above. Report any
   request that remains denied or needs the user's answer as a blocker.
+  `--approve-for-me` cannot be combined with `-a`: Codex 0.162.1 refuses
+  `the argument '--approve-for-me' cannot be used with '--ask-for-approval
+  <APPROVAL_POLICY>'` and exits before starting, so drop the `-a` option
+  when the user chooses it.
 
 Of the sandbox grant above, these are not measured either: `gh` under it,
 the fourth check itself, your own shell getting the moved caches, and
