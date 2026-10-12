@@ -361,16 +361,21 @@ shell holds its own thread ID in `CODEX_THREAD_ID`, and the worker's first
 message reports it. Assign the worker by it when that message arrives in
 your wait loop.
 
-**Capacity.** A session holds 3 open workers by default. A finished worker
-holding unread mail keeps its slot. A launch past the limit fails with
-"agent thread limit reached". Raise the limit with `[agents] max_threads`
-in the user's Codex configuration, with their agreement; otherwise queue.
+**Capacity.** A session holds 3 open workers by default. On Codex
+0.162.0, Codex unloads the finished worker you used least recently to make
+room, even one holding unread mail. A launch with 3 workers running fails
+with "agent thread limit reached", and so does a `followup_task` to an
+unloaded worker while 3 run. Raise the limit with
+`[agents] max_threads` in the user's Codex configuration, with their
+agreement; otherwise queue.
 
 **Wait loop (v2).** Call `wait_agent` with a `timeout_ms` of up to
 3 600 000. It returns on any mail: a worker's message or a worker
 finishing. Read the mail, act on it, and wait again, until every worker has
 handed back. When a wait times out or your turn was interrupted, call
-`list_agents`: it shows each resident worker's status and final text.
+`list_agents`: it shows each loaded worker's status and final text. It
+omits a worker Codex has unloaded, so check your own list of the workers
+you launched against it.
 
 **Worker reports (v2).** `{REPORTING}`: "Before anything else, call
 `send_message` to `/root` with `worker-id: ` followed by the output of
@@ -383,14 +388,21 @@ Your final message is your hand-back."
 message for it. A running worker gets it at its next model request, which
 comes when the command it is running ends, so broadcast with
 `send_message` alone. A busy lead gets its mail at its next model request,
-and mail to a finished worker only queues.
+and mail to a finished worker only queues. On Codex 0.162.0, mail to a
+worker Codex has unloaded waits in memory until its next turn, and is lost
+if your session is unloaded or Codex's daemon restarts, so put what a
+finished worker must act on in the `followup_task` itself.
 
 **Completion (v2).** The worker's final message reaches your history as a
 `FINAL_ANSWER` message from its path, and `list_agents` shows it
 `completed`.
 
 **Resume (v2).** `followup_task` to a finished worker starts a new turn
-with its earlier context. `send_message` to a finished worker only queues.
+with its earlier context. On Codex 0.162.0, it reloads a worker Codex
+unloaded, and the mail waiting for it arrives ahead of the task, in order
+and once. `send_message` to a finished worker only queues. Dashpot
+does not list a worker as working during a follow-up turn
+([Known Dashpot gaps](../SKILL.md#known-dashpot-gaps)).
 
 **Fallback: v1.** On a model without v2, `spawn_agent` returns an
 `agent_id`, which is the worker's ID to assign, and `wait_agent` takes `targets` and `timeout_ms` and returns

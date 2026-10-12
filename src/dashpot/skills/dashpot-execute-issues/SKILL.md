@@ -619,3 +619,10 @@ Dashpot fixes it.
   then ends its Issue work while its workers keep running. Their
   assignments end with it, so their Issues stop reading `running`. Keep a
   client attached to the lead until every worker has finished.
+- **A Codex worker's follow-up turn is not shown as working.** Codex
+  0.160.0 and 0.162.0 publish no start for a worker's `followup_task`
+  turn, only its stop. While that turn runs, Dashpot does not list the
+  worker as working, so its Issue cannot read `running`, and Cleanup's
+  `sub-agent` blocker does not cover its Worktree. Take a followed-up
+  worker's state from your wait loop, not from Dashpot, and tell the user
+  not to clean up its Worktree until it hands back.

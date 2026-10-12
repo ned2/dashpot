@@ -651,7 +651,8 @@ experiment.
 2. **P1, eviction/reporting ([#664](https://github.com/ned2/dashpot/issues/664)):** extend codex-420 with more children than
    residency slots, queue-only mail before/after eviction, and explicit
    follow-ups. Record delivery order, `list_agents` visibility and post-resume
-   Worker context; distinguish local eviction from daemon restart.
+   Worker context; distinguish local eviction from daemon restart. Done in
+   the [Codex Worker mail and follow-up across eviction experiment](../spikes/codex-worker-mail-eviction-spike.md).
 3. **P1, approvals/interruption ([#665](https://github.com/ned2/dashpot/issues/665)):** rerun codex-639 while the Lead remains
    in `wait_agent`; test child asks, reconnect, background grants and a
    Guardian denial-limit stop. Retest ordinary interrupts for `SubagentStop`
