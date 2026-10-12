@@ -705,6 +705,7 @@ def test_each_known_dashpot_gap_is_named_for_removal() -> None:
     # there when the installed Dashpot fixes its gap.
     assert re.findall(r"- \*\*(.+?)\*\*", gaps) == [
         "An unloaded Codex lead ends its workers' Issue work.",
+        "A Codex worker's follow-up turn is not shown as working.",
     ]
 
 
@@ -735,6 +736,13 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     # go by `send_message` alone; a v1 worker reports in its ledger file.
     messaging = codex.split("**Messaging a worker (v2).**", 1)[1]
     assert "broadcast with `send_message` alone" in messaging
+    # From 0.162.0 Codex unloads a finished worker despite its unread mail,
+    # which waits in memory and is lost with the lead or the daemon, so what
+    # the worker must act on goes in the follow-up itself.
+    assert "even one holding unread mail" in codex
+    assert "omits a worker Codex has unloaded" in codex
+    assert "in the `followup_task` itself" in messaging
+    assert "reloading the worker first if Codex unloaded it" in codex
     fallback = codex.split("**Fallback: v1.**", 1)[1]
     assert "`<arc directory>/workers/<worker name>.md` with one command" in fallback
     assert (

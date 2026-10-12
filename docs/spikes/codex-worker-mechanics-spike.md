@@ -12,7 +12,10 @@ measures how a Codex lead thread runs background workers on the pinned
 [#422](https://github.com/ned2/dashpot/issues/422) compares the answers with
 Claude Code's and OpenCode's.
 This document is the dated evidence record. Sections 1 to 8 answer the
-Issue's questions in its order.
+Issue's questions in its order. The
+[Codex Worker mail and follow-up across eviction experiment](codex-worker-mail-eviction-spike.md)
+measures 0.162.0, where unread mail no longer keeps a finished worker
+loaded, and a follow-up to an unloaded worker reloads it.
 
 Here the **lead** is the root thread of a Codex Agent Session, and a
 **worker** is one of its [Sub-agents](../domain-language.md): a thread the
@@ -158,7 +161,7 @@ it. A run takes under six minutes.
 | A v1 spawn returns `{"agent_id":"<thread id>","nickname":"<name>"}`. A v1 worker gets no multi-agent tools. | measured |
 | `SubagentStart` and `SubagentStop` fire for each worker. They carry the root `session_id`, the worker's thread as `agent_id`, `agent_type` `default`, and the lead's `cwd`. A v1 worker's turns also fire `UserPromptSubmit` with its `agent_id`, which v2 workers do not. | measured |
 | Every worker shell shares the lead's Host Process, the daemon. `CODEX_SESSION_ID` names the root session, and `CODEX_THREAD_ID` names the worker's own thread. | measured |
-| **Concurrency.** A v2 session holds at most `max_concurrent_threads_per_session − 1` workers open at once, 3 by default. A finished worker stays open, but Codex unloads one with no pending mail to make room. In the run, the 3rd and 4th spawns of a turn failed with `collab spawn failed: agent thread limit reached`. They failed because a finished worker still held queued mail, which kept it resident. A 5th spawn worked once the first two workers had finished. | measured; the rule is documented, `agent/control/residency.rs` |
+| **Concurrency.** A v2 session holds at most `max_concurrent_threads_per_session − 1` workers open at once, 3 by default. A finished worker stays open, but Codex unloads one with no pending mail to make room. In the run, the 3rd and 4th spawns of a turn failed with `collab spawn failed: agent thread limit reached`. They failed because a finished worker still held queued mail, which kept it resident. A 5th spawn worked once the first two workers had finished. 0.162.0 changed the rule: queued mail no longer keeps a worker resident ([Codex Worker mail and follow-up across eviction experiment](codex-worker-mail-eviction-spike.md#1-capacity-and-eviction)). | measured; the rule is documented, `agent/control/residency.rs` |
 | **Raising the limit.** `[agents] max_threads = N` raises it to N workers. The canonical key is `max_concurrent_threads_per_session`, and v2 adds 1 for the root. The setting also works per thread as a `thread/start` override: a lead started with `{"agents.max_threads": 5}` opened five workers at once. `[features.multi_agent_v2] max_concurrent_threads_per_session` counts the root itself. v1 defaults to 6 workers, through the same `agents.max_threads`. | measured for the override; the rest documented, `config/src/config_toml.rs`, `core/src/config/mod.rs` |
 
 ## 2. Mid-flight report
@@ -203,7 +206,7 @@ turn after any interruption.
 | **v2.** `send_message` to a finished worker only queues: the worker runs no turn. | measured |
 | **v2.** `followup_task` toward `/root` is refused: `Follow-up tasks can't target the root agent`. | documented, `agent/control/api.rs` |
 | **v1.** `send_input` to a finished worker starts a new turn with its context. `wait_agent` then returns its new final answer. v1 also has `resume_agent` and `close_agent`. | measured for `send_input`; the others documented |
-| **Unloaded workers.** Whether `followup_task` reaches a worker that Codex unloaded to make room. | unknown, because the run followed up only a resident worker; the source can reopen an agent from its rollout (`agent/control/resume.rs`) |
+| **Unloaded workers.** Whether `followup_task` reaches a worker that Codex unloaded to make room. | unknown on 0.160.0, because the run followed up only a resident worker; the source can reopen an agent from its rollout (`agent/control/resume.rs`). On 0.162.0 it reloads the worker with its context and its waiting mail ([Codex Worker mail and follow-up across eviction experiment](codex-worker-mail-eviction-spike.md#3-follow-up-context-and-completion)). |
 
 ## 5. Shared Agent Session
 

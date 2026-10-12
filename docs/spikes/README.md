@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-10
+date: 2026-10-13
 ---
 
 # Spikes
@@ -19,6 +19,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Codex Worker mail and follow-up across eviction experiment](codex-worker-mail-eviction-spike.md) | research | 2026-10-13 |
 | [Claude Code auto mode against an Arc's actions](claude-code-auto-mode-arc-actions-spike.md) | research | 2026-10-10 |
 | [Codex sandboxed Worker cycle experiment](codex-sandboxed-worker-cycle-spike.md) | research | 2026-10-06 |
 | [Codex workspace-write Workers experiment](codex-workspace-write-workers-spike.md) | research | 2026-10-06 |
