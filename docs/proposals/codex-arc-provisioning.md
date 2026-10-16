@@ -74,12 +74,12 @@ as current.
   grant, which lets every agent write hooks and Git configuration, is
   already disclosed there.
 - **Probed, write-free** (2026-10-13, 0.162.1, Linux): inside
-  `codex sandbox`, `test -w <dir>` reports
-  a grant without writing anything. With no writable roots, the Worktree
-  Root, the Git directory and `/var/tmp` all read as read-only. With
+  `codex sandbox`, `test -w <dir>` reports a grant without writing
+  anything. With no writable roots, the Worktree Root, the Git directory
+  and `/var/tmp` all read as read-only. With
   `-c 'sandbox_workspace_write.writable_roots=[<Worktree Root>, <Git directory>]'`,
-  the first two read as writable and `/var/tmp` stays read-only. This was
-  probed on Linux only; what macOS Seatbelt reports is unknown.
+  the first two read as writable and `/var/tmp` stays read-only. What
+  macOS Seatbelt reports is unknown.
 - **Unknown**: which launch options the later grants came from.
 
 ### F2: The Worktree Root differs between sessions
