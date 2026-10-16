@@ -360,7 +360,8 @@ def test_the_lead_settles_a_permission_posture_before_dispatch() -> None:
     ) in codex
     assert "This is one measured option" in codex
     assert "The user sets it by adding `-a never` to that command" in codex
-    assert "it may stall your wait until the user answers" in codex
+    assert "approval lets the worker finish and wakes the wait" in codex
+    assert "interrupts the worker without a hand-back, so the wait times out" in codex
     assert (
         "Tell the user before the first dispatch that a worker's ask waits for them"
     ) in codex
@@ -834,12 +835,14 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
         "Codex's background app-server may hold this thread for about a minute"
     ) in codex
     assert "`--add-dir ~/.cache` in place of the two cache options" in codex
-    # A declined worker ask was measured only with the lead's turn ended.
+    # Decline is measured with the Lead's turn ended and while it waits.
     assert (
         "If they decline a worker's ask while your turn has ended, that worker's "
         "turn ends too"
     ) in codex
-    assert "does to a turn of yours that is waiting on it is not measured" in codex
+    assert "On Codex 0.162.0 on Linux, a scripted fixture measures the wait" in codex
+    assert "the Lead's model receives no approval prompt while waiting" in codex
+    assert "wait for explicit confirmation" in codex
     assert "fails their gates and commits" in " ".join(shipped("SKILL.md").split())
     # The dry run needs the network, so the default root is named as well.
     assert "`<main checkout>.worktrees`, beside the main checkout" in codex
