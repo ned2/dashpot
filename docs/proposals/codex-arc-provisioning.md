@@ -35,7 +35,8 @@ Each claim carries one:
   cannot be reproduced as they ran.
 - **probed**: a command this document's author ran on 2026-10-13, from a
   Claude Code session on this machine, outside any Codex session: codex-cli
-  0.162.1, Ubuntu, Linux 7.0.0, OpenSSH 10.2p1. Each probe gives its
+  0.162.1, Ubuntu, Linux 7.0.0, OpenSSH 10.2p1. A probe that names
+  another date and release ran then, with that release. Each probe gives its
   command, some of them under `codex sandbox`. Nothing was retained.
 - **documented** or **source**: Codex's
   [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
@@ -340,9 +341,14 @@ as current.
   measured. The runner also refuses to start under a harness process, and
   the repository runs it detached with `setsid -f`.
 - **Consequence** (inference): granting the fixture parent to the Lead
-  does not by itself let a sandboxed Lead run the runner, which refuses
-  harness ancestry. And a fixture parent writable for the fixture's own
-  Codex would change the permissions being measured.
+  would let a runner start inside the Lead's sandbox, with the Lead's
+  grants. The runner's harness-ancestry refusal does not stop it there.
+  Under `codex sandbox`, the command runs as pid 2 with parent pid 1, so
+  the ancestry walk sees no harness (probed on 2026-10-16 with codex-cli
+  0.163.0;
+  [#685](https://github.com/ned2/dashpot/issues/685)). And a fixture
+  parent writable for the fixture's own Codex would change the
+  permissions being measured.
 - **Unknown**: how a qualification Lead launches a pinned runner at all,
   whether by escalation outside the sandbox, by the operator, or by a
   runner option for a validated parent. Also unknown: whether a dedicated
@@ -550,8 +556,9 @@ recommends either.
    profile both depend on it (proposal 2).
    [#683](https://github.com/ned2/dashpot/issues/683) documents that the
    setting applies to every Repository.
-5. The default SSH remedy under the sandbox (F9), if any, once
+5. Which F9 remedy the operator chooses, once
    [#684](https://github.com/ned2/dashpot/issues/684) has measured each.
+   There is no machine-wide default.
 6. How a qualification Lead runs pinned experiment runners (F10,
    [#685](https://github.com/ned2/dashpot/issues/685)).
 7. Whether a `default_permissions` profile counts as a supported Lead
