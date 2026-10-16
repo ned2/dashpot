@@ -35,7 +35,8 @@ Each claim carries one:
   cannot be reproduced as they ran.
 - **probed**: a command this document's author ran on 2026-10-13, from a
   Claude Code session on this machine, outside any Codex session: codex-cli
-  0.162.1, Ubuntu, Linux 7.0.0, OpenSSH 10.2p1. Each probe gives its
+  0.162.1, Ubuntu, Linux 7.0.0, OpenSSH 10.2p1. A probe that names
+  another date and release ran then, with that release. Each probe gives its
   command, some of them under `codex sandbox`. Nothing was retained.
 - **documented** or **source**: Codex's
   [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
@@ -43,8 +44,9 @@ Each claim carries one:
   OpenSSH's source at `V_10_2_P1`, or a Dashpot runner's source.
 - **inference** and **unknown**, as named.
 
-An observed or probed result on 0.162.1 is not a 0.162.0 qualification
-result, and says nothing about a Worker unless it names one. The 0.160.0
+An observed or probed result on a release other than 0.162.0 (0.162.1 or
+0.163.0) is not a 0.162.0 qualification result. Nor does any observed or
+probed result say anything about a Worker unless it names one. The 0.160.0
 measurements stay dated history, and this document does not restate them
 as current.
 
@@ -325,7 +327,7 @@ as current.
 ### F10: The fixture parent is deliberately not writable
 
 - **When**: observed on 2026-10-10 and 2026-10-12, and probed on
-  2026-10-13.
+  2026-10-13 and 2026-10-16.
 - **Result** (observed): the baseline `codex-639` runner creates its
   fixture directly under `/var/tmp`, which refused the Lead's write probe.
   A dedicated parent, `/var/tmp/dashpot-codex-0162-qualification`, was
@@ -339,10 +341,17 @@ as current.
   in a home directory, which the experiment's refused control write
   measured. The runner also refuses to start under a harness process, and
   the repository runs it detached with `setsid -f`.
-- **Consequence** (inference): granting the fixture parent to the Lead
-  does not by itself let a sandboxed Lead run the runner, which refuses
-  harness ancestry. And a fixture parent writable for the fixture's own
-  Codex would change the permissions being measured.
+- **Probed** (2026-10-16, 0.163.0,
+  [#685](https://github.com/ned2/dashpot/issues/685)): under
+  `codex sandbox -c 'sandbox_mode="workspace-write"'`, the command runs as
+  pid 2 with parent pid 1, so a runner's ancestry walk ends at once and
+  sees no harness.
+- **Consequence** (inference): in a real Lead session, whose sandbox the
+  probe suggests uses the same PID namespace, the runner's
+  harness-ancestry refusal would not stop it. Granting the fixture parent
+  to the Lead would then let a runner start inside the Lead's sandbox,
+  with the Lead's grants. And a fixture parent writable for the fixture's
+  own Codex would change the permissions being measured.
 - **Unknown**: how a qualification Lead launches a pinned runner at all,
   whether by escalation outside the sandbox, by the operator, or by a
   runner option for a validated parent. Also unknown: whether a dedicated
@@ -540,7 +549,7 @@ recommends either.
    read-only check, and an ADR comes first
    ([#679](https://github.com/ned2/dashpot/issues/679), proposal 2).
 2. Whether to add the Worker-side check to the brief template
-   (proposal 3).
+   (proposal 3, [#682](https://github.com/ned2/dashpot/issues/682)).
 3. Whether to qualify the profile-file launch (proposal 4). **Decided**:
    qualify it within the 0.162.0 requalification of the resume command
    ([#678](https://github.com/ned2/dashpot/issues/678)), which states the
@@ -548,8 +557,13 @@ recommends either.
 4. Which `worktree_root` this machine uses (F2). That is the operator's
    setting, not a repository change. The Dashpot preflight and a launch
    profile both depend on it (proposal 2).
-5. The default SSH remedy under the sandbox (F9), if any.
-6. How a qualification Lead runs pinned experiment runners (F10).
+   [#683](https://github.com/ned2/dashpot/issues/683) documents that the
+   setting applies to every Repository.
+5. Which F9 remedy the operator chooses, once
+   [#684](https://github.com/ned2/dashpot/issues/684) has measured each.
+   There is no machine-wide default.
+6. How a qualification Lead runs pinned experiment runners (F10,
+   [#685](https://github.com/ned2/dashpot/issues/685)).
 7. Whether a `default_permissions` profile counts as a supported Lead
    configuration, once #678 has stated how it interacts with the launch.
 
@@ -565,9 +579,15 @@ recommends either.
   ([#679](https://github.com/ned2/dashpot/issues/679)).
 - Measure environment inheritance at 0.162.x for a fresh Lead, a resumed
   Lead and a fresh Worker, through `ned2/env#8`.
-- Measure a Worker's push under each SSH remedy.
-- Decide on a fixture-parent option for the pinned runners and, if it is
-  chosen, implement it with renewed evidence.
+- Measure a Worker's push under each SSH remedy
+  ([#684](https://github.com/ned2/dashpot/issues/684)).
+- Decide how a sandboxed Lead launches the pinned runners, and implement
+  any runner change with renewed evidence
+  ([#685](https://github.com/ned2/dashpot/issues/685)).
+- Add the Worker-side check, if chosen
+  ([#682](https://github.com/ned2/dashpot/issues/682)).
+- Document the machine-wide scope of `worktree_root`
+  ([#683](https://github.com/ned2/dashpot/issues/683)).
 - Measure `gh` under the sandbox grant, which the 0.160.0 experiment could
   not.
 
