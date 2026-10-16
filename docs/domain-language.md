@@ -727,8 +727,8 @@ setting in machine-local `config.toml`, else the sibling
 `<main name>.worktrees/` of the Repository's main working tree, so every
 checkout of one Repository shares one default pool
 ([ADR 0039](adr/0039-anchor-the-default-worktree-root-on-the-main-working-tree.md)).
-Only the default is per Repository. The `worktree_root` setting names one
-directory for every Repository on the machine.
+The `worktree_root` setting, unlike the default, names one directory for
+every Repository on the machine.
 It is never part of the tracked Project configuration.
 _Avoid_: deriving the default from the Worktree the command runs in
 

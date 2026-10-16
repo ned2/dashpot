@@ -115,20 +115,24 @@ specification requires, so every process reads the same file whatever its
 working directory:
 
 ```toml
-# Where newly prepared Issue Worktrees go, for every Repository on this machine.
+# Where newly prepared Issue Worktrees go.
 worktree_root = '~/worktrees'
 ```
 
-`worktree_root` is one machine-wide directory, not a per-Repository one.
-`worktree create` places each new Worktree directly at
-`<worktree_root>/<Branch>`, with no Repository segment, so every Project's
-Worktrees share that directory. A Branch name another Project already
-used there makes `worktree create` refuse the path. The default is `<main checkout>.worktrees`, beside each Repository's main
-checkout. A Repository-specific value such as
-`~/projects/.worktrees/dashpot` suits only a machine with one Project. To
-choose a root for one Repository, set `DASHPOT_WORKTREE_ROOT` in that
-Repository's environment, or pass `--worktree-root` to one command. Both
-take precedence over this setting.
+`worktree_root` names one directory for every Repository on the machine.
+`worktree create` places each new Worktree directly under it, with no
+Repository segment. The leaf is the Branch name with `/` replaced by `-`.
+So every Repository's Worktrees share the directory. While another
+Repository's Worktree occupies a path, `worktree create` refuses it.
+
+Without the setting, each Repository gets its own default pool,
+`<main name>.worktrees/`, beside its main working tree. A
+Repository-specific value such as `~/projects/.worktrees/dashpot` suits
+only a machine with one Repository. To keep a per-Repository root, leave
+`worktree_root` unset. For the commands that should use another root,
+pass `--worktree-root`, or set `DASHPOT_WORKTREE_ROOT` in the environment
+of every checkout that runs them. `--worktree-root` overrides
+`DASHPOT_WORKTREE_ROOT`, which overrides this setting.
 
 An absent, empty, or comment-only file selects defaults. Omit an optional key
 for its default; TOML has no null value. Unknown keys produce a warning and do
