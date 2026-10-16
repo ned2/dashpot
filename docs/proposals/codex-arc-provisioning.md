@@ -540,7 +540,7 @@ recommends either.
    read-only check, and an ADR comes first
    ([#679](https://github.com/ned2/dashpot/issues/679), proposal 2).
 2. Whether to add the Worker-side check to the brief template
-   (proposal 3).
+   (proposal 3, [#682](https://github.com/ned2/dashpot/issues/682)).
 3. Whether to qualify the profile-file launch (proposal 4). **Decided**:
    qualify it within the 0.162.0 requalification of the resume command
    ([#678](https://github.com/ned2/dashpot/issues/678)), which states the
@@ -548,8 +548,12 @@ recommends either.
 4. Which `worktree_root` this machine uses (F2). That is the operator's
    setting, not a repository change. The Dashpot preflight and a launch
    profile both depend on it (proposal 2).
-5. The default SSH remedy under the sandbox (F9), if any.
-6. How a qualification Lead runs pinned experiment runners (F10).
+   [#683](https://github.com/ned2/dashpot/issues/683) documents that the
+   setting applies to every Repository.
+5. The default SSH remedy under the sandbox (F9), if any, once
+   [#684](https://github.com/ned2/dashpot/issues/684) has measured each.
+6. How a qualification Lead runs pinned experiment runners (F10,
+   [#685](https://github.com/ned2/dashpot/issues/685)).
 7. Whether a `default_permissions` profile counts as a supported Lead
    configuration, once #678 has stated how it interacts with the launch.
 
@@ -565,9 +569,15 @@ recommends either.
   ([#679](https://github.com/ned2/dashpot/issues/679)).
 - Measure environment inheritance at 0.162.x for a fresh Lead, a resumed
   Lead and a fresh Worker, through `ned2/env#8`.
-- Measure a Worker's push under each SSH remedy.
-- Decide on a fixture-parent option for the pinned runners and, if it is
-  chosen, implement it with renewed evidence.
+- Measure a Worker's push under each SSH remedy
+  ([#684](https://github.com/ned2/dashpot/issues/684)).
+- Decide how a sandboxed Lead launches the pinned runners, and implement
+  any runner change with renewed evidence
+  ([#685](https://github.com/ned2/dashpot/issues/685)).
+- Add the Worker-side check, if chosen
+  ([#682](https://github.com/ned2/dashpot/issues/682)).
+- Document the machine-wide scope of `worktree_root`
+  ([#683](https://github.com/ned2/dashpot/issues/683)).
 - Measure `gh` under the sandbox grant, which the 0.160.0 experiment could
   not.
 
