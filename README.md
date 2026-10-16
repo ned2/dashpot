@@ -931,6 +931,10 @@ moves anything. Its conventions are recorded in
   tree — the same pool whether the command runs in the main checkout or in
   a linked Worktree
   ([ADR 0039](docs/adr/0039-anchor-the-default-worktree-root-on-the-main-working-tree.md)).
+  Only that default is per Repository. The machine-local setting is one
+  directory for every Repository on the machine, and each Worktree goes
+  directly at `<root>/<Branch>`
+  ([machine-local settings](docs/installation.md#machine-local-settings)).
   The root is real-path normalised, refused inside any Worktree of the
   Project, and reported with its source; the default names the main working
   tree it sits beside.
