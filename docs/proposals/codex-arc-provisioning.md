@@ -1,6 +1,6 @@
 ---
 status: proposal
-date: 2026-10-13
+date: 2026-10-16
 ---
 
 # Codex Arc provisioning and preflight
@@ -73,6 +73,12 @@ as current.
 - **Remedy**: the skill's resume command. The cost of the Git-directory
   grant, which lets every agent write hooks and Git configuration, is
   already disclosed there.
+- **Probed, write-free**: inside `codex sandbox`, `test -w <dir>` reports
+  a grant without writing anything. With no writable roots, the Worktree
+  Root, the Git directory and `/var/tmp` all read as read-only. With
+  `-c 'sandbox_workspace_write.writable_roots=[<Worktree Root>, <Git directory>]'`,
+  the first two read as writable and `/var/tmp` stays read-only. This was
+  probed on Linux only; what macOS Seatbelt reports is unknown.
 - **Unknown**: which launch options the later grants came from.
 
 ### F2: The Worktree Root differs between sessions
@@ -142,9 +148,15 @@ as current.
   `shell_environment_policy.set`. The per-command prefix is a workaround
   for a session launched without them. It reaches only the commands that
   carry it, so each brief would have to repeat it.
-- **Unknown**: at 0.162.x, which process hosts a resumed session that adds
-  roots. Also unknown, and unmeasured at 0.160.0 too: whether the Lead's
-  own shell gets `shell_environment_policy.set`.
+- **Source** (rust-v0.162.0): `--profile`, or any `-c` override beyond a
+  short allowlist, keeps the session off the managed daemon
+  (`tui/src/daemon_startup.rs:61-124`). So both the resume command and a
+  profile launch would run the session in-process. It is inference that
+  the terminal's environment then reaches the commands.
+- **Unknown**: which process hosts a resumed session that adds roots,
+  which is unmeasured at 0.162.x. Also unknown, and unmeasured at 0.160.0
+  too: whether the Lead's own shell gets `shell_environment_policy.set`.
+  [#678](https://github.com/ned2/dashpot/issues/678) measures both.
 
 ### F4: Codex's user configuration and the resume command's sandbox options
 
@@ -158,15 +170,29 @@ as current.
   permissions profile with `default_permissions`. The skill's resume
   command sets `--sandbox workspace-write` and
   `sandbox_workspace_write.network_access`.
-- **Unknown**: what Codex does with both. No retained experiment ran the
-  resume command over a configuration that sets `default_permissions`. The
-  checks in the resumed session are the only evidence of what took effect.
+- **Source** (rust-v0.162.0):
+  - `--sandbox` makes Codex use the legacy sandbox options outright
+    (`core/src/config/mod.rs:2599`), and drops the permissions profile a
+    resumed thread saved (`:3490-3497`).
+  - Setting both as launch overrides is an error (`:3385-3390`), but
+    `default_permissions` in a configuration file plus `--sandbox` is not.
+  - `--approve-for-me` adds `sandbox_mode="workspace-write"`
+    (`utils/cli/src/shared_options.rs:80-94`).
+- **Inference**: the resume command does not combine with the operator's
+  profile. It silently replaces it, deny rules included, and
+  `--approve-for-me` would do the same to a profile launch.
+- **Unknown**: what a 0.162.0 session actually runs with. No retained
+  experiment ran the resume command over a configuration that sets
+  `default_permissions`. The checks in the resumed session are the only
+  evidence of what took effect, and
+  [#678](https://github.com/ned2/dashpot/issues/678) measures it.
 - **Probed, confounded**: under that configuration, outbound HTTPS from
   `codex sandbox -c 'sandbox_mode="workspace-write"' -- <script>` to a
   public API endpoint returned 200. It did so with and without
   `-c sandbox_workspace_write.network_access=true`. The result reflects
   the operator's profile, not Codex's default, so it is not evidence either
-  way.
+  way. It also disagrees with the source reading above, which is one more
+  reason to measure.
 
 ### F5: Automatic approval review
 
@@ -344,7 +370,7 @@ as current.
 | Git transport | F9 |
 | Fixture placement | F10 |
 | Settled policy | F5 |
-| Unresolved decisions | the preflight's owner, persistent configuration, transport, fixture launch (see [Maintainer choices](#maintainer-choices)) |
+| Unresolved decisions | the Worker-side check, `worktree_root`, transport, fixture launch (see [Maintainer choices](#maintainer-choices)) |
 
 ## Minimum capabilities by operation
 
@@ -385,30 +411,48 @@ register identified, each with its evidence:
 A resumed Lead reruns the checks rather than trusting the command it was
 resumed with.
 
-### 2. An operator-run preflight before launch (proposed)
+### 2. A Dashpot preflight that verifies a launch profile (decided, tracked in #679)
 
-`codex sandbox` runs a command under Codex's Linux sandbox with the same
-`-c` overrides a launch takes, and applies writable roots and
-`shell_environment_policy.set` (probed). A small probe script run that way,
-with the overrides the launch will use, could check these before any
-session starts:
+The execute-issues skill ships to every operator. So checking a Codex
+Arc's provisioning is Dashpot's job, not the job of one operator's
+launcher. The maintainer decided this on 2026-10-16.
+[#679](https://github.com/ned2/dashpot/issues/679) tracks the ADR and the
+command.
 
-- write on the Worktree Root, the Git directory and each cache, then remove
-  the probe file;
-- that each injected variable is set;
+The check verifies a launch profile the operator writes (proposal 4). It
+never constructs or prints launch flags, and never writes the profile.
+`codex sandbox` takes `--profile`, and applies writable roots and
+`shell_environment_policy.set` to the command it runs (probed). Probes run
+under `codex sandbox --profile <name>` therefore check the same grants the
+launch will use, before any session starts:
+
+- `test -w` on the Worktree Root that Dashpot resolves itself, on the Git
+  directory and on each cache, which writes nothing (F1, probed);
+- that each injected variable is set and names a directory inside the
+  granted roots;
 - `ssh -G` for an SSH remote (F9), and `git ls-remote` for the remote;
 - that `gh auth status` succeeds, by presence and exit status only.
 
-It reports every failure at once. It has two limits. `codex sandbox` runs
-with the invoking terminal's environment, not a daemon's, so it cannot show
-what a daemon-hosted session's commands inherit (F3, F7). And it runs no
-Worker. The checks inside the session stay authoritative.
+It reports every failure at once, each with its remedy. It has two limits.
+`codex sandbox` runs with the invoking terminal's environment, not a
+daemon's, so it cannot show what a daemon-hosted session's commands
+inherit (F3, F7). It also runs no Worker. The checks inside the session
+stay authoritative.
 
-Ownership is a [maintainer choice](#maintainer-choices). The preflight
-could live in the operator's launcher (`ned2/env#8`), or in a documented
-script. A Dashpot command would need an ADR first: the probe writes files,
-and [ADR 0008](../adr/0008-let-management-commands-mutate-on-explicit-invocation.md)
-keeps Dashpot's mutations to named management commands.
+The check needs an ADR first, because the check runs Codex's own sandbox
+tool and
+[ADR 0008](../adr/0008-let-management-commands-mutate-on-explicit-invocation.md)
+does not cover launching harnesses. The ADR would let Dashpot run that
+tool, write-free, to check provisioning. The check would:
+
+- never start an Agent Session;
+- never read or print a credential value;
+- be requalified for each pinned release.
+
+Dashpot may ship a profile template, but never writes `$CODEX_HOME`
+([ADR 0130](../adr/0130-write-integrates-configuration-where-each-harness-reads-it.md)).
+The `ned2/env#8` launcher would call the check, and keep only credential
+loading.
 
 ### 3. A Worker-side check (proposed)
 
@@ -419,7 +463,7 @@ Issue Worktree, and have the Worker report the result in its first message.
 On a failure, the Lead holds the rest of the wave and reports it with the
 same consolidated remedy. This adds one command to every Worker's start and
 needs no new grant. Until the maintainer approves it, Worker verification
-stays incomplete: neither this change nor the operator preflight covers a
+stays incomplete: neither the Lead's own checks nor the Dashpot preflight covers a
 fresh Worker.
 
 ### 4. A persistent launch configuration (proposed, unqualified)
@@ -430,10 +474,21 @@ and named permissions profiles with filesystem and network grants. A
 `dashpot-arc` profile would name the Worktree Root, the Git directory, the
 two caches, the network and the two variables. The launch would then
 become `codex resume <session-id> -C <checkout> --profile dashpot-arc`.
-But the reference does not list which keys a profile file may set, and
-`default_permissions` conflicts with the sandbox options the measured
-command uses (F4). So this needs a qualification experiment before the
-skill offers it. Until then, the skill keeps the measured command.
+The reference does not list which keys a profile file may set. In
+rust-v0.162.0's source, `resume` takes `-p/--profile`. The profile file
+loads as a second user configuration layer, through the same loader as
+`config.toml` (`config/src/loader/mod.rs:290-338`). By inference, then, it
+can set any key, `shell_environment_policy` included.
+
+Two other source findings bear on it. The measured command's `--sandbox`
+replaces an operator's `default_permissions` profile (F4). And writable
+roots keep `.git` read-only only when no explicit rule names it
+(`protocol/src/permissions.rs:860-871`).
+
+The maintainer chose to qualify the profile launch within the 0.162.0
+requalification of the resume command, tracked in
+[#678](https://github.com/ned2/dashpot/issues/678). Until that passes, the
+skill keeps the measured command.
 
 ### 5. A credential environment (tracked in `ned2/env#8`)
 
@@ -465,12 +520,16 @@ recommends either.
 
 ## Maintainer choices
 
-1. Where the operator preflight lives: the launcher (`ned2/env#8`), a
-   documented script, or a Dashpot command with an ADR.
+1. Where the preflight lives. **Decided**: Dashpot owns a
+   read-only check, and an ADR comes first
+   ([#679](https://github.com/ned2/dashpot/issues/679), proposal 2).
 2. Whether to add the Worker-side check to the brief template
    (proposal 3).
-3. Whether to qualify the profile-file launch (proposal 4), and whether a
-   `default_permissions` profile counts as a supported Lead configuration.
+3. Whether to qualify the profile-file launch (proposal 4). **Decided**:
+   qualify it within the 0.162.0 requalification of the resume command
+   ([#678](https://github.com/ned2/dashpot/issues/678)). That run also
+   settles whether a `default_permissions` profile counts as a supported
+   Lead configuration.
 4. Which `worktree_root` this machine uses (F2). That is the operator's
    setting, not a repository change.
 5. The default SSH remedy under the sandbox (F9), if any.
@@ -478,10 +537,14 @@ recommends either.
 
 ## Follow-ups and incomplete measurements
 
-- Qualify the resume command, or its profile replacement, on the current
-  release. That covers the Lead's own shell and a fresh Worker's shell
-  getting the injected variables, and the command's interaction with
-  `default_permissions`.
+- Qualify the resume command, or its profile replacement, on 0.162.0
+  ([#678](https://github.com/ned2/dashpot/issues/678)). That covers:
+  - whether the Lead's own shell and a fresh Worker's shell get the
+    injected variables;
+  - the command's interaction with `default_permissions`;
+  - `codex sandbox --profile` compared with the checks inside the session.
+- Decide the preflight's boundary by ADR, then add the read-only check
+  ([#679](https://github.com/ned2/dashpot/issues/679)).
 - Measure environment inheritance at 0.162.x for a fresh Lead, a resumed
   Lead and a fresh Worker, through `ned2/env#8`.
 - Measure a Worker's push under each SSH remedy.
