@@ -268,7 +268,7 @@ def test_probe_script_discards_authentication_output_with_stateless_tools(
         'import sys\nprint("SECRET-CREDENTIAL")\nprint("SECRET-CREDENTIAL", file=sys.stderr)\nsys.exit(1)',
     )
     environment = {
-        "PATH": str(binaries) + os.pathsep + "/usr/bin",
+        "PATH": str(binaries) + os.pathsep + os.defpath,
         "UV_CACHE_DIR": str(cache),
         "PRE_COMMIT_HOME": str(cache),
     }
@@ -312,7 +312,7 @@ def test_probe_honors_the_operator_ssh_command_and_collects_other_failures(
         binaries / "ssh",
         'import sys\nassert sys.argv[1:3] == ["-F", "operator-config"]\nassert sys.argv[-3:] == ["-p", "2222", "git@example.invalid"]\nsys.exit(0)',
     )
-    monkeypatch.setenv("PATH", str(binaries) + os.pathsep + "/usr/bin")
+    monkeypatch.setenv("PATH", str(binaries) + os.pathsep + os.defpath)
     monkeypatch.setenv("GIT_SSH_COMMAND", "ssh -F operator-config")
     monkeypatch.delenv("UV_CACHE_DIR", raising=False)
     monkeypatch.setenv("PRE_COMMIT_HOME", "relative/cache")
@@ -337,7 +337,7 @@ def test_ssh_command_uses_the_same_shell_expansion_as_git(tmp_path, monkeypatch)
         binaries / "ssh",
         'import os,sys\nassert sys.argv[1:3] == ["-F", os.path.join(os.environ["HOME"],"approved config")]\nsys.exit(0)',
     )
-    monkeypatch.setenv("PATH", str(binaries) + os.pathsep + "/usr/bin")
+    monkeypatch.setenv("PATH", str(binaries) + os.pathsep + os.defpath)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("GIT_SSH_COMMAND", 'ssh -F "$HOME/approved config"')
     assert probe(str(tmp_path), str(tmp_path), "origin", 2)["ssh"] is True
@@ -393,7 +393,7 @@ def test_timeout_and_outer_interruption_stop_the_active_command_and_its_helper(
         binaries / "gh",
         f'import subprocess,sys,time\nsubprocess.Popen([sys.executable,"-c",{helper!r}])\ntime.sleep(60)',
     )
-    environment = {"PATH": str(binaries) + os.pathsep + "/usr/bin"}
+    environment = {"PATH": str(binaries) + os.pathsep + os.defpath}
     args = [
         sys.executable,
         "-I",
