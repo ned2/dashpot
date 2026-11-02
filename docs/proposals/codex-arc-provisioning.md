@@ -28,7 +28,9 @@ Each claim carries one:
 - **measured**: a retained, independently verified Dashpot experiment shows
   it. The Worker experiments are pinned to **codex-cli 0.160.0**
   ([sandboxed Worker cycle](../spikes/codex-sandboxed-worker-cycle-spike.md),
-  [linked Worktree environment](../spikes/linked-worktree-environment-spike.md)).
+  [linked Worktree environment](../spikes/linked-worktree-environment-spike.md)),
+  and the Lead launch qualification to **codex-cli 0.166.0**
+  ([Lead launch qualification](../spikes/codex-lead-launch-qualification-spike.md), #678).
 - **observed**: a Lead's or another session's preflight saw it, as recorded
   on Issue #671 between 2026-10-10 and 2026-10-12. Nothing was retained,
   and nobody verified it independently. These are session observations and
@@ -40,7 +42,8 @@ Each claim carries one:
   command, some of them under `codex sandbox`. Nothing was retained.
 - **documented** or **source**: Codex's
   [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
-  or `--help`, Codex's source at `rust-v0.162.0` (commit c1382380),
+  or `--help`, Codex's source at `rust-v0.162.0` (commit c1382380), or at
+  `rust-v0.166.0` (commit 6ff1e1ca) where a claim names it,
   OpenSSH's source at `V_10_2_P1`, or a Dashpot runner's source.
 - **inference** and **unknown**, as named.
 
@@ -151,16 +154,22 @@ as current.
   `shell_environment_policy.set`. The per-command prefix is a workaround
   for a session launched without them. It reaches only the commands that
   carry it, so each brief would have to repeat it.
-- **Source** (rust-v0.162.0): `--profile`, or any `-c` override beyond a
-  short allowlist, keeps the session off the managed daemon
-  (`tui/src/daemon_startup.rs:61-124`).
-- **Inference**: both the resume command and a profile launch would then
-  run the session in-process, and the terminal's environment would reach
-  its commands.
-- **Unknown**: which process hosts a resumed session that adds roots,
-  which is unmeasured at 0.162.x. Also unknown, and unmeasured at 0.160.0
-  too: whether the Lead's own shell gets `shell_environment_policy.set`.
-  [#678](https://github.com/ned2/dashpot/issues/678) measures both.
+- **Source** (rust-v0.162.0, and unchanged at rust-v0.166.0): `--profile`,
+  or any `-c` override beyond a short allowlist, keeps the session off the
+  managed daemon (`tui/src/daemon_startup.rs:61-124`; at rust-v0.166.0,
+  `:78-79` and `:97-118`).
+- **Measured** (0.166.0, #678's
+  [launch qualification](../spikes/codex-lead-launch-qualification-spike.md)):
+  the resume command and every profile launch each ran in its own TUI
+  client, which was then the session's Host Process.
+  Their commands and hooks got that terminal's environment, and their
+  `SessionEnd` fired as the client exited. A session started or resumed
+  without options ran on the managed daemon with the environment of the
+  terminal that started the daemon. Under every passing launch,
+  `shell_environment_policy.set`, as `-c` options or in a profile file,
+  reached the Lead's own shell, each fresh Worker's shell and the hook
+  its commit ran. So the observation's unset variables fit a launch
+  without them, not a dropped setting (inference).
 
 ### F4: Codex's user configuration and the resume command's sandbox options
 
@@ -174,30 +183,38 @@ as current.
   permissions profile with `default_permissions`. The skill's resume
   command sets `--sandbox workspace-write` and
   `sandbox_workspace_write.network_access`.
-- **Source** (rust-v0.162.0):
+- **Source** (rust-v0.162.0; each still holds at rust-v0.166.0, at the
+  lines given second):
   - `--sandbox` makes Codex use the legacy sandbox options outright
-    (`core/src/config/mod.rs:2599`), and drops the permissions profile a
-    resumed thread saved (`:3490-3497`).
-  - Setting both as launch overrides is an error (`:3385-3390`), but
-    `default_permissions` in a configuration file plus `--sandbox` is not.
+    (`core/src/config/mod.rs:2599`; `:2690-2692`), and drops the
+    permissions profile a resumed thread saved (`:3490-3497`;
+    `:3668-3676`).
+  - Setting both as launch overrides is an error (`:3385-3390`;
+    `:3527-3532`), but `default_permissions` in a configuration file plus
+    `--sandbox` is not.
   - `--approve-for-me` adds `sandbox_mode="workspace-write"`
-    (`utils/cli/src/shared_options.rs:80-94`).
-- **Inference**: the resume command does not combine with the operator's
-  profile. It silently replaces it, deny rules included, and
-  `--approve-for-me` would do the same to a profile launch.
-- **Unknown**: what a 0.162.0 session actually runs with. No retained
-  experiment ran the resume command over a configuration that sets
-  `default_permissions`. The checks in the resumed session are the only
-  evidence of what took effect, and
-  [#678](https://github.com/ned2/dashpot/issues/678) measures it.
+    (`utils/cli/src/shared_options.rs:80-94`; `:80-93`).
+- **Measured** (0.166.0, #678's
+  [launch qualification](../spikes/codex-lead-launch-qualification-spike.md)): over a configuration whose
+  `default_permissions` profile denied a file and turned the network on,
+  the resume command passed the four checks and a Worker completed its
+  cycle, but the session ran under the legacy sandbox and read the denied
+  file. The command replaces the operator's profile, deny rules included.
+  `--approve-for-me` or `--sandbox` beside `--profile` likewise put back a
+  legacy sandbox, with no added directory and no network.
+- **Measured** (0.166.0): a profile file whose permissions profile sets
+  `extends` to the operator's profile, adding only the Worktree Root and
+  the Git directory, kept the deny rule and the network, and a Worker
+  completed its cycle under it.
 - **Probed, confounded**: under that configuration, outbound HTTPS from
   `codex sandbox -c 'sandbox_mode="workspace-write"' -- <script>` to a
   public API endpoint returned 200. It did so with and without
   `-c sandbox_workspace_write.network_access=true`. The result reflects
   the operator's profile, not Codex's default, so it is not evidence either
   way. It also appears to disagree with the source reading above, though
-  it used `-c sandbox_mode`, not `--sandbox`. That is one more reason to
-  measure.
+  it used `-c sandbox_mode`, not `--sandbox`. #678 does not settle it:
+  every launch it measured turned the network on, so the probe stays
+  unresolved.
 
 ### F5: Automatic approval review
 
@@ -247,11 +264,17 @@ as current.
   client starts the daemon, or when it runs with
   `--disable daemon_auto_start` while no daemon runs. By inference from
   the same rule, it also reaches them when the session runs in-process, as
-  a resume adding roots did; no retained run measured that resume's
-  environment. Which of these applies at 0.162.x is unknown.
-- **Unknown**: inheritance at 0.162.1 for a fresh Lead, a resumed Lead and
-  a fresh Worker. `ned2/env#8`'s acceptance asks for exactly those
-  measurements.
+  a resume adding roots did. Which of these applies at 0.162.x is unknown.
+- **Measured** (0.166.0, #678's
+  [launch qualification](../spikes/codex-lead-launch-qualification-spike.md)):
+  a launch with `--profile` or a `-c` option, the skill's resume command
+  included, runs in its own client, and that terminal's environment reached the Lead's commands, its
+  Worker's commands and every hook. A plain launch ran on the managed
+  daemon with the environment of the terminal that started it. The run
+  set a marker variable, not a credential, and ran no `gh`.
+- **Unknown**: credential inheritance at 0.162.1, and `gh` at 0.166.0, for
+  a fresh Lead, a resumed Lead and a fresh Worker. `ned2/env#8`'s
+  acceptance asks for exactly those measurements.
 - **Boundary**: Dashpot loads no ignored configuration and supplies no
   credentials. A token never goes in a `-c` value, where `ps -ww` shows it.
 
@@ -520,30 +543,44 @@ needs no new grant. Until the maintainer approves it, Worker
 verification stays incomplete: neither the Lead's own checks nor the
 Dashpot preflight covers a fresh Worker.
 
-### 4. A persistent launch configuration (proposed, unqualified)
+### 4. A persistent launch configuration (offered, qualified on 0.166.0)
 
-The long resume command could become one profile. Codex documents profile
-files, `$CODEX_HOME/<name>.config.toml` selected with `--profile <name>`,
-and named permissions profiles with filesystem and network grants. A
-`dashpot-arc` profile would name the Worktree Root, the Git directory, the
-two caches, the network and the two variables. The launch would then
-become `codex resume <session-id> -C <checkout> --profile dashpot-arc`.
-The reference does not list which keys a profile file may set. In
-rust-v0.162.0's source, `resume` takes `-p/--profile`. The profile file
-loads as a second user configuration layer, through the same loader as
-`config.toml` (`config/src/loader/mod.rs:290-338`). By inference, then, it
-can set any key, `shell_environment_policy` included.
+The long resume command can become one profile file,
+`$CODEX_HOME/<name>.config.toml` selected with `--profile <name>`, whose
+own permissions profile names the Worktree Root, the Git directory and the
+network, and whose `[shell_environment_policy.set]` names the two caches.
+#678's [launch qualification](../spikes/codex-lead-launch-qualification-spike.md)
+measured it on codex-cli 0.166.0 on Linux, and
+[ADR 0149](../adr/0149-offer-a-profile-file-launch-for-a-codex-lead.md)
+has the skill offer it beside the resume command:
 
-Two other source findings bear on it. The measured command's `--sandbox`
-replaces an operator's `default_permissions` profile (F4). And writable
-roots keep `.git` read-only only when no explicit rule names it
-(`protocol/src/permissions.rs:860-871`).
+- **Measured**: a new session, `codex -C <checkout> --profile <name>`,
+  passes the four checks, and a Worker completes its cycle.
+- **Measured**: a resume needs the profile pinned,
+  `codex resume <session-id> -C <checkout> --profile <name> -c 'default_permissions="<name>"'`.
+  Without the `-c`, a thread that last ran under the built-in `:workspace`
+  kept it and refused every grant.
+- **Measured**: the file must name the Git directory. With only the
+  Worktree Root granted, the main checkout's `.git` stayed read-only.
+- **Measured**: over an operator's `default_permissions` profile, a file
+  whose profile sets `extends = "<their profile>"` keeps their deny rules
+  and network; one that does not replaces them.
+- **Measured**: `--sandbox` or `--approve-for-me` beside `--profile`
+  replaces the profile with a legacy sandbox that has no added directory
+  and no network.
+- **Source** (rust-v0.166.0): `resume` and `sandbox` both take
+  `-p/--profile` (`cli/src/main.rs:1973-1998`). The profile file loads as
+  a second user layer above `config.toml`
+  (`config/src/loader/mod.rs:292-294`), and `--profile <name>` is refused
+  while `config.toml` still holds a legacy `profile = "<name>"` or
+  `[profiles.<name>]` (`:316-325`). A user permissions profile cannot
+  extend a built-in one (`config/src/permissions_toml.rs:78`). Writable
+  roots keep `.git` read-only only when no explicit rule names it
+  (`protocol/src/permissions.rs:860-871`).
+- **Unknown**: `approvals_reviewer = "auto_review"` set in the file in
+  place of `--approve-for-me`; macOS; `gh` under the grant.
 
-The maintainer chose to qualify the profile launch within the 0.162.0
-requalification of the resume command
-([#678](https://github.com/ned2/dashpot/issues/678); its scope is under
-[Follow-ups](#follow-ups-and-incomplete-measurements)). Until that passes,
-the skill keeps the measured command.
+The operator writes the file, and neither the skill nor Dashpot writes it.
 
 ### 5. A credential environment (tracked in `ned2/env#8`)
 
@@ -585,9 +622,12 @@ escalated push.
 2. Whether to add the Worker-side check to the brief template
    (proposal 3, [#682](https://github.com/ned2/dashpot/issues/682)).
 3. Whether to qualify the profile-file launch (proposal 4). **Decided**:
-   qualify it within the 0.162.0 requalification of the resume command
-   ([#678](https://github.com/ned2/dashpot/issues/678)), which states the
-   resume command's interaction with `default_permissions`.
+   qualify it with the resume command. **Done** on codex-cli 0.166.0
+   (#678's
+   [launch qualification](../spikes/codex-lead-launch-qualification-spike.md)):
+   both qualify, and
+   [ADR 0149](../adr/0149-offer-a-profile-file-launch-for-a-codex-lead.md)
+   offers both.
 4. Which `worktree_root` this machine uses (F2). That is the operator's
    setting, not a repository change. The Dashpot preflight and a launch
    profile both depend on it (proposal 2).
@@ -606,16 +646,25 @@ escalated push.
 6. How a qualification Lead runs pinned experiment runners (F10,
    [#685](https://github.com/ned2/dashpot/issues/685)).
 7. Whether a `default_permissions` profile counts as a supported Lead
-   configuration, once #678 has stated how it interacts with the launch.
+   configuration. #678 measured the interaction: the resume command runs
+   without that profile, deny rules included, while a profile file that
+   extends it keeps them. The skill tells the operator so and offers the
+   extending profile; whether to require it is still the maintainer's
+   choice.
 
 ## Follow-ups and incomplete measurements
 
-- Qualify the resume command, or its profile replacement, on 0.162.0
-  ([#678](https://github.com/ned2/dashpot/issues/678)). That covers:
-  - whether the Lead's own shell and a fresh Worker's shell get the
-    injected variables;
-  - the command's interaction with `default_permissions`;
-  - `codex sandbox --profile` compared with the checks inside the session.
+#678 qualified, on 0.166.0 rather than 0.162.0 as re-pinned
+([launch qualification](../spikes/codex-lead-launch-qualification-spike.md)),
+the resume command and the profile launch, the injected variables in the Lead's own shell and a
+fresh Worker's, the command's interaction with `default_permissions`, and
+`codex sandbox --profile`, whose probes matched the same probes inside a
+new session but cannot show a resume's grant, since it reads no thread.
+What remains:
+
+- Measure a profile file that sets `approvals_reviewer`, in place of
+  `--approve-for-me`, and a thread last saved under a named profile other
+  than `:workspace`.
 - Decide the preflight's boundary by ADR, then add the read-only check
   ([#679](https://github.com/ned2/dashpot/issues/679)).
 - Measure environment inheritance at 0.162.x for a fresh Lead, a resumed

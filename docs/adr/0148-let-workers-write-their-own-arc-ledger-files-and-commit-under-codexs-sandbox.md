@@ -1,9 +1,13 @@
 ---
-status: accepted
+status: amended
 date: 2026-10-06
+amended-by: 0149-offer-a-profile-file-launch-for-a-codex-lead.md
 ---
 
 # Let Workers write their own Arc Ledger files, and commit under Codex's sandbox
+
+Amended by [ADR 0149](0149-offer-a-profile-file-launch-for-a-codex-lead.md):
+a Lead offers a profile-file launch beside the resume command below.
 
 The `dashpot-execute-issues` skill passed mid-flight messages through two
 files in a Worktree's Git directory: `execute-issues-status`, which a Worker
@@ -156,6 +160,13 @@ passes.
   ([#639](https://github.com/ned2/dashpot/issues/639)). The fourth check
   itself, and the Lead's own shell getting the moved caches, are not
   measured; the Lead's Workers getting them is.
+- Amended by
+  [ADR 0149](0149-offer-a-profile-file-launch-for-a-codex-lead.md): on
+  codex-cli 0.166.0 the fourth check and the Lead's own shell getting the
+  moved caches are measured, and the resume command is shown to run
+  without a user's `default_permissions` profile, deny rules included. A
+  Lead offers a profile-file launch beside the resume command, which
+  stands.
 - Under Codex, a sandboxed Worker's gate, commit with hooks, and push are
   measured, with the caches moved into the Worktree Root. A repository
   whose gates write other caches moves them the same way. `gh` under the
