@@ -243,8 +243,8 @@ Linux measured a worker under the resume command below, against a
 disposable remote. Through the system configuration, its `git ls-remote`
 and push failed as above. Three remedies were measured; offer the user
 these and no other, and leave the choice to them. None changes the
-remote, and none passes a credential. The third is the approval policy.
-The first two are added to the resume command with
+remote, and none passes a credential. The third, pushing outside the
+sandbox, is the approval policy (`-a on-request`). The first two are added to the resume command with
 `-c 'shell_environment_policy.set.<NAME>="<value>"'`, the only delivery
 measured. A variable the user's terminal exports instead, `SSH_AUTH_SOCK`
 included, may not reach a worker, as the paragraph below on a session's

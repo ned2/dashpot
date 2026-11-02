@@ -165,8 +165,9 @@ naming that result to refuse each.
   - a variable from a profile file.
 
   Under Codex's managed daemon, a command carries the environment of the
-  terminal that started the daemon, so a terminal-exported variable may
-  never reach a Worker.
+  terminal that started the daemon (measured on 0.160.0, as the
+  [skill's Codex reference](../../src/dashpot/skills/dashpot-execute-issues/references/harnesses.md#codex)
+  records). So a terminal-exported variable may never reach a Worker.
 - **A scripted fixture.** The host is a scripted fixture that calls
   `codex app-server` over stdio, not the TUI. The sandbox, approval policy
   and environment are the ones the resume command sets, and the rollouts
@@ -190,6 +191,8 @@ naming that result to refuse each.
   measured.
 - **SSH `-F` scope.** SSH `-F` is measured with a key in an agent. A key
   file read directly through `IdentityFile`, a passphrase prompt, and a
-  `ProxyCommand` or `ProxyJump` are not measured.
+  `ProxyCommand` or `ProxyJump` are not measured. The agent's socket was
+  under `/var/tmp`. Neither a default `ssh-agent` socket under `/tmp` nor a
+  desktop keyring's socket under `/run/user/<uid>` was measured.
 - **Platform.** Linux only. macOS sandboxes with Seatbelt, which has no uid
   mapping, and F9 there is unknown.
