@@ -125,3 +125,18 @@ resume command again. If the installed Codex cannot resume the confirmed identit
 that it starts a new Agent Session. A fresh session cannot complete a Relocation
 Intent for another Agent Session; end the old run explicitly, then run `work
 start` and `work show` in the new session.
+
+## Codex Worktree still occupied after leaving
+
+When Cleanup still finds a Codex session or its client in a Worktree the
+session left, read the blocker before acting:
+
+- An `agent-session` blocker naming the old session after `/cd`: `/cd`
+  forked a new session and left the old one loaded there. Codex unloads it
+  about a minute after `/cd`; check again then.
+- A `process` blocker naming `codex`, or the shell of the terminal it runs
+  in: Codex never changes its client process's directory, so a client whose
+  terminal started inside the Worktree stays there after `/cd`, and so does
+  one resumed from such a terminal with `-C` naming another directory. Tell
+  the user to exit that client and leave the Worktree in that terminal;
+  never end the process yourself.

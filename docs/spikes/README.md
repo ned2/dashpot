@@ -19,6 +19,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Codex root session departure experiment](codex-root-session-departure-spike.md) | research | 2026-11-02 |
 | [Codex Worker push transport under the sandbox](codex-worker-push-transport-spike.md) | research | 2026-11-02 |
 | [Codex Worker mail and follow-up across eviction experiment](codex-worker-mail-eviction-spike.md) | research | 2026-10-13 |
 | [Codex Worker approvals, turn grants and Guardian stops](codex-worker-permissions-spike.md) | research | 2026-10-13 |
