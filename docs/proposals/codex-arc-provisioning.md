@@ -278,8 +278,10 @@ as current.
 
 ### F9: SSH fails inside the sandbox before connecting
 
-- **When**: observed on 2026-10-12 with 0.162.1, and probed on
-  2026-10-13.
+- **When**: observed on 2026-10-12 with 0.162.1, probed on 2026-10-13,
+  and measured from a Worker on 2026-11-02 with 0.166.0
+  ([push transport spike](../spikes/codex-worker-push-transport-spike.md),
+  [#684](https://github.com/ned2/dashpot/issues/684)).
 - **Result** (observed): inside the sandbox, `git ls-remote` and a push
   over SSH failed with
   `Bad owner or permissions on /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf`.
@@ -304,25 +306,53 @@ as current.
   `ssh_config` includes `/etc/ssh/ssh_config.d/*.conf`. A file passed with
   `-F` is read without the check, which is why selecting the fragment or a
   user-owned copy explicitly passed.
-- **Mechanism** (inference): Codex's Linux sandbox maps only the invoking
-  uid, so files root owns appear owned by the overflow uid 65534. Any
-  root-owned fragment that the system configuration includes then fails
-  the check. The host file needs no repair.
-- **Consequence** (inference): on such a host, SSH through the system
-  configuration fails for every agent under the sandbox, however the
-  network option is set. A Worker's push would fail too, though none was
-  observed.
-- **Candidate remedies**, each an explicit operator choice:
+- **Mechanism** (source, rust-v0.166.0, and measured): Codex's Linux
+  sandbox always enters a new user namespace (`--unshare-user`). The
+  namespace maps only the invoking uid, which bubblewrap does, not Codex's
+  source, and the Worker's probe measured it: files root owns appear owned
+  by the overflow uid 65534. Any root-owned fragment that the system
+  configuration includes then fails the check. The host file needs no
+  repair.
+- **Measured** (0.166.0, a sandboxed Worker under the resume command's
+  grants, against a disposable loopback remote):
+  - Inside the Worker's sandbox, both files show as uid 65534, and
+    `ssh -F /etc/ssh/ssh_config -G` exits 255 with the message above. The
+    host's fragment is the same root-owned symlink, and passes there.
+  - Through the system configuration, the Worker's `git ls-remote` and
+    push fail before connecting, and the pre-push hook never runs. A real
+    session's sandbox maps uids as `codex sandbox` did.
+- **Remedies**, each an explicit operator choice, measured with the remote
+  left unchanged:
   1. Push outside the sandbox, by an escalation the operator's posture
      decides, as the observed retry did.
-  2. Select HTTPS transport with `gh` as the credential helper
-     explicitly, never by silently rewriting the remote.
+     - Under `never`, Codex rejects the escalation outright and nothing is
+       pushed.
+     - Under `on-request` with the human reviewer, each approved escalation
+       ran `git ls-remote`, the first push and the lease push. The pre-push
+       hook then ran outside the sandbox.
+  2. Select HTTPS for the session only, never by rewriting the remote.
+     - `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` set
+       `url.<https>.insteadOf` and a credential helper of
+       `!gh auth git-credential`, through `shell_environment_policy.set`.
+     - The Worker's `git ls-remote`, first push and lease push succeeded
+       over HTTPS, and a stale lease was refused. The pre-push hook ran
+       inside the sandbox.
+     - `gh` read its token from its own store. Codex's default excludes
+       drop an inherited variable named `*KEY*` or `*TOKEN*`, but `set` is
+       applied after them (source).
   3. Inject `GIT_SSH_COMMAND` with an `-F` naming a user-owned
      configuration, through `shell_environment_policy.set`. This skips the
-     system configuration, including the systemd proxy fragment. It is
-     unmeasured.
-- **Unknown**: whether a real session's sandbox maps uids exactly as
-  `codex sandbox` does. The observed failure suggests it does.
+     system configuration, including the systemd proxy fragment.
+     - With `SSH_AUTH_SOCK` naming an agent's socket outside the writable
+       roots, the Worker reached the agent.
+     - The same three operations succeeded over SSH, with the hook inside
+       the sandbox.
+     - A pre-seeded known-hosts file with `StrictHostKeyChecking yes`
+       worked. With `accept-new` and an absent file outside the roots, the
+       connection went ahead, but the new key was not recorded.
+- **Unknown**: a real GitHub remote, and so a token's permission to push
+  workflow changes. Also unknown: `gh` with a keyring store, automatic
+  review of an escalated push, and macOS.
 
 ### F10: The fixture parent is deliberately not writable
 
@@ -397,7 +427,7 @@ as evidence.
 | Edit an Issue Worktree | Write on the one Worktree Root that `worktree create` resolves (F2) | measured, 0.160.0 |
 | `git commit`, `git worktree add` | Write on the main checkout's Git directory (`git rev-parse --path-format=absolute --git-common-dir`), which exposes its hooks and configuration to every agent | measured, 0.160.0: both worked under the grant, and the default refused the Git-directory write |
 | Prepare the environment, run the gates, commit through the hook | Each gate tool's cache both writable and named in every shell, with `UV_CACHE_DIR` and `PRE_COMMIT_HOME` set by `shell_environment_policy.set` and the caches inside the Worktree Root. Each cache keeps to its own directory, not all of `~/.cache` | measured, 0.160.0 |
-| `git ls-remote`, `git push` | Network on, plus a transport that works under the sandbox (F9) | measured over HTTP, 0.160.0; SSH observed failing |
+| `git ls-remote`, `git push` | Network on, plus a transport that works under the sandbox (F9) | measured over HTTP, 0.160.0; measured from a Worker on 0.166.0 against a loopback remote: SSH through the system configuration fails, and HTTPS with `gh` as the helper, SSH with a user-owned `-F` configuration, or an approved escalation each push |
 | `gh` reads | Network on, plus a token in the commands' environment (F7) | observed |
 | `gh` Issue and PR writes, merges | A token with those permissions (F8). A merge also needs the operator's merge authority | observed |
 | Run a pinned harness experiment | Outside the Lead's sandbox and ancestry, as the repository's experiment rules require. The runner's own process writes only its fixture under one dedicated parent. That parent stays out of the measured fixture's grants unless the grant is the scenario under test (F10) | source, with the control write measured; launch unknown |
@@ -539,9 +569,13 @@ asks only about a check that now fails.
 ### 7. Transport (proposed)
 
 The Lead's preflight names the SSH sandbox refusal (done in the skill). The
-operator chooses a remedy from F9 once. The HTTPS and `GIT_SSH_COMMAND`
-options each need a measured push from a Worker before the skill
-recommends either.
+operator chooses a remedy from F9 once. #684 measured a Worker's push and
+lease push under each, so the skill's Codex reference now offers the three
+measured remedies and leaves the choice to the operator (done in the skill).
+Each remedy goes through `shell_environment_policy.set` or the approval
+policy, and none changes the remote. Not measured: a real GitHub remote,
+including a token's workflow permission, and automatic review of an
+escalated push.
 
 ## Maintainer choices
 
@@ -559,8 +593,15 @@ recommends either.
    profile both depend on it (proposal 2).
    [#683](https://github.com/ned2/dashpot/issues/683) documents that the
    setting applies to every Repository.
-5. Which F9 remedy the operator chooses, once
-   [#684](https://github.com/ned2/dashpot/issues/684) has measured each.
+5. Which F9 remedy the operator chooses. All three are measured
+   ([#684](https://github.com/ned2/dashpot/issues/684)), with these
+   tradeoffs:
+   - HTTPS needs `gh` credentials in their own store.
+   - The `-F` configuration was measured with an agent's socket and a
+     pre-seeded known-hosts file.
+   - Escalation needs `on-request`, asks once per escalated command, and
+     runs the pre-push hook outside the sandbox.
+
    There is no machine-wide default.
 6. How a qualification Lead runs pinned experiment runners (F10,
    [#685](https://github.com/ned2/dashpot/issues/685)).
@@ -579,8 +620,13 @@ recommends either.
   ([#679](https://github.com/ned2/dashpot/issues/679)).
 - Measure environment inheritance at 0.162.x for a fresh Lead, a resumed
   Lead and a fresh Worker, through `ned2/env#8`.
-- Measure a Worker's push under each SSH remedy
-  ([#684](https://github.com/ned2/dashpot/issues/684)).
+- Measure each F9 remedy against a real GitHub remote:
+  - the token's workflow permission;
+  - `gh` with a keyring store;
+  - automatic review of an escalated push.
+
+  [#684](https://github.com/ned2/dashpot/issues/684) measured all three
+  against a loopback remote.
 - Decide how a sandboxed Lead launches the pinned runners, and implement
   any runner change with renewed evidence
   ([#685](https://github.com/ned2/dashpot/issues/685)).

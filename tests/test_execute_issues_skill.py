@@ -389,6 +389,21 @@ def test_the_lead_settles_a_permission_posture_before_dispatch() -> None:
     ) in codex
     assert "it blocks binding as the other failures do" in codex
     assert "Never change a remote yourself." in codex
+    # Issue #684: only the measured transport remedies, the user's choice.
+    assert "**A worker's Git transport.** A retained experiment on Codex 0.166.0" in (
+        codex
+    )
+    assert "offer the user these and no other, and leave the choice to them" in codex
+    assert "None changes the remote, and none passes a credential." in codex
+    assert "to `!gh auth git-credential`" in codex
+    assert '`GIT_SSH_COMMAND="ssh -F <user-owned config>"`' in codex
+    assert "first and set `StrictHostKeyChecking yes`" in codex
+    assert "Under `-a never`, Codex rejects every escalated command" in codex
+    assert "pre-push hook then runs outside the sandbox too" in codex
+    assert "\n\n**A worker's Git transport.**" in harnesses
+    assert codex.index("Never change a remote yourself.") < codex.index(
+        "**A worker's Git transport.**"
+    )
     assert "A directory your session can write is not a variable its shells have" in (
         codex
     )
