@@ -238,6 +238,43 @@ failures do, but its remedy is the user's choice: pushing outside the
 sandbox, as their posture allows, or a transport they choose. Record the
 remedy they choose and do not ask again. Never change a remote yourself.
 
+**A worker's Git transport.** A retained experiment on Codex 0.166.0 on
+Linux measured a worker under the resume command below, against a
+disposable remote. Through the system configuration, its `git ls-remote`
+and push failed as above. Three remedies were measured; offer the user
+these and no other, and leave the choice to them. Each is added to the
+resume command with `-c 'shell_environment_policy.set.<NAME>="<value>"'`.
+None changes the remote, and none passes a credential.
+
+- **HTTPS for this session.** Set `GIT_CONFIG_COUNT=2`. The first key and
+  value set `url.https://<host>/.insteadOf` to the remote's SSH prefix,
+  such as `git@github.com:`. The second set `credential.https://<host>.helper`
+  to `!gh auth git-credential`. `gh` reads the token from its own store,
+  which `gh auth login` fills. Codex drops an inherited variable whose name
+  contains `KEY` or `TOKEN`, but not one it sets.
+- **SSH with the user's own configuration.** Set
+  `GIT_SSH_COMMAND="ssh -F <user-owned config>"`, which skips the system
+  configuration. Set `SSH_AUTH_SOCK` to their agent's socket: the worker
+  reached the agent from inside the sandbox. The worker cannot add a host
+  key to a known-hosts file outside its writable directories. With
+  `StrictHostKeyChecking accept-new` the connection still went ahead but
+  recorded nothing, so the measured setup put the host's key in that file
+  first and set `StrictHostKeyChecking yes`.
+- **Pushing outside the sandbox.** Under `-a never`, Codex rejects every
+  escalated command, and nothing is pushed. Under `on-request` with the
+  human reviewer, each push asks the user once, and once they approve it,
+  the push succeeds. The repository's pre-push hook then runs outside the
+  sandbox too.
+
+With HTTPS and with SSH, the worker's `git ls-remote`, first push and
+`--force-with-lease` push succeeded, and its pre-push hook ran inside the
+sandbox. These were not measured:
+
+- GitHub itself, so a token's permission to push workflow changes;
+- `gh` with a keyring store;
+- automatic review of an escalated push;
+- macOS.
+
 Run every check, and `gh auth status`, before you report. If any fails,
 stop before binding and give the user every failure in one message: one
 launch command that remedies the sandbox's failures, and beside it each
