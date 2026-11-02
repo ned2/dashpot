@@ -116,8 +116,23 @@ working directory:
 
 ```toml
 # Where newly prepared Issue Worktrees go.
-worktree_root = '~/projects/.worktrees/dashpot'
+worktree_root = '~/worktrees'
 ```
+
+`worktree_root` names one directory for every Repository on the machine.
+`worktree create` places each new Worktree directly under it, with no
+Repository segment. The leaf is the Branch name with `/` replaced by `-`.
+So every Repository's Worktrees share the directory. While another
+Repository's Worktree occupies a path, `worktree create` refuses it.
+
+Without the setting, each Repository gets its own default pool,
+`<main name>.worktrees/`, beside its main working tree. A
+Repository-specific value such as `~/projects/.worktrees/dashpot` suits
+only a machine with one Repository. To keep a per-Repository root, leave
+`worktree_root` unset. For the commands that should use another root,
+pass `--worktree-root`, or set `DASHPOT_WORKTREE_ROOT` in the environment
+of every checkout that runs them. `--worktree-root` overrides
+`DASHPOT_WORKTREE_ROOT`, which overrides this setting.
 
 An absent, empty, or comment-only file selects defaults. Omit an optional key
 for its default; TOML has no null value. Unknown keys produce a warning and do
