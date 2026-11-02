@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-08-30
-amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0058-record-runtime-events-locally-and-send-none.md, 0059-keep-an-append-only-event-log-in-each-checkout.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md
+amended-by: 0014-fetch-remotes-on-explicit-key-press.md, 0019-remove-branches-and-worktrees-on-explicit-confirmation.md, 0029-preserve-agent-runs-through-declared-codex-relocation.md, 0058-record-runtime-events-locally-and-send-none.md, 0059-keep-an-append-only-event-log-in-each-checkout.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md, 0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md
 ---
 
 # Let named management commands mutate on explicit invocation
@@ -118,3 +118,8 @@ mutation of the targets a person selects.
   the Worker Assignments on the invoking session's own Work Store record,
   through a compare-and-replace. They create no Agent Run and change no
   Issue Binding or location.
+- [ADR 0159](0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md)
+  permits an explicitly invoked preflight to run Codex's sandbox tool with
+  write-free provisioning probes, without starting an Agent Session.
+  Codex's measured helper-directory writes are disclosed; observation and
+  ordinary integration-status checks never run this preflight.
