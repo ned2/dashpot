@@ -220,8 +220,8 @@ Agent Session, they may run `/cd <worktree-path>` in the live Codex client.
 Codex forks the conversation into a new thread at that directory: Dashpot
 observes a new Agent Session with a new hook `session_id`, whose
 `SessionStart` reports `fork` (Codex 0.166.0). The old session's Agent Run
-cannot move with it. Only a person can run `/cd`; the model cannot invoke
-it, and no tool the model holds moves the session.
+cannot move with it. Only a person can run `/cd`; the model cannot invoke it,
+and no tool the model holds moves the session.
 
 1. Finish delegated work and let the turn end. At Codex 0.166.0, `/cd` needs
    an idle primary session with no queued input, active background
