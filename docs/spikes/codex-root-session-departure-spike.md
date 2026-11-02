@@ -27,7 +27,8 @@ Each answer is marked:
   commit `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`, paths under
   `codex-rs/`;
 - **inference**: concluded from the measured and documented facts, not
-  observed.
+  observed;
+- **unknown**: with the reason it is unknown.
 
 ## Answers
 
@@ -39,7 +40,9 @@ Each answer is marked:
 | Does `/cd` free the Issue Worktree for Cleanup? | Only once the old session ends, about 61 s after `/cd`, and only if the client's terminal was started outside the Worktree. A client started inside it keeps a `process` blocker until it exits. | measured |
 | Does `thread/settings/update` free it? | Yes, once the next turn ends at the new directory. The update alone leaves the session placed where its last hook put it. | measured |
 | Can the controller's update move a running turn? | No. Sent while a command of the turn runs, it is accepted, but the rest of that turn keeps the old directory and permissions. It applies from the next turn. | measured; documented, the `cwd` field's "for subsequent turns" in `app-server-protocol/src/protocol/v2/thread.rs` |
-| What is missing upstream? | A same-session directory change that the model can request, the user approves, and that takes effect when the turn ends. | inference |
+| Can a session request a move that takes effect after its turn ends? | No. Nothing the model holds requests a deferred move, and the controller's `thread/settings/update`, which does take effect from the next turn, is out of its reach. | measured; documented |
+| What is missing upstream? | A same-session directory change that the model can request, the user approves, and that takes effect when the turn ends. The request to `openai/codex` is drafted but not filed, and [#681](https://github.com/ned2/dashpot/issues/681) stays open: recording the limitation does not complete it. | inference |
+| Is there an authority and timing contract to record? | No. No route is adopted, so no ADR records one. The `/cd` fallback keeps the contract the skill already gives it: `work stop` before, `work start` in the fork. | inference |
 
 ## Reproduce
 
@@ -124,12 +127,18 @@ to unload.
   `connect` itself, which is the `EPERM` the probe saw. With
   `network_access` on, as the Arc's resume command sets, seccomp allows
   it. The daemon socket mask is then what keeps the control socket out of
-  reach (documented, not measured).
+  reach (documented, `linux-sandbox/src/seccomp.rs` and
+  `append_daemon_socket_masks` in `linux-sandbox/src/bwrap.rs`; not
+  measured).
 - **Unsandboxed sessions.** A session running with `danger-full-access`,
   or with approval to run a command outside the sandbox, could reach the
   control socket. The run does not try it. That would be the model driving
   an experimental, masked control channel against its intent, which is no
   supported route.
+- **Skill flow.** The mock model never runs the `dashpot-issue-work`
+  skill, so the continuation flow, its `work` commands, and a refused,
+  delayed or unknown outcome are outside this run. So are `/cd`'s
+  refusals, which are documented only.
 - **Platforms and clients.** macOS, where Codex sandboxes with Seatbelt,
   other releases, real models and `--remote` clients are unmeasured.
 
@@ -140,9 +149,14 @@ to unload.
 | Every root thread was offered the same thirteen tools: `apply_patch`, `create_goal`, `exec_command`, `get_goal`, `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource`, `request_user_input`, `tool_search`, `update_goal`, `view_image`, `web_search` and `write_stdin`. None changes the session's directory. | measured |
 | `exec_command`'s `workdir` sets one command's directory, not the session's. | documented, `core/src/tools/handlers/shell_spec.rs` |
 | A hook can return a decision, context or updated tool input, but no directory: `cwd` appears only in hook inputs. | documented, `hooks/src/schema.rs` |
-| Each user turn also made one auxiliary model request, on a thread id that published no hook, offered `apply_patch` alone. What it serves is not established. | measured; its purpose unknown |
+| Each user turn also made one auxiliary model request, on a thread id that published no hook, offered `apply_patch` alone. | measured |
+| What that auxiliary request serves. | unknown: the fixture records no request content beyond its labels, and the run did not trace it in the source |
 | `/cd` is a TUI command, typed by the person. It is refused while a turn is pending or running, so the model cannot issue it as part of its turn. | documented, `tui/src/chatwidget/slash_dispatch.rs` |
 | `thread/settings/update` is an experimental app-server method. Its `cwd` overrides "the working directory for subsequent turns". | documented, `app-server-protocol/src/protocol/common.rs`, `app-server-protocol/src/protocol/v2/thread.rs` |
+| A client must declare the `experimentalApi` capability at `initialize` to call an experimental method; the fixture's controller did. | documented, `experimental_api` in `app-server-protocol/src/protocol/v1.rs`, checked in `app-server/src/message_processor.rs`; the runner's `initialize` |
+| `turn/start` takes a `cwd` too, overriding "the working directory for this turn and subsequent turns". It starts a turn, so it is a controller's call, not the model's. | documented, `app-server-protocol/src/protocol/v2/turn.rs` |
+| The experimental `turn/settings/update` changes a running turn's reviewer, model, effort, summary and service tier, but takes no `cwd`: nothing moves a turn that has started. | documented, `app-server-protocol/src/protocol/v2/turn.rs` |
+| Every one of these app-server methods is reached only through the daemon's control socket, or a client's own connection, which the model's commands cannot reach (below). | inference |
 | `thread/resume`'s overrides are still ignored while the thread is running or has subscribers ("config overrides were provided and ignored while running"). | documented, `app-server/src/request_processors/thread_processor.rs` |
 | None of the 0.166.0 command-line additions, `codex queue`, `codex agents` and `codex app-server proxy`, sets an existing thread's directory. `codex queue --resume` goes through the daemon and resumes an unloaded thread with no overrides. | documented, `cli/src/main.rs`, `tui/src/session_queue_commands.rs` |
 | No sandboxed probe could reach the app-server, whether a daemon ran or not. The control socket was not visible, `connect` failed with `EPERM`, and the shared daemon directory could not be read (`EACCES`). | measured |
@@ -155,11 +169,12 @@ to unload.
 | --- | --- |
 | `/cd` forks. In every scenario the next turn ran on a new session id, whose `SessionStart` reported `source` `fork` and the destination as its `cwd`. Its first request carried the earlier turn's label, so the history moved with it. | measured |
 | The fork's sandbox follows it. Before `/cd`, the Issue Worktree was writable and the main Worktree read-only (`EROFS`); after it, the reverse. | measured |
+| Hook order: the fork publishes `SessionStart` at its first turn, followed by its `UserPromptSubmit` and `Stop`. The old session publishes nothing more until its `SessionEnd`. | measured |
 | The old session is unsubscribed, not ended. It stayed live in the Issue Worktree, and Cleanup's `agent-session` blocker held it, until its `SessionEnd`, `reason` `other`, 61.2 s, 61.0 s and 61.1 s after `/cd`. Standalone and daemon-hosted clients behave alike. | measured; the unsubscribe documented, `tui/src/app/working_directory.rs` |
 | A daemon-hosted fork ends about 60 s after its client exits (60.2 s twice); a standalone one ends with its client. | measured |
 | With the terminal started outside the Worktree, the Issue Worktree was removable once the old session ended. | measured |
 | With the terminal started inside it, Cleanup's `process` blocker named `script`, `sh` and `codex` before `/cd`, after the fork's turn, and after the old session ended. The Worktree became removable only once the client exited. | measured |
-| `/cd` needs an idle primary session with no queued input, no active background terminal and no other running agent. It also needs saved conversation history, a trusted destination or the person's consent to trust it, and no unconfirmed named permission profile. It refuses a remote workspace or execution environment. | documented, `tui/src/app/working_directory.rs` |
+| `/cd` needs an idle primary session with no queued input, no active background terminal and no other running agent. It also needs saved conversation history, a trusted destination or the person's consent to trust it, and no unconfirmed named permission profile; through a remote app server, no named profile at all. It refuses a remote workspace or execution environment. | documented, `tui/src/app/working_directory.rs` |
 | The skill's fallback contract still holds: the old run cannot follow a fork, so `work stop` first and `work start` in the new session. | inference |
 
 ## 3. The controller's `thread/settings/update`
@@ -174,8 +189,10 @@ to unload.
 ## Implications for the skill
 
 - **Leaving an Issue Worktree** stays a person's step: exiting the client,
-  then `codex resume <session-id> -C <directory>`, or `/cd`. The finish step
-  says the model cannot move its own session.
+  then `codex resume <session-id> -C <directory>`. `/cd` forks a new
+  session rather than moving this one, and the skill keeps it to the
+  dispatch handoff it already offered. The finish step says the model
+  cannot move its own session.
 - **`-C` and `/cd` move the session, not the client process.** A client
   started from a terminal inside the Worktree keeps it from Cleanup as a
   `process` blocker until it exits. The resume and fresh `-C` commands are

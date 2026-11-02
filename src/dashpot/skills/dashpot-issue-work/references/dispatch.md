@@ -227,7 +227,7 @@ and no tool the model holds moves the session.
    an idle primary session with no queued input, active background
    terminals, or other running agent, saved conversation history, and a
    trusted target directory or the user's consent to trust it. It refuses
-   a remote workspace.
+   a remote workspace and a named permission profile not yet confirmed.
 2. If `<dashpot> work show` reports an active Agent Run for this session, run
    `<dashpot> work stop` first. Do not run `work relocate`: a forked thread
    cannot complete a Relocation Intent.
@@ -238,9 +238,9 @@ and no tool the model holds moves the session.
 
 The old session stays where it was: Dashpot shows it live there, and
 Cleanup's `agent-session` blocker holds that Worktree, until Codex unloads
-it about a minute after `/cd`. `/cd` does not move the client process
-either, so a client whose terminal started inside that Worktree keeps it
-from Cleanup as a `process` blocker until the client exits.
+it about a minute after `/cd`. Like `-C`, `/cd` does not move the client
+process, so the `process` blocker described under
+[Resume a Codex session](#resume-a-codex-session) applies.
 
 `/worktree` does not apply: it creates a managed detached checkout instead of
 entering a prepared Issue Worktree.

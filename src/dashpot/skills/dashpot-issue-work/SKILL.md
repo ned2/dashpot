@@ -83,8 +83,8 @@ is the instruction to do so; do not wait for the user to ask:
   that. A daemon-hosted thread ends about 60 s after its last client leaves.
   Codex never changes its client process's directory, so if the client's
   terminal was started inside the Worktree, that client and terminal keep
-  it from Cleanup as running processes until they exit or leave it; run the
-  resume command from a terminal outside it.
+  it from Cleanup as running processes until they exit or leave it, so the
+  user should run the resume command from a terminal outside it.
 - **OpenCode.** Move the session to the Repository's main Worktree, the
   first entry of `git worktree list`, with steps 2 and 3 of the
   [OpenCode move](references/dispatch.md#move-an-opencode-session), and only after `show` reports

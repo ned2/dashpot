@@ -494,12 +494,11 @@ orphaned run.
 refuses a Codex worker's `work` commands that would change your Issue work,
 as running in a sub-agent. No tool you hold moves it either, and your
 sandbox hides the app-server's control socket from your commands (measured
-on Codex 0.166.0). Only the user moves your session: by resuming it with
-`-C` after your client exits, or with `/cd`, which forks a new session and
-leaves the old one in place until Codex unloads it about a minute later.
-Neither moves the client process. A client whose terminal started inside a
-Worktree keeps it from Cleanup, as a `process` blocker, until that client
-exits.
+on Codex 0.166.0). The user moves it by resuming it with `-C` after your
+client exits. `/cd` does not move it: it forks a new session and leaves
+yours in place until Codex unloads it about a minute later. Neither moves
+the client process: a client whose terminal started inside a Worktree keeps
+it from Cleanup, as a `process` blocker, until that client exits.
 
 **Reviewer.** A v2 worker can `spawn_agent` its reviewer, but each spawn
 counts against the session's limit. With the default limit and a full
