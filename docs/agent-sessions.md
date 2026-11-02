@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-05
+date: 2026-11-02
 ---
 
 # Agent sessions
@@ -100,7 +100,7 @@ its liveness is unknown, and gives its harness's way out of the Worktree:
 | Harness | Move the session out | Or end it |
 | --- | --- | --- |
 | Claude Code | A session `EnterWorktree` brought here runs `ExitWorktree` with `action: keep`, which still works after the session is resumed here. One whose shell came by `cd` changes back to the checkout it started in; its next hook then places it there, leaving any Agent Run behind ([ADR 0074](adr/0074-carry-a-claude-code-run-only-on-its-worktree-tools.md)). A session started in this Worktree has neither: `ExitWorktree` is a no-op there and a `cd` out of its project is reset, so it is ended, or moved by `EnterWorktree` to a sibling linked Worktree ([measured at 2.1.286](agent-harness-server-client-reference.md#worktree-tools-between-issue-worktrees-at-21286)) | End the session |
-| Codex | Once its client exits, `codex resume <id> -C <worktree>` resumes it elsewhere; a session holding an Agent Run first declares the move with `dashpot work relocate <worktree>` ([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)) | End its client. A daemon-hosted thread stays loaded, and keeps the Worktree, until the daemon unloads it about 60 s after its last client leaves ([Codex hosting modes](#codex-hosting-modes)) |
+| Codex | Once its client exits, `codex resume <id> -C <worktree>` resumes it elsewhere; a session holding an Agent Run first declares the move with `dashpot work relocate <worktree>` ([ADR 0029](adr/0029-preserve-agent-runs-through-declared-codex-relocation.md)). The model cannot move its own session; `-C` moves the session and `/cd` forks it, but neither moves the client process, so a client whose terminal started inside the Worktree holds the [`process` blocker](#processes-inside-a-worktree) until it exits ([departure spike](spikes/codex-root-session-departure-spike.md)) | End its client. A daemon-hosted thread stays loaded, and keeps the Worktree, until the daemon unloads it about 60 s after its last client leaves ([Codex hosting modes](#codex-hosting-modes)) |
 | OpenCode | Move it to another location in OpenCode; within the Repository a bound Agent Run moves with it ([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md#moves)) | Delete it with `opencode session delete <id>`, or stop the OpenCode server it runs in, with `opencode service stop` or by quitting its `--standalone` client, which orphans every Agent Run on that server; quitting a client of the shared service leaves it running ([OpenCode hosting modes](#opencode-hosting-modes)) |
 
 When the liveness is unknown because the Host Process could not be observed,
@@ -920,6 +920,11 @@ the conversation into a new thread there, so Dashpot observes a new Agent
 Session with its own hook `session_id`, which declares its own Issue work
 with `work start` after the old session ends its run with `work stop`
 ([working-directory change](agent-harness-server-client-reference.md#working-directory-change-and-worktree-commands)).
+At 0.166.0 the fork's `SessionStart` reports `source` `fork`, and the old
+session stays live where it was until Codex unloads it about a minute later.
+No model tool moves a Codex session, so only a person, or an external
+controller ([#148](https://github.com/ned2/dashpot/issues/148)), moves one
+([departure spike](spikes/codex-root-session-departure-spike.md)).
 A shell tool's `cd` remains
 repository preparation rather than session relocation.
 

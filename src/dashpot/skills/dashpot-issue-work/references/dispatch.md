@@ -171,6 +171,13 @@ environment, and a terminal launched with `--disable daemon_auto_start`
 hosts its session itself with that environment: then suggest running the
 command from a terminal where `gh` works, such as one in the main checkout.
 
+`-C` places the session, not the client process: Codex never changes its
+own process's directory, so the client keeps the directory of the terminal
+that runs the command. Cleanup's `process` blocker counts that client, and
+the terminal's shell, inside whatever Worktree that directory is in, until
+both leave. Suggest a terminal outside every Worktree the user may later
+remove, such as one in the main checkout.
+
 1. Run `<dashpot> integrate codex --status` and capture the confirmed Agent
    Session Identity.
 2. Run `codex resume --help`. Prefer resume only when this Codex version supports
@@ -212,13 +219,15 @@ When the user prefers to keep the model's context without preserving the
 Agent Session, they may run `/cd <worktree-path>` in the live Codex client.
 Codex forks the conversation into a new thread at that directory: Dashpot
 observes a new Agent Session with a new hook `session_id`, whose
-`SessionStart` reports `startup` and names no parent thread (Codex 0.154.0).
-The old session's Agent Run cannot move with it. Only a person can run `/cd`;
-the model cannot invoke it.
+`SessionStart` reports `fork` (Codex 0.166.0). The old session's Agent Run
+cannot move with it. Only a person can run `/cd`; the model cannot invoke it,
+and no tool the model holds moves the session.
 
-1. Finish delegated work and let the turn end. At Codex 0.154.0, `/cd` needs
-   an idle primary session with no queued input, active background terminals,
-   or running side agent, and a trusted target directory.
+1. Finish delegated work and let the turn end. At Codex 0.166.0, `/cd` needs
+   an idle primary session with no queued input, active background
+   terminals, or other running agent, saved conversation history, and a
+   trusted target directory or the user's consent to trust it. It refuses
+   a remote workspace and a named permission profile not yet confirmed.
 2. If `<dashpot> work show` reports an active Agent Run for this session, run
    `<dashpot> work stop` first. Do not run `work relocate`: a forked thread
    cannot complete a Relocation Intent.
@@ -226,6 +235,12 @@ the model cannot invoke it.
    from the fallback command above as the first turn there.
 4. In the new session, declare Issue work only with `work start`. Never infer
    it from the inherited history or the destination path.
+
+The old session stays where it was: Dashpot shows it live there, and
+Cleanup's `agent-session` blocker holds that Worktree, until Codex unloads
+it about a minute after `/cd`. Like `-C`, `/cd` does not move the client
+process, so the `process` blocker described under
+[Resume a Codex session](#resume-a-codex-session) applies.
 
 `/worktree` does not apply: it creates a managed detached checkout instead of
 entering a prepared Issue Worktree.
