@@ -54,7 +54,8 @@ check("source identity", () => {
   assert.equal(environment.checkout.experimentDirty, false, "the experiment's sources were committed when the run began");
 });
 check("detached from every harness", () => {
-  assert(!environment.ancestry.some((entry) => /^(codex|claude|opencode)/.test(entry.comm)));
+  assert(environment.runnerParent === 1 || environment.ancestry[0]?.pid === environment.runnerParent, "the runner's parent is init or the first recorded ancestor");
+  assert(environment.ancestry.every((entry) => entry.harness === false && !/^(codex|claude|opencode)/.test(entry.comm)), "no harness above the runner");
 });
 check("completed without failure", () => {
   for (const kind of ["failure", "server.error", "scenario.timeout", "cleanup.kill", "model.other"]) assert.equal(of(kind).length, 0, `no ${kind} record`);
@@ -77,7 +78,7 @@ check("host: root-owned system configuration and fragment, and every transport w
   assert.deepEqual([host.systemConfig.uid, host.systemConfig.mode], [0, "644"]);
   assert(host.includes.includes("Include /etc/ssh/ssh_config.d/*.conf"));
   const fragment = host.fragments.find((entry) => entry.name === "20-systemd-ssh-proxy.conf");
-  assert.deepEqual([fragment.symlink, fragment.uid, fragment.mode], [true, 0, "644"]);
+  assert.deepEqual([fragment.symlink, fragment.target, fragment.uid, fragment.mode], [true, "/usr/lib/systemd/ssh_config.d/20-systemd-ssh-proxy.conf", 0, "644"]);
   assert.equal(host.sshThroughSystem.status, 0);
   assert.deepEqual(host.controls.map((control) => [control.name, control.status, control.refs]), [["baseline", 0, 2], ["ssh-config", 0, 2], ["https", 0, 2]]);
   assert.equal(host.agentKeys, 1);
@@ -139,7 +140,7 @@ check("F9 reproduces inside the sandbox", () => {
     const probe = report(name, "probe");
     assert.notEqual(probe.uid, 0, `${name}: an ordinary uid`);
     assert.deepEqual([probe.fragment.symlink, probe.fragment.uid, probe.fragment.mode], [true, 65534, "644"], `${name}: fragment as uid 65534`);
-    assert.equal(probe.systemConfig.uid, 65534, `${name}: system configuration as uid 65534`);
+    assert.deepEqual([probe.systemConfig.uid, probe.systemConfig.mode], [65534, "644"], `${name}: system configuration as uid 65534`);
     assert.deepEqual([probe.sshThroughSystem.status, probe.sshThroughSystem.lines], [255, [refusal]], `${name}: ssh -G refuses the fragment`);
     assert.deepEqual(probe.outsideWrite, { ok: false, error: "EROFS" }, `${name}: sandboxed`);
     assert(!probe.envNames.some((variable) => /TOKEN/.test(variable)), `${name}: no token variable in the Worker's shell`);
@@ -198,7 +199,7 @@ check("baseline: ls-remote and push fail on the fragment before connecting", () 
   assert.equal(of("remote.request").filter((record) => record.scenario === "baseline").length, 0);
 });
 
-check("remedy 1, HTTPS: insteadOf and gh's credential helper carry every operation", () => {
+check("HTTPS remedy: insteadOf and gh's credential helper carry every operation", () => {
   const probe = report("https", "probe");
   const commandKeys = probe.gitConfigKeys.filter(([scope]) => scope === "command").map(([, key]) => key);
   assert.equal(commandKeys.length, 2);
@@ -222,10 +223,11 @@ check("remedy 1, HTTPS: insteadOf and gh's credential helper carry every operati
   assert.deepEqual([outcome("https").sshSessions, sessionsDuring("https")], [[], 0], "no SSH session");
 });
 
-check("remedy 2, GIT_SSH_COMMAND with a user-owned -F: agent, known hosts and every operation", () => {
+check("SSH -F remedy: a user-owned configuration, the agent, known hosts and every operation", () => {
   const probe = report("ssh-config", "probe");
-  assert.deepEqual(probe.sshCommand, { status: 0, lines: [], hostname127: true, port: environment.ports.ssh, batchMode: true, identitiesOnly: true });
-  assert.deepEqual(probe.agent, { status: 0, keys: 1, lines: [] }, "the agent's socket outside every writable root answers");
+  assert.deepEqual(probe.sshCommand, { status: 0, lines: [], hostname127: true, port: environment.ports.ssh, batchMode: true, identitiesOnly: true,
+    strictHostKeyChecking: "true", knownHostsSeeded: true }, "strict host key checking against a pre-seeded known-hosts file");
+  assert.deepEqual(probe.agent, { status: 0, keys: 1, lines: [], directoryWrite: { ok: false, error: "EROFS" } }, "the agent's socket, outside every writable root, answers");
   assert.deepEqual(probe.transport, { fetch: "ssh", push: "ssh" });
   assert.equal(probe.gitConfigKeys.filter(([scope]) => scope === "command").length, 0);
   assert.equal(report("ssh-config", "ls-remote").status, 0);
@@ -240,7 +242,7 @@ check("remedy 2, GIT_SSH_COMMAND with a user-owned -F: agent, known hosts and ev
 });
 
 const neverRejection = "approval policy is Never; reject command — you cannot ask for escalated permissions if the approval policy is Never";
-check("remedy 3 under never: each escalation is rejected and nothing reaches the remote", () => {
+check("escalation remedy under never: each escalation is rejected and nothing reaches the remote", () => {
   for (const step of ["ls-remote", "push"]) assert.deepEqual(report("escalated-never", step).lines, [refusal, "fatal: Could not read from remote repository."]);
   const outputs = outcome("escalated-never").workerOutputs;
   assert.deepEqual(outputs.slice(1), [neverRejection, neverRejection], "both escalated calls rejected without running");
@@ -249,7 +251,7 @@ check("remedy 3 under never: each escalation is rejected and nothing reaches the
   assert.deepEqual([outcome("escalated-never").remote, outcome("escalated-never").sshSessions, sessionsDuring("escalated-never")], [{ head: null, receives: [] }, [], 0]);
 });
 
-check("remedy 3 under on-request: approved escalations push, and the pre-push hook runs unsandboxed", () => {
+check("escalation remedy under on-request: approved escalations push, and the pre-push hook runs unsandboxed", () => {
   for (const step of ["ls-remote", "push"]) assert.deepEqual(report("escalated-approved", step).lines, [refusal, "fatal: Could not read from remote repository."], "the sandboxed attempt fails first");
   const approvals = of("approval").filter((record) => record.scenario === "escalated-approved");
   assert.deepEqual(approvals.map((record) => [record.method, record.steps, record.decision]), [

@@ -59,8 +59,9 @@ const expectedVersion = process.argv[3] ?? "0.166.0";
 // A fixture below a harness session would run inside that session's own
 // sandbox, if it has one, and its processes would join that session's tree.
 const runnerAncestry = ancestry(process.ppid, 64, 1);
-const harnessAbove = runnerAncestry.find((entry) => entry.comm.startsWith("codex") || entry.comm === "claude"
-  || entry.comm === "opencode" || /^\S*\/claude\/versions\/[^\s/]+(\s|$)/.test(entry.cmdline));
+const isHarness = (entry) => entry.comm.startsWith("codex") || entry.comm === "claude"
+  || entry.comm === "opencode" || /^\S*\/claude\/versions\/[^\s/]+(\s|$)/.test(entry.cmdline);
+const harnessAbove = runnerAncestry.find(isHarness);
 assert(!harnessAbove, `Run this outside every harness session (for example with \`setsid -f\`): pid ${harnessAbove?.pid} is ${harnessAbove?.comm}`);
 
 // `workspace-write` makes `/tmp` writable by default, so the fixture lives
@@ -579,7 +580,7 @@ try {
     binaryTarget: execFileSync("readlink", ["-f", binary], { encoding: "utf8" }).trim(), binarySHA256: sha(readFileSync(binary)),
     checkout: { head: headRevision, experimentDirty: dirty }, sourceSHA256: sourceDigests(),
     config: readFileSync(configPath, "utf8"), updater: JSON.parse(readFileSync(daemonSettingsPath, "utf8")),
-    hostEnvironmentNames: Object.keys(env).sort(), ancestry: runnerAncestry.map((entry) => ({ pid: entry.pid, comm: entry.comm })),
+    hostEnvironmentNames: Object.keys(env).sort(), runnerParent: process.ppid, ancestry: runnerAncestry.map((entry) => ({ pid: entry.pid, comm: entry.comm, harness: isHarness(entry) })),
     sharedDaemonDirBefore: sharedBefore.length, ports: { ssh: sshPort, https: httpsPort } });
 
   // The host's own view, outside every sandbox: the fragment's ownership, and
@@ -590,12 +591,8 @@ try {
   const fragmentFiles = readdirSync("/etc/ssh/ssh_config.d").sort();
   const includes = readFileSync("/etc/ssh/ssh_config", "utf8").split("\n").filter((line) => /^\s*Include\s/i.test(line)).map((line) => line.trim());
   const hostSsh = run("ssh", ["-F", "/etc/ssh/ssh_config", "-G", "fixture-forge"]);
-  const control = (name, extra) => {
-    const ran = run("git", ["-C", main, "ls-remote", "origin"], { env: { ...env, ...extra } });
-    return { name, status: ran.status, refs: ran.stdout.trim().split("\n").filter(Boolean).length, lines: clean(ran.stderr).split("\n").filter((line) => /fatal|error|denied|Bad owner/.test(line)).slice(0, 4) };
-  };
   // The control commands run asynchronously: this process serves HTTPS.
-  const controlAsync = (name, extra) => new Promise((resolve) => {
+  const control = (name, extra) => new Promise((resolve) => {
     const child = spawn("git", ["-C", main, "ls-remote", "origin"], { env: { ...env, ...extra }, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = ""; let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });
@@ -605,7 +602,7 @@ try {
   });
   trace("host", { systemConfig: lstatOf("/etc/ssh/ssh_config"), includes, fragments: fragmentFiles.map((name) => ({ name, ...lstatOf(path.join("/etc/ssh/ssh_config.d", name)) })),
     sshThroughSystem: { status: hostSsh.status, lines: clean(hostSsh.stderr).split("\n").filter(Boolean).slice(0, 4) },
-    controls: [control("baseline", remedies.baseline), control("ssh-config", remedies["ssh-config"]), await controlAsync("https", remedies.https)],
+    controls: [await control("baseline", remedies.baseline), await control("ssh-config", remedies["ssh-config"]), await control("https", remedies.https)],
     agentKeys: run("ssh-add", ["-l"], { env: { ...env, SSH_AUTH_SOCK: agentSocket } }).stdout.trim().split("\n").filter(Boolean).length });
 
   for (const name of scenarioNames) {

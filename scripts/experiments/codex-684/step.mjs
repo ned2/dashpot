@@ -67,9 +67,10 @@ const owner = (file) => {
     return { symlink: link.isSymbolicLink(), target: link.isSymbolicLink() ? readlinkSync(file) : null, uid: target.uid, gid: target.gid, mode: (target.mode & 0o7777).toString(8) };
   } catch (error) { return { error: error.code ?? String(error.message) }; }
 };
-const outsideWrite = (name) => {
-  try { writeFileSync(path.join(outside, name), "fixture\n"); return { ok: true }; } catch (error) { return { ok: false, error: error.code ?? String(error.message).slice(0, 120) }; }
+const writeAt = (file) => {
+  try { writeFileSync(file, "fixture\n"); return { ok: true }; } catch (error) { return { ok: false, error: error.code ?? String(error.message).slice(0, 120) }; }
 };
+const outsideWrite = (name) => writeAt(path.join(outside, name));
 // A git operation's outcome: status, classified lines, the pre-push hook's
 // reports, and the head before and after.
 const gitOutcome = (ran) => ({ status: ran.status, ok: ran.status === 0, ms: ran.ms, lines: lines(ran.stderr), prepush: prepush(ran.stderr) });
@@ -85,9 +86,16 @@ const actions = {
   probe: () => {
     const sshThroughSystem = run("ssh", ["-F", "/etc/ssh/ssh_config", "-G", "fixture-forge"]);
     const sshCommand = process.env.GIT_SSH_COMMAND ? run("sh", ["-c", `${process.env.GIT_SSH_COMMAND} -G fixture-forge`]) : null;
+    // Whether the resolved known-hosts file already names the fixture host,
+    // read from inside the sandbox.
+    const seeded = (ran) => {
+      const file = /^userknownhostsfile (\S+)/m.exec(ran.stdout)?.[1];
+      return file ? run("ssh-keygen", ["-F", "fixture-forge", "-f", file]).status === 0 : null;
+    };
     const resolved = (ran) => ran && { status: ran.status, lines: lines(ran.stderr),
       hostname127: /^hostname 127\.0\.0\.1$/m.test(ran.stdout), port: Number(/^port (\d+)$/m.exec(ran.stdout)?.[1] ?? 0) || null,
-      batchMode: /^batchmode yes$/m.test(ran.stdout), identitiesOnly: /^identitiesonly yes$/m.test(ran.stdout) };
+      batchMode: /^batchmode yes$/m.test(ran.stdout), identitiesOnly: /^identitiesonly yes$/m.test(ran.stdout),
+      strictHostKeyChecking: /^stricthostkeychecking (\S+)$/m.exec(ran.stdout)?.[1] ?? null, knownHostsSeeded: ran.status === 0 ? seeded(ran) : null };
     const agent = process.env.SSH_AUTH_SOCK ? run("ssh-add", ["-l"]) : null;
     const configKeys = git("config", "--list", "--show-scope", "--name-only").stdout.trim().split("\n").filter(Boolean).map((line) => line.split("\t"));
     const url = git("config", "--get", "remote.origin.url").stdout;
@@ -101,7 +109,10 @@ const actions = {
       remoteUrl: { scheme: scheme(url), sha256: digest(url.trim()), pushUrls: git("config", "--get-all", "remote.origin.pushurl").stdout.trim().split("\n").filter(Boolean).length },
       systemConfig: owner("/etc/ssh/ssh_config"), fragment: owner(fragment),
       sshThroughSystem: resolved(sshThroughSystem), sshCommand: resolved(sshCommand),
-      agent: agent && { status: agent.status, keys: agent.stdout.trim().split("\n").filter(Boolean).length, lines: lines(agent.stderr) },
+      agent: agent && { status: agent.status, keys: agent.stdout.trim().split("\n").filter(Boolean).length, lines: lines(agent.stderr),
+        // A control write beside the socket: refused when its directory is
+        // outside every writable root.
+        directoryWrite: writeAt(path.join(path.dirname(process.env.SSH_AUTH_SOCK), `${label}-probe`)) },
       outsideWrite: outsideWrite(`${label}-probe`),
     };
   },
