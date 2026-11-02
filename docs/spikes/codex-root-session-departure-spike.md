@@ -193,9 +193,9 @@ to unload.
   session rather than moving this one, and the skill keeps it to the
   dispatch handoff it already offered. The finish step says the model
   cannot move its own session.
-- **`-C` and `/cd` move the session, not the client process.** A client
-  started from a terminal inside the Worktree keeps it from Cleanup as a
-  `process` blocker until it exits. The resume and fresh `-C` commands are
+- **`-C` moves the session and `/cd` forks it; neither moves the client
+  process.** A client started from a terminal inside the Worktree keeps it
+  from Cleanup as a `process` blocker until it exits. The resume and fresh `-C` commands are
   best run from a terminal outside every Worktree the user may later
   remove.
 - **After `/cd` the old session stays about a minute.** A Cleanup run at
