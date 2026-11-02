@@ -30,7 +30,13 @@ const one = (kind, predicate = () => true) => {
 };
 const sha = (data) => createHash("sha256").update(data).digest("hex");
 const checks = [];
-const check = (claim, test) => { test(); checks.push(claim); };
+// A failed check names its claim, so a refusal says which result it rejects.
+const check = (claim, test) => {
+  try { test(); } catch (error) {
+    throw new assert.AssertionError({ message: `[${claim}] ${error.message}`, actual: error.actual, expected: error.expected, operator: error.operator });
+  }
+  checks.push(claim);
+};
 
 // The run: unbroken, complete, detached, pinned and free of credentials.
 records.forEach((record, index) => {
