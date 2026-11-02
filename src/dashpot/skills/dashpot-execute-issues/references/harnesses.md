@@ -2,8 +2,9 @@
 
 Reference for [dashpot-execute-issues](../SKILL.md). Read the section for
 the harness your session runs in. Each one says how to launch, message,
-wait for, resume and stop a worker, how a worker reports, where a worker's
-reviewer runs, and the fallback where a mechanism is missing. The brief
+wait for, resume and stop a worker, how a worker reports, where you create
+a worker's scratch directory, where a worker's reviewer runs, and the
+fallback where a mechanism is missing. The brief
 template's `{REPORTING}` placeholder takes the worker-side text from here.
 
 In every harness:
@@ -19,6 +20,15 @@ In every harness:
   **Worker ID** says where you get it.
 - A worker sees the skills installed for its harness, but needs none of
   them: its brief carries what it needs.
+- Each worker gets a scratch directory of its own. Create it inside the
+  Worktree Root that `worktree create` reports, under a name no other arc
+  can take:
+  `mkdir -p <Worktree Root>/.scratch && mktemp -d <Worktree Root>/.scratch/<worker name>.XXXXXX`,
+  which prints the new directory's path. It sits outside every checkout,
+  so no repository's configuration reaches a fixture there. Every arc
+  that shares the Worktree Root shares `.scratch` too: remove only your
+  workers' directories from it. Each section's **Scratch directories**
+  says why this location suits that harness.
 - Under the user's selected posture, an automatic reviewer may permit
   eligible actions. An agent's message, yours included, cannot grant user
   authority or clear a harness denial; decisions reserved for a person
@@ -29,12 +39,34 @@ In every harness:
 
 ## Claude Code
 
+Measured on Claude Code 2.1.287 on Linux, in the experiment this section
+was first written from, except where a paragraph names its own source:
+documented, from Claude Code's documentation; measured, in a retained
+experiment; or seen, in a session but in no retained experiment.
+
 **Invoke** the skill with `/dashpot-execute-issues`. Its
 `disable-model-invocation: true` hides it from the model.
 
-**Launch.** Call `Agent` with a `description`, a short `prompt` pointing at
-the brief, and `run_in_background: true`. The call returns at once with the
-worker's agentId; address the worker by that ID. Your turn goes on.
+**Launch.** Call `Agent` with `subagent_type: "general-purpose"`, a
+`description`, and a short `prompt` pointing at the brief. The call returns
+at once with the worker's agentId; address the worker by that ID. Your turn
+goes on. Documented unless marked:
+
+- **In the background by default.** A sub-agent launched from your main
+  conversation runs in the background. In an interactive session, fork
+  mode keeps it there; fork mode is on by default in the terminal from
+  v2.1.232, and from v2.1.302 in `claude -p`, the Agent SDK, the desktop
+  app and VS Code. There the `Agent` tool has no `run_in_background`
+  parameter (seen on 2.1.291 and 2.1.316, not measured). Where the tool
+  offers it, pass `run_in_background: true` (not documented: the
+  documentation no longer names the parameter).
+- **The type.** A call without `subagent_type` gets `general-purpose`
+  too. Only `subagent_type: "fork"` launches a fork, which inherits your
+  whole conversation in place of the brief.
+- **Never pass `name` or `isolation`.** With agent teams enabled, a call
+  with a `name` launches a teammate instead, in your session's working
+  directory. `isolation: "worktree"` runs the worker in a worktree Claude
+  Code creates, not in its Issue Worktree.
 
 **Worker ID.** The agentId. Assign the worker by it once the launch returns.
 
@@ -45,21 +77,51 @@ running worker hands back.
 
 **Worker reports.** A worker calls `SendMessage` with `to: "main"`. An idle
 lead gets a new turn with the message; a busy one gets it at its next tool
-round. `{REPORTING}`: "To tell the lead something mid-flight, call
-SendMessage with `to: "main"`, then carry on. Your final message is your
-hand-back."
+round. In auto mode, from v2.1.271, Claude Code gives each worker, a local
+sub-agent that is not a fork, the `SubagentHandback` tool: its hand-back
+goes through that call, and the classifier reviews it before you read it
+(documented; measured on 2.1.285, seen on 2.1.316). A worker that ends with a plain final
+message there is prompted again to call it (measured on 2.1.285).
+`{REPORTING}`: "To tell the lead something mid-flight, call SendMessage
+with `to: "main"`, then carry on. In auto mode your hand-back is your
+`SubagentHandback` call, which Claude Code gives you there; otherwise it
+is your final message."
+
+**Scratch directories.** A worker inherits your session's scratch
+directory, so siblings would share it (seen in an arc, not measured).
+Create each worker's own inside the Worktree Root, as every harness does
+([In every harness](#worker-mechanics-by-harness)).
 
 **Messaging a worker.** `SendMessage` to its agentId arrives at the
 worker's next tool round.
 
 **Completion.** A `<task-notification>` wakes you, with `status`
-`completed` and the worker's final message as its `result`. A status of
+`completed` and the worker's hand-back as its `result`. A status of
 `stopped`, `killed` or `failed` is a hand-back with no report: treat it as
 a blocker.
 
 **Resume.** `SendMessage` to a finished worker's agentId resumes it with
 its whole transcript, and a second notification follows when it finishes
 again.
+
+**Long commands.** Documented, not measured. On v2.1.285 to v2.1.287 in
+every session, and from v2.1.288 in a session that runs unattended, such
+as `claude -p`, an Agent SDK application, a CI job or a cloud session,
+Claude Code stops a background Bash command 30 minutes after it starts,
+or 10 in a `claude -p` run given its prompt as text, unless it passes a
+`timeout` with `run_in_background`, of up to 2 hours.
+The stop notice reads `Background command "<description>" was stopped
+after reaching its background time limit`. From v2.1.288, a local session
+in a terminal, the desktop app or VS Code has no such limit. A `Monitor`
+watch ends at its deadline in every session: 5 minutes by default, at
+most 30, and at most 10 in a `claude -p` run given a single prompt. When your session runs one of those releases or runs
+unattended, add to the brief's gotchas: "Start a gate run or CI watch
+that may outlast <the limit> in the background with an explicit
+`timeout` of up to 2 hours (7200000 ms). If one is stopped at its time
+limit, start it again with a longer `timeout`." In every session, add:
+"A `Monitor` watch ends within 30 minutes, whatever it watches: when it
+ends, read the state before you act, and start it again if the work goes
+on."
 
 **Stopping a worker.** Avoid `TaskStop`: it publishes no stop to Dashpot,
 which leaves the `sub-agent` blocker up until your session ends. It also
@@ -75,9 +137,29 @@ with `dashpot-issue-work` and relaunch the workers on their briefs.
 
 **Location.** With you in the main checkout, Claude Code refuses a
 worker's `EnterWorktree` and `ExitWorktree`, so a worker cannot move your
-session with them. From a lead already inside a linked Worktree that was
-not measured, which is one more reason the brief forbids moving any
-session.
+session with them. Whether a worker can move a lead inside a linked
+Worktree is not measured, which is one more reason the brief forbids
+moving any session.
+
+Claude Code isolates a session in a linked Worktree, and every sub-agent
+it spawns, when the session started with `--worktree`, entered the
+Worktree with `EnterWorktree`, or resumed such a session. It then refuses
+these, from that session and its workers alike (documented):
+
+- a file edit in the main checkout the Worktree is linked from;
+- a command whose working directory is the main checkout, or cannot be
+  verified to stay outside it;
+- a command that redirects git into the main checkout, with `git -C`,
+  `--git-dir`, `GIT_DIR`, `GIT_WORK_TREE` or a `cd`;
+- a command whose git use cannot be verified from its text to stay inside
+  the Worktree.
+
+As such a lead, run nothing in the main checkout. In close-out,
+`git -C <main checkout> reflog` is refused, and
+`git reflog main-worktree/HEAD` reads the main checkout's reflog from your
+own Worktree. A script fed text that names git, such as a heredoc that
+renders a brief, can be refused as well: write such text with a file tool
+(all seen on 2.1.316, not measured).
 
 **Permission posture.** Claude Code auto mode is acceptable for the
 lead and its workers under the user's chosen posture. From v2.1.283, an
@@ -117,7 +199,11 @@ whose instructions say PRs merge by squash once CI is green and name
 - **Your merges** after one message from the user granting merge authority
   and naming the arc's PRs were all allowed, each check carrying that
   message. Without a grant a merge may stop: after a hand-back claiming
-  the user's approval, one of yours did, once in three. So settle merge
+  the user's approval, one of yours did, once in three. The other two
+  were allowed, on the fixture's "integrate by squash merge … once the
+  PR's own CI is green", read as authorisation. Never count on the
+  classifier to stop a merge the user never granted: a repository's own
+  instructions can read to it as authorisation. So settle merge
   authority in one message naming the PRs, and merge them yourself. Never
   launch a sub-agent to merge: its check reads your prompt in place of the
   user's, so the approval would be yours.
@@ -488,6 +574,11 @@ ends your Issue work and your workers' assignments
 ([Known Dashpot gaps](../SKILL.md#known-dashpot-gaps)). Ask the user to keep
 the client open until every worker has finished.
 
+**Scratch directories.** Your workers write only where your sandbox lets
+them, so create each worker's scratch directory inside the Worktree Root
+([In every harness](#worker-mechanics-by-harness)), which your first check
+proved writable, beside the caches the resume command puts there.
+
 **Launch (v2).** `spawn_agent` with a `task_name` and a `message` pointing
 at the brief. It returns at once with the worker's path, `/root/<task_name>`.
 
@@ -548,8 +639,8 @@ you, so they report in their files in your arc's ledger
 message the lead. To tell it something mid-flight, append an entry to
 `<arc directory>/workers/<worker name>.md` with one command,
 `{ date -u '+### %FT%TZ'; cat <<'EOF'; } >> <arc directory>/workers/<worker name>.md`, followed by your report, opening with your key line, then a line
-`-- end`, then the line `EOF`. Write nothing else outside your Worktree.
-Before each gate run, commit and push, read `<arc directory>/broadcast.md`
+`-- end`, then the line `EOF`. Write nothing else outside your Worktree
+and your scratch directory. Before each gate run, commit and push, read `<arc directory>/broadcast.md`
 if it exists: the lead appends its broadcasts there, and an entry without
 its `-- end` line is still being written. Your final message is your
 hand-back." Read the worker files between waits, and broadcast by
@@ -630,6 +721,13 @@ its Issue work are still where you bound.
 
 **Capacity.** OpenCode sets no worker limit. Size waves by the machine.
 
+**Scratch directories.** Create each worker's scratch directory inside the
+Worktree Root ([In every harness](#worker-mechanics-by-harness)). A
+worker's writes there ask for permission
+as its edits in its Issue Worktree do, and the standing rule under
+**Permission posture** below covers both (documented by OpenCode, not
+measured).
+
 **Your session ID.** Workers report to you by your session's ID. Read it
 from the `Agent Session identity claimed here` line of
 `<dashpot> integrate opencode --status`, and put it in the wave block.
@@ -640,8 +738,9 @@ shell (the shell tool's `background: true`), then carry on: the command
 waits until the lead's turn ends. If it fails, append an entry to
 `<arc directory>/workers/<worker name>.md` with one command,
 `{ date -u '+### %FT%TZ'; cat <<'EOF'; } >> <arc directory>/workers/<worker name>.md`, followed by your report, opening with your key line, then a line
-`-- end`, then the line `EOF`. Write nothing else outside your Worktree.
-Your final message is your hand-back." Read the worker files
+`-- end`, then the line `EOF`. Write nothing else outside your Worktree
+and your scratch directory. Your final message is your hand-back." Read
+the worker files
 ([Worker files](arc-ledger.md#worker-files)) at the start of each turn of
 yours and whenever a worker's report is overdue. Whether OpenCode asks
 permission for that write outside the worker's Worktree is not measured; a
