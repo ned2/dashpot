@@ -199,6 +199,56 @@ tracked Project configuration remains `.dashpot/config.json`. Work Store
 records, public JSON output, and external harness configuration retain their
 formats.
 
+## Check a Codex Arc launch profile
+
+After writing a Codex launch profile, check it from the checkout the new
+Lead will use:
+
+```bash
+dashpot preflight codex --profile arc-sandbox
+dashpot preflight codex --profile arc-sandbox --json
+```
+
+This explicit command checks an existing operator-written profile. It
+resolves the Worktree Root by the same option, environment, machine-local
+setting and main-checkout default as `worktree create`; `--worktree-root`
+can select the directory for this check. It resolves the shared Git
+directory through Git. Under `codex sandbox --profile`, it checks those
+directories with write-free probes, verifies that both cache variables name
+absolute writable directories, checks the selected push remote and its SSH
+configuration where applicable, and runs `gh auth status` by exit status
+only. `--remote` selects a remote other than `origin`.
+
+Every failed check includes a remedy, and any failure exits non-zero. JSON
+includes the same checks, remedies and limits, so an operator launcher can
+call it. Raw command output and credential values are withheld. A failed
+or timed-out sandbox probe is a failed check; it is never treated as a
+passing profile.
+
+The initial qualification is **Codex 0.166.0 on Linux**. Another release or
+platform needs renewed qualification. The result predicts a fresh launch
+with the checked profile. Its Worktree Root comes from the invoking
+Dashpot's resolution; keep its settings and environment consistent with
+the intended Lead. It cannot inspect a resumed thread's saved
+permissions, a managed daemon's environment or a Worker's environment.
+Keep the skill's in-session checks. Remote reads and authentication status
+do not establish push, Issue/PR write or merge permission.
+
+Filesystem probes create no files, and Dashpot directly changes no profile,
+Repository, credentials, integration, Issue Binding or Cleanup state.
+Operator-configured transport/authentication tools may execute configuration
+commands and update their own state within the profile's existing grants,
+including SSH known-hosts/control-socket state and credential-helper storage.
+The command discloses these effects and withholds their output. Codex may
+also refresh its helper binaries under `$CODEX_HOME/tmp/arg0-linux/`, as the
+[launch qualification experiment](spikes/codex-lead-launch-qualification-spike.md)
+measured. The ordinary Event Log remains ignored local Dashpot state.
+The operator still chooses credential loading, snapshot filtering and
+permissions. See
+[ADR 0159](adr/0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md)
+for the boundary; ordinary `integrate codex --status` does not run these
+probes or contact the remote.
+
 ## Event Log
 
 Every Dashpot process — the dashboard, each command, each lifecycle hook —

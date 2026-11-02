@@ -398,13 +398,23 @@ the automatic reviewer can set `approvals_reviewer = "auto_review"` in
 the file instead, which is not measured. Run the four checks in the new
 session as after the resume command.
 
-Before a new session, the user can see what the file grants by running
-write-free probes under `codex sandbox --profile arc-sandbox -- <command>`
-in the checkout: `test -w` on each directory, `git ls-remote`, and the
-two variables. On Codex 0.166.0 those matched the same probes inside the
-session. It
-cannot show what a resume will grant, since it reads no thread, so your
-checks in the session stay your evidence.
+Before a new session, the user can check the operator-written file with
+`dashpot preflight codex --profile arc-sandbox`, using the repository's
+Dashpot invocation. The command checks the resolved Worktree Root, shared
+Git directory, cache variables and directories, the selected push remote
+(`--remote origin` by default), SSH configuration where applicable, and
+`gh auth status`. It reports every failure and its remedy; `--json` gives
+the same results to a launcher. Dashpot writes no profile or launch flags.
+Filesystem probes create no files. Codex may refresh its helper binaries;
+operator-configured transport/authentication tools may run configuration
+commands and update their own state within the profile's existing grants.
+
+The preflight is qualified for Codex 0.166.0 on Linux and refuses to report
+success for another release or platform. Its sandbox probes matched the
+same probes inside a fresh session. It cannot show a resumed thread's
+saved permissions, a managed daemon's environment or a Worker's shell.
+The in-session checks above stay authoritative. A successful remote read
+and `gh auth status` do not establish push, Issue/PR write or merge rights.
 
 A directory your session can write is not a variable its shells have, so
 read the variables from inside the session, as the fourth check does.

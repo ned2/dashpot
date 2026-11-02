@@ -119,7 +119,8 @@ mutation of the targets a person selects.
   through a compare-and-replace. They create no Agent Run and change no
   Issue Binding or location.
 - [ADR 0159](0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md)
-  permits an explicitly invoked preflight to run Codex's sandbox tool with
-  write-free provisioning probes, without starting an Agent Session.
-  Codex's measured helper-directory writes are disclosed; observation and
-  ordinary integration-status checks never run this preflight.
+  permits an explicitly invoked preflight to run Codex's sandbox tool,
+  filesystem probes and transport/authentication queries, without starting
+  an Agent Session. Codex's helper-directory writes and the configured
+  transport/authentication tools' possible state writes are disclosed;
+  observation and ordinary integration-status checks never run this preflight.

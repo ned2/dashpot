@@ -39,11 +39,13 @@ from dashpot.core.runtime_events import (
     RuntimeEvent,
     SpanEnded,
 )
+from dashpot.preflight import CodexPreflight, PreflightCheck
 from dashpot.queries.pages import PageObservation, QueryRequest
 from dashpot.repository.cleanup import CleanupBlocker
 from dashpot.repository.worktrees.create import WorktreePlan
 from dashpot.repository.worktrees.removability import WorktreeRemovability
 from dashpot.serialization import (
+    codex_preflight_document,
     event_log_removal_document,
     issue_document,
     list_page_document,
@@ -58,6 +60,37 @@ from helpers import make_issue
 from test_github_issues import REPOSITORY_ID
 from test_github_pull_requests import pull_request_node
 from test_query_pages import context, github, markdown, search
+
+
+def test_codex_preflight_document_keys_and_unknown_values() -> None:
+    report = CodexPreflight(
+        profile="operator-arc",
+        version=None,
+        worktree_root="/worktrees",
+        git_directory="/repository/.git",
+        remote="origin",
+        checks=[
+            PreflightCheck(
+                name="qualification", status="failed", detail="Not qualified."
+            )
+        ],
+    )
+    document = codex_preflight_document(report)
+    assert set(document) == {
+        "profile",
+        "version",
+        "worktreeRoot",
+        "gitDirectory",
+        "remote",
+        "checks",
+        "limits",
+        "passed",
+    }
+    assert document["version"] is None
+    assert document["passed"] is False
+    assert set(document["checks"][0]) == {"name", "status", "detail", "remedy"}
+    assert document["checks"][0]["remedy"] is None
+
 
 SNAPSHOT_KEYS = {
     "collectedAt",

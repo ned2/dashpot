@@ -841,6 +841,15 @@ by a Refresh Budget. Complete records on a Query Page do not constitute enumerat
 
 ## Runtime
 
+**Launch Preflight**:
+An explicitly requested check of the capabilities an operator's harness
+launch profile supplies. Its result is an observation of that profile at
+that time, never task authority, an Issue Binding, or evidence that a
+resumed Agent Session or a Worker inherited those capabilities. Checks
+inside the Agent Session remain authoritative
+([ADR 0159](adr/0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md)).
+_Avoid_: treating a passing preflight as provisioning or permission to act
+
 **Runtime Event**:
 One record of what a Dashpot process did, kept on the machine that did it
 ([ADR 0058](adr/0058-record-runtime-events-locally-and-send-none.md)). It

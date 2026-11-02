@@ -5,10 +5,12 @@ from __future__ import annotations
 import copy
 import gzip
 import hashlib
+import io
 import json
 import re
 import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,20 +19,45 @@ import pytest
 CHECKOUT = Path(__file__).resolve().parents[1]
 TRACE = CHECKOUT / "docs/spikes/measurements/issue-665-codex-trace.jsonl.gz"
 VERIFIER = CHECKOUT / "scripts/experiments/codex-639/permissions-verify.mjs"
+PUBLISHER_REVISION = "6227e7a1cdf04e37c008d14e42d54a6b5a39c71e"
+FIXTURE_SOURCES = (
+    "ancestry.mjs",
+    "permissions-hook.mjs",
+    "permissions-probe.mjs",
+    "permissions-reconnect.mjs",
+    "permissions-run.mjs",
+    "permissions-verify.mjs",
+)
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs Node.js")
 
 
 def verify(
     records: list[dict[str, Any]], tmp_path: Path
 ) -> subprocess.CompletedProcess[str]:
-    """Run the public verifier with isolated bytes for its binary digest check."""
+    """Check historical trace integrity against its actual recorded publisher tree.
+
+    The measured verifier and runner remain byte-for-byte unchanged. Current
+    publisher edits neither rewrite historical evidence nor qualify current
+    sources; checkout history supplies the independently pinned old bytes.
+    """
+    checkout = tmp_path / "historical-publisher"
+    checkout.mkdir()
+    archive = subprocess.check_output(
+        ["git", "archive", PUBLISHER_REVISION, "src/dashpot"], cwd=CHECKOUT
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source:
+        source.extractall(checkout, filter="data")
+    fixture = checkout / "scripts/experiments/codex-639"
+    fixture.mkdir(parents=True)
+    for name in FIXTURE_SOURCES:
+        shutil.copyfile(VERIFIER.parent / name, fixture / name)
     binary = tmp_path / "binary-digest-fixture"
     binary.write_bytes(b"Verifier integrity fixture, never executed.\n")
     records[0]["binarySHA256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
     trace = tmp_path / "trace.jsonl"
     trace.write_text("".join(json.dumps(row) + "\n" for row in records))
     return subprocess.run(
-        ["node", str(VERIFIER), str(trace), str(binary)],
+        ["node", str(fixture / VERIFIER.name), str(trace), str(binary)],
         capture_output=True,
         text=True,
         timeout=20,
@@ -76,6 +103,7 @@ def rewrite_probe(value: object, label: str, field: str) -> object:
 
 
 def test_retained_permission_observations_verify(tmp_path: Path) -> None:
+    assert rows()[0]["head"] == PUBLISHER_REVISION
     result = verify(rows(), tmp_path)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["workspaceReconnect"] == (
@@ -88,6 +116,8 @@ def test_retained_permission_observations_verify(tmp_path: Path) -> None:
     [
         "source_identity",
         "omitted_source_identity",
+        "publisher_source_identity",
+        "publisher_source_inventory",
         "additional_write_root",
         "missing_wait",
         "approved_read_denial",
@@ -109,6 +139,10 @@ def test_permission_verifier_refuses_overstated_evidence(
     elif mutation == "omitted_source_identity":
         records[0]["sourceSHA256"] = {}
         records[0]["dashpotSHA256"] = {}
+    elif mutation == "publisher_source_identity":
+        records[0]["dashpotSHA256"]["src/dashpot/__init__.py"] = "0" * 64
+    elif mutation == "publisher_source_inventory":
+        del records[0]["dashpotSHA256"]["src/dashpot/__init__.py"]
     elif mutation == "additional_write_root":
         for thread in next(r for r in records if r["kind"] == "rollouts")["threads"]:
             for turn in thread["turns"]:

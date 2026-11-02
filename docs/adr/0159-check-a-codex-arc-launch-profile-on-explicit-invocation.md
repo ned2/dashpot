@@ -42,13 +42,24 @@ passes. Commands have bounded waits. Their raw output, profile contents and
 credential values are excluded from the report and Event Log. GitHub login
 status does not establish Issue/PR write, push or merge permission.
 
-The probes create no files and change no Repository, profile, credential
-store, Issue Binding or Cleanup state. Codex itself refreshes its helper
-binaries under `$CODEX_HOME/tmp/arg0-linux/`; the qualification measured that
-write, and the command discloses it. The ordinary Event Log remains
-Dashpot's ignored local state. This is a bounded exception permitting the
-harness's sandbox tool, not authority to start a harness session or to
-provision one automatically.
+The filesystem probes create no files. Dashpot directly changes no
+Repository, profile, credential store, Issue Binding or Cleanup state.
+Codex refreshes its helper binaries under `$CODEX_HOME/tmp/arg0-linux/`;
+the qualification measured that write. Operator-configured transport and
+authentication tools may execute configuration commands and update their
+own state within the profile's existing grants: for example SSH's
+`Match exec`, known-hosts or control-socket state, and credential-helper
+storage. The command's help and report disclose these effects and withhold
+their output. It does not rewrite those tools, choose credentials or widen
+grants. The ordinary Event Log remains Dashpot's ignored local state.
+
+The maintainer explicitly approved this transitive-write boundary after
+review demonstrated an SSH configuration creating a file during `ssh -G`
+([decision](https://github.com/ned2/dashpot/issues/679#issuecomment-6576138036)).
+Requiring additional filesystem isolation would change the environment
+being checked and require its own qualification. This exception permits
+the sandbox tool and the operator's configured transport/authentication
+programs, rather than starting an Agent Session or provisioning one.
 
 Only a qualified release and platform can report a passing preflight.
 The initial boundary is Codex 0.166.0 on Linux. Another release or platform
