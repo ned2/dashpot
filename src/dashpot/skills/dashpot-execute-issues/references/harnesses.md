@@ -242,16 +242,20 @@ remedy they choose and do not ask again. Never change a remote yourself.
 Linux measured a worker under the resume command below, against a
 disposable remote. Through the system configuration, its `git ls-remote`
 and push failed as above. Three remedies were measured; offer the user
-these and no other, and leave the choice to them. Each is added to the
-resume command with `-c 'shell_environment_policy.set.<NAME>="<value>"'`.
-None changes the remote, and none passes a credential.
+these and no other, and leave the choice to them. None changes the
+remote, and none passes a credential. The third is the approval policy.
+The first two are added to the resume command with
+`-c 'shell_environment_policy.set.<NAME>="<value>"'`, the only delivery
+measured. A variable the user's terminal exports instead, `SSH_AUTH_SOCK`
+included, may not reach a worker, as the paragraph below on a session's
+variables explains.
 
 - **HTTPS for this session.** Set `GIT_CONFIG_COUNT=2`. The first key and
   value set `url.https://<host>/.insteadOf` to the remote's SSH prefix,
-  such as `git@github.com:`. The second set `credential.https://<host>.helper`
+  such as `git@github.com:`. The second sets `credential.https://<host>.helper`
   to `!gh auth git-credential`. `gh` reads the token from its own store,
   which `gh auth login` fills. Codex drops an inherited variable whose name
-  contains `KEY` or `TOKEN`, but not one it sets.
+  contains `KEY`, `SECRET` or `TOKEN`, in any case, but not one it sets.
 - **SSH with the user's own configuration.** Set
   `GIT_SSH_COMMAND="ssh -F <user-owned config>"`, which skips the system
   configuration. Set `SSH_AUTH_SOCK` to their agent's socket: the worker
@@ -261,10 +265,10 @@ None changes the remote, and none passes a credential.
   recorded nothing, so the measured setup put the host's key in that file
   first and set `StrictHostKeyChecking yes`.
 - **Pushing outside the sandbox.** Under `-a never`, Codex rejects every
-  escalated command, and nothing is pushed. Under `on-request` with the
-  human reviewer, each push asks the user once, and once they approve it,
-  the push succeeds. The repository's pre-push hook then runs outside the
-  sandbox too.
+  escalated command, and nothing is pushed. Under `-a on-request` with the
+  human reviewer, each escalated command, a push or `git ls-remote`, asks
+  the user once, and once they approve it, it succeeds. The repository's
+  pre-push hook then runs outside the sandbox too.
 
 With HTTPS and with SSH, the worker's `git ls-remote`, first push and
 `--force-with-lease` push succeeded, and its pre-push hook ran inside the

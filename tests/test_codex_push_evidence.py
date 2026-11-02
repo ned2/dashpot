@@ -18,12 +18,13 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs Node
 
 
 def verify(
-    records: list[dict[str, Any]], tmp_path: Path
+    records: list[dict[str, Any]], tmp_path: Path, *, wrong_binary: bool = False
 ) -> subprocess.CompletedProcess[str]:
     """Run the public verifier with isolated bytes for its binary digest check."""
     binary = tmp_path / "binary-digest-fixture"
     binary.write_bytes(b"Verifier integrity fixture, never executed.\n")
-    records[0]["binarySHA256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    records[0]["binarySHA256"] = "0" * 64 if wrong_binary else digest
     trace = tmp_path / "trace.jsonl"
     trace.write_text("".join(json.dumps(row) + "\n" for row in records))
     return subprocess.run(
@@ -69,27 +70,75 @@ def test_retained_push_observations_verify(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "mutation",
+    ("mutation", "claim"),
     [
-        "source_identity",
-        "uncommitted_sources",
-        "token_leak",
-        "additional_write_root",
-        "foreign_worker",
-        "f9_absent",
-        "remote_rewritten",
-        "https_unchallenged",
-        "missing_receive",
-        "stale_lease_accepted",
-        "hook_claimed_unsandboxed",
-        "known_host_written",
-        "approval_under_never",
-        "lead_approved",
+        pytest.param("source_identity", "source identity", id="source_identity"),
+        pytest.param(
+            "uncommitted_sources", "source identity", id="uncommitted_sources"
+        ),
+        pytest.param(
+            "token_leak", "no credential or operator path in the trace", id="token_leak"
+        ),
+        pytest.param(
+            "additional_write_root",
+            "every lead and Worker ran workspace-write",
+            id="additional_write_root",
+        ),
+        pytest.param(
+            "foreign_worker",
+            "every lead and Worker ran workspace-write",
+            id="foreign_worker",
+        ),
+        pytest.param("f9_absent", "F9 reproduces inside the sandbox", id="f9_absent"),
+        pytest.param(
+            "remote_rewritten",
+            "the remote URL stayed the scp-like SSH URL",
+            id="remote_rewritten",
+        ),
+        pytest.param("https_unchallenged", "HTTPS remedy", id="https_unchallenged"),
+        pytest.param("missing_receive", "SSH -F remedy", id="missing_receive"),
+        pytest.param("stale_lease_accepted", "HTTPS remedy", id="stale_lease_accepted"),
+        pytest.param(
+            "hook_claimed_unsandboxed", "SSH -F remedy", id="hook_claimed_unsandboxed"
+        ),
+        pytest.param("known_host_written", "SSH -F remedy", id="known_host_written"),
+        pytest.param(
+            "approval_under_never",
+            "escalation remedy under never",
+            id="approval_under_never",
+        ),
+        pytest.param(
+            "lead_approved", "escalation remedy under on-request", id="lead_approved"
+        ),
+        pytest.param("wrong_binary", "pinned release", id="wrong_binary"),
+        pytest.param(
+            "harness_ancestor", "detached from every harness", id="harness_ancestor"
+        ),
+        pytest.param(
+            "home_path", "no credential or operator path in the trace", id="home_path"
+        ),
+        pytest.param(
+            "shared_daemon_changed",
+            "completed without failure",
+            id="shared_daemon_changed",
+        ),
+        pytest.param(
+            "never_ran_escalation",
+            "escalation remedy under never",
+            id="never_ran_escalation",
+        ),
+        pytest.param(
+            "agent_directory_writable", "SSH -F remedy", id="agent_directory_writable"
+        ),
+        pytest.param(
+            "known_hosts_unseeded", "SSH -F remedy", id="known_hosts_unseeded"
+        ),
     ],
 )
 def test_push_verifier_refuses_overstated_evidence(
-    mutation: str, tmp_path: Path
+    mutation: str, claim: str, tmp_path: Path
 ) -> None:
+    """Each overstated result fails the check that names that result."""
     records = rows()
     if mutation == "source_identity":
         records[0]["sourceSHA256"]["step.mjs"] = "0" * 64
@@ -122,9 +171,27 @@ def test_push_verifier_refuses_overstated_evidence(
         step(records, "ssh-config", "unknown-host")["knownHostsWritten"] = True
     elif mutation == "approval_under_never":
         first(records, "approval")["scenario"] = "escalated-never"
-    else:
+    elif mutation == "lead_approved":
         lead = first(records, "scenario.outcome", name="escalated-approved")["lead"]
         first(records, "approval")["thread"] = lead
-    result = verify(records, tmp_path)
+    elif mutation == "wrong_binary":
+        pass
+    elif mutation == "harness_ancestor":
+        records[0]["runnerParent"] = 4242
+        records[0]["ancestry"] = [{"pid": 4242, "comm": "claude", "harness": True}]
+    elif mutation == "home_path":
+        first(records, "scenario", name="https")["note"] = "/home/someone/.ssh"
+    elif mutation == "shared_daemon_changed":
+        first(records, "shared-daemon-dir")["removed"] = 1
+    elif mutation == "never_ran_escalation":
+        outcome = first(records, "scenario.outcome", name="escalated-never")
+        outcome["workerOutputs"][1] = "Process exited with code 0"
+    elif mutation == "agent_directory_writable":
+        step(records, "ssh-config", "probe")["agent"]["directoryWrite"] = {"ok": True}
+    elif mutation == "known_hosts_unseeded":
+        step(records, "ssh-config", "probe")["sshCommand"]["knownHostsSeeded"] = False
+    else:
+        raise AssertionError(f"unknown mutation {mutation}")
+    result = verify(records, tmp_path, wrong_binary=mutation == "wrong_binary")
     assert result.returncode != 0
-    assert "AssertionError" in result.stderr
+    assert f"AssertionError [ERR_ASSERTION]: [{claim}" in result.stderr

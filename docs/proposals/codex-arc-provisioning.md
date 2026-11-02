@@ -306,11 +306,13 @@ as current.
   `ssh_config` includes `/etc/ssh/ssh_config.d/*.conf`. A file passed with
   `-F` is read without the check, which is why selecting the fragment or a
   user-owned copy explicitly passed.
-- **Mechanism** (source, rust-v0.166.0): Codex's Linux sandbox always
-  enters a new user namespace (`--unshare-user`), which maps only the
-  invoking uid. So files root owns appear owned by the overflow uid 65534,
-  and any root-owned fragment that the system configuration includes then
-  fails the check. The host file needs no repair.
+- **Mechanism** (source, rust-v0.166.0, and measured): Codex's Linux
+  sandbox always enters a new user namespace (`--unshare-user`). The
+  namespace maps only the invoking uid, which bubblewrap does, not Codex's
+  source, and the Worker's probe measured it: files root owns appear owned
+  by the overflow uid 65534. Any root-owned fragment that the system
+  configuration includes then fails the check. The host file needs no
+  repair.
 - **Measured** (0.166.0, a sandboxed Worker under the resume command's
   grants, against a disposable loopback remote):
   - Inside the Worker's sandbox, both files show as uid 65534, and
@@ -597,8 +599,8 @@ escalated push.
    - HTTPS needs `gh` credentials in their own store.
    - The `-F` configuration was measured with an agent's socket and a
      pre-seeded known-hosts file.
-   - Escalation needs `on-request`, asks once per push, and runs the
-     pre-push hook outside the sandbox.
+   - Escalation needs `on-request`, asks once per escalated command, and
+     runs the pre-push hook outside the sandbox.
 
    There is no machine-wide default.
 6. How a qualification Lead runs pinned experiment runners (F10,
