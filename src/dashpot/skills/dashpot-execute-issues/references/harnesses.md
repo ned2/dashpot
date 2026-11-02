@@ -244,9 +244,12 @@ disposable remote. Through the system configuration, its `git ls-remote`
 and push failed as above. Three remedies were measured; offer the user
 these and no other, and leave the choice to them. None changes the
 remote, and none passes a credential. The third, pushing outside the
-sandbox, is the approval policy (`-a on-request`). The first two are added to the resume command with
-`-c 'shell_environment_policy.set.<NAME>="<value>"'`, the only delivery
-measured. A variable the user's terminal exports instead, `SSH_AUTH_SOCK`
+sandbox, is the approval policy (`-a on-request`). The first two are
+added to the launch's `shell_environment_policy.set`: to the resume
+command with `-c 'shell_environment_policy.set.<NAME>="<value>"'`, the
+only delivery measured, or to the profile file's
+`[shell_environment_policy.set]` table below, which by inference delivers
+them the same way but was not measured for them. A variable the user's terminal exports instead, `SSH_AUTH_SOCK`
 included, may not reach a worker, as the paragraph below on a session's
 variables explains.
 
@@ -296,12 +299,11 @@ Drop the option for a tool the repository does not use, and add one for
 each other cache its gates write. `<session-id>` is the Agent Session
 identity `<dashpot> integrate codex --status` confirms, and `<checkout>`
 the one you will bind in; a new session takes the same options after
-`codex`. This resume command is measured on Codex 0.160.0 on Linux: it
-gives you and every worker these writable directories with the network
-on, and your workers' shells and their Git hooks the two cache locations,
-so a worker completes its whole cycle. Your own shell gets them by the
-same setting, though that was not measured, so still run the four checks
-again in the resumed session before you bind.
+`codex`. This resume command is measured on Codex 0.160.0 and 0.166.0 on
+Linux: it gives you and every worker these writable directories with the
+network on, and your shell, your workers' shells and their Git hooks the
+two cache locations, so a worker completes its whole cycle. Still run the
+four checks again in the resumed session before you bind.
 `--sandbox workspace-write` matters: under `read-only`, Codex refuses
 `--add-dir` and the client exits. Tell the user that Codex's background
 app-server may hold this thread for about a minute after this client
@@ -322,20 +324,103 @@ nothing is refused and every check passes. Your checkout is your
 session's workspace, so your workers, under your sandbox, can write it,
 and their files in your arc's ledger need nothing more.
 
+The resume command's `--sandbox` puts the session under Codex's legacy
+sandbox, outside every named permissions profile. If the user's Codex
+configuration sets `default_permissions`, a profile of their own, the
+resumed session runs without it, its deny rules included: on Codex
+0.166.0 on Linux, a file their profile denied became readable, though the
+four checks passed and a worker completed its cycle (measured). Tell them
+so as you ask, and offer the profile launch below in its place.
+
+**Or launch with a profile file.** Codex reads
+`$CODEX_HOME/<name>.config.toml`, `~/.codex/<name>.config.toml` by
+default, above the user's configuration when a launch passes
+`--profile <name>` (source, not measured). A file whose own permissions profile names the two
+directories gives the same grant without the legacy sandbox. Give the
+user the file to write, under `arc-sandbox` or a name they choose, and
+never write it yourself:
+
+```toml
+default_permissions = "arc-sandbox"
+
+[permissions.arc-sandbox.filesystem]
+":root" = "read"
+":workspace_roots" = "write"
+":slash_tmp" = "write"
+":tmpdir" = "write"
+"<Worktree Root>" = "write"
+"<Git directory>" = "write"
+
+[permissions.arc-sandbox.network]
+enabled = true
+
+[shell_environment_policy.set]
+UV_CACHE_DIR = "<Worktree Root>/.cache/uv"
+PRE_COMMIT_HOME = "<Worktree Root>/.cache/pre-commit"
+```
+
+When their configuration sets `default_permissions = "<their profile>"`,
+the file's profile replaces theirs, deny rules included, unless it
+extends it. So in place of the `filesystem` and `network` tables above,
+the file sets `extends = "<their profile>"` under
+`[permissions.arc-sandbox]` and lists only the two directories under
+`[permissions.arc-sandbox.filesystem]`; their deny rules stay, and so
+does their network setting (measured with a profile that turned the
+network on). A profile cannot extend Codex's built-in ones, such as
+`:workspace` (source, not measured). The cache settings and dropped options apply as for the
+resume command.
+
+The user then starts a new session, or resumes this one with the profile
+pinned:
+
+```bash
+codex -C <checkout> --profile arc-sandbox
+codex resume <session-id> -C <checkout> --profile arc-sandbox -c 'default_permissions="arc-sandbox"'
+```
+
+On Codex 0.166.0 on Linux, the new session, with either file, and the
+pinned resume, with the first, passed the four checks, and a worker of
+each completed its whole cycle. Keep the `-c` on the resume: a resumed
+thread keeps the permissions profile it last ran under, and a session
+started without options runs under the built-in `:workspace`, so
+`codex resume --profile` alone kept that profile and refused all three
+grants. Name the Git directory as the file does: with only the Worktree
+Root, the Git directory stayed read-only and `git worktree add` failed.
+Never add `--sandbox` or `--approve-for-me` to either launch. Beside
+`--profile` on a resume without the pin, each put back a legacy sandbox
+with no added directory and no network, and `--approve-for-me` also set
+the automatic reviewer and `on-request` on the thread, which its later
+resumes kept (measured). With the pin, Codex refuses to start, since
+`sandbox_mode` and `default_permissions` cannot both be overrides, and a
+new session falls back to the legacy sandbox as that resume did (both
+source, not measured). A user who wants
+the automatic reviewer can set `approvals_reviewer = "auto_review"` in
+the file instead, which is not measured. Run the four checks in the new
+session as after the resume command.
+
+Before a new session, the user can see what the file grants by running
+write-free probes under `codex sandbox --profile arc-sandbox -- <command>`
+in the checkout: `test -w` on each directory, `git ls-remote`, and the
+two variables. On Codex 0.166.0 those matched the same probes inside the
+session. It
+cannot show what a resume will grant, since it reads no thread, so your
+checks in the session stay your evidence.
+
 A directory your session can write is not a variable its shells have, so
-read the variables from inside the session, as the fourth check does. A
-variable the terminal or a wrapper exports when it starts or resumes your
-client, a cache location or a `GH_TOKEN`, may never reach your commands:
-under Codex's managed daemon, every command runs with the environment the
-daemon started with (measured on Codex 0.160.0). The resume command's
-`shell_environment_policy.set` reached each worker's shell and its Git
-hook whatever the terminal held. Never pass a credential that way, since
-a `-c` value shows in the process list. If the user's Codex configuration
-sets `default_permissions`, a named permissions profile, Codex documents
-that it must not be combined with `sandbox_mode` or
-`[sandbox_workspace_write]`, which the resume command sets. What the two
-do together is not measured, so tell the user, and trust only the checks
-you run in the resumed session.
+read the variables from inside the session, as the fourth check does.
+Which process runs your commands decides whether a variable the terminal
+or a wrapper exports, a cache location or a `GH_TOKEN`, reaches them. A
+session started or resumed without options runs on Codex's managed
+daemon, and every command runs with the environment the daemon started
+with, whatever this terminal holds (measured on Codex 0.160.0 and
+0.166.0; on 0.166.0 for new sessions only). A launch with `--profile`, or
+a `-c` option outside a short list of display and feature switches, as
+both launches above are, runs in its own client, which is then the
+session's Host Process, and its commands and hooks get that terminal's
+environment (measured on Codex 0.166.0). Either
+launch's `shell_environment_policy.set` reached each worker's shell and
+its Git hook whatever the terminal held, so set the caches there. Never
+pass a credential that way, since a `-c` value shows in the process list.
 
 `gh auth status` shows whether `gh` has credentials. A read that succeeds
 does not show that the same credentials can create an Issue, open a PR or
@@ -382,8 +467,7 @@ approval policy whether a refused command may ask.
   <APPROVAL_POLICY>'` and exits before starting (seen with Codex 0.162.1,
   not measured), so drop the `-a` option when the user chooses it.
 
-Of the sandbox grant above, these are not measured either: `gh` under it,
-the fourth check itself, your own shell getting the moved caches, and
+Of the sandbox grant above, these are not measured: `gh` under it, and
 macOS, where Codex sandboxes with Seatbelt rather than bubblewrap.
 
 The 0.162.0 fixture also measures a strict Guardian stop. Report

@@ -372,8 +372,7 @@ def test_the_lead_settles_a_permission_posture_before_dispatch() -> None:
     assert "was not measured in the retained 0.160.0 experiments" in codex
     assert "ask the user to run the arc without it" not in codex
     assert (
-        "Of the sandbox grant above, these are not measured either: `gh` under it, "
-        "the fourth check itself, your own shell getting the moved caches"
+        "Of the sandbox grant above, these are not measured: `gh` under it, and macOS"
     ) in codex
     assert "macOS, where Codex sandboxes with Seatbelt" in codex
     # Issue #671: the preflight reports every failure with one remedy, and
@@ -407,10 +406,16 @@ def test_the_lead_settles_a_permission_posture_before_dispatch() -> None:
     assert "A directory your session can write is not a variable its shells have" in (
         codex
     )
-    assert "the daemon started with (measured on Codex 0.160.0)" in codex
+    assert "whatever this terminal holds (measured on Codex 0.160.0 and 0.166.0;" in (
+        codex
+    )
     assert "Never pass a credential that way" in codex
     assert "If the user's Codex configuration sets `default_permissions`" in codex
-    assert "What the two do together is not measured" in codex
+    # Issue #678 measured the two together: the legacy sandbox drops the
+    # user's permissions profile, deny rules included.
+    assert "What the two do together is not measured" not in codex
+    assert "the resumed session runs without it, its deny rules included" in codex
+    assert "which is then the session's Host Process" in codex
     assert "(seen with Codex 0.162.1, not measured). Treat your first write" in codex
     assert "Treat your first write of each kind as its check" in codex
     assert "`--approve-for-me` cannot be combined with `-a`" in codex
@@ -844,7 +849,24 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     # `read-only` stops the client, and a resume may wait for Codex's
     # background app-server to release the thread.
     assert "codex --help" not in codex
-    assert "This resume command is measured on Codex 0.160.0 on Linux" in codex
+    assert "This resume command is measured on Codex 0.160.0 and 0.166.0 on Linux" in (
+        codex
+    )
+    # Issue #678 offers a profile-file launch beside it: the resume pins the
+    # profile, the file names the Git directory and extends the user's own
+    # profile, and the legacy options never join it.
+    assert "**Or launch with a profile file.**" in codex
+    assert "never write it yourself" in codex
+    assert "codex -C <checkout> --profile arc-sandbox" in codex
+    assert (
+        "codex resume <session-id> -C <checkout> --profile arc-sandbox "
+        "-c 'default_permissions=\"arc-sandbox\"'"
+    ) in codex
+    assert "Keep the `-c` on the resume" in codex
+    assert 'the file sets `extends = "<their profile>"`' in codex
+    assert '"<Git directory>" = "write"' in codex
+    assert "Never add `--sandbox` or `--approve-for-me` to either launch" in codex
+    assert "It cannot show what a resume will grant" in codex
     assert "under `read-only`, Codex refuses `--add-dir` and the client exits" in codex
     assert (
         "Codex's background app-server may hold this thread for about a minute"
