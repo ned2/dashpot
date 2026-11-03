@@ -488,8 +488,8 @@ In the dashboard, a Codex session's state means:
   sub-agent chosen in the terminal's agent picker. A sub-agent interrupted
   that way holds the session running until the thread unloads, resumes, or
   its Host Process is gone. It blocks Cleanup across the Repository for
-  longer: until the session starts again in another process, until that
-  process is gone, or until `dashpot work forget-subagents` after the
+  longer: until the session starts again in another process, until its
+  Host Process is gone, or until `dashpot work forget-subagents` after the
   session has ended, so a daemon-hosted thread's unload ends the run but
   leaves the block. `dashpot work show` and the `sub-agent` blocker say so
   ([#374](https://github.com/ned2/dashpot/issues/374),
