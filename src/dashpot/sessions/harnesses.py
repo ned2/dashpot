@@ -335,7 +335,7 @@ OPENCODE_PID_VARIABLE = "DASHPOT_OPENCODE_PID"
 # The OpenCode release Dashpot's acceptance run passed on, whose plugin API,
 # events and process shape were measured (ADR 0090). Another 2.x release is
 # observed with a warning; v1 is refused.
-OPENCODE_ACCEPTED_VERSION = "2.0.22"
+OPENCODE_ACCEPTED_VERSION = "2.2.5"
 # The plugin's v1 entry sets this on each shell OpenCode v1's ``shell.env``
 # hook prepares, to the reason it cannot opt in: Dashpot observes OpenCode v2
 # only (ADR 0090).

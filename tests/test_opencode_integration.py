@@ -40,7 +40,7 @@ from dashpot.sessions.processes import (
 )
 from test_integrate import environment_publisher, linked_worktree
 
-ACCEPTED = "2.0.22"
+ACCEPTED = "2.2.5"
 
 
 @pytest.fixture(autouse=True)

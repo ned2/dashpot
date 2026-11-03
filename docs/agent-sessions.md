@@ -437,10 +437,10 @@ to a follow-up, #517.
 
 ### Codex hosting modes
 
-Codex support is pinned to `codex-cli` **0.160.0** on Linux, the release the
+Codex support is pinned to `codex-cli` **0.166.0** on Linux, the release the
 [Codex acceptance run](../README.md#harness-acceptance-runs) last passed on;
 its trace is
-[`issue-161-codex-trace.jsonl`](spikes/measurements/issue-161-codex-trace.jsonl).
+[`issue-161-codex-0.166.0-trace.jsonl`](spikes/measurements/issue-161-codex-0.166.0-trace.jsonl).
 Another release is unsupported until that run passes on it. The
 [harness reference](agent-harness-server-client-reference.md#hosting-modes-and-daemon-autostart-at-01593)
 holds the upstream detail. A Codex thread is one Agent Session wherever it
@@ -459,7 +459,10 @@ Codex 0.160.0 starts the managed daemon automatically (`daemon_auto_start`
 is on by default), so a plain terminal's thread, its hooks and its shells all
 belong to the daemon, which outlives the terminal and serves every thread
 started that way. A terminal launched with `--disable daemon_auto_start`
-while a daemon runs attaches to it like a plain one.
+while a daemon runs stops before its first turn on a Codex chooser that
+names incompatible feature settings; told to run without
+the daemon, it hosts its own thread, and its `/exit` runs `SessionEnd` at
+once (measured at 0.166.0, [#701](https://github.com/ned2/dashpot/issues/701)).
 
 In the dashboard, a Codex session's state means:
 
@@ -589,10 +592,10 @@ say how to stop one.
 
 ### Claude Code hosting modes
 
-Claude Code support is pinned to **2.1.287** on Linux, the release the
+Claude Code support is pinned to **2.1.317** on Linux, the release the
 [Claude Code acceptance run](../README.md#harness-acceptance-runs) last passed
 on; its trace is
-[`issue-162-claude-trace.jsonl`](spikes/measurements/issue-162-claude-trace.jsonl).
+[`issue-162-claude-2.1.317-trace.jsonl`](spikes/measurements/issue-162-claude-2.1.317-trace.jsonl).
 Another release is unsupported until that run passes on it. The
 [harness reference](agent-harness-server-client-reference.md#clients-and-supervised-workers-through-dashpot-at-21286)
 holds the measured detail. The acceptance run drives headless clients and
@@ -683,10 +686,10 @@ passing the acceptance run.
 
 Dashpot observes OpenCode v2 only, as
 [ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)
-decides. OpenCode support is pinned to **2.0.22** on Linux, the release the
+decides. OpenCode support is pinned to **2.2.5** on Linux, the release the
 [OpenCode acceptance run](../README.md#harness-acceptance-runs) last passed
 on; its trace is
-[`issue-163-opencode-trace.jsonl`](spikes/measurements/issue-163-opencode-trace.jsonl).
+[`issue-163-opencode-2.2.5-trace.jsonl`](spikes/measurements/issue-163-opencode-2.2.5-trace.jsonl).
 Another 2.x release is observed, with a warning from `dashpot integrate
 opencode` and its `--status`, and is unsupported until that run passes on
 it. OpenCode 1.x is refused: `integrate` will not install while it is on
@@ -764,7 +767,11 @@ model's own tool instead. Within the Repository its
 hook record and a bound run move with it, as a Live Relocation. A move
 requested while the session works takes effect when its execution ends. A
 move to another Repository, or outside every Project, leaves the run where
-it was, reported as `work-session-elsewhere`. A move to another Project
+it was, its state unknown and with no `work-session-elsewhere` Diagnostic: a
+session placed outside every Observation Target is not observed at an older
+record's Worktree
+([ADR 0134](adr/0134-place-a-session-by-its-freshest-current-hook-record.md);
+measured at 2.2.5, [#701](https://github.com/ned2/dashpot/issues/701)). A move to another Project
 begins the session's record there at once, and takes along the sub-agents
 its server runs that are still working
 ([ADR 0109](adr/0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md)).

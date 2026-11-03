@@ -1,6 +1,6 @@
-// Acceptance run for Issue #423: a root OpenCode 2.0.22 Agent Session moving
-// itself as the dashpot-issue-work skill's OpenCode move describes
-// (ADR 0094). The fixture model follows the skill's dispatch, finish and
+// Acceptance run for Issue #423, re-pinned to OpenCode 2.2.5 by #701: a root
+// OpenCode Agent Session moving itself as the dashpot-issue-work skill's
+// OpenCode move describes (ADR 0094). The fixture model follows the skill's dispatch, finish and
 // switch flows, choosing each step from the output of the one before, as a
 // model reading the skill would: `work show`, the move through `execute`,
 // the next step's `pwd` and `integrate opencode --status`, then `work show`
@@ -9,7 +9,7 @@
 // work, a move held while a worker runs, and the move's permission paths.
 //
 // Copied from the worker-mechanics run (opencode-421) and cut down. It
-// drives OpenCode 2.0.22 against a loopback OpenAI-compatible model fixture,
+// drives the pinned OpenCode release against a loopback OpenAI-compatible model fixture,
 // in disposable configuration and state, with the background service on a
 // private port, so the operator's own OpenCode service is never contacted.
 // Dashpot is built from this checkout and installed into a fixture
@@ -18,7 +18,7 @@
 // runner asserts only what it needs to keep going, and the independent
 // verifier checks the trace against the acceptance record.
 //
-// Usage: TMPDIR=<private dir> setsid -f node run.mjs <absolute opencode 2.0.22 binary> > log 2>&1
+// Usage: TMPDIR=<private dir> setsid -f node run.mjs <absolute opencode 2.2.5 binary> > log 2>&1
 // It is done when it prints "All scenarios completed". SPIKE_REMOVE_FIXTURE=1
 // deletes the fixture afterwards.
 import assert from "node:assert/strict";
@@ -43,7 +43,7 @@ for (let pid = process.ppid; pid > 1 && above.length < 64;) { try { const entry 
 const host = above.find((entry) => /^(claude|codex|opencode|opencode2|opencode\.exe)$/.test(entry.comm) || /\/claude\/versions\//.test(entry.cmdline));
 assert(!host, `Run this outside every harness session (for example with \`setsid -f\`): pid ${host?.pid} is ${host?.comm}`);
 const [binary] = process.argv.slice(2);
-assert(binary && path.isAbsolute(binary), "Pass the absolute path to the OpenCode 2.0.22 binary");
+assert(binary && path.isAbsolute(binary), "Pass the absolute path to the OpenCode 2.2.5 binary");
 const uv = execFileSync("sh", ["-c", "command -v uv"], { encoding: "utf8" }).trim();
 
 const root = mkdtempSync(path.join(os.tmpdir(), "dashpot-opencode-423-"));
@@ -70,10 +70,12 @@ const trace = (kind, fields = {}) => {
   return record;
 };
 const sha256 = (file) => !existsSync(file) ? null : createHash("sha256").update(readFileSync(file)).digest("hex");
-const sha256Tree = (directory) => {
+// A tree's digest; `skip` names files left out, such as the manifest
+// `dashpot integrate` writes beside a managed skill copy's shipped files.
+const sha256Tree = (directory, skip = []) => {
   if (!existsSync(directory)) return null;
   const hash = createHash("sha256");
-  for (const name of readdirSync(directory, { recursive: true }).map(String).toSorted()) {
+  for (const name of readdirSync(directory, { recursive: true }).map(String).filter((name) => !skip.includes(name)).toSorted()) {
     const file = path.join(directory, name);
     try { hash.update(name + "\0" + readFileSync(file)); } catch {}
   }
@@ -133,7 +135,7 @@ chmodSync(path.join(curlBin, "opencode"), 0o755);
 const basePath = `${path.dirname(process.execPath)}:/usr/bin:/bin`;
 env.PATH = `${curlBin}:${basePath}`;
 const version = execFileSync(path.join(curlBin, "opencode"), ["--version"], { env, encoding: "utf8" }).trim();
-assert.equal(version, "opencode v2.0.22", `unexpected OpenCode version: ${version}`);
+assert.equal(version, "opencode v2.2.5", `unexpected OpenCode version: ${version}`);
 
 // A Dashpot Project with a markdown Issue Source, one Issue per binding.
 const project = (directory, name, issues) => {
@@ -595,7 +597,7 @@ try {
   integrate("install", ["opencode"]);
   assert(readFileSync(pluginFile, "utf8").includes(JSON.stringify(helper)), "the plugin names the installed helper");
   trace("files", { label: "installed", plugin: sha256(pluginFile), skill: sha256Tree(path.join(skillsHome, "dashpot-issue-work")),
-    skillMatchesSource: sha256Tree(path.join(skillsHome, "dashpot-issue-work")) === sha256Tree(path.join(checkout, "src", "dashpot", bundledSkill)),
+    skillMatchesSource: sha256Tree(path.join(skillsHome, "dashpot-issue-work"), [".dashpot-manifest.json"]) === sha256Tree(path.join(checkout, "src", "dashpot", bundledSkill)),
     workerAgent: existsSync(path.join(configHome, "agent", "dashpot-worker.md")) });
   trace("service.start", { label: "start", ...cli(["service", "start"]) });
   await awaitService("start");

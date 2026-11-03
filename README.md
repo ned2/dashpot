@@ -62,9 +62,9 @@ and finding each harness's real lower bound, is tracked in
 
 | Harness | Observed through | Accepted release | Other releases |
 | --- | --- | --- | --- |
-| [Codex](docs/agent-sessions.md#codex-hosting-modes) | Lifecycle hooks | `codex-cli` 0.160.0 | Not checked: Dashpot does not read the Codex release |
-| [Claude Code](docs/agent-sessions.md#claude-code-hosting-modes) | Lifecycle hooks | 2.1.287 | Not checked: Dashpot does not read the Claude Code release |
-| [OpenCode](docs/agent-sessions.md#opencode-hosting-modes) | A plugin | 2.0.22 | 1.x is refused; another 2.x release is observed with a warning; a later major release is warned about and not observed ([details](docs/installation.md#observe-agent-sessions)) |
+| [Codex](docs/agent-sessions.md#codex-hosting-modes) | Lifecycle hooks | `codex-cli` 0.166.0 | Not checked: Dashpot does not read the Codex release |
+| [Claude Code](docs/agent-sessions.md#claude-code-hosting-modes) | Lifecycle hooks | 2.1.317 | Not checked: Dashpot does not read the Claude Code release |
+| [OpenCode](docs/agent-sessions.md#opencode-hosting-modes) | A plugin | 2.2.5 | 1.x is refused; another 2.x release is observed with a warning; a later major release is warned about and not observed ([details](docs/installation.md#observe-agent-sessions)) |
 
 Install a harness's integration with `dashpot integrate codex`,
 `dashpot integrate claude-code`, or `dashpot integrate opencode`, or several
@@ -608,28 +608,28 @@ uv run pre-commit run --all-files
 
 Each supported harness release is pinned by an acceptance run: a runner that drives the real harness in an isolated, disposable fixture through Dashpot's real hook publisher and `dashpot work` commands, and a verifier that checks the documented claims against the runner's metadata-only trace, which records the SHA-256 of the runner and of the Dashpot sources it exercised. They launch real harness processes, so they run by hand when the pinned release or the lifecycle code changes, never in CI. A release is supported once its run passes, and its trace is retained in [`docs/spikes/measurements/`](docs/spikes/measurements/README.md).
 
-- **Codex 0.160.0**: [runner](scripts/experiments/codex-161/run.mjs) and
+- **Codex 0.166.0**: [runner](scripts/experiments/codex-161/run.mjs) and
   [verifier](scripts/experiments/codex-161/verify.mjs),
-  [trace](docs/spikes/measurements/issue-161-codex-trace.jsonl), including
+  [trace](docs/spikes/measurements/issue-161-codex-0.166.0-trace.jsonl), including
   sub-agents that outlive their parent's turn and interrupted ones
   ([supported modes](docs/agent-sessions.md#codex-hosting-modes)).
-- **Claude Code 2.1.287**: [runner](scripts/experiments/claude-162/run.mjs) and
+- **Claude Code 2.1.317**: [runner](scripts/experiments/claude-162/run.mjs) and
   [verifier](scripts/experiments/claude-162/verify.mjs),
-  [trace](docs/spikes/measurements/issue-162-claude-trace.jsonl) and
-  [idle-eviction trace](docs/spikes/measurements/issue-162-claude-idle-trace.jsonl)
+  [trace](docs/spikes/measurements/issue-162-claude-2.1.317-trace.jsonl) and
+  [idle-eviction trace](docs/spikes/measurements/issue-162-claude-2.1.317-idle-trace.jsonl)
   ([supported modes](docs/agent-sessions.md#claude-code-hosting-modes)).
-- **OpenCode 2.0.22**: [runner](scripts/experiments/opencode-163/run.mjs) and
+- **OpenCode 2.2.5**: [runner](scripts/experiments/opencode-163/run.mjs) and
   [verifier](scripts/experiments/opencode-163/verify.mjs),
-  [trace](docs/spikes/measurements/issue-163-opencode-trace.jsonl), including
+  [trace](docs/spikes/measurements/issue-163-opencode-2.2.5-trace.jsonl), including
   the shared service, `--standalone` clients, background Sub-agents, moves,
-  plugin instance churn, and a TUI of 2.0.21 replacing the service
+  plugin instance churn, and a TUI of 2.2.4 replacing the service
   ([supported modes](docs/agent-sessions.md#opencode-hosting-modes)). The
   Issue-work skill's self-move has its own
   [runner](scripts/experiments/opencode-423/run.mjs),
   [verifier](scripts/experiments/opencode-423/verify.mjs) and
-  [trace](docs/spikes/measurements/issue-423-opencode-trace.jsonl)
-  ([acceptance](docs/spikes/opencode-v2-self-relocation-acceptance.md)).
-  An experiment on the same release measures background commands,
+  [trace](docs/spikes/measurements/issue-423-opencode-2.2.5-trace.jsonl), on
+  2.2.5 ([acceptance](docs/spikes/opencode-v2-self-relocation-acceptance.md)).
+  An experiment on 2.0.22 measures background commands,
   `opencode run` under default permissions, and retried and failed
   executions:
   [runner](scripts/experiments/opencode-379/run.mjs),

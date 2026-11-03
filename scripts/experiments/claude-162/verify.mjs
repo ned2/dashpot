@@ -16,7 +16,7 @@ const nested = "$ROOT/repository/nested";
 const managed = "$ROOT/repository/.claude/worktrees/managed";
 // The pinned release, which the trace's environment and its replacement
 // worker's command line both name.
-const pinned = "2.1.287";
+const pinned = "2.1.317";
 
 const evidence = (records) => {
   const hooks = records.filter((record) => record.kind === "hook");

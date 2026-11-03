@@ -1,8 +1,9 @@
-// Real-harness acceptance run for OpenCode v2, re-pinned to 2.0.22 by Issue
-// #407 (ADR 0090), first written for 1.18.30 by Issue #163. It drives a pinned
-// OpenCode release against a loopback OpenAI-compatible model fixture, in
-// disposable configuration and state, with the background service on a
-// private port, so the operator's own OpenCode service is never contacted.
+// Real-harness acceptance run for OpenCode v2, re-pinned to 2.2.5 by Issue
+// #701 and to 2.0.22 by #407 (ADR 0090), first written for 1.18.30 by #163.
+// It drives a pinned OpenCode release against a loopback OpenAI-compatible
+// model fixture, in disposable configuration and state, with the background
+// service on a private port, so the operator's own OpenCode service is never
+// contacted.
 // Dashpot is built from this checkout and installed into a fixture
 // environment, and `dashpot integrate opencode` from that installation writes
 // the plugin and skill the run exercises, so the plugin and helper are
@@ -14,15 +15,16 @@
 // asserts only what it needs to keep going, and the independent verifier
 // checks the trace against the documented claims.
 //
-// Usage: TMPDIR=<private dir> setsid -f node run.mjs <opencode 2.0.22> <opencode 2.0.21> <opencode 1.18.30> > log 2>&1
+// Usage: TMPDIR=<private dir> setsid -f node run.mjs <opencode 2.2.5> <opencode 2.2.4> <opencode 1.18.30> > log 2>&1
 // Each binary is an absolute path. It is done when it prints "All scenarios
-// completed". SPIKE_REMOVE_FIXTURE=1 deletes the fixture afterwards.
+// completed". SPIKE_REMOVE_FIXTURE=1 deletes the fixture afterwards, and
+// SPIKE_STARTED_BY names who started the run in the trace's environment.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import {
-  appendFileSync, chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync,
+  appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync,
   rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import http from "node:http";
@@ -42,7 +44,7 @@ for (let pid = process.ppid; pid > 1 && above.length < 64;) { try { const entry 
 const host = above.find((entry) => /^(claude|codex|opencode|opencode2|opencode\.exe)$/.test(entry.comm) || /\/claude\/versions\//.test(entry.cmdline));
 assert(!host, `Run this outside every harness session (for example with \`setsid -f\`): pid ${host?.pid} is ${host?.comm}`);
 const [binary, olderBinary, v1Binary] = process.argv.slice(2);
-for (const [given, what] of [[binary, "OpenCode 2.0.22"], [olderBinary, "an older OpenCode 2.0.x"], [v1Binary, "OpenCode 1.18.30"]]) {
+for (const [given, what] of [[binary, "OpenCode 2.2.5"], [olderBinary, "an older OpenCode 2.x"], [v1Binary, "OpenCode 1.18.30"]]) {
   assert(given && path.isAbsolute(given), `Pass the absolute path to the ${what} binary`);
 }
 const uv = execFileSync("sh", ["-c", "command -v uv"], { encoding: "utf8" }).trim();
@@ -128,7 +130,8 @@ const npmBin = path.join(root, "npm", "bin");
 const configHome = path.join(env.XDG_CONFIG_HOME, "opencode");
 for (const dir of [fixture, other, plain, env.HOME, env.XDG_DATA_HOME, env.XDG_CACHE_HOME, env.XDG_STATE_HOME, env.TMPDIR, curlBin, olderBin, v1Bin,
   npmPackageBin, npmBin, configHome]) mkdirSync(dir, { recursive: true });
-const place = (source, target) => { try { linkSync(source, target); } catch { execFileSync("cp", [source, target]); } chmodSync(target, 0o755); };
+// A copy, so the fixture's mode change never reaches the given binary (#701).
+const place = (source, target) => { copyFileSync(source, target); chmodSync(target, 0o755); };
 place(binary, path.join(curlBin, "opencode"));
 place(olderBinary, path.join(olderBin, "opencode"));
 place(v1Binary, path.join(v1Bin, "opencode"));
@@ -138,9 +141,9 @@ const basePath = `${path.dirname(process.execPath)}:/usr/bin:/bin`;
 env.PATH = `${curlBin}:${basePath}`;
 const versionOf = (bin) => execFileSync(path.join(bin, "opencode"), ["--version"], { env: { ...env, PATH: `${bin}:${basePath}` }, encoding: "utf8" }).trim();
 const version = versionOf(curlBin);
-assert.equal(version, "opencode v2.0.22", `unexpected OpenCode version: ${version}`);
+assert.equal(version, "opencode v2.2.5", `unexpected OpenCode version: ${version}`);
 const olderVersion = versionOf(olderBin);
-assert.match(olderVersion, /^opencode v2\.0\.\d+$/);
+assert.match(olderVersion, /^opencode v2\.\d+\.\d+$/);
 assert.notEqual(olderVersion, version, "the older binary must be another release");
 const v1Version = versionOf(v1Bin);
 assert.equal(v1Version, "1.18.30", `unexpected OpenCode v1 version: ${v1Version}`);
@@ -583,6 +586,8 @@ try {
     servicePort, fixture, treeA, treeB, treeC, other, plain, wheel,
     flags: Object.fromEntries(Object.entries(env).filter(([key]) => key.startsWith("OPENCODE"))), proxy: { HTTPS_PROXY: env.HTTPS_PROXY, NO_PROXY: env.NO_PROXY },
     dashpotHead: execFileSync("git", ["-C", checkout, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    // Who started the run, when the operator names it (#701).
+    startedBy: process.env.SPIKE_STARTED_BY ?? null,
     installedMatchesSource: exercised.every((file) => sha256(path.join(installed, file)) === sha256(path.join(checkout, "src", "dashpot", file))),
     sourceSHA256: Object.fromEntries([
       ...["run.mjs", "verify.mjs", "command.mjs", "replay.mjs", "ancestry.mjs"].map((file) => [file, path.join(here, file)]),
@@ -840,9 +845,9 @@ try {
   await settle();
   observe("replayed");
 
-  // Scenario 9: the service replaced and stopped. A TUI of an older 2.0.x
+  // Scenario 9: the service replaced and stopped. A TUI of an older 2.x
   // release replaces it, and a session resumed there continues its Issue
-  // work only through `work start`; a 2.0.22 TUI resuming another session
+  // work only through `work start`; a 2.2.5 TUI resuming another session
   // as the skill says to replaces it again; `opencode service stop` leaves
   // every bound run orphaned, and a killed service leaves its registration.
   trace("scenario", { name: "replacement" });

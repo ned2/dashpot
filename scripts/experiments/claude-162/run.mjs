@@ -39,9 +39,16 @@ const disposable = path.join(root, "repository.worktrees", "disposable");
 const tracePath = path.join(root, "trace.jsonl");
 const records = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-// The retained stream names the disposable fixture root, this directory, the
-// checkout, and the operator's home by placeholder.
-const retained = (text) => text.replaceAll(root, "$ROOT").replaceAll(here, "$EXPERIMENT").replaceAll(checkout, "$CHECKOUT").replaceAll(os.homedir(), "$HOME");
+// The retained stream names the disposable fixture root, its parent, this
+// directory, the checkout, and the operator's home by placeholder, the parent
+// even where a tool result cut short ends partway through it or where Claude
+// Code names a project directory after it (#701).
+const tmpParent = path.dirname(root);
+const cutParent = new RegExp(`(?:${Array.from({ length: tmpParent.length - 4 }, (_, index) => tmpParent.slice(0, tmpParent.length - index))
+  .map((prefix) => prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?=")`, "g");
+const retained = (text) => text.replaceAll(root, "$ROOT").replaceAll(tmpParent, "$TMPDIR").replace(cutParent, "$TMPDIR")
+  .replaceAll(tmpParent.replace(/[^A-Za-z0-9]/g, "-"), "$TMPDIR")
+  .replaceAll(here, "$EXPERIMENT").replaceAll(checkout, "$CHECKOUT").replaceAll(os.homedir(), "$HOME");
 const trace = (kind, fields = {}) => {
   const record = { kind, ...fields, receipt: records.length + 1, receiptTime: Date.now() };
   records.push(record);
@@ -50,7 +57,7 @@ const trace = (kind, fields = {}) => {
 };
 const binary = process.argv[2];
 assert(binary && path.isAbsolute(binary), "Pass the absolute path to the Claude Code binary");
-const expectedVersion = process.argv[3] ?? "2.1.287";
+const expectedVersion = process.argv[3] ?? "2.1.317";
 const idleMinutes = Number(process.env.SPIKE_IDLE_MINUTES ?? 0);
 const dashpot = path.join(checkout, ".venv", "bin", "dashpot");
 const publisher = path.join(checkout, ".venv", "bin", "dashpot-claude-code-hook");
@@ -145,6 +152,9 @@ env.SPIKE_SINK = sink.url;
 
 // The fixture model: a `SPIKE:<label>` text in the latest user turn selects a
 // fixed tool sequence, and the turn ends once every step has a tool result.
+// A step whose tool Claude Code defers, as 2.1.317 defers EnterWorktree and
+// ExitWorktree, is preceded by the ToolSearch call that loads it, as a model
+// reading the deferred-tool list makes; that call is not a step.
 const commandScript = path.join(here, "command.mjs");
 const bash = (command) => ({ tool: "Bash", input: { command, description: "Fixture step" } });
 const report = (label, hold = 200) => bash(`node ${commandScript} ${label} ${hold}`);
@@ -196,11 +206,13 @@ const model = await listen(async (req, res) => {
   });
   const tools = payload.tools?.map((tool) => tool.name) ?? [];
   const later = messages.slice(latestUser + 1);
-  const results = later.flatMap((message) => Array.isArray(message.content) ? message.content.filter((part) => part.type === "tool_result") : []);
+  const allResults = later.flatMap((message) => Array.isArray(message.content) ? message.content.filter((part) => part.type === "tool_result") : []);
+  const searches = later.flatMap((message) => Array.isArray(message.content) ? message.content.filter((part) => part.type === "tool_use" && part.name === "ToolSearch") : []);
+  const results = allResults.filter((part) => !searches.some((use) => use.id === part.tool_use_id));
   // The worktree tools' outcomes are evidence; other results stay out of the trace.
   const worktreeOutcomes = later.flatMap((message) => Array.isArray(message.content) ? message.content.filter((part) => part.type === "tool_use" && /Worktree$/.test(part.name)) : [])
     .map((use) => {
-      const result = results.find((part) => part.tool_use_id === use.id);
+      const result = allResults.find((part) => part.tool_use_id === use.id);
       const text = typeof result?.content === "string" ? result.content : result?.content?.map((part) => part.text ?? "").join(" ") ?? "";
       return { tool: use.name, isError: result?.is_error ?? null, text: text.slice(0, 400) };
     });
@@ -208,8 +220,10 @@ const model = await listen(async (req, res) => {
   const step = sequence[results.length];
   const count = (modelRequests.get(label ?? "none") ?? 0) + 1;
   modelRequests.set(label ?? "none", count);
+  const load = step && !tools.includes(step.tool) && tools.includes("ToolSearch")
+    && !searches.some((use) => use.input?.query === `select:${step.tool}`) ? `select:${step.tool}` : null;
   trace("model.request", { label, step: results.length, tool: step?.tool ?? null, available: step ? tools.includes(step.tool) : null, count,
-    worktreeOutcomes: worktreeOutcomes.length ? worktreeOutcomes : undefined });
+    toolSearch: load ?? undefined, worktreeOutcomes: worktreeOutcomes.length ? worktreeOutcomes : undefined });
   if (!payload.stream) {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ id: `msg_${records.length}`, type: "message", role: "assistant", model: payload.model ?? "fixture", content: [{ type: "text", text: "Fixture complete." }],
@@ -222,6 +236,11 @@ const model = await listen(async (req, res) => {
   if (step && tools.includes(step.tool)) {
     sse("content_block_start", { index: 0, content_block: { type: "tool_use", id: `toolu_${label}_${records.length}`, name: step.tool, input: {} } });
     sse("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(step.input) } });
+    sse("content_block_stop", { index: 0 });
+    sse("message_delta", { delta: { stop_reason: "tool_use", stop_sequence: null }, usage: { output_tokens: 20 } });
+  } else if (load) {
+    sse("content_block_start", { index: 0, content_block: { type: "tool_use", id: `toolu_search_${records.length}`, name: "ToolSearch", input: {} } });
+    sse("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ query: load, max_results: 1 }) } });
     sse("content_block_stop", { index: 0 });
     sse("message_delta", { delta: { stop_reason: "tool_use", stop_sequence: null }, usage: { output_tokens: 20 } });
   } else {
