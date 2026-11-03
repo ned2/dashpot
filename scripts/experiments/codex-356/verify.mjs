@@ -328,8 +328,11 @@ if (busyRestartRun) {
   assert.equal(restartCommand.status, 0);
   assert(busyReleased.receiptTime - restartCommand.began > 15000, "the turn ran on after the restart began");
   assert(restartCommand.ms > 15000, `\`daemon restart\` waited for the drain: ${restartCommand.ms}`);
+  const busyRequest = one("model.request", (record) => record.busy && within("restart-busy")(record));
+  assert(busyRequest.receiptTime < restartCommand.began, "the turn was waiting on the model when the restart was sent");
   const busyTurnStop = one("hook", (record) => record.event === "Stop" && record.payload.turn_id === busyRestart.busyTurn);
   assert(busyTurnStop.startedAt > busyReleased.receiptTime - 1000, "the busy turn completed after the model released it");
+  assert.equal(busyTurnStop.host, thirdDaemon, "the busy turn finished on the old daemon");
   const busyRestartEnds = endsIn("restart-busy").filter((record) => record.host === thirdDaemon);
   assert.deepEqual(busyRestartEnds.map((record) => record.payload.session_id).sort(), [r7, r8].sort());
   assert(busyRestartEnds.every((record) => record.startedAt > busyTurnStop.startedAt), "no SessionEnd, not even the idle thread's, before the turn finished");
@@ -339,12 +342,12 @@ if (busyRestartRun) {
   assert(busyRestart.thirdDaemonExitedAt >= busyLastHookEnd && busyRestart.thirdDaemonExitedAt - busyLastHookEnd < 500, "the daemon exits once its hooks end");
   const idleEnd = busyRestartEnds.find((record) => record.payload.session_id === r8);
   const idleToExit = busyRestart.thirdDaemonExitedAt - idleEnd.startedAt;
-  assert(idleToExit > 0 && idleToExit < 2000, `the old daemon exits soon after the idle thread's SessionEnd began: ${idleToExit}`);
+  assert(idleToExit > 0 && idleToExit < 1000, `the old daemon exits soon after the idle thread's SessionEnd began: ${idleToExit}`);
   const busyWaiters = of("waiter").filter(within("restart-busy"));
   assert.deepEqual(busyWaiters.map((record) => record.session).sort(), [r7, r8].sort());
   for (const waiter of busyWaiters) {
     assert.equal(waiter.host, thirdDaemon);
-    assert(waiter.exitedSinceHookBegan !== null && waiter.exitedSinceHookBegan < 2000, "a detached waiter sees the daemon exit");
+    assert(waiter.exitedSinceHookBegan !== null && waiter.exitedSinceHookBegan < 1000, "a detached waiter sees the daemon exit");
   }
   const fourthDaemon = busyRestart.fourthDaemon;
   assert.notEqual(fourthDaemon, thirdDaemon);
@@ -369,7 +372,6 @@ if (busyRestartRun) {
   assert.deepEqual([shared.ownBefore, shared.ownLeft], [0, 0], "the fixture's daemons left no entry in the shared daemon directory");
   console.log(`Busy restart: drained ${restartCommand.ms} ms, idle SessionEnd to old daemon exit ${idleToExit} ms`);
 }
-
 
 console.log(`Verified ${records.length} records from codex-cli ${expectedVersion}`);
 console.log(drifted.length ? `Dashpot modules changed since the run: ${drifted.join(", ")}` : `Dashpot modules match the run's (${environment.dashpot.head})`);

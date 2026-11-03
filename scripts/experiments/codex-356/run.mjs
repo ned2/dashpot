@@ -60,23 +60,24 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // runner's own child.
 const home = os.homedir();
 const hostName = new RegExp(`\\b${os.hostname().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+// Whole paths are replaced in order, most specific first. A fixture parent
+// other than the system temporary directory is a private path too.
+const scrubs = [[root, "$ROOT"], ...(fixtureParent === os.tmpdir() ? [] : [[fixtureParent, "$FIXTURE_PARENT"]]),
+  [here, "$EXPERIMENT"], [checkout, "$CHECKOUT"], [home, "~"]];
+const privatePaths = [root, here, checkout, home];
+// An ancestry entry's command line is cut short and can end partway through a
+// private path, which no whole-path replacement matches, so such a cut-off
+// last token is dropped first.
+const cutTail = (cmdline) => {
+  const token = cmdline.match(/\/[^\s'"=:]+$/)?.[0];
+  return token && !privatePaths.includes(token) && privatePaths.some((full) => full.startsWith(token)) ? `${cmdline.slice(0, -token.length)}…` : cmdline;
+};
 const trace = (kind, fields = {}) => {
   const record = { kind, ...fields, receipt: records.length + 1, receiptTime: Date.now() };
   records.push(record);
-  const kept = record.ancestry ? { ...record, ancestry: record.ancestry.slice(0, 5) } : record;
-  // An ancestry entry's short command line can end partway through a private
-  // path, which no whole-path replacement matches, so such a cut-off last
-  // token is dropped first. A fixture parent other than the system temporary
-  // directory is scrubbed too.
-  const cutTail = (_key, value) => {
-    if (typeof value !== "string") return value;
-    const token = value.match(/\/[^\s'"=]+$/)?.[0];
-    const paths = [root, here, checkout, home];
-    return token && !paths.includes(token) && paths.some((full) => full.startsWith(token)) ? `${value.slice(0, -token.length)}…` : value;
-  };
-  const scrubbed = JSON.stringify(kept, cutTail).replaceAll(root, "$ROOT");
-  appendFileSync(tracePath, (fixtureParent === os.tmpdir() ? scrubbed : scrubbed.replaceAll(fixtureParent, "$FIXTURE_PARENT")).replaceAll(here, "$EXPERIMENT").replaceAll(checkout, "$CHECKOUT")
-    .replaceAll(home, "~").replace(hostName, "<host>") + "\n");
+  const kept = record.ancestry ? { ...record, ancestry: record.ancestry.slice(0, 5).map((entry) => ({ ...entry, cmdline: cutTail(entry.cmdline) })) } : record;
+  const scrubbed = scrubs.reduce((text, [from, to]) => text.replaceAll(from, to), JSON.stringify(kept));
+  appendFileSync(tracePath, scrubbed.replace(hostName, "<host>") + "\n");
   return record;
 };
 
@@ -272,7 +273,11 @@ const brief = (entry) => [entry.pid, entry.ppid, entry.comm, entry.cmdline.repla
 // enough to push its flags past the ancestry record's short command line.
 const fullCommand = (pid) => { try { return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean).join(" "); } catch { return ""; } };
 // The managed daemon: `codex app-server ... --managed-daemon`.
-const isDaemon = (entry) => entry.comm.startsWith("codex") && / app-server /.test(fullCommand(entry.pid)) && / --managed-daemon/.test(fullCommand(entry.pid));
+const isDaemon = (entry) => {
+  if (!entry.comm.startsWith("codex")) return false;
+  const command = fullCommand(entry.pid);
+  return / app-server /.test(command) && / --managed-daemon/.test(command);
+};
 const isSettler = (entry) => / -m dashpot\.hook settle /.test(entry.cmdline);
 const daemons = () => fixtureProcesses().filter(isDaemon);
 const settlers = () => fixtureProcesses().filter(isSettler);
@@ -694,6 +699,8 @@ try {
   inspector.close();
   hooksBefore = hooks().length;
   const fourthExit = exitOf(fourthDaemon);
+  // The final stop stays inside `restart-busy`: it is how that scenario sees
+  // what the replacement's own stop does to the threads it reloaded.
   await codex(["app-server", "daemon", "stop"], "daemon-stop-final", { timeout: 120000 });
   await fourthExit.done;
   await quietly(waitFor(() => sessionEnds(hooksBefore, [r7, r8]).length === 2, "final stop SessionEnds", 15000));
@@ -724,6 +731,8 @@ try {
   sink.server.closeAllConnections(); sink.server.close(); model.server.closeAllConnections(); model.server.close();
   trace("artifact", { root });
   console.log(`Metadata trace: ${tracePath}`);
+  // The runner runs detached, so this marker tells whoever waits on it that
+  // the trace is complete.
   writeFileSync(path.join(root, "done"), "");
   if (process.env.SPIKE_REMOVE_FIXTURE === "1") rmSync(root, { recursive: true });
 }

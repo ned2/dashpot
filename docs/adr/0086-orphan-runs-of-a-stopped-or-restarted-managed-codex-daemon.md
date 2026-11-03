@@ -157,8 +157,8 @@ narrower question, and the difference is what makes it acceptable:
   ([spike](../spikes/codex-daemon-restart-busy-spike.md)). A restart the
   daemon's updater starts was not measured. By the 0.166.0 source it stops
   the daemon through the same graceful stop as `daemon restart`, from the
-  same `--managed-daemon` host, so this decision reads it as it reads a
-  restart.
+  same `--managed-daemon` host, so this decision applies the same reading
+  to it, unmeasured.
 - A run the settler leaves is shown without a last activity time. Its ended
   hook record is removed at the `SessionEnd`, as ADR 0015 requires, and the
   replacement daemon's reloaded thread publishes nothing until its next turn.

@@ -834,11 +834,11 @@ the method and the source behind it. The run repeats every scenario of the
 
 - **A restart drains as a stop does.** `daemon restart` sent while one
   thread's turn waited on the model and another thread sat idle let the
-  turn finish before ending either: the model was released 20.0 s
+  turn finish before ending either: the model was released 20.1 s
   after the restart began, the turn's `Stop` hook ran, and both threads'
-  `SessionEnd` hooks began 0.31 s after the release, from the old
-  daemon, within 1 ms of each other. The old daemon exited
-  0.24 s after they began, and `daemon restart` returned after
+  `SessionEnd` hooks began 0.32 s after the release, from the old
+  daemon, within 6 ms of each other. The old daemon exited
+  0.25 s after the idle thread's hook began, and `daemon restart` returned after
   20.8 s.
 - **Both runs orphaned.** Through Dashpot's publisher and settler, both
   bound runs were left orphaned under the old daemon, as

@@ -38,11 +38,13 @@ Each answer is marked:
    `daemon restart` was sent while thread R7's turn waited on the model,
    held for 20 s, and thread R8 sat idle. Neither thread's `SessionEnd`
    began until R7's turn had finished: the model was released
-   20.0 s after the restart began, R7's `Stop` hook followed, and
-   both `SessionEnd` hooks, the idle R8's included, began 0.31 s
-   after the release, within 1 ms of each other, from the old
-   daemon. The old daemon exited 0.24 s after the idle thread's hook
-   began, and `daemon restart` returned after 20.8 s.
+   20.1 s after the restart began, R7's `Stop` hook followed, and
+   both `SessionEnd` hooks, the idle R8's included, began 0.32 s
+   after the release, within 6 ms of each other, from the old
+   daemon. The old daemon exited 0.25 s after the idle thread's hook
+   began, and `daemon restart` returned after 20.8 s. The turn's `Stop`
+   hook is what shows it finished: unlike in the stop with a turn running,
+   the client never received `turn/completed` before the daemon went away.
 2. **Dashpot leaves both runs orphaned** (measured). Each settler saw the
    old daemon gone inside its 10 s window and left its run, so both were
    listed as Orphaned Agent Runs under the old daemon, with no last
@@ -67,7 +69,7 @@ Each answer is marked:
 6. **Every 0.160.0 claim of the restart acceptance run still holds**
    (measured). The run repeats #356's scenarios at 0.166.0 and the
    verifier checks the same claims, among them the stop with a turn
-   running, whose `daemon stop` returned after 23.3 s.
+   running, whose `daemon stop` returned after 23.5 s.
 
 ## Reproduce
 
@@ -115,7 +117,10 @@ root than the system temporary directory. A run takes about five minutes.
 - [Trace](measurements/issue-398-codex-trace.jsonl): metadata only, with
   the fixture's paths, home directory and host name rewritten to
   placeholders. Its environment record gives the binary's SHA-256,
-  `b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8`.
+  `b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8`. It
+  calls the checkout dirty because the runner was not yet committed when it
+  ran; the source hashes it records identify the runner and verifier, and
+  match the committed ones.
 
 ## Tested configuration and evidence boundary
 
@@ -139,11 +144,11 @@ command's start unless named otherwise.
 
 | Event | Time |
 | --- | --- |
-| Model request held for R7's turn released | 20.0 s |
-| R7's `Stop` hook begins | 20.04 s |
-| R7's and R8's `SessionEnd` hooks begin, from the old daemon | 20.32 s |
-| Old daemon exits | 20.56 s |
-| `daemon restart` returns | 20.8 s |
+| Model request held for R7's turn released | 20.06 s |
+| R7's `Stop` hook begins | 20.10 s |
+| R7's and R8's `SessionEnd` hooks begin, from the old daemon | 20.38 s |
+| Old daemon exits | 20.63 s |
+| `daemon restart` returns | 20.83 s |
 
 The source agrees. `daemon restart` (`restart_with_settings` in
 `app-server-daemon/src/lib.rs`) and `daemon stop` (`stop`, same file) call
@@ -241,7 +246,7 @@ without patching Codex. Nothing in it has been run.
 ## Validation
 
 ```bash
-node scripts/experiments/codex-356/verify.mjs docs/spikes/measurements/issue-398-codex-trace.jsonl
+node scripts/experiments/codex-356/verify.mjs docs/spikes/measurements/issue-398-codex-trace.jsonl 0.166.0 --strict
 node scripts/experiments/codex-356/verify.mjs docs/spikes/measurements/issue-356-codex-trace.jsonl 0.160.0
 uv run python scripts/trace_drift.py scripts/experiments/codex-356/verify.mjs docs/spikes/measurements/issue-398-codex-trace.jsonl
 ```
