@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-03
 ---
 
@@ -136,19 +136,21 @@ hook payload and from nothing else.
   will tell the Lead to give `followup_task` that ID as the target, rather
   than the Worker's path. Its Known Dashpot gap then narrows to follow-ups
   addressed by path.
-  - The 0.166.0 measurement sent its follow-ups to an unloaded and to a
-    restored Worker by path. An ID-addressed follow-up to such a Worker is
-    unmeasured.
-  - The change that implements this ADR measures that case before the
-    skill relies on it.
+  - The 0.166.0 measurement first sent its follow-ups to an unloaded and to
+    a restored Worker by path only. The change that implemented this ADR
+    measured the ID-addressed case before the skill relied on it: an ID
+    reached an evicted Worker and one restored from disk, as a path does
+    ([unloaded Workers by ID](../spikes/codex-followup-tool-hooks-spike.md#7-dashpots-subscription)).
 
-This ADR is proposed: decided, but not yet implemented. The change that
-implements it marks it accepted. In the same change it:
-
-- amends ADR 0016, whose two boundaries gain this third way of adding a
-  Sub-agent;
-- updates the execute-issues skill and its Known Dashpot gap;
-- drops "proposed" from the domain language's Sub-agent entry.
+The change that implemented this ADR measured the subscription too, through
+Dashpot's real publisher on 0.166.0: the joined exact names selected each
+accepted follow-up's `PostToolUse` and nothing else, and the store listed
+each ID-addressed Worker from that event until its `SubagentStop` and no
+path-addressed one
+([Dashpot's subscription](../spikes/codex-followup-tool-hooks-spike.md#7-dashpots-subscription)).
+In the same change it amended ADR 0016, whose two boundaries gain this
+third way of adding a Sub-agent, and updated the execute-issues skill and
+its Known Dashpot gap.
 
 ## Considered options
 

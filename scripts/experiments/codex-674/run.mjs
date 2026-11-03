@@ -3,22 +3,24 @@
 // updater is off, and records what a lead's `followup_task` (multi-agent v2)
 // and `send_input` (v1) publish to hooks: `PreToolUse` and `PostToolUse` on
 // the lead, each subscribed once without a matcher and once per candidate
-// matcher, beside the lifecycle events `dashpot integrate codex` subscribes,
-// which reach Dashpot's real publisher.
+// matcher, beside every subscription `dashpot integrate codex` installs:
+// the lifecycle events and its matched `PostToolUse` (ADR 0161), which reach
+// Dashpot's real publisher. After each event the publisher handled, the
+// trace records the session's listing in Dashpot's store.
 //
 // Each lead runs in a `codex app-server` over stdio; no daemon is started.
 // The v2 lead runs with `agents.max_threads` 1, so Codex holds one worker
 // loaded and runs one worker turn at a time. It follows up a resident
-// worker by absolute path, relative path and thread ID; one Codex evicted;
-// an evicted one while another runs, into the running-turn limit; one
-// mid-turn; an unknown path and an
-// unknown thread ID; and, after the app-server restarts and the lead is
-// resumed, a worker restored from disk. The v1 lead resumes its worker with
-// `send_input`, then sends to an unknown ID, a malformed ID and a worker it
-// closed. The trace records hook payload keys, tool names, call IDs, thread
-// IDs and agent paths, Codex's tool replies to the lead (status text Codex
-// composes, never prompt text), and loaded threads; never a prompt or a
-// message.
+// worker by absolute path, relative path and thread ID; one Codex evicted,
+// by path and by thread ID; an evicted one while another runs, into the
+// running-turn limit; one mid-turn; an unknown path and an unknown thread
+// ID; and, after the app-server restarts and the lead is resumed, a worker
+// restored from disk, by path and by thread ID. The v1 lead resumes its
+// worker with `send_input`, then sends to an unknown ID, a malformed ID and
+// a worker it closed. The trace records hook payload keys, tool names, call
+// IDs, thread IDs and agent paths, Codex's tool replies to the lead (status
+// text Codex composes, never prompt text), loaded threads, and Dashpot's
+// session state and listed Sub-agents; never a prompt or a message.
 //
 //   node run.mjs <absolute codex binary> [expected version] [dashpot bin dir]
 //   node verify.mjs <trace.jsonl> [expected version] [--codex-source <checkout>]
@@ -130,13 +132,29 @@ const transcriptMeta = (file, agentId) => {
     threadSpawn: spawn && { parent_thread_id: spawn.parent_thread_id ?? null, depth: spawn.depth ?? null, agent_path: spawn.agent_path ?? null,
       agent_role: spawn.agent_role ?? null, keys: Object.keys(spawn) } };
 };
+// Each record in Dashpot's global hook-record store, where the fixture's
+// sessions land since its repository is no configured Project: the session,
+// its state and the Sub-agents it lists, with the Host Process tags' keys.
+const dashpotStore = () => {
+  const store = path.join(env.XDG_STATE_HOME, "dashpot", "runs");
+  if (!existsSync(store)) return [];
+  return readdirSync(store, { recursive: true }).filter((name) => String(name).endsWith(".json")).sort().map((name) => {
+    const stored = parseJson(readFileSync(path.join(store, String(name)), "utf8")) ?? {};
+    return { sessionId: stored.sessionId ?? null, state: stored.state ?? null, lastEvent: stored.event ?? null,
+      liveSubagents: stored.liveSubagents ?? null, subagentProcesses: Object.keys(stored.subagentProcesses ?? {}),
+      followUpStored: "followUp" in stored };
+  });
+};
 const sink = await listen(async (req, res) => {
   const url = new URL(req.url, "http://fixture");
   const received = await body(req);
   if (url.pathname === "/hook") {
     const describeTranscript = (file) => file && { underCodexHome: file.startsWith(env.CODEX_HOME), meta: transcriptMeta(file, received.payload?.agent_id) };
     const { transcriptPath, agentTranscriptPath, ...kept } = received;
-    trace("hook", { ...kept, transcript: describeTranscript(transcriptPath), agentTranscript: describeTranscript(agentTranscriptPath), scenario });
+    // The hook posts once the publisher has returned, so the store holds
+    // this event's effect, and perhaps a concurrent hook's.
+    const store = received.publisher ? dashpotStore() : undefined;
+    trace("hook", { ...kept, transcript: describeTranscript(transcriptPath), agentTranscript: describeTranscript(agentTranscriptPath), dashpotStore: store, scenario });
   } else {
     trace("command", { ...received, scenario });
   }
@@ -180,11 +198,17 @@ const plans = {
   "wb-limit": [{ exec: 300 }],
   "wa-busy": [{ exec: 300 }],
   // Targets Codex cannot resolve.
+  // B, evicted again by A's turns, is reloaded by its thread ID.
+  "v2-evicted-id": [() => ({ call: "followup_task", args: { target: learned.workerB, message: "SPIKE:wb-evicted-id" } }), { call: "wait_agent", args: { timeout_ms: 30000 } }],
+  "wb-evicted-id": [{ exec: 300 }],
   "v2-unknown": [{ call: "followup_task", args: { target: "/root/nobody", message: "SPIKE:nobody" } },
     { call: "followup_task", args: { target: unknownId, message: "SPIKE:nobody" } }, { call: "list_agents", args: {} }],
-  // After the app-server restarts: B, evicted and on disk only, is restored.
+  // After the app-server restarts: B, evicted and on disk only, is restored
+  // by path; then A, on disk only too, by its thread ID.
   "v2-restored": [{ call: "followup_task", args: { target: "/root/worker_b", message: "SPIKE:wb-restored" } }, { call: "wait_agent", args: { timeout_ms: 30000 } }],
   "wb-restored": [{ exec: 300 }],
+  "v2-restored-id": [() => ({ call: "followup_task", args: { target: learned.workerA, message: "SPIKE:wa-restored-id" } }), { call: "wait_agent", args: { timeout_ms: 30000 } }],
+  "wa-restored-id": [{ exec: 300 }],
   // v1: worker V runs once; `send_input` resumes it by ID.
   "v1-spawn": [{ call: "spawn_agent", args: { message: "SPIKE:wv" } }, ({ lastOutput }) => {
     learned.workerVFromSpawn = parseJson(lastOutput)?.agent_id ?? null;
@@ -256,19 +280,24 @@ const model = await listen(async (req, res) => {
   res.end();
 });
 
-// The lifecycle events `dashpot integrate codex` subscribes reach Dashpot's
-// publisher; each tool event is subscribed without a matcher, and once for
-// each candidate matcher. Codex treats a matcher of letters, digits, `_` and
-// `|` as exact names, and anything else as a regular expression.
-const lifecycleEvents = Object.keys(JSON.parse(readFileSync(path.join(checkout, "examples", "codex-hooks.json"), "utf8")).hooks);
+// Every subscription `dashpot integrate codex` installs, as its example
+// spells them, reaches Dashpot's publisher: a lifecycle event tagged
+// `lifecycle`, a matched one `dashpot:<matcher>`. Each tool event is also
+// subscribed without a matcher, and once for each candidate matcher, and
+// those are recorded only. Codex treats a matcher of letters, digits, `_`
+// and `|` as exact names, and anything else as a regular expression.
+const dashpotHooks = JSON.parse(readFileSync(path.join(checkout, "examples", "codex-hooks.json"), "utf8")).hooks;
+const lifecycleEvents = Object.keys(dashpotHooks).filter((event) => dashpotHooks[event].every((group) => !group.matcher));
+const dashpotMatched = Object.entries(dashpotHooks).flatMap(([event, groups]) => groups.filter((group) => group.matcher).map((group) => [event, group.matcher]));
 const matchers = ["followup_task", "send_input", "collaborationfollowup_task", "multi_agent_v1send_input", "followup_task$|send_input$"];
 const hookCommand = (tag) => `${process.execPath} ${path.join(here, "hook.mjs")} '${tag}'`;
 const handler = (tag) => ({ type: "command", command: hookCommand(tag), timeout: 15 });
-const toolGroups = [{ hooks: [handler("all")] }, ...matchers.map((matcher) => ({ matcher, hooks: [handler(`matcher:${matcher}`)] }))];
+const toolGroups = (event) => [{ hooks: [handler("all")] }, ...matchers.map((matcher) => ({ matcher, hooks: [handler(`matcher:${matcher}`)] })),
+  ...dashpotMatched.filter(([matched]) => matched === event).map(([, matcher]) => ({ matcher, hooks: [handler(`dashpot:${matcher}`)] }))];
 const hooksDocument = { hooks: {
   ...Object.fromEntries(lifecycleEvents.map((event) => [event, [{ hooks: [handler("lifecycle")] }]])),
-  PreToolUse: toolGroups,
-  PostToolUse: toolGroups,
+  PreToolUse: toolGroups("PreToolUse"),
+  PostToolUse: toolGroups("PostToolUse"),
 } };
 writeFileSync(path.join(env.CODEX_HOME, "hooks.json"), JSON.stringify(hooksDocument, null, 2));
 
@@ -467,6 +496,8 @@ try {
   await residency(v2, "v2-reloaded", { lead, a: learned.workerA, b: learned.workerB });
   await step(v2, lead, "v2-limit", { worker: () => learned.workerA, timeout: 120000 });
   await residency(v2, "v2-limited", { lead, a: learned.workerA, b: learned.workerB });
+  await step(v2, lead, "v2-evicted-id", { worker: () => learned.workerB });
+  await residency(v2, "v2-reloaded-id", { lead, a: learned.workerA, b: learned.workerB });
   await step(v2, lead, "v2-unknown");
 
   // The app-server stops; a new one resumes the lead, and B is restored from
@@ -481,6 +512,8 @@ try {
   await residency(v2, "v2-resumed", { lead, a: learned.workerA, b: learned.workerB });
   await step(v2, lead, "v2-restored", { worker: () => learned.workerB });
   await residency(v2, "v2-restored", { lead, a: learned.workerA, b: learned.workerB });
+  await step(v2, lead, "v2-restored-id", { worker: () => learned.workerA });
+  await residency(v2, "v2-restored-id", { lead, a: learned.workerA, b: learned.workerB });
   await v2.stop();
 
   // v1: the lead resumes its worker with `send_input`.

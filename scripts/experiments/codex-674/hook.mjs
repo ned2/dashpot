@@ -1,9 +1,10 @@
 // Metadata-only hook wrapper for the Codex 674 follow-up hook run. Reads the
 // hook payload from stdin and posts its identity fields to the runner's
 // sink, tagged with the subscription that ran it (`node hook.mjs <tag>`).
-// A lifecycle event Dashpot subscribes is also handed, byte for byte, to
+// An event of a subscription Dashpot installs (tag `lifecycle`, or
+// `dashpot:<matcher>` for a matched one) is also handed, byte for byte, to
 // Dashpot's real Codex publisher, whose stdout and exit status Codex sees as
-// with an installed hook. `PreToolUse` and `PostToolUse` are recorded only.
+// with an installed hook. The other tool subscriptions are recorded only.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { ancestry } from "./ancestry.mjs";
@@ -38,7 +39,7 @@ const shape = (value) => {
 const tool = "tool_name" in payload;
 let published = null;
 const startedAt = Date.now();
-if (tag === "lifecycle") {
+if (tag === "lifecycle" || tag.startsWith("dashpot:")) {
   const ran = spawnSync(process.env.SPIKE_PUBLISHER, [], { input: raw, encoding: "utf8", timeout: 8000 });
   if (ran.stdout) process.stdout.write(ran.stdout);
   // The publisher prints only a continuation notice and reports failures on

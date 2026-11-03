@@ -47,8 +47,8 @@ const checkout = path.resolve(here, "..", "..", "..");
 const drifted = modules.filter((file) => digestOf(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot modules differ from the run's: ${drifted.join(", ")}`);
 assert.match(environment.binarySHA256, /^[0-9a-f]{64}$/);
-assert.deepEqual(of("scenario").map((record) => record.name), ["v2-spawn", "v2-path", "v2-relative", "v2-id", "v2-evict", "v2-evicted", "v2-limit", "v2-unknown",
-  "v2-restart", "v2-restored", "v1-spawn", "v1-send", "v1-unknown", "v1-closed"]);
+assert.deepEqual(of("scenario").map((record) => record.name), ["v2-spawn", "v2-path", "v2-relative", "v2-id", "v2-evict", "v2-evicted", "v2-limit", "v2-evicted-id",
+  "v2-unknown", "v2-restart", "v2-restored", "v2-restored-id", "v1-spawn", "v1-send", "v1-unknown", "v1-closed"]);
 
 const outcome = one("outcome");
 const { workerA, workerB, workerV, workerVFromSpawn } = outcome.learned;
@@ -57,6 +57,11 @@ const hooks = of("hook");
 // One record per hook Codex ran without a matcher: each tool call once.
 const all = hooks.filter((record) => record.tag === "all");
 const lifecycle = hooks.filter((record) => record.tag === "lifecycle");
+// The matched subscription `dashpot integrate codex` installs (ADR 0161),
+// whose events reached Dashpot's publisher too.
+const dashpotMatcher = "collaborationfollowup_task|multi_agent_v1send_input";
+const dashpotMatched = hooks.filter((record) => record.tag === `dashpot:${dashpotMatcher}`);
+const published = [...lifecycle, ...dashpotMatched];
 const requests = of("model.request");
 const calls = (tool) => requests.filter((record) => record.action === tool);
 const toolHooks = (event, callId) => all.filter((record) => record.event === event && record.payload.tool_use_id === callId);
@@ -83,6 +88,10 @@ check("The run used the pinned release through a fixture-local symlink, with the
   for (const matcher of environment.matchers) {
     for (const event of ["preToolUse", "postToolUse"]) assert(listed.some((entry) => entry.event === event && entry.matcher === matcher && entry.tag === `matcher:${matcher}`));
   }
+  // Every subscription Dashpot installs, as its example spells them.
+  assert.deepEqual(environment.hooksDocument.hooks.PostToolUse.filter((group) => group.hooks[0].command.endsWith(`'dashpot:${dashpotMatcher}'`)).map((group) => group.matcher), [dashpotMatcher]);
+  assert(listed.some((entry) => entry.event === "postToolUse" && entry.matcher === dashpotMatcher && entry.tag === `dashpot:${dashpotMatcher}`));
+  assert(!listed.some((entry) => entry.event === "preToolUse" && entry.tag?.startsWith("dashpot:")));
 });
 
 check("No record keeps a prompt, a message or a worker's reply: none holds the fixture's `SPIKE:` or `DONE:` markers, which every prompt, task and reply carries. No record names a path outside the placeholders `$ROOT`, `$EXPERIMENT`, `$CHECKOUT` and `~`", () => {
@@ -95,16 +104,20 @@ check("No record keeps a prompt, a message or a worker's reply: none holds the f
   for (const record of hooks) for (const shape of [record.toolInput, record.toolResponse]) assert(!shape?.identity || !("message" in shape.identity));
 });
 
-check("Dashpot's Codex publisher accepted every lifecycle event the fixture handed it, exiting 0 with nothing on stderr", () => {
-  assert(lifecycle.length > 0);
-  for (const record of lifecycle) assert.deepEqual([record.publisher.status, record.publisher.stderr, record.publisher.error], [0, "", null], `${record.event} ${record.receipt}`);
+check("Dashpot's Codex publisher accepted every event the fixture handed it, lifecycle and matched follow-up alike, exiting 0 with nothing on stderr; no stored record holds a follow-up field", () => {
+  assert(lifecycle.length > 0 && dashpotMatched.length > 0);
+  for (const record of published) {
+    assert.deepEqual([record.publisher.status, record.publisher.stderr, record.publisher.error], [0, "", null], `${record.event} ${record.receipt}`);
+    assert(Array.isArray(record.dashpotStore), `${record.event} ${record.receipt}: a store snapshot`);
+    assert(record.dashpotStore.every((stored) => stored.followUpStored === false), `${record.event} ${record.receipt}`);
+  }
 });
 
 // Question 1: the lead's hooks for `followup_task`.
 const followups = calls("followup_task");
 const preKeys = ["session_id", "turn_id", "transcript_path", "cwd", "hook_event_name", "model", "permission_mode", "tool_name", "tool_input", "tool_use_id"];
 check("Every `followup_task` call fires `PreToolUse` on the lead once, with `tool_name` `collaborationfollowup_task`, the model's call ID as `tool_use_id`, no `agent_id`, and `tool_input` `{target, message}` whose `target` is exactly what the lead wrote", () => {
-  assert.equal(followups.length, 10);
+  assert.equal(followups.length, 12);
   for (const call of followups) {
     const [pre] = toolHooks("PreToolUse", call.callId);
     assert.equal(toolHooks("PreToolUse", call.callId).length, 1);
@@ -115,7 +128,7 @@ check("Every `followup_task` call fires `PreToolUse` on the lead once, with `too
     assert.deepEqual(pre.toolInput.keys, ["target", "message"]);
     assert.equal(pre.toolInput.identity.target, call.target);
   }
-  assert.deepEqual([...new Set(followups.map((call) => call.target))].sort(), ["/root/nobody", "/root/worker_a", "/root/worker_b", outcome.unknownId, workerA, "worker_a"].sort());
+  assert.deepEqual([...new Set(followups.map((call) => call.target))].sort(), ["/root/nobody", "/root/worker_a", "/root/worker_b", outcome.unknownId, workerA, workerB, "worker_a"].sort());
 });
 
 // The follow-ups that failed: both unknown targets, and evicted B while A
@@ -123,7 +136,7 @@ check("Every `followup_task` call fires `PreToolUse` on the lead once, with `too
 const failedFollowup = (call) => call.label === "v2-unknown" || (call.label === "v2-limit" && call.target === "/root/worker_b");
 const succeeded = followups.filter((call) => !failedFollowup(call));
 check("A successful `followup_task` fires `PostToolUse` once, with the same `tool_use_id` and `tool_input`, `tool_response` the empty string, before the worker's turn ends", () => {
-  assert.equal(succeeded.length, 7);
+  assert.equal(succeeded.length, 9);
   for (const call of succeeded) {
     const [pre] = toolHooks("PreToolUse", call.callId);
     const posts = toolHooks("PostToolUse", call.callId);
@@ -170,7 +183,8 @@ check("A path target is not an `agent_id`. The worker transcript named by `Subag
 });
 
 const followupScenarios = [["v2-path", workerA, "wa-path.0"], ["v2-relative", workerA, "wa-relative.0"], ["v2-id", workerA, "wa-id.0"],
-  ["v2-evicted", workerA, "wa-evicted.0"], ["v2-limit", workerA, "wa-long.0"], ["v2-restored", workerB, "wb-restored.0"]];
+  ["v2-evicted", workerA, "wa-evicted.0"], ["v2-limit", workerA, "wa-long.0"], ["v2-evicted-id", workerB, "wb-evicted-id.0"],
+  ["v2-restored", workerB, "wb-restored.0"], ["v2-restored-id", workerA, "wa-restored-id.0"]];
 check("Each successful follow-up, by absolute path, relative path or ID, ran in the worker the target names: its shell's `CODEX_THREAD_ID` and its `SubagentStop`'s `agent_id` are the thread `SubagentStart` reported at the spawn", () => {
   for (const [scenario, agent, label] of followupScenarios) {
     assert.equal(shell(label).env.CODEX_THREAD_ID, agent, scenario);
@@ -187,6 +201,17 @@ check("That holds for a worker Codex evicted, and for one restored from disk aft
   assert.equal(residency("v2-restored").threads.b.loaded, true);
   assert(of("rpc.event", (record) => record.server === "v2-second").length > 0);
   assert.equal(shell("wb-restored.0").env.CODEX_THREAD_ID, workerB);
+});
+
+check("A thread-ID target reaches an unloaded worker as a path does: evicted B, reloaded by its ID, and A, restored from disk by its ID after the restart", () => {
+  assert.equal(residency("v2-limited").threads.b.loaded, false);
+  assert.equal(followups.find((call) => call.label === "v2-evicted-id").target, workerB);
+  assert.equal(residency("v2-reloaded-id").threads.b.loaded, true);
+  assert.equal(shell("wb-evicted-id.0").env.CODEX_THREAD_ID, workerB);
+  assert.equal(residency("v2-restored").threads.a.loaded, false);
+  assert.equal(followups.find((call) => call.label === "v2-restored-id").target, workerA);
+  assert.equal(residency("v2-restored-id").threads.a.loaded, true);
+  assert.equal(shell("wa-restored-id.0").env.CODEX_THREAD_ID, workerA);
 });
 
 // Question 3: a failed `followup_task`.
@@ -291,13 +316,42 @@ check("A matcher selects these calls only by the flattened hook name: `followup_
   assert.deepEqual(pairs(tagged("matcher:collaborationfollowup_task")), ofTool("collaborationfollowup_task"));
   assert.deepEqual(pairs(tagged("matcher:multi_agent_v1send_input")), ofTool("multi_agent_v1send_input"));
   assert.deepEqual(pairs(tagged("matcher:followup_task$|send_input$")), [...ofTool("collaborationfollowup_task"), ...ofTool("multi_agent_v1send_input")].sort());
-  assert.equal(ofTool("collaborationfollowup_task").length, 17);
+  assert.equal(ofTool("collaborationfollowup_task").length, 21);
   assert.equal(ofTool("multi_agent_v1send_input").length, 5);
   // Without a matcher the same events also ran for every other tool call.
   const otherTools = new Set(all.map((record) => record.payload.tool_name));
   for (const tool of ["Bash", "collaborationspawn_agent", "collaborationwait_agent", "collaborationlist_agents", "spawn_agent", "multi_agent_v1wait_agent", "multi_agent_v1close_agent"]) {
     assert(otherTools.has(tool), tool);
   }
+});
+
+// Dashpot's own subscription and what its publisher made of it (ADR 0161).
+const listing = (record, session) => record.dashpotStore.find((stored) => stored.sessionId === session);
+check("Dashpot's matched subscription, the joined exact names, ran once for each accepted follow-up and `send_input`, on `PostToolUse` alone, and for no other tool call", () => {
+  const accepted = all.filter((record) => record.event === "PostToolUse" && ["collaborationfollowup_task", "multi_agent_v1send_input"].includes(record.payload.tool_name));
+  assert.equal(accepted.length, succeeded.length + 1);
+  assert.deepEqual(dashpotMatched.map((record) => record.payload.tool_use_id).sort(), accepted.map((record) => record.payload.tool_use_id).sort());
+  assert(dashpotMatched.every((record) => record.event === "PostToolUse"));
+});
+
+const byId = [["v2-id", leadV2, workerA], ["v2-evicted-id", leadV2, workerB], ["v2-restored-id", leadV2, workerA], ["v1-send", leadV1, workerV]];
+check("Dashpot listed the worker an ID-addressed follow-up named, resident, evicted or restored, v2 or v1, from the lead's `PostToolUse` until that worker's `SubagentStop`, which ended the listing; the lead's record was the one that listed it", () => {
+  for (const [scenario, lead, worker] of byId) {
+    const [post] = dashpotMatched.filter((record) => record.scenario === scenario);
+    assert.equal(dashpotMatched.filter((record) => record.scenario === scenario).length, 1, scenario);
+    assert.equal(post.payload.session_id, lead);
+    assert(listing(post, lead).liveSubagents.includes(worker), `${scenario}: listed after the follow-up`);
+    const [stop] = stops(worker, scenario);
+    assert(stop.receipt > post.receipt);
+    assert(!listing(stop, lead).liveSubagents.includes(worker), `${scenario}: unlisted at its stop`);
+  }
+});
+
+const byPath = ["v2-path", "v2-relative", "v2-evicted", "v2-limit", "v2-restored"];
+check("A follow-up addressed by path listed nothing: at each such `PostToolUse` the lead's record listed no Sub-agent", () => {
+  const pathed = dashpotMatched.filter((record) => byPath.includes(record.scenario));
+  assert.equal(pathed.length, 6);
+  for (const record of pathed) assert.deepEqual(listing(record, leadV2).liveSubagents, [], `${record.scenario} ${record.receipt}`);
 });
 
 check("A worker's own tool calls fire `PreToolUse` and `PostToolUse` with its `agent_id`, under the lead's `session_id`", () => {
@@ -350,6 +404,11 @@ if (codexSource) {
     assert.match(agentPath, /Self::from_string\(format!\("\{self\}\/\{reference\}"\)\)/);
     assert.match(source("core/src/tools/handlers/multi_agents/send_input.rs"), /parse_agent_id_target\(&args\.target\)/);
     assert.match(source("core/src/tools/handlers/multi_agents_v2/message_tool.rs"), /Ok\(FunctionToolOutput::from_text\(String::new\(\), Some\(true\)\)\)/);
+  });
+  check("Source: a thread ID parses as a UUID does, so its simple, hyphenated, braced and `urn:uuid:` spellings name one thread, which Codex displays hyphenated", () => {
+    const threadId = source("protocol/src/thread_id.rs");
+    assert.match(threadId, /pub fn from_string\(s: &str\) -> Result<Self, uuid::Error> \{\s*Ok\(Self \{\s*uuid: Uuid::parse_str\(s\)\?,/);
+    assert.match(threadId, /impl Display for ThreadId \{\s*fn fmt\(&self, f: &mut std::fmt::Formatter<'_>\) -> std::fmt::Result \{\s*Display::fmt\(&self\.uuid, f\)/);
   });
 } else {
   console.log("Codex source facts not checked: pass --codex-source <rust-v0.166.0 checkout>.");

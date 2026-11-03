@@ -15,7 +15,16 @@ no `SubagentStart`. So Dashpot, which adds a [Sub-agent](../domain-language.md)
 to its live set only on `SubagentStart`, does not list the worker as working
 while the follow-up runs. #674's decision is to infer that turn from the
 lead's own tool hooks. This run answers what that inference can rest on. It
-records no decision: the ADR on observation scope is step 2.
+records no decision: the ADR on observation scope is step 2,
+[ADR 0161](../adr/0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md).
+
+Step 3, the change that implements ADR 0161, extended the run and replaced
+its trace. It added two scenarios, an ID-addressed follow-up to an evicted
+worker and to one restored from disk, which ADR 0161 required before the
+execute-issues skill addresses Workers by ID. It also subscribed Dashpot's
+own matched `PostToolUse` through the real publisher, recording what the
+store listed after each event
+([7. Dashpot's subscription](#7-dashpots-subscription)).
 
 Here the **lead** is the root thread of a Codex Agent Session, and a
 **worker** is one of its Sub-agents. The fixture threads only delegate, so
@@ -43,18 +52,20 @@ Each answer is marked:
 | Question | Answer | Basis |
 | --- | --- | --- |
 | 1. Does a lead's `followup_task` fire `PreToolUse` and `PostToolUse` on the lead? With what payload? | `PreToolUse` fires for every call; `PostToolUse` fires only for a call that succeeded. Both carry `tool_name` `collaborationfollowup_task`, the lead's `session_id`, the model's call ID as `tool_use_id`, and no `agent_id`. `tool_input` has the keys `target` and `message`. `target` is the free string the lead wrote: an absolute agent path (`/root/worker_a`), a path relative to the lead (`worker_a`), or the worker's thread ID. A successful call's `tool_response` is the empty string. | measured; source for the name |
-| 2. Does the target map to the `agent_id` Dashpot keys Sub-agents by? Also for a worker restored after eviction? | A thread-ID target is the worker's `agent_id`, character for character. A path target is not, and no hook payload pairs a path with an ID. The pairing is in the worker's transcript: `SubagentStart`'s `transcript_path` and `SubagentStop`'s `agent_transcript_path` name a file whose first line, Codex's session metadata, holds the worker's thread ID and `thread_spawn.agent_path`. A relative target resolves to `<lead's path>/<target>`, the lead's path being `/root`. The worker keeps its `agent_id` and its path after a local eviction, and after an app-server restart restored it from disk. | measured; source for the resolution |
+| 2. Does the target map to the `agent_id` Dashpot keys Sub-agents by? Also for a worker restored after eviction? | A thread-ID target is the worker's `agent_id`, character for character. A path target is not, and no hook payload pairs a path with an ID. The pairing is in the worker's transcript: `SubagentStart`'s `transcript_path` and `SubagentStop`'s `agent_transcript_path` name a file whose first line, Codex's session metadata, holds the worker's thread ID and `thread_spawn.agent_path`. A relative target resolves to `<lead's path>/<target>`, the lead's path being `/root`. The worker keeps its `agent_id` and its path after a local eviction, and after an app-server restart restored it from disk, and an ID target reaches it in both cases. | measured; source for the resolution |
 | 3. How is a failed `followup_task` closed? | It is not closed by any hook. Each failure fired `PreToolUse`, and no hook of that call or of its target followed: an unknown path, an unknown thread ID, and a follow-up to an evicted worker while the only worker turn was taken (`agent thread limit reached`). `PostToolUse` runs only for a successful call. The failure reaches only the lead's model, as the tool's reply text. | measured; source |
 | 4. The same for v1 `send_input`? | The same pattern. `tool_name` is `multi_agent_v1send_input`, and `tool_input` has the keys `target` and `message`. The target must be a thread ID, the worker's `agent_id`. On success, `PostToolUse` carries a JSON `tool_response` with the key `submission_id`. An unknown ID, a target that is not an ID, and a worker the lead closed each fired `PreToolUse` alone. | measured; source for the ID-only target |
 | 5. Is a follow-up turn still missing its `SubagentStart`? | Yes, as [#664](https://github.com/ned2/dashpot/issues/664) found on 0.162.0. Every v2 follow-up turn, to a resident, an evicted and a restored worker, and v1's `send_input` turn, published one `SubagentStop` and no `SubagentStart`. A v1 worker's turn does publish a `UserPromptSubmit` carrying its `agent_id`; a v2 worker's turn publishes none. | measured |
-| 6. Does a matcher on the tool name select those calls alone? | Only on the flattened name. The exact matchers `followup_task` and `send_input` selected nothing. `collaborationfollowup_task` and `multi_agent_v1send_input` each selected every hook of their tool and nothing else. The regular expression `followup_task$\|send_input$` selected both tools and nothing else. | measured; source |
+| 6. Does a matcher on the tool name select those calls alone? | Only on the flattened name. The exact matchers `followup_task` and `send_input` selected nothing. `collaborationfollowup_task` and `multi_agent_v1send_input` each selected every hook of their tool and nothing else. The regular expression `followup_task$\|send_input$` selected both tools and nothing else, and so did the joined exact set `collaborationfollowup_task\|multi_agent_v1send_input` that Dashpot subscribes on `PostToolUse`. | measured; source |
+| 7. Does Dashpot's subscription list the worker during its follow-up turn? | When the target is a thread ID. The store listed the worker from the lead's `PostToolUse` until the worker's `SubagentStop`, for a resident, an evicted and a restored v2 worker and for v1's `send_input`; a follow-up addressed by path listed nothing. | measured |
 
 Whether this is the decision's fallback case depends on the target's form.
 A thread-ID target, and every v1 target, is the worker's `agent_id`, an
-identity Dashpot resolves as it stands. A path target is not. The v2 Lead of
-Dashpot's
+identity Dashpot resolves as it stands. A path target is not. When this run
+was first made, the v2 Lead of Dashpot's
 [execute-issues skill](../../src/dashpot/skills/dashpot-execute-issues/references/harnesses.md)
-addresses its Workers by path. The hook payloads carry no identity for those
+addressed its Workers by path; since ADR 0161 it addresses them by thread
+ID. The hook payloads carry no identity for path-addressed
 follow-ups that Dashpot can resolve. They resolve only by joining the path
 to the `session_meta` line of the worker's transcript. If step 2 does not
 accept reading that line, path-addressed follow-ups are the fallback case.
@@ -85,12 +96,14 @@ it. A run takes about four minutes.
     through a symlink on a fixture-local `PATH`. Each lead runs in a
     `codex app-server` over stdio. The fixture daemon's settings turn its
     updater off, though no scenario starts the daemon.
-  - **Hooks.** Every lifecycle event that `dashpot integrate codex`
-    subscribes goes through a metadata-only wrapper to Dashpot's real
-    `dashpot-codex-hook`. `PreToolUse` and `PostToolUse` are each
-    subscribed once without a matcher, and once for each candidate matcher.
-    Those are recorded only. Every hook is trusted through the `hooks/list`
-    ledger.
+  - **Hooks.** Every subscription that `dashpot integrate codex` installs,
+    read from [`examples/codex-hooks.json`](../../examples/codex-hooks.json),
+    goes through a metadata-only wrapper to Dashpot's real
+    `dashpot-codex-hook`: the lifecycle events, and `PostToolUse` matched to
+    `collaborationfollowup_task|multi_agent_v1send_input`. `PreToolUse` and
+    `PostToolUse` are also each subscribed once without a matcher, and once
+    for each candidate matcher. Those are recorded only. Every hook is
+    trusted through the `hooks/list` ledger.
   - **Model.** A loopback Responses API follows a fixed plan for each
     prompt or worker task. Two copies of a bundled model declare the
     multi-agent version: `fixture-v2` gives the v2 `collaboration` tools,
@@ -105,9 +118,12 @@ it. A run takes about four minutes.
     - `v2-limit` follows A up with a five-second command, then follows up
       evicted B while A runs, into the running-turn limit. It then follows
       up A again, mid-turn.
+    - `v2-evicted-id` follows up B, evicted again by A's turns, by its
+      thread ID, which reloads it.
     - `v2-unknown` follows up `/root/nobody` and a random UUID.
     - `v2-restart` stops the app-server and resumes the lead in a new one.
-      `v2-restored` then follows up B, which is on disk only.
+      `v2-restored` then follows up B, which is on disk only, by path, and
+      `v2-restored-id` follows up A, on disk only too, by its thread ID.
     - The v1 lead spawns worker V (`v1-spawn`) and resumes it with
       `send_input` (`v1-send`).
     - `v1-unknown` sends to an unknown UUID and to `worker_v`, which is not
@@ -117,7 +133,9 @@ it. A run takes about four minutes.
     fields only (IDs, tool names, targets, agent paths), and the shape of
     each tool's input and response. It also holds Codex's reply text to the
     lead, each worker shell's `CODEX_*` environment, the first line of each
-    transcript a hook names, and the loaded threads. It holds no prompt and
+    transcript a hook names, and the loaded threads. After each event
+    Dashpot's publisher handled, it holds each record in Dashpot's store as
+    its session ID, state, last event and listed Sub-agents. It holds no prompt and
     no message: a worker's final message, which `wait_agent` and
     `list_agents` relay, appears as `<worker reply>`.
 - [Independent trace verifier](../../scripts/experiments/codex-674/verify.mjs)
@@ -126,7 +144,7 @@ it. A run takes about four minutes.
   against the hashes the trace records, and with `--strict` Dashpot's
   session modules too.
 - [Retained trace](measurements/issue-674-codex-trace.jsonl) is the
-  complete metadata stream of the successful run: 522 records. The fixture
+  complete metadata stream of step 3's successful run: 616 records. The fixture
   root appears as `$ROOT` and the home directory as `~`.
 
 ## Tested configuration and evidence boundary
@@ -134,7 +152,7 @@ it. A run takes about four minutes.
 | Fact | Tested value |
 | --- | --- |
 | Date | 2026-11-03 AEDT |
-| Dashpot base | `06df76a40cfd957ccb5210462569264632483123`, with the runner uncommitted |
+| Dashpot base | `a47e86862cd4f3f3b4db1841d220ccc46a4b58c2`, with the runner and the ADR 0161 implementation uncommitted; the first run's base was `06df76a40cfd957ccb5210462569264632483123` |
 | Codex | `codex-cli 0.166.0`, the musl standalone release, SHA-256 `b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8`, as `codex app-server` over stdio |
 | Controller | Node `v24.18.0` |
 | Operating system | Ubuntu, Linux `7.0.0-38-generic`, x86-64 |
@@ -161,13 +179,13 @@ it. A run takes about four minutes.
 
 | Claim | Basis |
 | --- | --- |
-| Each of the ten `followup_task` calls fired `PreToolUse` once on the lead, under its `session_id`, with no `agent_id`. | measured |
+| Each of the twelve `followup_task` calls fired `PreToolUse` once on the lead, under its `session_id`, with no `agent_id`. | measured |
 | The hook's `tool_name` is `collaborationfollowup_task`: the v2 namespace `collaboration` and the name, with nothing between. Codex flattens a namespaced tool's name this way at the hook boundary ([`core/src/tools/mod.rs#L50-L64`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/mod.rs#L50-L64), [`core/src/tools/registry.rs#L1077-L1086`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/registry.rs#L1077-L1086)). Only `spawn_agent` is an exception: its hook name is the bare `spawn_agent` both without a namespace and in `multi_agent_v1`, so v1's spawn hooks read `spawn_agent` while v2's read `collaborationspawn_agent`. | measured; source |
 | `PreToolUse` carries the keys `session_id`, `turn_id`, `transcript_path`, `cwd`, `hook_event_name`, `model`, `permission_mode`, `tool_name`, `tool_input` and `tool_use_id`. `PostToolUse` adds `tool_response`. | measured |
 | `tool_input` is an object with the keys `target` and `message`. `target` is the string the model wrote, unchanged, whatever form it took. | measured |
 | `tool_use_id` is the model's call ID, the same on `PreToolUse` and `PostToolUse`, so the two pair exactly. | measured |
-| Each of the seven successful calls fired one `PostToolUse`, before the worker's turn ended, since the tool returns once the task is queued ([`core/src/tools/handlers/multi_agents_v2/message_tool.rs#L100`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs#L100)). Its `tool_response` is the empty string. | measured; source for the return |
-| Each `PostToolUse`, of `followup_task` and of `send_input`, came 43 to 61 ms after its `PreToolUse`. | trace only |
+| Each of the nine successful calls fired one `PostToolUse`, before the worker's turn ended, since the tool returns once the task is queued ([`core/src/tools/handlers/multi_agents_v2/message_tool.rs#L100`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs#L100)). Its `tool_response` is the empty string. | measured; source for the return |
+| Each `PostToolUse`, of `followup_task` and of `send_input`, came 56 to 125 ms after its `PreToolUse` in this run, and 43 to 61 ms in the first, which ran fewer hooks per call. | trace only |
 
 ## 2. From target to `agent_id`
 
@@ -180,6 +198,8 @@ it. A run takes about four minutes.
 | Every `agent_type` was `default`. | trace only |
 | The pairing is in the worker's transcript. `SubagentStart`'s `transcript_path`, and `SubagentStop`'s `agent_transcript_path`, name the worker's rollout file, whose name contains its thread ID. Its first line is Codex's `session_meta`, which holds the thread ID as `id` and, under `source.subagent.thread_spawn`, the `agent_path` and the lead's thread as `parent_thread_id`. On `SubagentStop`, `transcript_path` names the lead's rollout instead. | measured |
 | The ID and the path held across eviction. A, evicted by B and reloaded by `v2-evicted`'s follow-up, ran it with the same `CODEX_THREAD_ID`, and stopped with the same `agent_id`. B, unloaded when the app-server stopped and restored from disk by `v2-restored`'s follow-up after the lead resumed in a new app-server, did the same. | measured |
+| A thread-ID target reaches an unloaded worker as a path does. B, evicted again by A's turns, was reloaded by `v2-evicted-id`'s follow-up to its ID; A, on disk only after the restart, was restored by `v2-restored-id`'s. Each ran the task in the named worker and stopped with its `agent_id`. | measured |
+| A thread ID parses as a UUID does, so its simple, hyphenated, braced and `urn:uuid:` spellings all name one thread, which Codex displays lowercase and hyphenated ([`protocol/src/thread_id.rs#L41-L45`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/thread_id.rs#L41-L45), [`#L76-L80`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/protocol/src/thread_id.rs#L76-L80)). | source |
 
 ## 3. A failed `followup_task`
 
@@ -206,7 +226,7 @@ it. A run takes about four minutes.
 | Claim | Basis |
 | --- | --- |
 | The run's only `SubagentStart` events are the three spawns: A in `v2-spawn`, B in `v2-evict` and V in `v1-spawn`. | measured |
-| A's follow-ups in `v2-path`, `v2-relative`, `v2-id`, `v2-evicted` and `v2-limit`, B's in `v2-restored` and V's in `v1-send` each published one `SubagentStop`, and no `SubagentStart`. | measured |
+| A's follow-ups in `v2-path`, `v2-relative`, `v2-id`, `v2-evicted`, `v2-limit` and `v2-restored-id`, B's in `v2-evicted-id` and `v2-restored`, and V's in `v1-send` each published one `SubagentStop`, and no `SubagentStart`. | measured |
 | A v1 worker's turns, the spawned one and the one `send_input` started, each published a `UserPromptSubmit` carrying its `agent_id` and `agent_type`. No v2 worker turn published one. | measured |
 | A worker's own tool calls fire `PreToolUse` and `PostToolUse` with its `agent_id`, under the lead's `session_id`. | measured |
 
@@ -216,13 +236,30 @@ it. A run takes about four minutes.
 | --- | --- |
 | A matcher of letters, digits, `_` and `\|` alone is a set of exact names; anything else is an unanchored regular expression, and an empty matcher or `*` matches every tool ([`hooks/src/engine/matcher.rs#L12-L39`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/hooks/src/engine/matcher.rs#L12-L39)). | source |
 | The exact matchers `followup_task` and `send_input` selected no hook. The matcher compares the flattened name. | measured |
-| `collaborationfollowup_task` selected each of the 17 hooks of that tool, and nothing else. `multi_agent_v1send_input` selected each of its 5, and nothing else. | measured |
-| `followup_task$\|send_input$` selected all 22, and nothing else. | measured |
+| `collaborationfollowup_task` selected each of the 21 hooks of that tool, and nothing else. `multi_agent_v1send_input` selected each of its 5, and nothing else. | measured |
+| `followup_task$\|send_input$` selected all 26, and nothing else. | measured |
 | Without a matcher, the same events also ran for every other tool call: the workers' shell commands and the leads' `spawn_agent`, `wait_agent`, `list_agents` and `close_agent`. | measured |
+
+## 7. Dashpot's subscription
+
+Measured in step 3, with Dashpot's `PostToolUse` subscription installed as
+[ADR 0161](../adr/0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md)
+decides and handed to the real publisher.
+
+| Claim | Basis |
+| --- | --- |
+| The matcher `collaborationfollowup_task\|multi_agent_v1send_input` ran Dashpot's publisher once for each of the ten accepted calls, nine `followup_task` and one `send_input`, on `PostToolUse` alone, and for no other tool call. `PreToolUse` was not subscribed. | measured |
+| The publisher accepted every event, lifecycle and matched, exiting 0 with nothing on stderr. No stored record held a follow-up field. | measured |
+| After the `PostToolUse` of each ID-addressed follow-up, `v2-id`, `v2-evicted-id`, `v2-restored-id` and `v1-send`, the lead's record listed the named worker; after that worker's `SubagentStop`, it did not. | measured |
+| After the `PostToolUse` of each of the six path-addressed follow-ups, the lead's record listed no Sub-agent. | measured |
+| In every scenario the lead's own `Stop` came after the worker's `SubagentStop`, since the lead waited on the worker. So the run shows the listing, not the session held running past the lead's `Stop`; the suite tests that order. | trace only |
 
 ## Implications for step 2
 
 These are inferences for the ADR and the implementation, not measurements.
+[ADR 0161](../adr/0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md)
+took the first alternative below, addressed follow-ups by ID rather than
+resolving paths, and subscribed the exact set on `PostToolUse` alone.
 
 - **Close on success, not on failure.** The decision counts the Worker as
   working from the lead's `PreToolUse` until its `SubagentStop`, "or until
@@ -264,9 +301,13 @@ These are inferences for the ADR and the implementation, not measurements.
 ## Validation
 
 The retained trace passed the independent verifier with `--strict` and
-`--codex-source` at a `rust-v0.166.0` checkout: 19 claims against 522
+`--codex-source` at a `rust-v0.166.0` checkout: 24 claims against 616
 records. Every script and Dashpot module the trace names matched the hash
 the run recorded. The verifier checks only the form of the binary's
-SHA-256; the value above is the one the trace records. Every lifecycle event
-reached Dashpot's publisher, which exited 0 with nothing on stderr. The
-shared `/tmp/codex-daemon-<uid>/` gained and lost no entry during the run.
+SHA-256; the value above is the one the trace records. Every event of a
+subscription Dashpot installs reached its publisher, which exited 0 with
+nothing on stderr. The shared `/tmp/codex-daemon-<uid>/` gained and lost no
+entry during the run. An earlier attempt of step 3's run failed that last
+check: two entries left the shared directory, which the runner only counts,
+while another session on the machine ran. It was discarded and the run
+repeated.

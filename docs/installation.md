@@ -743,7 +743,13 @@ hold their parent running nor block Worktree Cleanup:
 `dashpot integrate codex` again to add them, and accept Codex's trust prompt
 for the new hooks when it asks. `dashpot integrate --installed` reports such
 an installation as partial and leaves it unchanged, since some of its hooks
-are missing.
+are missing. One installed before Dashpot subscribed Codex's matched
+`PostToolUse` lists
+`PostToolUse(collaborationfollowup_task|multi_agent_v1send_input)` as
+missing the same way, and `--installed` leaves it unchanged as partial too:
+its sub-agents' follow-up turns are not observed
+([ADR 0161](adr/0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md))
+until `dashpot integrate codex` runs again.
 
 ### Integrate several harnesses
 
