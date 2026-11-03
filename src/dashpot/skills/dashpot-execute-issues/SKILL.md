@@ -642,10 +642,15 @@ Dashpot fixes it.
   then ends its Issue work while its workers keep running. Their
   assignments end with it, so their Issues stop reading `running`. Keep a
   client attached to the lead until every worker has finished.
-- **A Codex worker's follow-up turn is not shown as working.** Codex
-  0.160.0 and 0.162.0 publish no start for a worker's `followup_task`
-  turn, only its stop. While that turn runs, Dashpot does not list the
-  worker as working, so its Issue cannot read `running`, and Cleanup's
-  `sub-agent` blocker does not cover its Worktree. Take a followed-up
-  worker's state from your wait loop, not from Dashpot, and tell the user
-  not to clean up its Worktree until it hands back.
+- **A Codex worker followed up by path is not shown as working.** Codex
+  publishes no start for a worker's follow-up turn, only its stop. Dashpot
+  lists the worker as working from a `followup_task` or `send_input` that
+  names it by its thread ID, but not from a `followup_task` addressed by
+  its path, such as `/root/<task_name>`. So address every follow-up by the
+  worker's ID ([harnesses.md](references/harnesses.md)). If a follow-up
+  went by path, or `dashpot integrate codex --status` lists `PostToolUse`
+  as missing, Dashpot does not list the worker during that turn: its Issue
+  cannot read `running`, and Cleanup's `sub-agent` blocker does not cover
+  its Worktree. Then take the worker's state from your wait loop, not from
+  Dashpot, and tell the user not to clean up its Worktree until it hands
+  back.

@@ -52,7 +52,12 @@ manual Codex configuration.
 The hooks report session lifecycle only: which agent sessions are alive at a
 worktree and whether they are running or waiting. Codex registers
 `SessionStart`, `UserPromptSubmit`, `Stop`, `Interrupt`, `SubagentStart`,
-`SubagentStop`, and `SessionEnd`; Claude Code the same set without
+`SubagentStop`, and `SessionEnd`, plus `PostToolUse` matched to its
+`collaborationfollowup_task` and `multi_agent_v1send_input` tools alone, so
+a sub-agent's follow-up turn, which publishes no `SubagentStart`, is listed
+from the accepted call that starts it — one hook invocation per follow-up
+([ADR 0161](adr/0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md));
+Claude Code the same set without
 `Interrupt`, plus `PostToolUse` matched to its `EnterWorktree` and
 `ExitWorktree` tools alone, so a session that moves to another Worktree, or
 back, is placed there as soon as it arrives — one hook invocation per
@@ -318,7 +323,8 @@ while the parent's `wait_agent` waits on for its other children
 sub-agents its session still lists as working, with the same way out. A
 Codex installation that predates the `SubagentStart` and `SubagentStop`
 subscription reports no sub-agents until `dashpot integrate codex` runs
-again.
+again, and one that predates the matched `PostToolUse` reports no
+follow-up turn.
 
 The Repository's Worktrees are every Worktree Git registers for it, wherever
 it lives on disk, Worktrees under a Worktree Root such as the sibling
@@ -482,7 +488,13 @@ In the dashboard, a Codex session's state means:
   ([ADR 0106](adr/0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md)).
   A sub-agent the turn spawned
   holds the session running after the turn's `Stop` until its own
-  `SubagentStop`, and its prompt does not restart the turn clock. Codex
+  `SubagentStop`, and its prompt does not restart the turn clock. A
+  sub-agent's follow-up turn publishes its `SubagentStop` but no
+  `SubagentStart`, so the accepted `followup_task` or `send_input` call that
+  names it by thread ID lists it instead, until that `SubagentStop`; one
+  addressed by path, such as `/root/worker_a`, is not listed
+  ([ADR 0161](adr/0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md)).
+  Codex
   publishes no hook when a sub-agent's own turn is interrupted, by a
   controller, by the parent model's `interrupt_agent`, or by Esc with the
   sub-agent chosen in the terminal's agent picker. A sub-agent interrupted
@@ -1185,8 +1197,10 @@ What each harness reports bounds what the cell can claim:
   reads `running` until the Lead runs `work unassign` or its run ends.
 - **A Codex Lead the daemon unloads.** Its run ends, and its assignments with
   it, while its Workers may still work.
-- **A followed-up Codex v2 Worker** may read as not working: whether
-  `followup_task` publishes a new start is unmeasured.
+- **A followed-up Codex Worker** reads as working only when its Lead
+  addressed the follow-up by the Worker's thread ID: a follow-up turn
+  publishes no start, and one addressed by path is not observed
+  ([ADR 0161](adr/0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md)).
 - **An OpenCode Worker between executions** reads as not working.
 
 An assignment is attribution only. The Worktree it names is a declaration,

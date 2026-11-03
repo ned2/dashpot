@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-09-02
-amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md, 0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md
+amended-by: 0067-observe-conversations-apart-from-the-runtimes-that-serve-them.md, 0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md, 0097-carry-a-live-sessions-sub-agents-through-its-own-session-start.md, 0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md, 0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md
 ---
 
 # Hold a session running while its sub-agents work
@@ -134,3 +134,11 @@ hold the session running while any sub-agent it started is alive:
   across the session's `SessionStart` from a second process, and leaves it at
   its `SubagentStop` or once its own process is gone. A live record held
   `running` only by sub-agents of a gone process reads `waiting`.
+- Amended by [ADR 0161](0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md)
+  ([#674](https://github.com/ned2/dashpot/issues/674)): the two boundaries
+  gain a third way in. A Codex Sub-agent's follow-up turn publishes its
+  `SubagentStop` but no `SubagentStart`, so an accepted `followup_task` or
+  `send_input` call that names the Sub-agent by thread ID adds it to the
+  live set, observed through the calling thread's `PostToolUse`. It leaves
+  at its `SubagentStop`, as a started one does. A follow-up addressed by
+  path stays unobserved.

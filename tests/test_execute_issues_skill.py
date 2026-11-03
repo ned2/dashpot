@@ -762,8 +762,20 @@ def test_each_known_dashpot_gap_is_named_for_removal() -> None:
     # there when the installed Dashpot fixes its gap.
     assert re.findall(r"- \*\*(.+?)\*\*", gaps) == [
         "An unloaded Codex lead ends its workers' Issue work.",
-        "A Codex worker's follow-up turn is not shown as working.",
+        "A Codex worker followed up by path is not shown as working.",
     ]
+
+
+def test_a_codex_lead_follows_up_each_worker_by_its_thread_id() -> None:
+    # Dashpot lists a followed-up worker only from a follow-up naming its
+    # thread ID (ADR 0161), which reached unloaded and restored workers too.
+    codex = section(shipped("references/harnesses.md"), "Codex")
+    worker_id = codex.split("**Worker ID (v2).**", 1)[1].split("**", 1)[0]
+    assert "`target` of every `followup_task`" in worker_id
+    resume = codex.split("**Resume (v2).**", 1)[1].split("**", 1)[0]
+    assert "Address the follow-up by the worker's thread ID, not its path" in resume
+    stopping = codex.split("**Stopping a worker.**", 1)[1].split("**", 1)[0]
+    assert "`followup_task` it, by its thread ID" in stopping
 
 
 def test_each_harness_has_its_mechanics_and_fallbacks() -> None:

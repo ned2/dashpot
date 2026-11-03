@@ -19,7 +19,13 @@ from ..core.pydantic import NonEmptyString, PersistedRecord, validate_degrading
 from ..core.record_store import LockedRecordStore
 from ..core.state_paths import machine_state_directory, project_state_directory
 from ..core.timestamps import observed_instant, utc_now
-from .harnesses import SESSION_ID, HarnessName, HookSessionIdentity, delegate_id
+from .harnesses import (
+    SESSION_ID,
+    HarnessName,
+    HookSessionIdentity,
+    delegate_id,
+    followed_up_subagent,
+)
 from .processes import ProcessIdentity, ProcessKey, SessionProcessRecord
 from .session_matching import session_storage_key
 
@@ -158,6 +164,10 @@ class HookRecord(PersistedRecord):
     # 0067); absent on a record written before it was kept, or by a store
     # that has seen none.
     last_session_start_at: OptionalText = None
+    # The Sub-agent an accepted follow-up call gave a new turn, which the
+    # store lists as it lists a starting one (ADR 0161). It says what this
+    # event did, so it is never stored.
+    follow_up: str | None = Field(default=None, exclude=True)
 
     @property
     def unreadable_subagent_hosts(self) -> list[str]:
@@ -260,6 +270,7 @@ def build_hook_record(
         turn_id=event.get("turn_id"),
         model=event.get("model"),
         agent_id=event.get("agent_id"),
+        follow_up=followed_up_subagent(harness, event),
         last_activity_at=utc_now(),
         session_process=SessionProcessRecord.of(process) if process else None,
         session_process_unobservable=None if process else process_unobservable,
@@ -345,8 +356,12 @@ def _crossing_boundary(current: HookRecord, hosts: SubagentHosts) -> SubagentHos
 
     ``SubagentStart`` adds the agent, run by the event's Host Process, and
     ``SubagentStop`` removes it; an event that names no agent changes
-    nothing rather than guessing.
+    nothing rather than guessing. An accepted follow-up call adds the
+    Sub-agent it gave a new turn, whichever thread made it, since that turn
+    publishes no start; one already listed keeps its entry (ADR 0161).
     """
+    if current.follow_up is not None:
+        hosts.setdefault(current.follow_up, current.session_process)
     agent = current.delegate
     if agent is None:
         return hosts

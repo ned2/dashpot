@@ -77,6 +77,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "collaborationfollowup_task|multi_agent_v1send_input",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "dashpot-codex-hook",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }

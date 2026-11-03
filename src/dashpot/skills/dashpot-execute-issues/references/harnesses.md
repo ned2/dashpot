@@ -595,7 +595,8 @@ at the brief. It returns at once with the worker's path, `/root/<task_name>`.
 **Worker ID (v2).** The path is not the ID Dashpot's hooks know. A worker's
 shell holds its own thread ID in `CODEX_THREAD_ID`, and the worker's first
 message reports it. Assign the worker by it when that message arrives in
-your wait loop.
+your wait loop, and give it as the `target` of every `followup_task` to
+that worker.
 
 **Capacity.** A session holds 3 open workers by default. On Codex
 0.162.0, Codex unloads the finished worker you used least recently to make
@@ -636,8 +637,12 @@ finished worker must act on in the `followup_task` itself.
 **Resume (v2).** `followup_task` to a finished worker starts a new turn
 with its earlier context. On Codex 0.162.0, it reloads a worker Codex
 unloaded, and the mail waiting for it arrives ahead of the task, in order
-and once. `send_message` to a finished worker only queues. Dashpot
-does not list a worker as working during a follow-up turn
+and once. `send_message` to a finished worker only queues. Address the
+follow-up by the worker's thread ID, not its path: Codex takes either, and
+on 0.166.0 an ID reached a resident worker, one Codex unloaded, and one
+restored from disk after a restart, as a path does. Codex publishes no
+start for the follow-up turn, so Dashpot lists the worker as working only
+from a follow-up that names its ID
 ([Known Dashpot gaps](../SKILL.md#known-dashpot-gaps)).
 
 **Fallback: v1.** On a model without v2, `spawn_agent` returns an
@@ -659,8 +664,8 @@ appending to `broadcast.md`. Resume a finished worker with `send_input`.
 **Stopping a worker.** `interrupt_agent` on a worker mid-command publishes
 no stop, which leaves the `sub-agent` blocker up until your session ends,
 and the worker's Issue reading `running` until you unassign it. Use it only
-on a worker that has gone quiet; otherwise `followup_task` it
-with an instruction to stop and hand back. A worker is a sub-agent of your
+on a worker that has gone quiet; otherwise `followup_task` it, by its
+thread ID, with an instruction to stop and hand back. A worker is a sub-agent of your
 thread, not a `codex exec` process of its own, so no signal reaches it
 alone, and the SIGINT rule below for a `codex exec` does not apply to it.
 

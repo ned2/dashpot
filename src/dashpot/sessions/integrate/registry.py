@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal, override
 
 from ...core.model import HARNESS_DISPLAY, Harness
-from ..harnesses import HarnessError
+from ..harnesses import CODEX_FOLLOW_UP_TOOLS, HarnessError
 from .writes import IntegrationError
 
 # The Dashpot release the bundled skills and agents are written for, kept
@@ -241,6 +241,11 @@ _CODEX = HarnessIntegration(
         "SessionEnd",
     ),
     checks_config_toml=True,
+    # A Sub-agent's follow-up turn publishes its stop but no start, so the
+    # accepted call that gives it the turn is observed instead: one
+    # invocation per follow-up, not per tool call. The exact names fail
+    # closed if Codex renames the tools (ADR 0161).
+    matched_events=(("PostToolUse", "|".join(sorted(CODEX_FOLLOW_UP_TOOLS))),),
     home_variable="CODEX_HOME",
 )
 

@@ -4,17 +4,19 @@ An adapter answers its harness's questions without Dashpot knowing the
 harness's internals: which host process is the harness itself (never a
 sandbox helper), what Agent Session Identity the harness lets a command
 running inside the session see, whether that Host Process is exclusive to one
-session, and which of its hook events are designated location evidence
-(ADR 0067). No harness documents its identity variables as stable, so an
-adapter's claim is never trusted on its own: Issue opt-in validates every
-claim against the lifecycle hook record the harness published for the same
-Worktree, and a claim that names no such record cannot create an Issue
-Binding.
+session, which of its hook events are designated location evidence
+(ADR 0067), and which accepted call gives a Sub-agent a turn whose start the
+harness does not publish (ADR 0161). No harness documents its identity
+variables as stable, so an adapter's claim is never trusted on its own:
+Issue opt-in validates every claim against the lifecycle hook record the
+harness published for the same Worktree, and a claim that names no such
+record cannot create an Issue Binding.
 """
 
 from __future__ import annotations
 
 import re
+import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,6 +115,10 @@ def _designates_nothing(_event: HookEvent) -> bool:
     return False
 
 
+def _follows_up_nothing(_event: HookEvent) -> str | None:
+    return None
+
+
 def _defers_nothing(_process: ProcessIdentity) -> bool:
     return False
 
@@ -138,6 +144,11 @@ class HarnessAdapter:
     # by whether the host keeps running: a host that exits leaves the run an
     # Orphaned Agent Run, and nothing is ever continued (ADR 0086).
     defers_session_end: Callable[[ProcessIdentity], bool] = _defers_nothing
+    # The Sub-agent whose new turn a hook event says was started, as the
+    # ``agent_id`` its hooks carry, when the event is an accepted call that
+    # starts one: a turn whose own start the harness does not publish
+    # (ADR 0161).
+    follows_up: Callable[[HookEvent], str | None] = _follows_up_nothing
 
 
 def is_codex_host_process(process: ProcessIdentity) -> bool:
@@ -216,6 +227,39 @@ def _codex_locates(event: HookEvent) -> bool:
     # ``turn/start`` override and a ``-C`` resume. ``locates_session`` leaves
     # out a sub-agent's prompt, which is its own thread's, never its root's.
     return event.get("hook_event_name") == "UserPromptSubmit"
+
+
+# The flattened hook names of the Codex tools that give a Sub-agent a new
+# turn: multi-agent v2's ``followup_task`` and v1's ``send_input``. Codex
+# 0.166.0 fires their ``PostToolUse`` only for a call it accepted, and the
+# turn they start publishes no ``SubagentStart`` (ADR 0161).
+CODEX_FOLLOW_UP_TOOLS = frozenset(
+    {"collaborationfollowup_task", "multi_agent_v1send_input"}
+)
+# The thread-ID forms Codex parses a target as, with ``Uuid::parse_str``:
+# simple, hyphenated, braced and URN, with hex digits in either case. Any
+# other target is an agent path, which no hook pairs with the ``agent_id``
+# Dashpot keys by.
+_HEX = "[0-9A-Fa-f]"
+_HYPHENATED = f"{_HEX}{{8}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{12}}"
+CODEX_THREAD_ID_FORMS = re.compile(
+    rf"{_HEX}{{32}}|{_HYPHENATED}|\{{{_HYPHENATED}\}}|urn:uuid:{_HYPHENATED}"
+)
+
+
+def _codex_follows_up(event: HookEvent) -> str | None:
+    # Only the target is read: the follow-up's message and the tool's
+    # response are the session's own words.
+    if event.get("hook_event_name") != "PostToolUse":
+        return None
+    if event.get("tool_name") not in CODEX_FOLLOW_UP_TOOLS:
+        return None
+    tool_input = event.get("tool_input")
+    target = tool_input.get("target") if isinstance(tool_input, Mapping) else None
+    if not isinstance(target, str) or not CODEX_THREAD_ID_FORMS.fullmatch(target):
+        return None
+    # The hooks carry a thread's ``agent_id`` as Codex prints it.
+    return str(uuid.UUID(target))
 
 
 def _claude_code_locates(event: HookEvent) -> bool:
@@ -420,6 +464,7 @@ CODEX = HarnessAdapter(
     claim_session_identity=_codex_claim,
     locates=_codex_locates,
     defers_session_end=is_codex_managed_daemon,
+    follows_up=_codex_follows_up,
 )
 
 # One Claude Code process per session: its sub-agents share the parent's
@@ -464,6 +509,17 @@ def locates_session(harness: Harness, event: HookEvent) -> bool:
     }:
         return False
     return adapter(harness).locates(event)
+
+
+def followed_up_subagent(harness: Harness, event: HookEvent) -> str | None:
+    """The Sub-agent an accepted follow-up call gave a new turn, if the event is one.
+
+    Whichever thread made the call, its target joins the session's live
+    Sub-agents; a target naming the session's own thread is no Sub-agent
+    (ADR 0161).
+    """
+    target = adapter(harness).follows_up(event)
+    return None if target is None or target == event.get("session_id") else target
 
 
 def adapter(harness: Harness) -> HarnessAdapter:

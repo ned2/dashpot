@@ -55,6 +55,10 @@ from factories import (
 )
 from helpers import absent, present, table_lookup, unobservable
 
+# The matcher `dashpot integrate codex` installs on `PostToolUse` (ADR 0161),
+# spelt out rather than imported, so the test pins the wire value.
+CODEX_FOLLOW_UP_MATCHER = "collaborationfollowup_task|multi_agent_v1send_input"
+
 
 def session_record(session_id: str, state: str = "waiting") -> dict[str, Any]:
     return hook_record_document(
@@ -97,19 +101,16 @@ def test_fresh_install_registers_every_lifecycle_event(tmp_path: Path) -> None:
     messages = install_integration("codex", home, command_path=command)
 
     document = read_hooks(home)
-    assert set(document["hooks"]) == set(integration("codex").events)
+    handler = {"type": "command", "command": str(command), "timeout": 3}
+    assert set(document["hooks"]) == {*integration("codex").events, "PostToolUse"}
     for event in integration("codex").events:
-        assert document["hooks"][event] == [
-            {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": str(command),
-                        "timeout": 3,
-                    }
-                ]
-            }
-        ]
+        assert document["hooks"][event] == [{"hooks": [handler]}]
+    assert document["hooks"]["PostToolUse"] == [
+        {
+            "matcher": CODEX_FOLLOW_UP_MATCHER,
+            "hooks": [handler],
+        }
+    ]
     assert any("installed" in message for message in messages)
     assert any(str(command) in message for message in messages)
 
@@ -668,12 +669,16 @@ def test_an_install_without_sub_agent_events_is_reported_and_upgraded(
     assert {"SubagentStart", "SubagentStop"} <= set(read_hooks(home)["hooks"])
 
 
-def test_the_codex_example_subscribes_every_lifecycle_event() -> None:
+def test_the_codex_example_subscribes_every_event_integrate_installs() -> None:
     example = Path(__file__).parents[1] / "examples" / "codex-hooks.json"
 
-    assert set(json.loads(example.read_text())["hooks"]) == set(
-        integration("codex").events
-    )
+    hooks = json.loads(example.read_text())["hooks"]
+    subscribed = [
+        f"{event}({group['matcher']})" if "matcher" in group else event
+        for event, groups in hooks.items()
+        for group in groups
+    ]
+    assert sorted(subscribed) == sorted(integration("codex").hook_labels)
 
 
 def test_status_when_nothing_is_installed(tmp_path: Path) -> None:
@@ -1187,12 +1192,44 @@ def test_an_install_that_predates_exit_worktree_is_flagged_and_upgraded(
     ]
 
 
-def test_codex_subscribes_no_matched_events(tmp_path: Path) -> None:
+def test_codex_subscribes_only_the_follow_up_tools_post_tool_use(
+    tmp_path: Path,
+) -> None:
+    """One exact matcher of the flattened names, never every tool call (ADR 0161)."""
     home = codex_home(tmp_path)
 
     install_integration("codex", home, command_path=publisher(tmp_path))
 
-    assert "PostToolUse" not in read_hooks(home)
+    hooks = read_hooks(home)["hooks"]
+    assert "PreToolUse" not in hooks
+    assert [group["matcher"] for group in hooks["PostToolUse"]] == [
+        CODEX_FOLLOW_UP_MATCHER
+    ]
+
+
+def test_a_codex_install_that_predates_follow_ups_is_flagged_and_upgraded(
+    tmp_path: Path,
+) -> None:
+    home = codex_home(tmp_path)
+    command = publisher(tmp_path)
+    install_integration("codex", home, command_path=command)
+    document = read_hooks(home)
+    del document["hooks"]["PostToolUse"]
+    (home / "hooks.json").write_text(json.dumps(document))
+
+    messages = integration_status(
+        "codex", home, state_dir=tmp_path / "no-state", current=tmp_path
+    )
+
+    missing = [message for message in messages if "missing hook events" in message]
+    assert missing
+    assert f"PostToolUse({CODEX_FOLLOW_UP_MATCHER})" in missing[0]
+
+    install_integration("codex", home, command_path=command)
+
+    assert [group["matcher"] for group in read_hooks(home)["hooks"]["PostToolUse"]] == [
+        CODEX_FOLLOW_UP_MATCHER
+    ]
 
 
 def test_resolve_hook_command_prefers_the_environment_scripts_directory(
