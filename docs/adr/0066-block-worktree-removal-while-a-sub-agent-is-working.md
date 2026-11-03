@@ -70,7 +70,13 @@ might be working in it.
   `sub-agent` blocker naming live Codex children in the pinned 0.159.3
   trace. A Codex child interrupted through its own thread publishes no
   hook, so it keeps the block up until the session's next `SessionStart` or
-  `SessionEnd` ([#374](https://github.com/ned2/dashpot/issues/374)).
+  `SessionEnd` ([#374](https://github.com/ned2/dashpot/issues/374)). On
+  0.166.0 the parent model's `interrupt_agent` and Esc on a child chosen in
+  the terminal's agent picker strand a child the same way, and since
+  [ADR 0095](0095-keep-an-ended-sessions-sub-agents-listed-until-they-stop.md)
+  the block outlasts the session's `SessionEnd`: measured on a daemon-hosted
+  thread's unload, it lasted until the daemon stopped
+  ([#399](../agent-harness-server-client-reference.md#sub-agent-interruption-at-01660)).
 - **The scope is the Repository, and the preview says so.** The Repository's
   Worktrees are every Worktree Git registers for it, wherever it lives on
   disk, Worktrees under a Worktree Root such as the sibling
@@ -143,9 +149,12 @@ might be working in it.
   of evidence says where a sub-agent works.
 - Clarified for [#374](https://github.com/ned2/dashpot/issues/374): a
   sub-agent that was interrupted without a `SubagentStop`, as a Codex child
-  is when a controller interrupts the child's own turn, or, as reported
-  upstream in [openai/codex#38142](https://github.com/openai/codex/issues/38142),
-  when the parent model calls `interrupt_agent` on it, stays listed and
+  is when a controller interrupts the child's own turn, when the parent
+  model calls `interrupt_agent` on it, as reported upstream in
+  [openai/codex#38142](https://github.com/openai/codex/issues/38142) and
+  measured on 0.160.0 and 0.166.0, or when Esc is pressed with the child
+  chosen in the terminal's agent picker, measured on 0.166.0
+  ([#399](../agent-harness-server-client-reference.md#sub-agent-interruption-at-01660)), stays listed and
   keeps the block up, since nothing Dashpot receives tells it from one still
   working ([ADR 0016](0016-hold-a-session-running-while-its-sub-agents-work.md)).
   The blocker therefore says that the session has sub-agents listed as
