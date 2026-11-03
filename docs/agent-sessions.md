@@ -293,11 +293,12 @@ rerun show the blocker naming live Codex children. A Codex child whose own
 turn is interrupted publishes no hook, so it keeps the block up until the
 session starts again in another process, until the session's process
 exits, or until `dashpot work forget-subagents` after the session has ended.
-That was measured for a
-controller's interrupt of the child's turn; upstream reports the same for
-the parent model's `interrupt_agent` tool
-([openai/codex#38142](https://github.com/openai/codex/issues/38142)), which
-was not measured here. Nothing Dashpot receives tells that child from one
+That was measured on 0.160.0 for a controller's interrupt of the child's
+turn and for the parent model's `interrupt_agent` tool, which upstream
+reports too ([openai/codex#38142](https://github.com/openai/codex/issues/38142)),
+and on 0.166.0 for `interrupt_agent` and for Esc on a child selected in the
+terminal's agent picker, whether the terminal is attached to the daemon or
+standalone ([#399](https://github.com/ned2/dashpot/issues/399)). Nothing Dashpot receives tells that child from one
 still working: measured on 0.160.0
 ([#374](https://github.com/ned2/dashpot/issues/374)), the parent's next
 prompt and `Stop` arrived while a sibling still worked, so neither ends a
@@ -305,9 +306,14 @@ child, and Dashpot does not time one out. Interrupting the parent strands
 no child: Esc in a daemon-attached terminal, or a controller's interrupt of
 the parent's own turn, publishes the parent's `Interrupt` while each child
 works on to its own `SubagentStop`, and Esc after the parent's turn has
-stopped publishes nothing and leaves its children working. Interrupting a
-child selected in the terminal's agent picker was not measured, nor was Esc
-in a standalone terminal. `dashpot work show` lists under each Agent Run the
+stopped publishes nothing and leaves its children working. Esc interrupts
+the thread the terminal has on screen: with the parent's own thread there,
+it is the parent's interrupt, in a standalone terminal as in a
+daemon-attached one; with a child chosen in the agent picker
+(`/subagents`), it aborts that child's turn alone and strands the child,
+while the parent's `wait_agent` waits on for its other children
+([measured on 0.166.0](agent-harness-server-client-reference.md#sub-agent-interruption-at-01660)).
+`dashpot work show` lists under each Agent Run the
 sub-agents its session still lists as working, with the same way out. A
 Codex installation that predates the `SubagentStart` and `SubagentStop`
 subscription reports no sub-agents until `dashpot integrate codex` runs
@@ -476,13 +482,20 @@ In the dashboard, a Codex session's state means:
   A sub-agent the turn spawned
   holds the session running after the turn's `Stop` until its own
   `SubagentStop`, and its prompt does not restart the turn clock. Codex
-  publishes no hook when a controller interrupts a sub-agent's own turn, so
-  a sub-agent interrupted that way holds the session running, and blocks
-  Cleanup across the Repository, until the thread unloads, resumes, or its
-  Host Process is gone; `dashpot work show` and the `sub-agent` blocker say
-  so ([#374](https://github.com/ned2/dashpot/issues/374)). Interrupting the
-  parent's turn, by Esc in a daemon-attached terminal or through a
-  controller, leaves its children working to their own `SubagentStop`.
+  publishes no hook when a sub-agent's own turn is interrupted, by a
+  controller, by the parent model's `interrupt_agent`, or by Esc with the
+  sub-agent chosen in the terminal's agent picker, so a sub-agent
+  interrupted that way holds the session running until the thread unloads,
+  resumes, or its Host Process is gone, and blocks Cleanup across the
+  Repository until that process is gone or, once the session has ended,
+  `dashpot work forget-subagents` clears it: a daemon-hosted thread's unload
+  ends the run but leaves the block; `dashpot work show` and the
+  `sub-agent` blocker say so
+  ([#374](https://github.com/ned2/dashpot/issues/374),
+  [#399](https://github.com/ned2/dashpot/issues/399)). Interrupting the
+  parent's turn, by Esc with its own thread on screen in a daemon-attached
+  or standalone terminal, or through a controller, leaves its children
+  working to their own `SubagentStop`.
 - **Unloaded.** A daemon-hosted thread whose last terminal or client has
   left stays listed as waiting, at its Worktree and with its run, until the
   daemon unloads it about 60 s later. Its `SessionEnd` then removes the
