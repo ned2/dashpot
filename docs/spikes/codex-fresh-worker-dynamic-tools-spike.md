@@ -163,8 +163,11 @@ node scripts/experiments/codex-666/verify.mjs docs/spikes/measurements/issue-666
   every call. Which connection receives a Worker's call when several are
   attached to the lead, and what happens when none is, is unknown.
 - **Hosting mode.** Every thread ran in an app-server over stdio. A
-  managed daemon and a terminal client host the same core, but a terminal
-  declares no dynamic tools of its own and is not measured.
+  managed daemon and a terminal client host the same core, but neither was
+  measured. Whether a terminal declares dynamic tools of its own is
+  unknown. The fixture had no MCP server and offered no `tool_search`, so
+  the run says nothing about deferred MCP tools, such as the managed
+  Worktree tools a terminal serves.
 - **Platforms.** macOS, other releases and real models are unmeasured.
 
 ## 1. Dynamic tools by flag and fork mode
