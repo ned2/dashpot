@@ -510,7 +510,9 @@ Worktree, though a command on the same line as the `cd` still has it.
 
 Which environment an agent's commands run with depends on how the harness is
 hosted. The [linked Worktree environment experiment](spikes/linked-worktree-environment-spike.md)
-measured it with synthetic variables:
+measured it with synthetic variables, and the
+[root-session Workers experiment](spikes/root-session-workers-spike.md#claude-code-21289)
+measured the Claude Code `--bg` row:
 
 | Harness and hosting | An agent's commands run with |
 | --- | --- |
@@ -518,7 +520,7 @@ measured it with synthetic variables:
 | Codex 0.160.0, a terminal launched with `--disable daemon_auto_start` while no daemon runs | The terminal's own environment, for a fresh or a resumed session. |
 | OpenCode 2.0.22, shared service | The environment of the TUI or `opencode run` client that last opened or continued the session, which the client sends to the service. A TUI or `opencode run` with variables the service lacks gives them to the session; an `opencode run` without variables the service has takes them away (a TUI doing so is not measured). A session moved with `session_move` runs with the moving client's environment. A session prompted only through the HTTP API, whether created there or prompted after a service restart dropped what its client sent, runs with the service's own environment. |
 | OpenCode 2.0.22, `--standalone` | The client's environment. |
-| Claude Code, `--bg` | The environment of the shell that first started the configuration directory's supervisor, for that session and every later `--bg` session under the supervisor, whichever session dispatches it ([measured at 2.1.287 and 2.1.289](agent-harness-server-client-reference.md#background-session-environment-at-21287-and-21289)). |
+| Claude Code 2.1.287 and 2.1.289, `--bg` | The environment of the shell that first started the configuration directory's supervisor, for that session and every later `--bg` session under the supervisor, whichever session dispatches it ([reference](agent-harness-server-client-reference.md#background-session-environment-at-21287-and-21289)). |
 | Claude Code, other sessions | Not measured. |
 
 Dashpot neither loads ignored Worktree configuration nor supplies
@@ -588,13 +590,12 @@ an isolated direnv allow store (tmux 3.6, direnv 2.37.1, bash 5.3):
   command, so a session launched through it never starts. When no `.envrc`
   applies, it unloads the direnv values it inherited and runs the command
   without them. Pointed at another checkout, it loads that checkout's
-  environment, including what it puts on `PATH`, such as that checkout's
-  `.venv/bin`.
+  environment, which can include `PATH` entries such as its `.venv/bin`.
 
-Where the table above says a daemon or supervisor supplies the environment,
-the new session's commands get that environment whatever its client starts
-with. So only a check run inside the new session sees the environment its
-commands run with.
+Where the table above says a daemon, service or supervisor supplies the
+environment, the new session's commands get that environment whatever its
+client starts with. So only a check run inside the new session sees the
+environment its commands run with.
 
 ## Observe agent sessions
 
