@@ -61,7 +61,7 @@ Each answer is marked:
 
 - A goal keeps a Lead whose turn ended going, so a turn the model ends
   early no longer leaves the Workers' mail unread until the user speaks.
-  Without a goal, the measured Lead sat idle.
+  Without a goal, the measured fixture lead sat idle.
 - The wait loop stays: a goal turn does nothing with the Workers unless it
   waits in `wait_agent`, and each goal turn spends at least one model
   request. With `wait_agent` waiting up to an hour, a waiting Lead spends
@@ -177,10 +177,13 @@ it. The Codex run takes about five minutes, the Claude Code run about four.
 - **Records.** Metadata only: each request's directive kind, markers,
   tool and turn trigger; each evaluator request's shape; the app-server's
   turn and goal notifications; each hook's identity fields; the shells'
-  identity; and Dashpot's view. The only text kept is the fixture's own
-  labels and verdicts, and the opening words of a message Claude Code
-  itself writes, such as a feedback message or a check-in. The fixture root appears as `$ROOT` and the home directory as
-  `~`.
+  identity; and Dashpot's view. The text kept is the fixture's own labels
+  and verdicts; the opening words of a message Claude Code itself writes,
+  such as a feedback message or a check-in; the first 400 characters of
+  each Codex request's latest tool output, which is Codex's own text; and
+  Dashpot's error output and diagnostic messages, cut to 300-500
+  characters. The fixture root appears as `$ROOT` and the home directory
+  as `~`.
 
 The [Codex runner](../../scripts/experiments/codex-649/run.mjs) and its
 [verifier](../../scripts/experiments/codex-649/verify.mjs), and the
@@ -214,7 +217,7 @@ and [the Claude Code trace](measurements/issue-649-claude-code-trace.jsonl).
 - **Hosting mode.** Every Codex lead runs on one app-server over a loopback
   WebSocket. Every Claude Code lead is headless, so the interactive idle
   check-ins and the terminal's `/goal` display are documented only.
-- **Timings.** workers hold for seconds, not hours, and the Claude Code
+- **Timings.** The workers hold for seconds, not hours, and the Claude Code
   check-in interval is one minute, not the default thirty. Every timing is
   one sample.
 - **Not measured.** Codex's usage-limit and execution-unavailable stops,
@@ -381,8 +384,9 @@ phrased as the skill's end, "every fixture worker's pull request is open
 and its CI checks are green", whose start turn launches two background
 workers, of about 25 s and 70 s. Its evaluator answers "not met" once after
 both finish, while the continuation runs a command, and "met" after. C2's
-evaluator always answers "not met": its continuations each run a command
-twelve times, then answer with text only. C3 sets a one-minute check-in
+evaluator always answers "not met": its goal's start turn and its first
+eleven continuations each run a command, and the later ones answer with
+text only. C3 sets a one-minute check-in
 interval and launches two background workers, of about 80 s and 110 s.
 
 ### The evaluator
@@ -421,9 +425,10 @@ verdict cleared the goal: a later prompt in C1 had no evaluation
 
 ### The block cap
 
-C2 continued through exactly twelve "not met" verdicts, one after each command.
-Nine in a row with no tool call then made Claude Code end the turn with the
-notice "A hook blocked the turn from ending 9 consecutive times"
+C2 ran exactly twelve commands: a "not met" verdict after each of the
+first eleven continued the turn into the next. After the twelfth, nine
+"not met" verdicts in a row with no tool call made Claude Code end the
+turn with the notice "A hook blocked the turn from ending 9 consecutive times"
 (measured). That notice names `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` as the
 setting that raises it (trace only). The goal survived: C2's next prompt
 was evaluated again. An "impossible" verdict then cleared it, and the
@@ -441,11 +446,11 @@ opening "Goal check-in:", the condition, "is still active, and evaluation
 has been deferred for 1", after its `Stop` hook and with no
 `UserPromptSubmit` or evaluation. No further check-in came in the 30 s
 before the second worker finished (measured). The documentation says a
-check-in is due after 30 minutes deferred by default, each later one
-waiting twice as long, up to four times the first interval, that a `-p` session gets one only "at the end of
-the next turn that finishes with the work still running", and that an
-interactive session gets at most three idle check-ins between prompts
-(documented).
+check-in is due after 30 minutes deferred by default. Each later one waits
+twice as long, up to four times the first interval. A `-p` session gets
+one only "at the end of the next turn that finishes with the work still
+running", and an interactive session gets at most three idle check-ins
+between prompts (documented).
 
 ### Unbound leads
 
