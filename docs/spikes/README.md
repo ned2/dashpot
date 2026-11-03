@@ -24,6 +24,7 @@ stays as it was written.
 | [Codex interruption paths experiment](codex-interruption-paths-spike.md) | research | 2026-11-03 |
 | [Codex-managed Worktrees experiment](codex-managed-worktrees-spike.md) | research | 2026-11-03 |
 | [Codex unload and resume experiment](codex-unload-and-resume-spike.md) | research | 2026-11-03 |
+| [Goals that keep a Lead going on Codex and Claude Code](goal-driven-lead-spike.md) | research | 2026-11-03 |
 | [Codex Lead launch qualification experiment](codex-lead-launch-qualification-spike.md) | research | 2026-11-02 |
 | [Codex root session departure experiment](codex-root-session-departure-spike.md) | research | 2026-11-02 |
 | [Codex Worker push transport under the sandbox](codex-worker-push-transport-spike.md) | research | 2026-11-02 |
