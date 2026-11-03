@@ -531,6 +531,11 @@ session with a `parentID`. A hook event carrying
 sub-agent boundaries, which add to the parent's live sub-agents and hold the
 parent running
 ([ADR 0016](adr/0016-hold-a-session-running-while-its-sub-agents-work.md)).
+A Codex Sub-agent's follow-up turn publishes no `SubagentStart`. Under the proposed
+[ADR 0161](adr/0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md),
+which is decided but not yet implemented, an accepted `followup_task` or
+`send_input` call that names the Sub-agent by thread ID adds it to the live
+Sub-agents. A follow-up addressed by path stays unobserved.
 A child-scoped event is written to the store of its parent's freshest record,
 with that record's location; it never binds, ends, places or moves the
 parent, and a Sub-agent's own claim never authorizes Issue work

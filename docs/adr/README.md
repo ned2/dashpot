@@ -132,3 +132,4 @@ of date.
 | 0149 | [Offer a profile-file launch for a Codex Lead](0149-offer-a-profile-file-launch-for-a-codex-lead.md) | accepted | — |
 | 0159 | [Check a Codex Arc launch profile on explicit invocation](0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md) | accepted | — |
 | 0160 | [Name the Agent Session a process inside a Worktree descends from](0160-name-the-agent-session-a-process-inside-a-worktree-descends-from.md) | accepted | — |
+| 0161 | [Observe a Codex Sub-agent's follow-up turn from the call that starts it](0161-observe-a-codex-sub-agents-follow-up-turn-from-the-call-that-starts-it.md) | proposed | — |
