@@ -687,28 +687,32 @@ def test_closing_comments_are_posted_at_merge_not_held_for_close_out() -> None:
     # Issue #732: a Lead held every draft until close-out, by when they were
     # scattered across lost context, deleted scratch and stale placeholders.
     skill = shipped("SKILL.md")
-    merge = section(skill, "4. Handle each hand-back")
-    post = merge.index("**Post the Issue's closing comment** from the worker's draft")
-    assert merge.index("--match-head-commit") < post < merge.index("**Broadcast**")
-    assert "If the user already merged it, skip to step 5." in merge
-    assert "continue from step 5 once it shows `MERGED`" in merge
-    assert "Check it against the merged PR, not against the worker's summary" in merge
-    assert "fill each `<PR>` and `<follow-up: …>` placeholder" in merge
-    assert "7. Record the merge with the SHA you broadcast" in merge
+    hand_back = section(skill, "4. Handle each hand-back")
+    post = hand_back.index(
+        "**Post the Issue's closing comment** from the worker's draft"
+    )
+    assert hand_back.index("--match-head-commit") < post
+    assert post < hand_back.index("**Broadcast**")
+    assert "If the user already merged it, skip to step 5." in hand_back
+    assert "continue from step 5 once it shows `MERGED`" in hand_back
+    assert (
+        "Check it against the merged PR, not against the worker's summary" in hand_back
+    )
+    assert "fill each `<PR>` and `<follow-up: …>` placeholder" in hand_back
+    assert "7. Record the merge with the SHA you broadcast" in hand_back
     assert (
         "Verify each defect and each out-of-scope item it reports with one "
         "command or one search, then file it at once"
-    ) in merge
+    ) in hand_back
     assert (
-        "A draft that can't be posted yet, such as a closing comment awaiting a "
-        "merge you don't make, goes in the ledger the same way "
+        "A draft you cannot post at once, such as a closing comment awaiting a "
+        "merge, goes in the ledger the same way "
         "([arc-ledger.md](references/arc-ledger.md#a-pending-draft))"
-    ) in merge
+    ) in hand_back
     close_out = section(skill, "5. Close out")
-    assert close_out.index("First move any draft still held there into the") < (
-        close_out.index("Post any closing comment still pending in the ledger")
-    )
-    assert "Post each Issue's closing comment (workers draft them)" not in close_out
+    move = close_out.index("Move any draft still held in a worker's scratch")
+    assert move < close_out.index("Then remove every worker's scratch directory")
+    assert move < close_out.index("Post every draft still pending in the ledger")
     assert "pending drafts" in section(skill, "Rules for the whole arc")
 
     brief = " ".join(shipped("references/brief-template.md").split())
@@ -721,6 +725,7 @@ def test_closing_comments_are_posted_at_merge_not_held_for_close_out() -> None:
     pending = section(ledger, "A pending draft")
     assert "the draft as the worker wrote it" in pending
     assert "check it against the primary source like any other post" in pending
+    assert "close-out posts each one still open" in pending
     assert "the link to the Issue's closing comment you posted" in section(
         ledger, "A merge"
     )
@@ -1167,13 +1172,13 @@ def test_each_worker_gets_a_scratch_directory_of_its_own() -> None:
     assert "its `{SCRATCH}` that directory's absolute path" in dispatch
     close_out = section(skill, "5. Close out")
     assert (
-        "Remove every worker's scratch directory, a worker's that ended without "
+        "Then remove every worker's scratch directory, a worker's that ended without "
         "a report included"
     ) in close_out
     assert "Remove nothing else beside them: other arcs keep theirs there too." in (
         close_out
     )
-    assert close_out.index("Remove every worker's scratch directory") < (
+    assert close_out.index("Then remove every worker's scratch directory") < (
         close_out.index('"Finish the engagement"')
     )
 

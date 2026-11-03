@@ -85,8 +85,7 @@ step 2.
 - **Merge only with authority.** See [Merge authority](#merge-authority).
 - **Keep the arc's record in its ledger.** The arc map, waves, merges,
   decisions, gotchas, unverified findings, pending drafts and close-out go
-  in the arc's
-  local ledger, in the repository's ignored Dashpot state, in the shape
+  in the arc's local ledger, in the repository's ignored Dashpot state, in the shape
   [arc-ledger.md](references/arc-ledger.md) defines. Only the reviewed
   outcomes
   [What goes to GitHub](references/arc-ledger.md#what-goes-to-github)
@@ -478,9 +477,9 @@ On every hand-back and mid-flight message:
   labels, so the worker's PR can link a durable Issue. A finding you cannot
   verify yet goes in the ledger at once
   ([arc-ledger.md](references/arc-ledger.md#an-unverified-finding)), for
-  close-out to verify and file; hold none in a scratch file. A draft that
-  can't be posted yet, such as a closing comment awaiting a merge you don't
-  make, goes in the ledger the same way
+  close-out to verify and file; hold none in a scratch file. A draft you
+  cannot post at once, such as a closing comment awaiting a merge, goes in
+  the ledger the same way
   ([arc-ledger.md](references/arc-ledger.md#a-pending-draft)): your context
   can be compacted before close-out, and close-out removes the worker's
   scratch directory before it posts.
@@ -524,10 +523,11 @@ every Issue has merged:
      (`git -C <path> checkout --detach <integration-branch>`), since Dashpot
      refuses to drop a trial merge no ref reaches, then remove it with
      `--delete-ignored` alone.
-   - Remove every worker's scratch directory, a worker's that ended
+   - Move any draft still held in a worker's scratch directory into the
+     ledger ([arc-ledger.md](references/arc-ledger.md#a-pending-draft)).
+     Then remove every worker's scratch directory, a worker's that ended
      without a report included, once no process has its working
-     directory inside it. First move any draft still held there into the
-     ledger ([arc-ledger.md](references/arc-ledger.md#a-pending-draft)). Remove nothing else beside them: other arcs
+     directory inside it. Remove nothing else beside them: other arcs
      keep theirs there too.
    - Confirm afterwards that the shared git hooks are as they were. Where
      the repository points `core.hooksPath` at hooks it tracks, check that
@@ -561,9 +561,9 @@ every Issue has merged:
    Dashpot refuses if the listed sub-agents change or a process appears
    inside the Worktree. Record that you handed the user the override, their
    instruction and each check's result in the close-out record.
-4. Post any closing comment still pending in the ledger, including on
-   Issues their PRs closed automatically. The merge routine posted the
-   rest as each PR merged.
+4. Post every draft still pending in the ledger, including closing
+   comments on Issues their PRs closed automatically. The merge routine
+   posted the other closing comments as each PR merged.
 5. Gather the follow-ups the hand-backs raised for the close-out record.
    You filed each one as its hand-back arrived, so this step files only a
    finding that could not be verified then: verify it now, from the ledger

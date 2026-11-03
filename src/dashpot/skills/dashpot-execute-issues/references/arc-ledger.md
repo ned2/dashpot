@@ -238,12 +238,13 @@ verifies and files each one from here, so none waits in a scratch file.
 
 ## A pending draft
 
-Written when a hand-back carries text to post later, such as a closing
-comment awaiting a merge you don't make: the worker, the Issue and where
-the text goes, and the draft as the worker wrote it. Before posting, check
-it against the primary source like any other post, and fill its
-placeholders. The merge entry that links the posted comment closes it;
-close-out posts each one still open.
+Written when a hand-back carries text you cannot post at once, such as a
+closing comment awaiting a merge: the worker, the Issue and where the text
+goes, and the draft as the worker wrote it. Before posting, check it
+against the primary source like any other post, and fill its
+placeholders. A later entry that links what you posted closes it, as a
+merge entry does for a closing comment; close-out posts each one still
+open.
 
 ## A decision
 
