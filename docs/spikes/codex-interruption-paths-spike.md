@@ -164,7 +164,7 @@ it. A run takes about five minutes.
 | Fact | Tested value |
 | --- | --- |
 | Date | 2026-11-03 AEDT |
-| Dashpot base | `ba0b0aa05627c4ae861437194dcd6d101757edb8`, this Issue's first commit, which leaves base `a47e86862cd4f3f3b4db1841d220ccc46a4b58c2`'s Dashpot sources unchanged, with the experiment's later edits uncommitted |
+| Dashpot base | `a47e86862cd4f3f3b4db1841d220ccc46a4b58c2`'s Dashpot sources. The trace records head `ba0b0aa05627c4ae861437194dcd6d101757edb8`, an unpublished local commit that added this experiment on that base and changed no Dashpot source, with the experiment's later edits uncommitted; the retained sources are checked by digest |
 | Codex | `codex-cli 0.166.0`, the musl standalone release, SHA-256 `b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8`; the managed daemon runs its own installed copy of the same release |
 | Features | `hooks`, `multi_agent` and `multi_agent_v2` on; `plugins` and `apps` off |
 | Permissions | `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`; every hook reported `permission_mode` `bypassPermissions` |
