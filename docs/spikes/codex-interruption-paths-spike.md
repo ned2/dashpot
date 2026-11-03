@@ -36,8 +36,9 @@ Each answer is marked:
   in a checkout of that commit, by matching its code in the cited file,
   not at the cited line;
 - **trace only**: the retained trace shows it, but the verifier does not
-  check it. Every timing is this run's single sample, and five earlier
-  runs of the same scenarios, not retained, agreed with it;
+  check it. Every timing is trace only, this run's single sample, and the
+  verifier checks only the bounds a claim depends on; earlier runs of the
+  same scenarios, not retained, agreed with it;
 - **inference**: what follows for Dashpot, which neither the trace nor the
   source states.
 
@@ -45,8 +46,8 @@ Each answer is marked:
 
 | Path | What Esc or the tool interrupted | Hooks after it | The child's command and turn | Dashpot | Basis |
 | --- | --- | --- | --- | --- | --- |
-| Control: Esc in a daemon-attached terminal, the lead on screen | The lead's turn | The lead's `Interrupt`; the child's own `SubagentStop` 18.2 s later | The command ran its full 20 s hold; the child asked the model again and its turn completed | The run reads waiting; the `sub-agent` blocker clears | measured |
-| Esc in a standalone terminal, the lead on screen | The lead's turn | The same as the control | The same as the control | The same as the control | measured |
+| Control: Esc in a daemon-attached terminal, the lead on screen | The lead's turn | The lead's `Interrupt`; the child's own `SubagentStop` 18.1 s later | The command ran its full 20 s hold; the child asked the model again and its turn completed | The run reads waiting; the `sub-agent` blocker clears | measured |
+| Esc in a standalone terminal, the lead on screen | The lead's turn | The same as the control, the `SubagentStop` 18.2 s after Esc | The same as the control | The same as the control | measured |
 | Agent picker, daemon-attached | The selected child's turn alone | None for the child, then or later; no `Interrupt` for the lead | The command was not signalled and ran its full hold; the child asked the model nothing more; its rollout records `turn_aborted` `interrupted` | The run stays running after the lead's `Stop`; the blocker names the child, and outlives the lead's unload until the daemon stops | measured |
 | Agent picker, standalone | The selected child's turn alone | As daemon-attached | As daemon-attached | As daemon-attached, until the terminal exits and takes the Host Process with it | measured |
 | `interrupt_agent`, daemon-hosted | The child's turn | None for the child, then or later | As the picker | The run stays running; the blocker names the child | measured |
@@ -67,14 +68,18 @@ table only sets them beside the new ones.
 | Path | 0.160.0 | 0.166.0 |
 | --- | --- | --- |
 | A controller's `turn/interrupt` of a child's turn | No hook for the child; it stays listed ([#374](https://github.com/ned2/dashpot/issues/374), [harness reference](../agent-harness-server-client-reference.md#hosting-modes-and-daemon-autostart-at-01593)) | Not repeated |
-| Esc on the lead, daemon-attached | The lead's `Interrupt`; the child's `SubagentStop` about 19 s later (same section) | The lead's `Interrupt`; the child's `SubagentStop` 18.2 s later |
+| Esc on the lead, daemon-attached | The lead's `Interrupt`; the child's `SubagentStop` about 19 s later (same section) | The lead's `Interrupt`; the child's `SubagentStop` 18.1 s later |
 | Esc on the lead, standalone | Not measured | As daemon-attached |
 | Esc on a child selected in the agent picker | Not measured | Strands the child, in both hosting modes |
 | `interrupt_agent` | `{"previous_status":"running"}`; the command ran on 17.6 s; no `SubagentStop` ([#420](codex-worker-mechanics-spike.md#7-interruption)) | `{"previous_status":"running"}`; the command ran on 17.2 s; no `SubagentStop` |
 
-On 0.162.0, #665's ordinary `interrupt_agent` under strict Guardian also
-reported the child `interrupted` with no `SubagentStop` in its window. That
-run is its own evidence; this verifier checks only this trace.
+On 0.162.0, [#665](codex-worker-permissions-spike.md)'s ordinary
+`interrupt_agent` under strict Guardian also reported the child
+`interrupted` with no `SubagentStop` in its window. That run is its own
+evidence, in [its trace](measurements/issue-665-codex-trace.jsonl.gz)
+checked by
+[its verifier](../../scripts/experiments/codex-639/permissions-verify.mjs);
+this verifier checks only this trace.
 
 ## Reproduce
 
@@ -159,7 +164,7 @@ it. A run takes about five minutes.
 | Fact | Tested value |
 | --- | --- |
 | Date | 2026-11-03 AEDT |
-| Dashpot base | `a47e86862cd4f3f3b4db1841d220ccc46a4b58c2`, with the experiment uncommitted |
+| Dashpot base | `ba0b0aa05627c4ae861437194dcd6d101757edb8`, this Issue's first commit, which leaves base `a47e86862cd4f3f3b4db1841d220ccc46a4b58c2`'s Dashpot sources unchanged, with the experiment's later edits uncommitted |
 | Codex | `codex-cli 0.166.0`, the musl standalone release, SHA-256 `b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8`; the managed daemon runs its own installed copy of the same release |
 | Features | `hooks`, `multi_agent` and `multi_agent_v2` on; `plugins` and `apps` off |
 | Permissions | `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`; every hook reported `permission_mode` `bypassPermissions` |
@@ -199,7 +204,7 @@ it. A run takes about five minutes.
 | --- | --- |
 | In both kinds of terminal, the status line named `Main [default]`, and Esc while the lead's turn sat in `wait_agent` published the lead's `Interrupt` 0.3 s later and drew `Conversation interrupted`. | measured |
 | The lead's rollout records `turn_aborted` `interrupted`; the child's records no abort and a completed turn. | measured |
-| The child's command was not signalled and ran its full 20 s hold. The child then asked the model again, and published its `SubagentStop` 18.2 s after Esc, under the lead's `session_id`. | measured |
+| The child's command was not signalled and ran its full 20 s hold. The child then asked the model again, and published its `SubagentStop` 18.1 s after Esc daemon-attached and 18.2 s standalone, under the lead's `session_id`. | measured |
 | On the daemon, `thread/read` showed lead and child `active` before Esc and `idle` after. | measured |
 | Dashpot's run went from running to waiting, and the `sub-agent` blocker on the idle Worktree cleared. | measured |
 | The terminal sends an interrupt to its active thread as `turn/interrupt` naming that thread and its turn, in both hosting modes; `--no-daemon` only chooses where the server runs (`tui/src/app/thread_routing.rs`, `tui/src/cli.rs`). | source |
@@ -212,7 +217,7 @@ it. A run takes about five minutes.
 | With the child chosen, the status line named its agent path and the composer read `Viewing sub-agent — direct input is disabled`. Esc 3.4 s into the child's command (3.2 s standalone) drew `Conversation interrupted`, with the child still on screen. | measured |
 | The child's rollout records `turn_aborted` `interrupted` under the lead's turn as root; the lead's records no abort. | measured |
 | The child's command was not signalled and ran on to its end, 16.7 s after Esc (16.8 s standalone). After Esc the child made no model request and published no hook, `SubagentStop` included, through 17 s after its command ended and to the end of the run. | measured |
-| The lead got no `Interrupt`. Its `wait_agent` did not return on the interruption; it returned `Wait completed.` only when the sibling finished, 22.7 s after Esc. `list_agents` then reported the child `interrupted` and the sibling completed, and the lead's `Stop` followed the sibling's `SubagentStop`. | measured |
+| The lead got no `Interrupt`. Its `wait_agent` did not return on the interruption; it returned `Wait completed.` only when the sibling finished, 22.7 s after Esc (22.8 s standalone). `list_agents` then reported the child `interrupted` and the sibling completed, and the lead's `Stop` followed the sibling's `SubagentStop`. | measured |
 | On the daemon, `thread/read` showed lead, child and sibling `active` before Esc and all `idle` after: the stranded child reads like the finished sibling. | measured |
 | `SubagentStop` is dispatched only from a turn that finishes without a follow-up, and an interrupted turn's hooks return at once for any sub-agent, so no hook reports the abort (`core/src/session/turn.rs`, `core/src/hook_runtime.rs`). | source |
 

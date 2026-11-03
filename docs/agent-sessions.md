@@ -294,7 +294,8 @@ turn is interrupted publishes no hook, so it keeps the block up until the
 session starts again in another process, until the session's process
 exits, or until `dashpot work forget-subagents` after the session has ended.
 That was measured on 0.160.0 for a controller's interrupt of the child's
-turn and for the parent model's `interrupt_agent` tool, which upstream
+turn and for the parent model's `interrupt_agent` tool
+([#420](spikes/codex-worker-mechanics-spike.md#7-interruption)), which upstream
 reports too ([openai/codex#38142](https://github.com/openai/codex/issues/38142)),
 and on 0.166.0 for `interrupt_agent` and for Esc on a child selected in the
 terminal's agent picker, whether the terminal is attached to the daemon or
@@ -484,13 +485,13 @@ In the dashboard, a Codex session's state means:
   `SubagentStop`, and its prompt does not restart the turn clock. Codex
   publishes no hook when a sub-agent's own turn is interrupted, by a
   controller, by the parent model's `interrupt_agent`, or by Esc with the
-  sub-agent chosen in the terminal's agent picker, so a sub-agent
-  interrupted that way holds the session running until the thread unloads,
-  resumes, or its Host Process is gone, and blocks Cleanup across the
-  Repository until that process is gone or, once the session has ended,
-  `dashpot work forget-subagents` clears it: a daemon-hosted thread's unload
-  ends the run but leaves the block; `dashpot work show` and the
-  `sub-agent` blocker say so
+  sub-agent chosen in the terminal's agent picker. A sub-agent interrupted
+  that way holds the session running until the thread unloads, resumes, or
+  its Host Process is gone. It blocks Cleanup across the Repository for
+  longer: until the session starts again in another process, until that
+  process is gone, or until `dashpot work forget-subagents` after the
+  session has ended, so a daemon-hosted thread's unload ends the run but
+  leaves the block. `dashpot work show` and the `sub-agent` blocker say so
   ([#374](https://github.com/ned2/dashpot/issues/374),
   [#399](https://github.com/ned2/dashpot/issues/399)). Interrupting the
   parent's turn, by Esc with its own thread on screen in a daemon-attached

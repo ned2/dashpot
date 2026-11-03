@@ -975,26 +975,24 @@ subscribed to a thread. Measured, in the order a thread meets them:
 The [#399 experiment](spikes/codex-interruption-paths-spike.md) measured
 `codex-cli` 0.166.0 on Linux (2026-11-03) in terminals driven through a
 private tmux server, attached to the managed daemon and with `--no-daemon`,
-and through a controller's lead on the daemon. It used an isolated
+and through a controller's parent thread on the daemon. It used an isolated
 `CODEX_HOME`, the daemon's updater off, a loopback Responses API, approval
-`never` with full access, and Dashpot's real hook publisher. Each lead bound
-an Issue, spawned multi-agent v2 children that each held a 20 s command, and
-waited. The metadata-only
+`never` with full access, and Dashpot's real hook publisher. Each parent
+bound an Issue, spawned multi-agent v2 children that each held a 20 s
+command, and waited. The metadata-only
 [trace](spikes/measurements/issue-399-codex-trace.jsonl) and its
 [verifier](../scripts/experiments/codex-399/verify.mjs) back each row.
 
 | Path | Outcome at 0.166.0 |
 | --- | --- |
-| Esc with the lead on screen, daemon-attached (control) or standalone | Esc interrupts the thread the terminal has on screen, here the lead: its `Interrupt` fired 0.3 s later and its turn aborted. The child's command ran its full hold, and the child published its own `SubagentStop` 18.2 s after Esc. Dashpot's run read waiting and the `sub-agent` blocker cleared. |
-| Esc on a child chosen in the agent picker, daemon-attached or standalone | `/subagents` lists `Main [default]` and each child by agent path and thread ID, and choosing a row puts that thread on screen. Esc there aborted the child's turn alone. Its command ran its full hold, and the child made no further request and published no hook, `SubagentStop` included. The lead got no `Interrupt`, and its `wait_agent` waited on until the sibling finished, after which `list_agents` reported the child `interrupted`. Dashpot kept the run running after the lead's `Stop`, with the blocker naming the child. |
+| Esc with the parent on screen, daemon-attached (control) or standalone | Esc interrupts the thread the terminal has on screen, here the parent: its `Interrupt` fired 0.3 s later and its turn aborted. The child's command ran its full hold, and the child published its own `SubagentStop` about 18 s after Esc. Dashpot's run read waiting and the `sub-agent` blocker cleared. |
+| Esc on a child chosen in the agent picker, daemon-attached or standalone | `/subagents` lists `Main [default]` and each child by agent path and thread ID, and choosing a row puts that thread on screen. Esc there aborted the child's turn alone. Its command ran its full hold, and the child made no further request and published no hook, `SubagentStop` included. The parent got no `Interrupt`, and its `wait_agent` waited on until the sibling finished, after which `list_agents` reported the child `interrupted`. Dashpot kept the run running after the parent's `Stop`, with the blocker naming the child. |
 | The parent model's `interrupt_agent`, daemon-hosted | Unchanged from [0.160.0](spikes/codex-worker-mechanics-spike.md#7-interruption): `{"previous_status":"running"}`, the command ran on to its end, no hook for the child, `list_agents` `interrupted`, and the blocker stayed. |
-| After a stranded child | A standalone terminal's exit ended the run and cleared the blocker with its Host Process. On the daemon, the lead unloaded 60.2 s after its terminal exited and Dashpot ended the run, but the ended session kept the child listed, and the blocker stayed, naming `dashpot work forget-subagents`, until `daemon stop`. |
+| After a stranded child | A standalone terminal's exit ended the run and cleared the blocker with its Host Process. On the daemon, the parent unloaded 60.2 s after its terminal exited and Dashpot ended the run, but the ended session kept the child listed, and the blocker stayed, naming `dashpot work forget-subagents`, until `daemon stop`. |
 
 `SubagentStop` is dispatched only from a turn that finishes without a
 follow-up, and the interrupt hooks return at once for a sub-agent, so every
-path that aborts a child's own turn strands it in Dashpot's view. A
-daemon's control socket now sits in the shared `/tmp/codex-daemon-<uid>/`,
-named by the SHA-256 of its advertised path, while the daemon runs.
+path that aborts a child's own turn strands it in Dashpot's view.
 
 ### Changes on `main` after `rust-v0.154.0`
 

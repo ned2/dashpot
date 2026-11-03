@@ -171,7 +171,10 @@ env.SPIKE_SINK = sink.url;
 const commandScript = path.join(here, "command.mjs");
 const exec = (hold = 200, work = "-") => ({ exec: { hold, work } });
 // Each lead binds its own Issue in the main Worktree, spawns its children
-// and waits; `interrupt-agent`'s lead interrupts its child itself.
+// and waits; `interrupt-agent`'s lead interrupts its child itself. A label
+// is its scenario's initials (`de` daemon-esc, `dp` daemon-picker, `ia`
+// interrupt-agent, `se` standalone-esc, `sp` standalone-picker), and a
+// child's adds the last letter of its task name (`dpp` for `worker_p`).
 const plans = {
   de: [exec(200, "start-1"), { spawn: ["worker_c", "dc"] }, { wait: 60000 }],
   dc: [exec(20000)],

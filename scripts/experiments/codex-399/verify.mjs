@@ -48,7 +48,8 @@ for (const file of scripts) assert.equal(digestOf(path.join(here, file)), enviro
 const checkout = path.resolve(here, "..", "..", "..");
 const drifted = modules.filter((file) => digestOf(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot modules differ from the run's: ${drifted.join(", ")}`);
-assert.match(environment.binarySHA256, /^[0-9a-f]{64}$/);
+// The musl standalone 0.166.0 release the spike names.
+assert.equal(environment.binarySHA256, "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8");
 assert.deepEqual(of("scenario").map((record) => record.name), ["hook-trust", "daemon-esc", "daemon-picker", "interrupt-agent", "daemon-stop", "standalone-esc", "standalone-picker"]);
 
 const hooks = of("hook");
@@ -72,6 +73,19 @@ const workOf = (label) => shell(label, "work").work;
 const replyAt = (lead, step) => requests.find((record) => record.thread === lead && record.step === step && record.lastOutput !== null)?.lastOutput;
 
 const daemonPid = one("processes", (record) => record.label === "daemon-esc-running").daemons[0];
+// A child's one `SubagentStart`, before the interrupt, under the lead's
+// session and with the child's own thread as `agent_id`.
+const startedAsChild = (lead, child, label, interruptedAt) => {
+  const started = childHooks(child).filter((record) => record.event === "SubagentStart");
+  assert.equal(started.length, 1, `${child} has one SubagentStart`);
+  assert.equal(started[0].payload.session_id, lead);
+  assert(started[0].receiptTime < interruptedAt);
+  assert.equal(shell(label).env.CODEX_THREAD_ID, child);
+  assert.equal(shell(label).env.CODEX_SESSION_ID, lead);
+};
+// The runner wrote the window's end; the outcome record, stamped when it
+// was written, shows that observation ran at least that long.
+const windowObserved = (outcome) => assert(outcome.receiptTime >= outcome.windowEnd, "the outcome follows its window");
 
 check("The run used the pinned release through a fixture-local symlink, outside every harness session, with the fixture daemon's updater off, no entry of the fixture's left in the shared daemon directory, every fixture hook trusted, every hook's publisher exiting 0, approval `never` and sandbox `danger-full-access`, and hooks reporting `bypassPermissions`", () => {
   assert.match(environment.binaryTarget, /\/\.codex\/packages\/standalone\/releases\/0\.166\.0-[^/]+\/(bin\/)?codex$/);
@@ -122,6 +136,8 @@ for (const [scenario, leadLabel, childLabel, issue] of [["daemon-esc", "de.0", "
     const lead = shell(leadLabel).env.CODEX_THREAD_ID;
     const child = shell(childLabel).env.CODEX_THREAD_ID;
     assert.deepEqual([interrupt.lead, interrupt.child, interrupt.how], [lead, child, "esc"]);
+    startedAsChild(lead, child, childLabel, interrupt.receiptTime);
+    windowObserved(outcome);
     assert.deepEqual([interrupt.viewing, interrupt.inputDisabled], ["Main [default]", false]);
     const screen = afterEsc(scenario);
     assert.deepEqual([screen.viewing, screen.interruptedNotice], ["Main [default]", true]);
@@ -155,13 +171,14 @@ check("daemon-esc: a controller's `thread/read` shows the lead and child active 
 });
 
 // The two picker scenarios: a child selected in `/subagents`, then Esc.
-for (const [scenario, prefix, childName, siblingName, issue, hosting] of [
-  ["daemon-picker", "dp", "worker_p", "worker_s", "I_fixture_2", "daemon"],
-  ["standalone-picker", "sp", "worker_q", "worker_r", "I_fixture_5", "standalone"],
+for (const { scenario, prefix, childName, siblingName, number, hosting } of [
+  { scenario: "daemon-picker", prefix: "dp", childName: "worker_p", siblingName: "worker_s", number: 2, hosting: "daemon" },
+  { scenario: "standalone-picker", prefix: "sp", childName: "worker_q", siblingName: "worker_r", number: 5, hosting: "standalone" },
 ]) {
-  const childLabel = scenario === "daemon-picker" ? "dpp.0" : "spq.0";
-  const siblingLabel = scenario === "daemon-picker" ? "dps.0" : "spr.0";
-  const siblingLast = scenario === "daemon-picker" ? "dps.1" : "spr.1";
+  const issue = `I_fixture_${number}`;
+  const childLabel = `${prefix}${childName.at(-1)}.0`;
+  const siblingLabel = `${prefix}${siblingName.at(-1)}.0`;
+  const siblingLast = `${prefix}${siblingName.at(-1)}.1`;
   const lead = shell(`${prefix}.0`).env.CODEX_THREAD_ID;
   const child = shell(childLabel).env.CODEX_THREAD_ID;
   const sibling = shell(siblingLabel).env.CODEX_THREAD_ID;
@@ -183,6 +200,9 @@ for (const [scenario, prefix, childName, siblingName, issue, hosting] of [
   });
 
   check(`${scenario}: Esc on the selected child aborts that child's turn alone, within the lead's turn; the child's command is not signalled and runs its full hold, and after the interrupt the child asks the model nothing and publishes no hook, through at least 15 s after its command ended and to the end of the run`, () => {
+    startedAsChild(lead, child, childLabel, interrupt.receiptTime);
+    startedAsChild(lead, sibling, siblingLabel, interrupt.receiptTime);
+    windowObserved(outcome);
     assert.deepEqual(aborts(outcome, child).map((turn) => turn.reason), ["interrupted"]);
     const leadTurn = turnsOf(outcome, lead).find((turn) => turn.type === "task_started")?.turn;
     assert(leadTurn);
@@ -226,9 +246,9 @@ for (const [scenario, prefix, childName, siblingName, issue, hosting] of [
     const show = workOf(siblingLast);
     assert.deepEqual(show.args, ["work", "show"]);
     assert.equal(show.status, 0);
-    assert.match(show.stdout, new RegExp(`^codex pid \\d+: fixture-${issue.at(-1)} \\(${issue}\\) since `, "m"));
+    assert.match(show.stdout, new RegExp(`^codex pid \\d+: fixture-${number} \\(${issue}\\) since `, "m"));
     assert.match(show.stdout, new RegExp(`has 2 sub-agents listed as working \\((${child}, ${sibling}|${sibling}, ${child})\\)`));
-    if (hosting === "daemon") assert.match(show.stdout, new RegExp(`^codex pid ${daemonPid}: fixture-2 `, "m"));
+    if (hosting === "daemon") assert.match(show.stdout, new RegExp(`^codex pid ${daemonPid}: fixture-${number} `, "m"));
   });
 }
 
@@ -258,6 +278,8 @@ check("interrupt-agent (the 0.160.0 regression check): the lead model's `interru
   assert.deepEqual([interrupt.how, interrupt.lead, interrupt.child], ["interrupt_agent", lead, child]);
   const call = one("model.request", (record) => record.thread === lead && record.action === "interrupt_agent");
   assert(call.receiptTime <= interrupt.receiptTime);
+  startedAsChild(lead, child, "iae.0", call.receiptTime);
+  windowObserved(outcome);
   assert.deepEqual(JSON.parse(replyAt(lead, 4)), { previous_status: "running" });
   assert.deepEqual(aborts(outcome, child).map((turn) => turn.reason), ["interrupted"]);
   assert.deepEqual(aborts(outcome, lead), []);
