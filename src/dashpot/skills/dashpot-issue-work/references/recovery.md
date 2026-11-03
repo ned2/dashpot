@@ -121,9 +121,13 @@ resume, use the exact `work stop --session <session-key>` command from the
 
 Keep the prepared Worktree. If the old client is still running, the target
 client stays read-only: exit the old client, then press `R` there or run the
-resume command again. If the installed Codex cannot resume the confirmed identity with
-`-C`, use the fresh-session fallback from [dispatch](dispatch.md) and disclose
-that it starts a new Agent Session. A fresh session cannot complete a Relocation
+resume command again. On Codex 0.166.0 on Linux, a thread the managed
+daemon hosted stays held about 60 s after its last client exits, longer
+when its cleanup is slowed, and a resume with launch options is refused
+until then. A retry after that resumes the thread without sending the
+command's prompt, so type it again (measured). If the installed Codex cannot
+resume the confirmed identity with `-C`, use the fresh-session fallback from
+[dispatch](dispatch.md) and disclose that it starts a new Agent Session. A fresh session cannot complete a Relocation
 Intent for another Agent Session; end the old run explicitly, then run `work
 start` and `work show` in the new session.
 

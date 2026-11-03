@@ -228,8 +228,15 @@ session before Issue work.
 
 5. Tell the user to exit this client and then run the command. If they run
    it first, the target client stays read-only until they exit this client
-   and press `R`. Do not continue in the old client after handing over the
-   command. The resumed client's first turn publishes the hook that completes
+   and press `R`. On Codex 0.166.0 on Linux, a resume with launch options
+   runs in its own client. While the managed daemon still holds the thread,
+   that client stays read-only and says the conversation is open in another
+   app, even when it starts after this client exits. Unhindered, the daemon
+   releases the thread about 60 s after this client exits, and a retry
+   before then is refused again. After the retry that resumes it, the
+   client does not send the command's prompt, so the user types the prompt
+   again (measured). Do not continue in the old client after handing over
+   the command. The resumed client's first turn publishes the hook that completes
    a declared relocation once it proves the same Agent Session Identity at the
    intended Worktree with no live or unobservable client elsewhere.
 

@@ -23,7 +23,7 @@ below where their meanings differ.
 
 | Harness | Evidence available | Limits |
 | --- | --- | --- |
-| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt, and rerun on `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375) with the fixture daemon's updater off, for [#374](https://github.com/ned2/dashpot/issues/374) with a child interrupted while its sibling works and the parent's own turn interrupted, and for [#356](https://github.com/ned2/dashpot/issues/356) with the managed daemon's `SessionEnd` deferred to a settler and the daemon's hooks inheriting a terminal's `COLUMNS`; the [#356 acceptance run](#managed-daemon-restart-and-stop-at-01600) on `0.160.0` (2026-10-02): the managed daemon's unload, `daemon restart` and `daemon stop` with a turn running, the `SessionEnd` hook clamp, a detached process outliving the hook and the daemon, and threads reloaded into the replacement; the [#479 run](#codex-exec-signals-at-01600) on `0.160.0` (2026-10-05): SIGINT, SIGTERM and SIGKILL to detached `codex exec` processes; the [#666 run](#fresh-worker-dynamic-tools-and-delegation-metadata-at-01660) on `0.166.0` (2026-11-03): a client-defined dynamic tool reaching fresh and full-history multi-agent v2 Workers with `multi_agent_v2_dynamic_tools` off and on, across follow-up, compaction and an app-server restart, with Sub-agent creation activity and turn lineage; the [#668 run](#managed-worktrees-at-01660) on `0.166.0` (2026-11-03): the managed-worktree tools in standalone, daemon-attached, untrusted, `codex exec` and app-server-client threads, asynchronous creation, a duplicate request, a second request at the default base, a missing ref, an interrupted creation, failed registration, resume, an independent app-server and a daemon restart reading the attachments, `codex exec --worktree`, and Dashpot's preparation and Cleanup preview beside them; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, the interactive `codex --worktree`, Codex Desktop's worktree setup and cleanup, Remote Control pairing, the Code Mode remote host, general stdio behavior beyond the linked 0.162.0 permission controls, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
+| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt, and rerun on `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375) with the fixture daemon's updater off, for [#374](https://github.com/ned2/dashpot/issues/374) with a child interrupted while its sibling works and the parent's own turn interrupted, and for [#356](https://github.com/ned2/dashpot/issues/356) with the managed daemon's `SessionEnd` deferred to a settler and the daemon's hooks inheriting a terminal's `COLUMNS`; the [#356 acceptance run](#managed-daemon-restart-and-stop-at-01600) on `0.160.0` (2026-10-02): the managed daemon's unload, `daemon restart` and `daemon stop` with a turn running, the `SessionEnd` hook clamp, a detached process outliving the hook and the daemon, and threads reloaded into the replacement; the [#479 run](#codex-exec-signals-at-01600) on `0.160.0` (2026-10-05): SIGINT, SIGTERM and SIGKILL to detached `codex exec` processes; the [#666 run](#fresh-worker-dynamic-tools-and-delegation-metadata-at-01660) on `0.166.0` (2026-11-03): a client-defined dynamic tool reaching fresh and full-history multi-agent v2 Workers with `multi_agent_v2_dynamic_tools` off and on, across follow-up, compaction and an app-server restart, with Sub-agent creation activity and turn lineage; the [#668 run](#managed-worktrees-at-01660) on `0.166.0` (2026-11-03): the managed-worktree tools in standalone, daemon-attached, untrusted, `codex exec` and app-server-client threads, asynchronous creation, a duplicate request, a second request at the default base, a missing ref, an interrupted creation, failed registration, resume, an independent app-server and a daemon restart reading the attachments, `codex exec --worktree`, and Dashpot's preparation and Cleanup preview beside them; the [#663 run](#unload-and-resume-at-01660) on `0.166.0` (2026-11-03): idle unload, sequential resume with launch options at the same Worktree and after `work relocate`, slow cleanup past the shutdown warning and the coordination lock's 30 s wait, and disconnect during a blocked required MCP startup; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, the interactive `codex --worktree`, Codex Desktop's worktree setup and cleanup, Remote Control pairing, the Code Mode remote host, general stdio behavior beyond the linked 0.162.0 permission controls, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
 | Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction, repeated on `2.1.287` (2026-10-02); a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; the [#479 run](#background-session-environment-at-21287-and-21289) on `2.1.287` and `2.1.289` (2026-10-05): `--bg` sessions dispatched from headless sessions' shells, the environment they get, a `--settings` `env`, and the dispatching session's `cd`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, `--setting-sources` forwarding to spawned sessions, and when a supervisor takes a new environment unmeasured |
 | OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path (2026-09-12), with that release's source and the official docs; the [#393 experiments](spikes/opencode-v2-spike.md) on `2.0.22` (2026-10-02 and 2026-10-03): the shared service and its plugin instances, shell identity, Sub-agents, moves, `--standalone`, idle eviction, and the plugin API Dashpot's plugin uses; the [#407 acceptance run](#the-shared-service-through-dashpot-at-2022) on `2.0.22` (2026-10-03), through Dashpot's real plugin and helper: the TUI, `opencode run` and the API against the shared service, `--standalone` clients, the npm layout, foreground and background Sub-agents, forks, moves, plugin edits, repairs, reloads and removal, deletion, and the service replaced by 2.0.21 and back, stopped and killed | `opencode web`, ACP, the SDK's own server, `--server <url>`, remote servers, the desktop app, editor extensions and other operating systems unmeasured; OpenCode 1.x is refused, so its measurements describe no supported mode |
 
@@ -50,6 +50,15 @@ still lacks `SubagentStop` in that run's observed windows, leaving Dashpot's
 Worker activity and Sub-agent Cleanup blocker in place. The local reconnect
 protocol control preserves full-access launch parameters, but does not qualify
 workspace-write restoration; its server executes no commands.
+
+The [0.166.0 unload and resume experiment](spikes/codex-unload-and-resume-spike.md)
+(2026-11-03, [#663](https://github.com/ned2/dashpot/issues/663)) measures the
+managed daemon's idle unload, a sequential resume with the execute-issues
+grants straight after the client exits, at the same Worktree and after a
+declared relocation, an unload whose cleanup is slowed past the ten-second
+warning and past the writer lock's thirty-second coordination wait, and a
+thread whose starting client disconnected during a blocked required MCP
+startup ([unload and resume at 0.166.0](#unload-and-resume-at-01660)).
 
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
@@ -351,6 +360,17 @@ the new directory. [Read-only startup][read-only-startup]
 [External-writer view][external-writer] [Retry keys][retry-keys]
 [Resume cwd override][resume-cwd]
 
+Measured at 0.166.0: a `codex resume <id> -C <path>` with sandbox options
+runs in its own client, which takes the same lock, so while the managed
+daemon still holds the thread after its last client exits, the client shows
+the read-only transcript and every retry is refused with `active writer`
+until the daemon's idle unload, about 60 s after that exit. The retry that
+resumed it sent no prompt within the 5 s the run waited, so the prompt the
+command line carried had to be typed again. While the
+daemon is shutting the thread down, its own `thread/resume` is refused with
+`-32600` `thread <id> is closing; retry thread/resume after the thread is
+closed` ([unload and resume at 0.166.0](#unload-and-resume-at-01660)).
+
 Hook consequences follow from where hooks live. Every Codex hook is dispatched
 from a core `Session` (the `codex_hooks` feature must be enabled): the lock is
 acquired inside `Session::new`, `SessionStart` is queued there and run at the
@@ -457,6 +477,15 @@ issued while a turn was running was answered with the running turn's own id
 and `inProgress`: its input joined that turn, ran after the active command in
 that turn's directory, and only then did `thread/read` report the requested
 one.
+
+At 0.166.0 the default is still sixty seconds: the managed daemon began
+each idle unload 60.0 s after the thread's last terminal exited, and closed
+an auxiliary ephemeral thread 60 s after it started. `SessionEnd` comes from
+the shutdown at its start and `thread/closed` at its end. A cleanup slowed
+by writer-lock contention held `thread/closed` back by up to about thirty
+seconds more; one slowed by a hook or an MCP server that will not stop has
+no bound in the source and was not measured
+([unload and resume at 0.166.0](#unload-and-resume-at-01660)).
 
 ### Measured lifecycle at 0.155.1
 
@@ -850,6 +879,64 @@ An attachment is provenance: it is not an Issue Binding, Worker placement,
 or occupancy, since the creating session never runs in the checkout. The
 experiment recommends no integration for preparation and defers
 provenance.
+
+### Unload and resume at 0.166.0
+
+The [#663 experiment](spikes/codex-unload-and-resume-spike.md) drove the
+pinned `0.166.0` against a loopback fixture model, with Dashpot's real hook
+publisher and an observer client on the managed daemon that never
+subscribed to a thread. Measured, in the order a thread meets them:
+
+- **Idle unload.** The daemon logged `thread <id> has no subscribers and is
+  idle; shutting down` 60.0 s after each session's last terminal exited, in
+  all four sessions, and closed the auxiliary ephemeral thread each user
+  turn starts, which runs no hook, 60 s after it started. The code default
+  of `thread_unload_delay_secs` is still 60 (documented,
+  `config/src/config_toml.rs`). The task then awaits the thread's shutdown,
+  which runs `SessionEnd`, and only afterwards removes the thread and sends
+  `thread/closed`; unhindered, that took 0.3 s, and the writer lock
+  file was gone by `thread/closed`.
+- **Slow cleanup.** Since [openai/codex#51420](https://github.com/openai/codex/pull/51420)
+  the shutdown has no timeout: after ten seconds the daemon logs
+  `codex.app_server.thread_shutdown_slow` and keeps waiting. With the
+  writer coordination lock held by another process, the unload still began
+  at 60 s with `SessionEnd`, the warning came 10 s later, and until the
+  shutdown finished the thread stayed in `thread/loaded/list` with its
+  writer lock held and the daemon refused `thread/resume` as closing.
+  Released 20 s into the cleanup, the daemon sent `thread/closed` at once
+  and removed the lock file. Held longer, the lock guard gave up after the
+  coordination lock's 30 s wait (documented, `lock_coordination` in
+  `rollout/src/writer_lock.rs`), the daemon logged `failed to coordinate
+  thread writer lock cleanup` and sent `thread/closed` 30.4 s into the
+  cleanup, and the thread's lock file stayed, unlocked; the `codex exec
+  resume` that followed took it and removed it. Both threads resumed
+  afterwards.
+- **Disconnect during a blocked required MCP startup.** A controller's
+  `thread/start` with a required stdio MCP server that blocked in
+  `initialize` registered no thread while it blocked. The controller
+  disconnected; once the server answered, the thread started with no
+  subscriber and unloaded 60.0 s later, stopping the server and removing
+  the writer lock, so the listener fix of
+  [openai/codex#50380](https://github.com/openai/codex/pull/50380) holds. The
+  thread ran no turn, so its `SessionEnd` had no `SessionStart` before it.
+- **Resume straight after the exit.** The execute-issues resume command,
+  with `--sandbox workspace-write`, two `--add-dir` roots and the network
+  on, ran in its own client and was refused with `already has an active
+  writer` on its first attempt and every retry until `thread/closed`; the
+  first retry after it resumed the thread at the `-C` directory, in that
+  client, with the grants in force, and sent no prompt of its own within
+  5 s.
+- **Dashpot across the resume.** The daemon's `SessionEnd` defers the end
+  of a bound run to a settler that ends it about 10 s later when the daemon
+  is still live (ADR 0086). A resume at the same Worktree did not keep the
+  run: the resumed client's `SessionStart` left it under the daemon, and
+  the settler ended it 10.3 s after the `SessionEnd`. The resumed turn's
+  `work show`, 1.7 s before that end, still reported the daemon's run.
+  After `work relocate`
+  to another Worktree, the daemon's `SessionEnd` left the run pending and
+  the resumed `SessionStart` there relocated it, same Issue and
+  `startedAt`, to the resuming client (ADR 0029). During a slow cleanup the
+  settler ended the run while Codex still held the thread.
 
 ### Changes on `main` after `rust-v0.154.0`
 

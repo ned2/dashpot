@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-11-02
+date: 2026-11-03
 ---
 
 # Agent sessions
@@ -489,7 +489,19 @@ In the dashboard, a Codex session's state means:
   Until the unload the thread still occupies its Worktree for Cleanup. A
   thread resumed after it unloaded is a new incarnation of the same session
   with no run, though one resumed on the same daemon within those 10 s can
-  show the old run until it ends.
+  show the old run until it ends. At 0.166.0 a resume with launch options,
+  such as the execute-issues resume command, runs in its own client and is
+  refused while the daemon holds the thread. Started at once, it resumed
+  at the first retry after the unload, yet at the same Worktree Dashpot's
+  deferred end still ended the run, leaving the resumed session unbound,
+  and the resumed turn's `work show`, inside those 10 s, still reported the
+  old run. Only a declared `work relocate` carried the run to the resumed
+  client ([agent-facing skill](#agent-facing-issue-work-skill)).
+  `SessionEnd` marks the start of the unload: a shutdown slowed by
+  writer-lock contention kept the thread loaded, and a resume refused, for
+  up to about 30 s more, after Dashpot had ended the run; one slowed by
+  another cause has no bound in the source
+  ([measured at 0.166.0](agent-harness-server-client-reference.md#unload-and-resume-at-01660)).
 - **Gone.** The Host Process was killed or crashed, and no hook says so, or
   the managed daemon was stopped or restarted. A `codex exec` sent SIGTERM
   or SIGKILL is gone this way ([stopping `codex exec`](#stopping-codex-exec)).
