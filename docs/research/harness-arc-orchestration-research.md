@@ -949,13 +949,17 @@ New; documented only.
   - What `/goal` adds is a check against stopping early, as the agent-teams
     documentation warns a team lead may.
   - Its evaluator is a Stop hook, and Dashpot records turn state from Stop.
-    How the two interact is unmeasured.
+    A "not met" verdict continues the turn after Stop, so Dashpot shows the
+    working Lead `waiting`
+    ([measured](../spikes/goal-driven-lead-spike.md#verdicts-and-dashpots-turn-state)).
 - **Both harnesses.**
   - A goal's completion condition must match the skill's end, which is PRs
     open and green unless the user granted merge authority. Merged PRs would
     be the wrong condition.
-  - Codex creates a goal only on explicit instruction. Whether a skill
-    counts as that instruction is unmeasured.
+  - Codex creates a goal only on explicit instruction. Its runtime accepts
+    a `create_goal` made on a skill's instruction, which reaches the model
+    as a user message; whether a real model makes the call is unmeasured
+    ([measured](../spikes/goal-driven-lead-spike.md#a-skills-instruction-and-create_goal)).
 
 ### Stale instructions in the harness reference
 
@@ -965,7 +969,7 @@ New; documented only.
 | Claude Code "Your final message is your hand-back" | `SubagentHandback` in auto mode | Documented; measured |
 | Codex launch without `fork_turns` | Full-history fork; the v2 runners measured `"none"` | Documented |
 | Codex `[agents] max_threads` | Legacy alias of `max_concurrent_threads_per_session` | Documented; recorded |
-| Codex "never starts a turn for an idle lead" | Contradicted by source with an active goal; unmeasured | Documented |
+| Codex "never starts a turn for an idle lead" | Holds without a goal; with an active goal, Codex starts a goal turn as soon as the Lead's turn ends ([experiment](../spikes/goal-driven-lead-spike.md#goal-turns-and-a-workers-mail)) | Measured |
 | OpenCode "How the TUI invokes a skill was not measured" | `@skill-id` documented from 2.0.23 | Documented |
 
 [#438](https://github.com/ned2/dashpot/issues/438) carries the experiments'
