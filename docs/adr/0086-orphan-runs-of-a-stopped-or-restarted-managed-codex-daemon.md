@@ -149,6 +149,16 @@ narrower question, and the difference is what makes it acceptable:
   thread's `SessionEnd` while another turn held the daemon open past 10 s,
   that idle thread's run would end rather than be orphaned. The measured
   stop did not, and a restart with a running turn was not measured.
+- Measured for [#398](https://github.com/ned2/dashpot/issues/398) at
+  `codex-cli` 0.166.0 (2026-11-03): a restart with a turn running drains as
+  a stop does. It runs no `SessionEnd`, the idle thread's included, until
+  the turn has finished, and the old daemon exits within a second of those
+  hooks, so the settler leaves both runs orphaned
+  ([spike](../spikes/codex-daemon-restart-busy-spike.md)). A restart the
+  daemon's updater starts was not measured. By the 0.166.0 source it stops
+  the daemon through the same graceful stop as `daemon restart`, from the
+  same `--managed-daemon` host, so this decision applies the same reading
+  to it, unmeasured.
 - A run the settler leaves is shown without a last activity time. Its ended
   hook record is removed at the `SessionEnd`, as ADR 0015 requires, and the
   replacement daemon's reloaded thread publishes nothing until its next turn.

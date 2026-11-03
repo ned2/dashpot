@@ -2,7 +2,10 @@
 // managed daemon's SessionEnd hooks saw on an unload, a restart and a stop,
 // and Dashpot's own published view and Event Log at each step, against the
 // claims ADR 0086 and the docs make for the pinned release, without importing
-// the runner or Dashpot.
+// the runner or Dashpot. A trace from a runner with the #398 scenario also
+// checks a restart sent while one thread's turn runs and another sits idle.
+// The 0.160.0 trace predates that scenario and the runner's later edits, so
+// it is checked with its version named and reports the runner as changed.
 //
 //   node verify.mjs <trace.jsonl> [expected version] [--strict]
 import assert from "node:assert/strict";
@@ -13,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const strict = process.argv.includes("--strict");
-const [tracePath, expectedVersion = "0.160.0"] = process.argv.slice(2).filter((argument) => argument !== "--strict");
+const [tracePath, expectedVersion = "0.166.0"] = process.argv.slice(2).filter((argument) => argument !== "--strict");
 assert(tracePath, "Pass the trace.jsonl path");
 const records = readFileSync(tracePath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 const of = (kind) => records.filter((record) => record.kind === kind);
@@ -55,15 +58,24 @@ const modules = ["src/dashpot/hook.py", ...["deferred_end.py", "harnesses.py", "
   .map((file) => `src/dashpot/sessions/${file}`)];
 assert.deepEqual(Object.keys(environment.sourceSHA256).sort(), [...scripts, ...modules].sort());
 const digestOf = (file) => existsSync(file) ? createHash("sha256").update(readFileSync(file)).digest("hex") : null;
-// The runner's scripts change only with a new trace, so they must match.
-for (const file of scripts) assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
+// The helper scripts change only with a new trace, so they must match. The
+// runner and this verifier can be edited after a trace: a difference is
+// reported, and fails only under --strict.
+const editable = ["run.mjs", "verify.mjs"];
+for (const file of scripts.filter((name) => !editable.includes(name))) assert.equal(digestOf(path.join(here, file)), environment.sourceSHA256[file], `${file} matches the hash the run recorded`);
+const runnerChanged = editable.filter((file) => digestOf(path.join(here, file)) !== environment.sourceSHA256[file]);
+assert(!(strict && runnerChanged.length), `the runner or verifier differs from the run's: ${runnerChanged.join(", ")}`);
 // Dashpot's modules keep changing after the trace is retained; a difference
 // is reported, and fails only under --strict.
 const checkout = path.resolve(here, "..", "..", "..");
 const drifted = modules.filter((file) => digestOf(path.join(checkout, file)) !== environment.sourceSHA256[file]);
 assert(!(strict && drifted.length), `Dashpot modules differ from the run's: ${drifted.join(", ")}`);
 assert.deepEqual([...environment.hookEvents].sort(), ["Interrupt", "SessionEnd", "SessionStart", "Stop", "SubagentStart", "SubagentStop", "UserPromptSubmit"]);
-assert.deepEqual(of("scenario").map((record) => record.name), ["hook-trust", "exec", "standalone-exit", "daemon-start", "unload", "restart", "reload-recover", "reload-unload", "stop-busy"]);
+// The #398 scenario follows the stop; a trace from before it ends there.
+const busyRestartRun = of("scenario").some((record) => record.name === "restart-busy");
+assert(busyRestartRun || expectedVersion === "0.160.0", "a trace after 0.160.0 measures a restart with a turn running");
+assert.deepEqual(of("scenario").map((record) => record.name), ["hook-trust", "exec", "standalone-exit", "daemon-start", "unload", "restart", "reload-recover", "reload-unload", "stop-busy",
+  ...(busyRestartRun ? ["restart-busy"] : [])]);
 assert(of("hooks.list")[0].after.every(([, trust]) => trust === "trusted"), "fixture hooks trusted");
 // The daemon's updater stayed off for the whole run, so no updater process
 // ever ran and nothing could replace or restart the pinned daemon.
@@ -87,7 +99,7 @@ for (const record of of("codex.command")) assert(!/SPIKE:|^user$/m.test(record.s
 
 // Every SessionEnd, whatever its cause, carries the same keys and reason.
 const allEnds = hooks.filter((record) => record.event === "SessionEnd");
-assert.equal(allEnds.length, 13);
+assert.equal(allEnds.length, busyRestartRun ? 17 : 13);
 for (const end of allEnds) {
   assert.deepEqual(end.payloadKeys, allEnds[0].payloadKeys, "one SessionEnd shape");
   assert.equal(end.payload.reason, "other");
@@ -259,7 +271,7 @@ assert.equal(stop.secondDaemon, secondDaemon);
 const stopBound = view("stop-bound");
 liveUnder(stopBound, 1, secondDaemon);
 liveUnder(stopBound, 5, secondDaemon);
-const released = one("model.busy-released");
+const released = one("model.busy-released", within("stop-busy"));
 assert.equal(released.closed, false);
 const stopCommand = labelled("codex.command", "daemon-stop");
 assert(released.receiptTime - stopCommand.began > 15000, "the turn ran on after the stop began");
@@ -291,5 +303,76 @@ assert.deepEqual(labelled("processes", "after-stop").daemons, []);
 assert.deepEqual(labelled("processes", "after-stop").processes, [], "no daemon, hook, waiter or settler outlives the run");
 assert.equal(of("cleanup.kill").length, 0, "nothing was left for the runner to kill");
 
+// #398: `daemon restart` while R7's turn waits on the model and R8 sits idle,
+// on a daemon started afresh. The restart drains as the stop does: the turn
+// finishes (about 20 s) before either thread's SessionEnd, the idle one's
+// included, and the old daemon exits within a second of those hooks, so each
+// settler sees it gone well inside its 10 s window and both runs are left
+// orphaned under it. The replacement reloads both threads; stopping it ends
+// them from the replacement, which leaves the orphans as they were.
+if (busyRestartRun) {
+  const busyRestart = one("restart-busy.outcome");
+  const { r7, r8 } = busyRestart.threads;
+  const thirdDaemon = busyRestart.thirdDaemon;
+  const restartAgain = labelled("processes", "restart-busy-started");
+  assert.deepEqual(restartAgain.daemons, [thirdDaemon]);
+  assert.match(restartAgain.daemonCmdlines[0], /\/bin\/codex app-server .*--listen unix:\/\/ .*--managed-daemon$/);
+  assert.equal(shell("r7-start", "work").work.status, 0);
+  assert.equal(shell("r8-start", "work").work.status, 0);
+  const busyBound = view("restart-busy-bound");
+  liveUnder(busyBound, 7, thirdDaemon);
+  liveUnder(busyBound, 8, thirdDaemon);
+  const busyReleased = one("model.busy-released", within("restart-busy"));
+  assert.equal(busyReleased.closed, false);
+  const restartCommand = labelled("codex.command", "daemon-restart-busy");
+  assert.equal(restartCommand.status, 0);
+  assert(busyReleased.receiptTime - restartCommand.began > 15000, "the turn ran on after the restart began");
+  assert(restartCommand.ms > 15000, `\`daemon restart\` waited for the drain: ${restartCommand.ms}`);
+  const busyRequest = one("model.request", (record) => record.busy && within("restart-busy")(record));
+  assert(busyRequest.receiptTime < restartCommand.began, "the turn was waiting on the model when the restart was sent");
+  const busyTurnStop = one("hook", (record) => record.event === "Stop" && record.payload.turn_id === busyRestart.busyTurn);
+  assert(busyTurnStop.startedAt > busyReleased.receiptTime - 1000, "the busy turn completed after the model released it");
+  assert.equal(busyTurnStop.host, thirdDaemon, "the busy turn finished on the old daemon");
+  const busyRestartEnds = endsIn("restart-busy").filter((record) => record.host === thirdDaemon);
+  assert.deepEqual(busyRestartEnds.map((record) => record.payload.session_id).sort(), [r7, r8].sort());
+  assert(busyRestartEnds.every((record) => record.startedAt > busyTurnStop.startedAt), "no SessionEnd, not even the idle thread's, before the turn finished");
+  const busyBegan = busyRestartEnds.map((record) => record.startedAt);
+  assert(Math.max(...busyBegan) - Math.min(...busyBegan) < 250, "the busy restart's hooks run in parallel");
+  const busyLastHookEnd = Math.max(...busyRestartEnds.map((end) => end.startedAt + one("hook.end", (record) => record.pid === end.pid).sinceBegin));
+  assert(busyRestart.thirdDaemonExitedAt >= busyLastHookEnd && busyRestart.thirdDaemonExitedAt - busyLastHookEnd < 500, "the daemon exits once its hooks end");
+  const idleEnd = busyRestartEnds.find((record) => record.payload.session_id === r8);
+  const idleToExit = busyRestart.thirdDaemonExitedAt - idleEnd.startedAt;
+  assert(idleToExit > 0 && idleToExit < 1000, `the old daemon exits soon after the idle thread's SessionEnd began: ${idleToExit}`);
+  const busyWaiters = of("waiter").filter(within("restart-busy"));
+  assert.deepEqual(busyWaiters.map((record) => record.session).sort(), [r7, r8].sort());
+  for (const waiter of busyWaiters) {
+    assert.equal(waiter.host, thirdDaemon);
+    assert(waiter.exitedSinceHookBegan !== null && waiter.exitedSinceHookBegan < 1000, "a detached waiter sees the daemon exit");
+  }
+  const fourthDaemon = busyRestart.fourthDaemon;
+  assert.notEqual(fourthDaemon, thirdDaemon);
+  assert.deepEqual([...one("restart-busy.reload").loaded].sort(), [r7, r8].sort());
+  const afterBusyRestart = view("after-restart-busy");
+  assert.deepEqual(issues(afterBusyRestart), ["I_fixture_1", "I_fixture_2", "I_fixture_4", "I_fixture_5", "I_fixture_7", "I_fixture_8"]);
+  for (const number of [7, 8]) assert.equal(orphanedUnder(afterBusyRestart, number, thirdDaemon).lastActivityAt, null, "an orphan the settler left has no last activity");
+  assert.deepEqual(unbound(afterBusyRestart), []);
+  assert.deepEqual(labelled("processes", "after-restart-busy").daemons, [fourthDaemon]);
+  assert.deepEqual(labelled("processes", "after-restart-busy").settlers, []);
+  const finalStopEnds = endsIn("restart-busy").filter((record) => record.host === fourthDaemon);
+  assert.deepEqual(finalStopEnds.map((record) => record.payload.session_id).sort(), [r7, r8].sort());
+  assert(finalStopEnds.every((end) => end.startedAt > busyRestart.receiptTime), "the replacement ends the reloaded threads only at its own stop");
+  assert.deepEqual(outcomesOf(r7), [["deferred", "I_fixture_7"], ["unchanged", null], ["unchanged", null]], "Issue 7: deferred, left, then untouched by the replacement");
+  assert.deepEqual(outcomesOf(r8), [["deferred", "I_fixture_8"], ["unchanged", null], ["unchanged", null]], "Issue 8, the idle thread: deferred, left, then untouched by the replacement");
+  const afterFinalStop = view("after-final-stop");
+  assert.deepEqual(issues(afterFinalStop), issues(afterBusyRestart));
+  orphanedUnder(afterFinalStop, 7, thirdDaemon);
+  orphanedUnder(afterFinalStop, 8, thirdDaemon);
+  assert.deepEqual(labelled("processes", "after-final-stop").processes, [], "no daemon, hook, waiter or settler outlives the run");
+  const shared = one("shared-daemon-dir");
+  assert.deepEqual([shared.ownBefore, shared.ownLeft], [0, 0], "the fixture's daemons left no entry in the shared daemon directory");
+  console.log(`Busy restart: drained ${restartCommand.ms} ms, idle SessionEnd to old daemon exit ${idleToExit} ms`);
+}
+
 console.log(`Verified ${records.length} records from codex-cli ${expectedVersion}`);
 console.log(drifted.length ? `Dashpot modules changed since the run: ${drifted.join(", ")}` : `Dashpot modules match the run's (${environment.dashpot.head})`);
+if (runnerChanged.length) console.log(`note - runner or verifier changed since this trace was recorded: ${runnerChanged.join(", ")}`);

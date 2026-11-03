@@ -786,7 +786,9 @@ it, timings within a tolerance. How Dashpot acts on it is [ADR
   waited on the model and another thread sat idle let the turn finish before
   ending either: the model was released 20.0 s after the stop began, the turn
   completed, and both threads' `SessionEnd` hooks began 0.30 s later; `daemon
-  stop` returned after 23.4 s. A restart with a turn running was not measured.
+  stop` returned after 23.4 s. A restart with a turn running was not measured
+  here; [at 0.166.0](#managed-daemon-restart-with-a-turn-running-at-01660) it
+  drains the same way.
 - **A detached process outlives both.** The waiter outlived the killed hook
   and the daemon. It saw the old daemon exit 0.23 to 0.25 s after its hook
   began on the restart and 3.00 to 3.01 s after on the stop, and on an unload
@@ -818,6 +820,35 @@ reloaded threads' later unload ended nothing of the orphans and started no
 settler; and the stop left the recovered run and its idle sibling's run
 orphaned under the replacement. Every hook and settler process had exited by
 the end of the run.
+
+### Managed daemon restart with a turn running at 0.166.0
+
+The same acceptance run, extended for
+[#398](https://github.com/ned2/dashpot/issues/398), measured `codex-cli`
+0.166.0 on Linux (2026-11-03) with #356's fixture and the updater still off.
+Its [trace](spikes/measurements/issue-398-codex-trace.jsonl) records each
+claim below, the [verifier](../scripts/experiments/codex-356/verify.mjs)
+checks it, and the [spike](spikes/codex-daemon-restart-busy-spike.md) has
+the method and the source behind it. The run repeats every scenario of the
+0.160.0 section above, whose claims all still held.
+
+- **A restart drains as a stop does.** `daemon restart` sent while one
+  thread's turn waited on the model and another thread sat idle let the
+  turn finish before ending either: the model was released 20.1 s
+  after the restart began, the turn's `Stop` hook ran, and both threads'
+  `SessionEnd` hooks began 0.32 s after the release, from the old
+  daemon, within 6 ms of each other. The old daemon exited
+  0.25 s after the idle thread's hook began, and `daemon restart` returned after
+  20.8 s.
+- **Both runs orphaned.** Through Dashpot's publisher and settler, both
+  bound runs were left orphaned under the old daemon, as
+  [ADR 0086](adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)
+  decides. The replacement reloaded both threads, and its own stop ended
+  them without touching either orphan.
+- **Updater restart, by source only.** The updater stops the daemon through
+  the same graceful stop as `daemon restart`, so by the 0.166.0 source its
+  restart drains and publishes `SessionEnd` the same way. It was not
+  measured: no fixture runs with the updater on.
 
 ### `codex exec` signals at 0.160.0
 

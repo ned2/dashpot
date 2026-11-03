@@ -19,6 +19,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Codex managed daemon restart with a turn running](codex-daemon-restart-busy-spike.md) | research | 2026-11-03 |
 | [Codex follow-up tool hooks experiment](codex-followup-tool-hooks-spike.md) | research | 2026-11-03 |
 | [Codex fresh-Worker dynamic tools and delegation metadata experiment](codex-fresh-worker-dynamic-tools-spike.md) | research | 2026-11-03 |
 | [Codex interruption paths experiment](codex-interruption-paths-spike.md) | research | 2026-11-03 |
