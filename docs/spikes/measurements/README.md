@@ -125,6 +125,7 @@ content-preserving
 | [`issue-678-codex-trace.jsonl`](issue-678-codex-trace.jsonl) | JSONL trace, Codex CLI 0.166.0 | [#678](https://github.com/ned2/dashpot/issues/678) | [`codex-678`](../../../scripts/experiments/codex-678/) | [Codex Lead launch qualification experiment](../codex-lead-launch-qualification-spike.md) |
 | [`issue-681-codex-trace.jsonl`](issue-681-codex-trace.jsonl) | JSONL trace, Codex CLI 0.166.0 | [#681](https://github.com/ned2/dashpot/issues/681) | [`codex-681`](../../../scripts/experiments/codex-681/) | [Codex root session departure experiment](../codex-root-session-departure-spike.md) |
 | [`issue-684-codex-trace.jsonl`](issue-684-codex-trace.jsonl) | JSONL trace, Codex CLI 0.166.0 | [#684](https://github.com/ned2/dashpot/issues/684) | [`codex-684`](../../../scripts/experiments/codex-684/) | [Codex Worker push transport under the sandbox](../codex-worker-push-transport-spike.md) |
+| [`issue-663-codex-trace.jsonl`](issue-663-codex-trace.jsonl) | JSONL trace, Codex CLI 0.166.0 | [#663](https://github.com/ned2/dashpot/issues/663) | [`codex-663`](../../../scripts/experiments/codex-663/) | [Codex unload and resume experiment](../codex-unload-and-resume-spike.md) |
 
 The #279 and #327 traces and the #161, #162, #163 and #356 acceptance traces are
 the ones whose writeups are not spikes: their findings went straight into the

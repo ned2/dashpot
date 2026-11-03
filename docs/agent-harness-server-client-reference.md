@@ -51,6 +51,15 @@ Worker activity and Sub-agent Cleanup blocker in place. The local reconnect
 protocol control preserves full-access launch parameters, but does not qualify
 workspace-write restoration; its server executes no commands.
 
+The [0.166.0 unload and resume experiment](spikes/codex-unload-and-resume-spike.md)
+(2026-11-03, [#663](https://github.com/ned2/dashpot/issues/663)) measures the
+managed daemon's idle unload, a sequential resume with the execute-issues
+grants straight after the client exits, at the same Worktree and after a
+declared relocation, an unload whose cleanup is slowed past the ten-second
+warning and past the writer lock's thirty-second coordination wait, and a
+thread whose starting client disconnected during a blocked required MCP
+startup ([unload and resume at 0.166.0](#unload-and-resume-at-01660)).
+
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
 the [OpenCode experiment](spikes/opencode-identity-lifecycle-spike.md), the
@@ -351,6 +360,16 @@ the new directory. [Read-only startup][read-only-startup]
 [External-writer view][external-writer] [Retry keys][retry-keys]
 [Resume cwd override][resume-cwd]
 
+Measured at 0.166.0: a `codex resume <id> -C <path>` with sandbox options
+runs in its own client, which takes the same lock, so while the managed
+daemon still holds the thread after its last client exits, the client shows
+the read-only transcript and every retry is refused with `active writer`
+until the daemon's idle unload, about 60 s after that exit. The retry that
+resumes it does not send the prompt the command line carried. While the
+daemon is shutting the thread down, its own `thread/resume` is refused with
+`-32600` `thread <id> is closing; retry thread/resume after the thread is
+closed` ([unload and resume at 0.166.0](#unload-and-resume-at-01660)).
+
 Hook consequences follow from where hooks live. Every Codex hook is dispatched
 from a core `Session` (the `codex_hooks` feature must be enabled): the lock is
 acquired inside `Session::new`, `SessionStart` is queued there and run at the
@@ -457,6 +476,13 @@ issued while a turn was running was answered with the running turn's own id
 and `inProgress`: its input joined that turn, ran after the active command in
 that turn's directory, and only then did `thread/read` report the requested
 one.
+
+At 0.166.0 the default is still sixty seconds: the managed daemon began
+each idle unload 60.0 s after the thread's last terminal exited, and closed
+an auxiliary ephemeral thread 60 s after it started. `SessionEnd` comes from
+the shutdown at its start and `thread/closed` at its end, which a slow
+cleanup can hold back by up to about thirty seconds more
+([unload and resume at 0.166.0](#unload-and-resume-at-01660)).
 
 ### Measured lifecycle at 0.155.1
 
@@ -850,6 +876,60 @@ An attachment is provenance: it is not an Issue Binding, Worker placement,
 or occupancy, since the creating session never runs in the checkout. The
 experiment recommends no integration for preparation and defers
 provenance.
+
+### Unload and resume at 0.166.0
+
+The [#663 experiment](spikes/codex-unload-and-resume-spike.md) drove the
+pinned `0.166.0` against a loopback fixture model, with Dashpot's real hook
+publisher and an observer client on the managed daemon that never
+subscribed to a thread. Measured, in the order a thread meets them:
+
+- **Idle unload.** The daemon logged `thread <id> has no subscribers and is
+  idle; shutting down` 60.0 s after each session's last terminal exited, in
+  all four sessions, and closed the auxiliary ephemeral thread each user
+  turn starts, which runs no hook, 60 s after it started. The code default
+  of `thread_unload_delay_secs` is still 60 (documented,
+  `config/src/config_toml.rs`). The task then awaits the thread's shutdown,
+  which runs `SessionEnd`, and only afterwards removes the thread and sends
+  `thread/closed`; unhindered, that took 0.3 s, and the writer lock
+  file was gone by `thread/closed`.
+- **Slow cleanup.** Since [openai/codex#51420](https://github.com/openai/codex/pull/51420)
+  the shutdown has no timeout: after ten seconds the daemon logs
+  `codex.app_server.thread_shutdown_slow` and keeps waiting. With the
+  writer coordination lock held by another process, the unload still began
+  at 60 s with `SessionEnd`, the warning came 10 s later, and until the
+  shutdown finished the thread stayed in `thread/loaded/list` with its
+  writer lock held and the daemon refused `thread/resume` as closing.
+  Released 20 s into the cleanup, the daemon sent `thread/closed` at once
+  and removed the lock file. Held longer, the lock guard gave up after the
+  coordination lock's 30 s wait (documented, `lock_coordination` in
+  `rollout/src/writer_lock.rs`), the daemon logged `failed to coordinate
+  thread writer lock cleanup` and sent `thread/closed` 30.3 s into the
+  cleanup, and the thread's lock file stayed, unlocked; the next
+  acquisition took it. Both threads resumed afterwards.
+- **Disconnect during a blocked required MCP startup.** A controller's
+  `thread/start` with a required stdio MCP server that blocked in
+  `initialize` registered no thread while it blocked. The controller
+  disconnected; once the server answered, the thread started with no
+  subscriber and unloaded 60.0 s later, stopping the server and removing
+  the writer lock, so the listener fix of
+  [openai/codex#50380](https://github.com/openai/codex/pull/50380) holds. The
+  thread ran no turn, so its `SessionEnd` had no `SessionStart` before it.
+- **Resume straight after the exit.** The execute-issues resume command,
+  with `--sandbox workspace-write`, two `--add-dir` roots and the network
+  on, ran in its own client and was refused with `already has an active
+  writer` on its first attempt and every retry until `thread/closed`; the
+  first retry after it resumed the thread at the `-C` directory, in that
+  client, with the grants in force, and sent no prompt of its own.
+- **Dashpot across the resume.** The daemon's `SessionEnd` defers the end
+  of a bound run to a settler that ends it about 10 s later when the daemon
+  is still live (ADR 0086). A resume at the same Worktree did not keep the
+  run: the resumed client's `SessionStart` left it under the daemon, and
+  the settler ended it 10.3 s after the `SessionEnd`. After `work relocate`
+  to another Worktree, the daemon's `SessionEnd` left the run pending and
+  the resumed `SessionStart` there relocated it, same Issue and
+  `startedAt`, to the resuming client (ADR 0029). During a slow cleanup the
+  settler ended the run while Codex still held the thread.
 
 ### Changes on `main` after `rust-v0.154.0`
 
