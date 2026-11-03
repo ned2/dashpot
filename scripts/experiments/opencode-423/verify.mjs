@@ -1,6 +1,6 @@
 // Independent verifier for the Issue #423 trace: checks each claim
 // docs/spikes/opencode-v2-self-relocation-acceptance.md makes about a root
-// OpenCode 2.0.22 session moving itself as the dashpot-issue-work skill
+// OpenCode session, at the pinned release, moving itself as the dashpot-issue-work skill
 // describes, against the recorded model requests, shell commands, hook and
 // Work Store records, observations and Cleanup reports.
 //
@@ -86,7 +86,7 @@ check("the trace names no path outside the fixture's placeholders", () => {
   assert.deepEqual(text.match(/(?<![\w$])\/(?:tmp|home)\/[^"\s]*/g) ?? [], []);
 });
 check("the pinned OpenCode release, driving the installed copy of this checkout's plugin, helper and skill", () => {
-  assert.equal(environment.version, "opencode v2.0.22");
+  assert.equal(environment.version, "opencode v2.2.5");
   assert.match(environment.binarySHA256, /^[0-9a-f]{64}$/);
   assert.equal(environment.installedMatchesSource, true);
   assert.equal(labelled("integrate", "install").status, 0);

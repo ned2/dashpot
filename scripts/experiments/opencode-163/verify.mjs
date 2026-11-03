@@ -1,9 +1,9 @@
-// Independent verifier for the OpenCode acceptance trace, re-pinned to 2.0.22
-// by Issue #407: checks each claim docs/agent-sessions.md,
-// docs/installation.md, the harness reference and ADR 0090 make about OpenCode
-// v2 sessions through Dashpot's managed plugin against the recorded installer
-// output, shell commands, hook and publisher records, observations and
-// Cleanup reports.
+// Independent verifier for the OpenCode acceptance trace, re-pinned to 2.2.5
+// by Issue #701 and to 2.0.22 by #407: checks each claim
+// docs/agent-sessions.md, docs/installation.md, the harness reference and
+// ADR 0090 make about OpenCode v2 sessions through Dashpot's managed plugin
+// against the recorded installer output, shell commands, hook and publisher
+// records, observations and Cleanup reports.
 //
 // Usage: node verify.mjs <trace.jsonl> [--strict]
 import assert from "node:assert/strict";
@@ -98,7 +98,7 @@ const hex = /^[0-9a-f]{64}$/;
 
 check("the accepted OpenCode release, driving the installed copy of this checkout's plugin and helper", () => {
   // As each binary's --version prints it: v2 names itself, v1 does not.
-  assert.deepEqual([environment.version, environment.olderVersion, environment.v1Version], ["opencode v2.0.22", "opencode v2.0.21", "1.18.30"]);
+  assert.deepEqual([environment.version, environment.olderVersion, environment.v1Version], ["opencode v2.2.5", "opencode v2.2.4", "1.18.30"]);
   for (const name of ["binarySHA256", "olderBinarySHA256", "v1BinarySHA256"]) assert.match(environment[name], hex, name);
   assert.equal(environment.installedMatchesSource, true);
 });
@@ -138,7 +138,7 @@ check("the helper runs as a child of the Host Process that loaded the plugin", (
 // The installer, beside unrelated configuration and plugins.
 check("integrate refuses OpenCode v1 on PATH and writes nothing", () => {
   assert.equal(integration("v1-on-path").status, 2);
-  assert.match(integration("v1-on-path").text, /the opencode on PATH is OpenCode 1\.18\.30, and Dashpot observes OpenCode v2 only; install OpenCode 2\.0\.22 and retry/);
+  assert.match(integration("v1-on-path").text, /the opencode on PATH is OpenCode 1\.18\.30, and Dashpot observes OpenCode v2 only; install OpenCode 2\.2\.5 and retry/);
   const contents = ({ plugin, skill, unrelated }) => ({ plugin, skill, unrelated });
   assert.deepEqual(contents(labelled("files", "after-v1")), contents(labelled("files", "before")));
 });
@@ -150,7 +150,7 @@ check("install, reinstall, remove and install again leave unrelated configuratio
   assert.equal(files("reinstalled").plugin, files("installed").plugin);
   assert.deepEqual([files("removed").plugin, files("removed").skill], [null, false]);
   assert.equal(files("final").plugin, files("installed").plugin);
-  assert.match(integration("install").text, /^OpenCode release on PATH: 2\.0\.22, the accepted release$/m);
+  assert.match(integration("install").text, /^OpenCode release on PATH: 2\.2\.5, the accepted release$/m);
   assert.match(integration("reinstall").text, /OpenCode plugin already installed/);
   assert.match(integration("remove").text, /removed the OpenCode plugin/);
 });
@@ -160,18 +160,18 @@ check("a plugin file the user owns is refused and kept", () => {
   assert.equal(one("foreign").kept, true);
 });
 check("status names the accepted release, on PATH and as the running service, with nothing to warn of", () => {
-  assert.match(integration("status").text, /^OpenCode release on PATH: 2\.0\.22, the accepted release$/m);
+  assert.match(integration("status").text, /^OpenCode release on PATH: 2\.2\.5, the accepted release$/m);
   assert.match(integration("status").text, /^OpenCode service: none registered in \$ROOT\/state\/opencode\/service\.json$/m);
   const service = integration("status-service").text;
   assert.match(service, new RegExp(`^OpenCode service: pid ${shared}, registered in `, "m"));
-  assert.match(service, /^OpenCode service release: 2\.0\.22, the accepted release$/m);
+  assert.match(service, /^OpenCode service release: 2\.2\.5, the accepted release$/m);
   for (const label of ["status", "status-service"]) assert.doesNotMatch(integration(label).text, /warning:/, label);
 });
 check("status warns of another 2.x release, on PATH or as the service, and refuses v1", () => {
-  assert.match(integration("status-older-on-path").text, /warning: OpenCode 2\.0\.21 is not the accepted release 2\.0\.22; the plugin observes it/);
+  assert.match(integration("status-older-on-path").text, /warning: OpenCode 2\.2\.4 is not the accepted release 2\.2\.5; the plugin observes it/);
   const service = integration("status-older-service").text;
   assert.match(service, new RegExp(`^OpenCode service: pid ${older}, registered`, "m"));
-  assert.match(service, /^OpenCode service release: 2\.0\.21\nwarning: OpenCode 2\.0\.21 is not the accepted release 2\.0\.22/m);
+  assert.match(service, /^OpenCode service release: 2\.2\.4\nwarning: OpenCode 2\.2\.4 is not the accepted release 2\.2\.5/m);
   const v1 = integration("status-v1-on-path").text;
   assert.match(v1, /^OpenCode release on PATH: 1\.18\.30, refused$/m);
   assert.match(v1, /warning: Dashpot observes OpenCode v2 only: under 1\.18\.30 the plugin publishes nothing and no command can opt in/);
@@ -323,12 +323,15 @@ check("a move while the session works takes effect when its execution ends", () 
   assert.equal(labelled("session.info", "m-moved-while-busy").location, main);
   assert.deepEqual(runs("m-moved-while-busy")["issue-12"], ["waiting", false, shared, main]);
 });
-check("a session moved out of the Repository keeps its run, reported as working elsewhere, and back again", () => {
-  assert.equal(runs("m-in-other")["issue-12"][3], main);
-  assert.deepEqual(diagnostics("m-in-other"), ["work-session-elsewhere"]);
+// A session placed outside every Observation Target is not observed at an
+// older record's Worktree (ADR 0134, #545), so its run stays where it was,
+// its state unknown, with no work-session-elsewhere Diagnostic (#701).
+check("a session moved out of the Repository keeps its run, its state unknown, and back again", () => {
+  assert.deepEqual(runs("m-in-other")["issue-12"], ["unknown", false, shared, main]);
+  assert.deepEqual(diagnostics("m-in-other"), []);
   assert(observation("m-in-other-project").runs.some((run) => run.processOrSession.includes(m) && !run.issueId));
-  assert.equal(runs("m-in-plain")["issue-12"][3], main);
-  assert.deepEqual(diagnostics("m-in-plain"), ["work-session-elsewhere"]);
+  assert.deepEqual(runs("m-in-plain")["issue-12"], ["unknown", false, shared, main]);
+  assert.deepEqual(diagnostics("m-in-plain"), []);
   assert.deepEqual(runs("m-back")["issue-12"], ["waiting", false, shared, main]);
   assert.deepEqual(diagnostics("m-back"), []);
 });
@@ -412,7 +415,7 @@ check("late, earlier, deleted, misplaced and forged publications change nothing"
 
 // The service replaced, stopped and killed.
 check("another release's TUI replaces the service, orphaning every run on it", () => {
-  assert.equal(serviceOf("older").version, "2.0.21");
+  assert.equal(serviceOf("older").version, "2.2.4");
   assert.equal(serviceOf("older").process.exe, "$ROOT/older/bin/opencode");
   for (const [issue, [state, orphaned, pid]] of Object.entries(runs("older-service"))) assert.deepEqual([state, orphaned, pid], ["unknown", true, shared], issue);
 });
@@ -422,10 +425,10 @@ check("a session continues its run on a new service only through work start", ()
   assert.match(dashpot("a1-on-older-start").stdout, /^already working on issue-7; run restarted$/m);
   assert.deepEqual(runs("a1-on-older")["issue-7"], ["waiting", false, older, main]);
 });
-check("a 2.0.22 TUI resuming a session as the skill says replaces the service again, and work start continues the run", () => {
+check("a 2.2.5 TUI resuming a session as the skill says replaces the service again, and work start continues the run", () => {
   const spawned = one("client.spawn", (record) => record.name === "q-resumed");
   assert.deepEqual(spawned.args.slice(0, 3), [treeA, "--session", q]);
-  assert.equal(serviceOf("newer").version, "2.0.22");
+  assert.equal(serviceOf("newer").version, "2.2.5");
   assert.equal(claimed("q-resumed-start").OPENCODE_SESSION_ID, q);
   assert.match(dashpot("q-resumed-start").stdout, /^already working on issue-10; run restarted$/m);
   assert.deepEqual(runs("q-resumed")["issue-10"], ["waiting", false, newer, treeA]);
@@ -448,10 +451,10 @@ check("a killed service leaves its registration, which status reports as exited,
 });
 
 // --standalone.
+const standaloneClient = (label, client) => labelled("processes", label).processes.find((entry) => entry.cmdline.startsWith(client));
 const standalone = (label, client) => {
-  const { processes } = labelled("processes", label);
-  const parent = processes.find((entry) => entry.cmdline.startsWith(client));
-  const server = processes.find((entry) => entry.ppid === parent.pid);
+  const parent = standaloneClient(label, client);
+  const server = labelled("processes", label).processes.find((entry) => entry.ppid === parent.pid);
   assert.equal(server.cmdline, "$ROOT/home/.opencode/bin/opencode serve --stdio --port 0", label);
   return server.pid;
 };
@@ -467,7 +470,10 @@ check("a --standalone TUI hosts its session in a private server, and quitting it
   const server = standalone("standalone-tui", "opencode --standalone");
   assert.equal(claimed("sa-tui-start").DASHPOT_OPENCODE_PID, String(server));
   assert.deepEqual(runs("standalone-tui-bound")["issue-16"], ["waiting", false, server, treeB]);
-  assert.deepEqual(blockers("tree-b-standalone-tui"), ["agent-session", "agent-run", "agent-run"]);
+  // The TUI itself runs inside the Worktree, which blocks its removal (#476).
+  assert.deepEqual(blockers("tree-b-standalone-tui"), ["agent-session", "agent-run", "agent-run", "process"]);
+  const tui = standaloneClient("standalone-tui", "opencode --standalone").pid;
+  assert.match(cleanup("tree-b-standalone-tui").obstacles.at(-1).detail, new RegExp(`^A process is running inside this Worktree: pid ${tui} \\(opencode\\) at \\$ROOT/repository\\.worktrees/b\\.`));
   assert.deepEqual(runs("standalone-tui-quit")["issue-16"], ["unknown", true, server, treeB]);
   assert(kind("work-stop").filter((record) => record.label === "tree-b-orphans").every((record) => record.status === 0));
   assert.equal(cleanup("tree-b-orphans-stopped").removable, true);
@@ -476,7 +482,7 @@ check("a --standalone TUI hosts its session in a private server, and quitting it
 // The npm package's layout.
 check("the npm package's service is opencode.exe, a Host Process like any other", () => {
   const service = serviceOf("npm");
-  assert.deepEqual([service.version, service.process.comm], ["2.0.22", "opencode.exe"]);
+  assert.deepEqual([service.version, service.process.comm], ["2.2.5", "opencode.exe"]);
   assert.equal(claimed("npm-start").DASHPOT_OPENCODE_PID, String(service.pid));
   assert.equal(dashpot("npm-start").status, 0);
   assert.deepEqual(runs("npm-bound")["issue-17"], ["waiting", false, service.pid, main]);

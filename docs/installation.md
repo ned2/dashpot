@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-10-05
+date: 2026-11-03
 ---
 
 # Install and maintain Dashpot
@@ -19,9 +19,9 @@ with `uv tool install /absolute/path/to/dashpot-0.1.0-py3-none-any.whl`.
 | macOS | Apple Silicon; macOS CI plus real-host acceptance on `omar` in [#5](https://github.com/ned2/dashpot/issues/5). Host acceptance is pending. |
 | Git | 2.39 or newer, with current vendor patches. The minimum-version CI leg exercises the full suite with Debian 12’s packaged Git 2.39.x, including content-based Branch integration. |
 | GitHub CLI | gh 2.100.0 or newer for GitHub-backed Projects. 2.100.0 passed live collection during release planning; older versions are outside the initial support promise. |
-| Codex | `codex-cli` 0.160.0 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. Other releases are unsupported and not checked. |
-| Claude Code | 2.1.287 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. Other releases are unsupported and not checked. |
-| OpenCode | 2.0.22 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. 1.x is refused; another 2.x release is observed with a warning; a later major release is warned about and not observed ([Observe agent sessions](#observe-agent-sessions)). |
+| Codex | `codex-cli` 0.166.0 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. Other releases are unsupported and not checked. |
+| Claude Code | 2.1.317 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. Other releases are unsupported and not checked. |
+| OpenCode | 2.2.5 on Linux, the release its [acceptance run](../README.md#harness-acceptance-runs) passed on. 1.x is refused; another 2.x release is observed with a warning; a later major release is warned about and not observed ([Observe agent sessions](#observe-agent-sessions)). |
 
 Windows, Intel macOS, other architectures, and other harness releases are not
 part of the initial release target; supporting newer harness releases and
@@ -662,7 +662,7 @@ from inside that session, as described in [Agent sessions](agent-sessions.md).
 
 Dashpot observes OpenCode v2 only
 ([ADR 0090](adr/0090-observe-opencode-v2-through-its-own-session-identity-and-event-order.md)),
-and its OpenCode support is pinned to 2.0.22, the release its
+and its OpenCode support is pinned to 2.2.5, the release its
 [acceptance run](../README.md#harness-acceptance-runs) passed on.
 `dashpot integrate opencode` refuses to install while the `opencode` on PATH
 is a 1.x release, and installs for any other release with a warning. It
@@ -702,15 +702,15 @@ supported ways to run OpenCode, and what each one's state means, are in
 
 Each OpenCode release `--status` reports reads as one of:
 
-- **the accepted release**: 2.0.22.
+- **the accepted release**: 2.2.5.
 - **another 2.x release**, with a warning: the plugin observes it, but its
-  plugin API or events may differ from what was measured. Install 2.0.22 to
+  plugin API or events may differ from what was measured. Install 2.2.5 to
   remove the warning.
 - **refused**, for a 1.x release: OpenCode v1 loads the plugin's v1 entry,
   which publishes nothing and sets `DASHPOT_OPENCODE_REFUSAL=opencode-v1` on
   each shell its `shell.env` hook prepares, an agent's command among them, so
   `dashpot work start` there says that OpenCode v1 is refused. Install
-  OpenCode 2.0.22, run `dashpot integrate opencode`, and start OpenCode
+  OpenCode 2.2.5, run `dashpot integrate opencode`, and start OpenCode
   again. A session a v1 server ran reads gone once that server
   exits, and any Issue work it held is an Orphaned Agent Run, ended with
   `dashpot work stop --session <session-key>`.
@@ -800,9 +800,9 @@ integrated harnesses have an update available, its last line names
 | A `work-session-elsewhere` Diagnostic names two Worktrees | The session's freshest current hook record places it at one Worktree while its Issue work is recorded at another, and no Live Relocation carried it. From inside that session at the Worktree where it now runs, run `dashpot work start` with the same Issue to switch the work there, or `dashpot work stop` to end it; see [Agent sessions](agent-sessions.md#issue-work-opt-in). |
 | Session liveness is unknown | Read the Diagnostic, which names the reason: `isolated-namespace` means the session's Host Process was recorded in another PID namespace than Dashpot runs in, such as a devcontainer's, or that its hook could not see it; observe from the session's own namespace to settle it ([agent sessions](agent-sessions.md#agent-session-observation)). Unknown does not mean the Agent Session ended. |
 | OpenCode sessions are missing | Run `dashpot integrate opencode --status`. Its plugin must be installed, current and bound to an executable helper, with no second copy of it and no `OPENCODE_PURE`; then run `opencode reload`, or restart the OpenCode service, so that it loads the plugin. |
-| `dashpot integrate opencode` is refused because the `opencode` on PATH is OpenCode 1.x | Dashpot observes OpenCode v2 only. Install OpenCode 2.0.22, check that `opencode --version` prints `opencode v2.0.22`, and run `dashpot integrate opencode` again. |
-| `--status` warns that an OpenCode release is not the accepted release | The plugin observes it, but it was measured on 2.0.22 only. When the warning names the service release, a client of that release replaced the service; run a 2.0.22 client, or restart the service with `opencode service stop` and a 2.0.22 client. |
-| An OpenCode `dashpot work start` says the command runs in OpenCode v1 | The plugin's v1 entry marked the shell: OpenCode v1 is refused. Install OpenCode 2.0.22, run `dashpot integrate opencode`, and start a new session there. |
+| `dashpot integrate opencode` is refused because the `opencode` on PATH is OpenCode 1.x | Dashpot observes OpenCode v2 only. Install OpenCode 2.2.5, check that `opencode --version` prints `opencode v2.2.5`, and run `dashpot integrate opencode` again. |
+| `--status` warns that an OpenCode release is not the accepted release | The plugin observes it, but it was measured on 2.2.5 only. When the warning names the service release, a client of that release replaced the service; run a 2.2.5 client, or restart the service with `opencode service stop` and a 2.2.5 client. |
+| An OpenCode `dashpot work start` says the command runs in OpenCode v1 | The plugin's v1 entry marked the shell: OpenCode v1 is refused. Install OpenCode 2.2.5, run `dashpot integrate opencode`, and start a new session there. |
 | An OpenCode `dashpot work start` is refused as having no supported agent session | Only a command OpenCode runs for a root session's model carries a claim; the refusal says when it ran in a shell the user started with the TUI's `!`, or in an OpenCode terminal, and when it carries OpenCode's variables without the plugin's mark, as on a server that has not loaded the plugin. A child session's command is refused as `delegated-session`. Check `dashpot integrate opencode --status`, run `opencode reload` if the server has not loaded the plugin, then ask the agent to run the command. |
 | An OpenCode session reads unknown while its server runs | Its server's last plugin instance was cleaned up and none was set up again, as when the plugin is removed, while the session was running or held Sub-agents; its next event restores it, with its Issue work unchanged. See [OpenCode hosting modes](agent-sessions.md#opencode-hosting-modes). |
 

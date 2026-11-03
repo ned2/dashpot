@@ -10,13 +10,17 @@
 // records each step's hooks, shells, protocol results, and Dashpot's own
 // published view as a metadata-only trace.
 //
-//   node run.mjs <absolute codex binary> [expected version] [dashpot bin dir]
+//   TMPDIR=<private dir> setsid -f node run.mjs <absolute codex binary> [expected version] [dashpot bin dir]
 //   node verify.mjs <trace.jsonl> [expected version]
+//
+// Re-pinned to 0.166.0 by #701. The pinned release runs read-only through a
+// fixture-local `codex` link on PATH, and the trace names the fixture root,
+// this directory, the checkout and the operator's home by placeholder.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn, execFileSync, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -27,9 +31,9 @@ import { connectUnixWebSocket } from "./uds-websocket.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const checkout = path.resolve(here, "..", "..", "..");
-const binary = process.argv[2];
-assert(binary && path.isAbsolute(binary), "Pass the absolute path to the Codex binary");
-const expectedVersion = process.argv[3] ?? "0.160.0";
+const pinnedBinary = process.argv[2];
+assert(pinnedBinary && path.isAbsolute(pinnedBinary), "Pass the absolute path to the Codex binary");
+const expectedVersion = process.argv[3] ?? "0.166.0";
 // Dashpot attributes a fixture process it does not recognise to the first
 // harness process above it, so the runner refuses to start below one.
 const harnessAbove = ancestry(process.ppid, 64, 1).find((entry) => entry.comm.startsWith("codex") || entry.comm === "claude"
@@ -54,16 +58,27 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // hook's or shell's ancestry keeps the processes up to the runner's own child.
 const home = os.homedir();
 const hostName = new RegExp(`\\b${os.hostname().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+// The fixture's parent directory is named by placeholder too, even where a
+// process's command line, cut at 200 characters, ends partway through it.
+const tmpParent = path.dirname(root);
+const cutParent = new RegExp(`(?:${Array.from({ length: tmpParent.length - 4 }, (_, index) => tmpParent.slice(0, tmpParent.length - index))
+  .map((prefix) => prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?=")`, "g");
 const trace = (kind, fields = {}) => {
   const record = { kind, ...fields, receipt: records.length + 1, receiptTime: Date.now() };
   records.push(record);
   const kept = record.ancestry ? { ...record, ancestry: record.ancestry.slice(0, 5) } : record;
-  appendFileSync(tracePath, JSON.stringify(kept).replaceAll(home, "~").replace(hostName, "<host>") + "\n");
+  appendFileSync(tracePath, JSON.stringify(kept).replaceAll(root, "<root>").replaceAll(tmpParent, "$TMPDIR").replace(cutParent, "$TMPDIR")
+    .replaceAll(here, "$EXPERIMENT").replaceAll(checkout, "$CHECKOUT").replaceAll(home, "~").replace(hostName, "<host>") + "\n");
   return record;
 };
+// The pinned release runs read-only through a fixture-local `codex` on PATH.
+const fixtureBin = path.join(root, "bin");
+mkdirSync(fixtureBin);
+const binary = path.join(fixtureBin, "codex");
+symlinkSync(pinnedBinary, binary);
 
 const env = {
-  PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
+  PATH: `${fixtureBin}:${path.dirname(process.execPath)}:/usr/bin:/bin`,
   HOME: path.join(root, "home"),
   XDG_CONFIG_HOME: path.join(root, "config"),
   XDG_DATA_HOME: path.join(root, "data"),
@@ -256,7 +271,10 @@ const codexProcesses = () => {
 const brief = (entry) => [entry.pid, entry.ppid, entry.comm, entry.cmdline.replaceAll(root, "<root>").slice(0, 240)];
 // The managed daemon: `codex app-server ... --managed-daemon`, never its
 // `app-server daemon pid-update-loop` companion or a loopback `--listen` server.
-const isDaemon = (entry) => entry.comm.startsWith("codex") && / app-server /.test(entry.cmdline) && / --managed-daemon/.test(entry.cmdline);
+// The whole argument list: `describe` keeps six arguments, which end before
+// `--managed-daemon` once 0.166.0 adds `--analytics-default-enabled` (#701).
+const argvOf = (pid) => { try { return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean); } catch { return []; } };
+const isDaemon = (entry) => entry.comm.startsWith("codex") && argvOf(entry.pid).includes("app-server") && argvOf(entry.pid).includes("--managed-daemon");
 const daemons = () => codexProcesses().filter(isDaemon);
 // Dashpot's settler for a managed daemon's SessionEnd, which decides within
 // 10 s whether the daemon outlived it (ADR 0086).
@@ -402,8 +420,11 @@ const runTurn = async (client, threadId, text, options = {}) => {
 // An interactive terminal hosted by `script`; only the markers the runner
 // waits for are kept from its screen.
 const terminals = [];
-const terminal = async (name, cwd, args) => {
-  const child = spawn("script", ["-qfec", [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" "), "/dev/null"],
+// `script` gives its pty no size, so Codex draws nothing; a `sized` terminal
+// sets one first so its screen can be read (#701).
+const terminal = async (name, cwd, args, sized = false) => {
+  const line = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
+  const child = spawn("script", ["-qfec", sized ? `stty rows 40 cols 120; exec ${line}` : line, "/dev/null"],
     { cwd, env: { ...env, TERM: "xterm-256color", COLUMNS: "120", LINES: "40" }, stdio: ["pipe", "pipe", "pipe"] });
   // The composer treats a burst of keys as a paste, so Enter follows the text
   // after a pause.
@@ -548,7 +569,7 @@ try {
   processes("autostart-running");
   const daemonPid = daemons()[0]?.pid ?? null;
   trace("autostart.identity", { shell: shellSummary("ta-start"), newHooks: hooksSince(taStart.hooksBefore), hookHosts: hooks().slice(taStart.hooksBefore).map((record) => [record.event, hostOf(record), record.ancestry.slice(0, 4).map((entry) => [entry.pid, entry.comm])]),
-    daemonPid, daemonCmdline: daemons()[0] ? [...brief(daemons()[0]).slice(0, 3), daemons()[0].cmdline.replaceAll(root, "<root>")] : null, socketExists: existsSync(socketPath),
+    daemonPid, daemonCmdline: daemons()[0] ? [...brief(daemons()[0]).slice(0, 3), argvOf(daemons()[0].pid).join(" ").replaceAll(root, "<root>")] : null, socketExists: existsSync(socketPath),
     installed: (() => { try { return readdirSync(path.join(env.CODEX_HOME, "packages"), { recursive: true }).filter((entry) => entry.split(path.sep).length <= 3).sort(); } catch { return null; } })() });
   view("autostart-bound", { expectHost: daemonPid });
 
@@ -557,9 +578,25 @@ try {
   const ts2Second = await terminalTurn(ts2, "ts2-second");
   trace("standalone.second", { shell: shellSummary("ts2-second"), hookHosts: hooks().slice(ts2Second.hooksBefore).map((record) => [record.event, hostOf(record)]) });
   trace("scenario", { name: "autostart-disabled-beside-daemon" });
-  const ts3 = await terminal("autostart-disabled", third, [...standalone, "-C", third, "SPIKE:ts3-start"]);
+  const ts3 = await terminal("autostart-disabled", third, [...standalone, "-C", third, "SPIKE:ts3-start"], true);
+  // At 0.166.0 the flag is a feature override the running daemon does not
+  // share, so the terminal stops on Codex's daemon feature chooser before its
+  // first turn, with Cancel selected (#701). Down wraps to "Run without daemon
+  // this time".
+  const screen = () => ts3.output.replace(/\s+/g, "");
+  const choices = ["Runwithoutdaemonthistime", "Restartwiththesesettings", "Cancel"];
+  await quietly(waitFor(() => /incompatiblefeaturesettings/.test(screen()) || command("ts3-start") || ts3.exited, "ts3 chooser", 30000));
+  const chooser = /incompatiblefeaturesettings/.test(screen());
+  trace("autostart-disabled.chooser", { shown: chooser, choices: choices.filter((choice) => screen().includes(choice)), turnBefore: Boolean(command("ts3-start")) });
+  if (chooser) {
+    await delay(1000);
+    ts3.child.stdin.write("\u001b[B");
+    await delay(600);
+    ts3.child.stdin.write("\r");
+  }
   const ts3Start = await terminalTurn(ts3, "ts3-start", false);
-  trace("autostart-disabled.identity", { shell: shellSummary("ts3-start"), hookHosts: hooks().slice(ts3Start.hooksBefore).map((record) => [record.event, hostOf(record)]), daemonPid });
+  trace("autostart-disabled.identity", { shell: shellSummary("ts3-start"), hookHosts: hooks().slice(ts3Start.hooksBefore).map((record) => [record.event, hostOf(record)]), daemonPid,
+    terminalPid: codexProcesses().find((entry) => entry.ppid === ts3.child.pid)?.pid ?? null });
   hooksBefore = hooks().length;
   await exitTerminal(ts3);
   await delay(2000);
@@ -880,9 +917,10 @@ try {
   view("after-daemon-stop");
 
   // Dashpot's Event Log for the fixture, metadata only.
+  // `dashpot events --json` prints JSON Lines, one event per line, since #450.
   const events = dashpot(["events", "--json"]);
   let eventList = null;
-  try { eventList = JSON.parse(events.stdout); } catch {}
+  try { eventList = { events: events.stdout.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line)) }; } catch {}
   // Hook and command outcomes only, with the fields that say what Dashpot did.
   const fields = ["time", "event.name", "dashpot.process.kind", "dashpot.agent_session.id", "dashpot.worktree.path", "dashpot.issue.id", "dashpot.hook.event",
     "dashpot.outcome.result", "dashpot.agent_session.state", "dashpot.work_store.change", "dashpot.subcommand"];

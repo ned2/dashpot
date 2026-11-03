@@ -361,7 +361,7 @@ def test_opencode_shell_refusal_says_which_shell_it_is() -> None:
         v1 = opencode_shell_refusal(refused, in_opencode=in_opencode)
         assert v1 is not None
         assert "runs in OpenCode v1, and Dashpot observes OpenCode v2 only" in v1
-        assert "install OpenCode 2.0.22" in v1
+        assert "install OpenCode 2.2.5" in v1
     other = {"DASHPOT_OPENCODE_REFUSAL": "another"}
     assert opencode_shell_refusal(other, in_opencode=False) is None
     # A v1 shell carries the refusal before any pid it might also have.

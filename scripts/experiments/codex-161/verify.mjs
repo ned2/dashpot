@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const strict = process.argv.includes("--strict");
-const [tracePath, expectedVersion = "0.160.0"] = process.argv.slice(2).filter((argument) => argument !== "--strict");
+const [tracePath, expectedVersion = "0.166.0"] = process.argv.slice(2).filter((argument) => argument !== "--strict");
 assert(tracePath, "Pass the trace.jsonl path");
 const records = readFileSync(tracePath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 const of = (kind) => records.filter((record) => record.kind === kind);
@@ -156,7 +156,7 @@ assert.deepEqual(unbound(view("standalone-recovered")), []);
 const autostart = one("autostart.identity");
 const daemonPid = autostart.daemonPid;
 assert(daemonPid, "a daemon was autostarted");
-assert.match(autostart.daemonCmdline[3], /^<root>\/codex-home\/packages\/app-server-daemon\/releases\/.*\/codex app-server --remote-control --listen unix:\/\/ --managed-daemon/);
+assert.match(autostart.daemonCmdline[3], /^<root>\/codex-home\/packages\/app-server-daemon\/releases\/[^ ]*\/codex app-server --remote-control --listen unix:\/\/ --analytics-default-enabled( -c features\.[a-z_]+=(true|false))* --managed-daemon$/);
 assert(autostart.installed.some((entry) => entry.startsWith("app-server-daemon")), "the daemon was installed into CODEX_HOME");
 assert(!autostart.installed.some((entry) => entry.startsWith("standalone")), "no standalone release was linked");
 assert(autostart.hookHosts.every(([, host, chain]) => host === daemonPid && chain[1][1] === "codex"), "the daemon, a child of the terminal, hosts its hooks");
@@ -164,15 +164,22 @@ assert.equal(autostart.shell.host, daemonPid);
 const terminalPid = autostart.hookHosts[0][2][1][0];
 assert.equal(labelled("processes", "autostart-running").processes.find(([pid]) => pid === daemonPid)[1], terminalPid);
 assert.equal(onlyRun(view("autostart-bound"), 1).processOrSession, hostedBy(daemonPid));
-// The standalone terminal keeps hosting its own thread beside the daemon; a
-// terminal launched with autostart disabled while the daemon runs attaches
-// to it, and its `/exit` runs no hook.
+// The standalone terminal keeps hosting its own thread beside the daemon. A
+// terminal launched with autostart disabled while the daemon runs stops on
+// Codex's daemon feature chooser before its first turn; run without the
+// daemon, it hosts its own thread and its `/exit` ends that thread at once.
+// Measured at 0.166.0 (#701); at 0.159.3 such a terminal attached to the
+// daemon, which hosted its thread, and its `/exit` ran no hook.
 assert(one("standalone.second").hookHosts.every(([, host]) => host === ts2Host));
 assert.equal(one("standalone.second").shell.host, ts2Host);
+const chooser = one("autostart-disabled.chooser");
+assert.deepEqual([chooser.shown, chooser.turnBefore], [true, false]);
+assert.deepEqual(chooser.choices, ["Runwithoutdaemonthistime", "Restartwiththesesettings", "Cancel"]);
 const disabled = one("autostart-disabled.identity");
-assert(disabled.hookHosts.every(([, host]) => host === daemonPid));
-assert.equal(disabled.shell.host, daemonPid);
-assert.deepEqual(one("autostart-disabled.exit").newHooks, []);
+assert(disabled.terminalPid && disabled.terminalPid !== daemonPid);
+assert.equal(disabled.shell.host, disabled.terminalPid);
+assert(disabled.hookHosts.length > 0 && disabled.hookHosts.every(([, host]) => host === disabled.terminalPid));
+assert.deepEqual(one("autostart-disabled.exit").newHooks.map(([event, session, reason]) => [event, session, reason]), [["SessionEnd", disabled.shell.thread, "other"]]);
 // The standalone terminal's `/exit` ends its thread and Issue 3's run at once.
 assert.deepEqual(one("standalone.exit").newHooks.map(([event, session, reason, , cwd]) => [event, session, reason, cwd]), [["SessionEnd", standalone.shell.thread, "other", third]]);
 assert.deepEqual(runFor(view("standalone-exited"), 3), []);
@@ -284,7 +291,12 @@ assert.deepEqual([move.shell.cwd, move.shell.thread, move.shell.host], [fourth, 
 assert(move.newHooks.some(([event, session, , , cwd]) => event === "UserPromptSubmit" && session === ta && cwd === fourth));
 const afterMove = onlyRun(view("after-relocation"), 1);
 assert.deepEqual([afterMove.id, afterMove.startedAt, afterMove.workingDirectory, afterMove.processOrSession], [beforeMove.id, beforeMove.startedAt, fourth, hostedBy(daemonPid)]);
-assert.equal(labelled("dashpot.worktree-check", "after-relocation-other").result.removable, true);
+// Since #476 a process running inside a Worktree blocks its removal, and the
+// terminal that autostarted the daemon, and the daemon, still run in `other`:
+// its one obstacle is theirs, naming no Agent Run or Agent Session (#701).
+const otherCheck = labelled("dashpot.worktree-check", "after-relocation-other").result;
+assert.deepEqual(otherCheck.obstacles.map((obstacle) => obstacle.kind), ["process"]);
+assert.match(otherCheck.obstacles[0].detail, new RegExp(`pid ${daemonPid} \\(codex\\) at <root>/other-worktree, the Host Process of`));
 const fourthCheck = labelled("dashpot.worktree-check", "after-relocation-fourth").result;
 assert(fourthCheck.obstacles.some((obstacle) => obstacle.kind === "agent-run" && /fixture-1/.test(obstacle.detail)));
 // The run left `other`; the session's older record stays there until its
@@ -389,7 +401,7 @@ for (const [label, listed, absent] of [["after-child-interrupt-fourth", [cut, si
   assert.deepEqual(check.obstacles.map((obstacle) => obstacle.kind), ["sub-agent"]);
   const [{ detail }] = check.obstacles;
   assert(listed.every((agent) => detail.includes(agent)) && !absent.some((agent) => detail.includes(agent)), `${label}: the blocker lists ${listed.length} child(ren)`);
-  assert.match(detail, /listed as working .*which an interrupted one may never do, so if none is still working, end that session's client/, `${label}: the way out`);
+  assert.match(detail, /listed as working .*which one that was stopped or interrupted may never do, so if none is still working, end that session's client/, `${label}: the way out`);
 }
 
 // `dashpot work show` at the bound run's Worktree lists the run, then the
@@ -399,7 +411,7 @@ assert.equal(shown.status, 0);
 const shownLines = shown.stdout.trim().split("\n");
 assert.match(shownLines[0], /^codex pid \d+: fixture-2 \(I_fixture_2\) since /);
 assert.equal(shownLines[1], `  ${shownLines[0].split(":")[0]} has 1 sub-agent listed as working (${cut}). Dashpot lists a sub-agent until Codex reports that it stopped, `
-  + "which an interrupted one may never do, so if none is still working, end that session's client (a daemon-hosted thread ends about 60 s after its last client leaves)");
+  + "which one that was stopped or interrupted may never do, so if none is still working, end that session's client (a daemon-hosted thread ends about 60 s after its last client leaves)");
 
 // A controller's `turn/interrupt` on the root's own turn while it waits on a
 // child it delegated to: the root publishes Interrupt and no Stop, and the
