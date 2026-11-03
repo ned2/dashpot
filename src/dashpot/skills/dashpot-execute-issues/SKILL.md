@@ -84,7 +84,8 @@ step 2.
   for the arc the same way. The arc map says which it is.
 - **Merge only with authority.** See [Merge authority](#merge-authority).
 - **Keep the arc's record in its ledger.** The arc map, waves, merges,
-  decisions, gotchas, unverified findings and close-out go in the arc's
+  decisions, gotchas, unverified findings, pending drafts and close-out go
+  in the arc's
   local ledger, in the repository's ignored Dashpot state, in the shape
   [arc-ledger.md](references/arc-ledger.md) defines. Only the reviewed
   outcomes
@@ -420,7 +421,19 @@ before you act:
    the full SHA. Confirm the PR shows `MERGED` and that every Issue it
    references is in the state you intended. Without authority, tell the
    user it is ready and continue from step 5 once it shows `MERGED`.
-5. **Broadcast** to every live worker. First `git fetch` and list what
+5. **Post the Issue's closing comment** from the worker's draft. The PR,
+   its merge commit and the follow-ups you filed at hand-back all exist
+   now, and the draft is still fresh. Check it against the merged PR, not
+   against the worker's summary, and fill each `<PR>` and
+   `<follow-up: …>` placeholder with the PR and the Issue you filed for
+   it. Run the check in
+   [What goes to GitHub](references/arc-ledger.md#what-goes-to-github)
+   on the body file, then post it, on an Issue the PR closed automatically
+   too. A PR that leaves its Issue open, as the first half of a split Issue
+   does, posts nothing yet: its draft waits in the ledger for the PR that
+   finishes the Issue
+   ([arc-ledger.md](references/arc-ledger.md#a-pending-draft)).
+6. **Broadcast** to every live worker. First `git fetch` and list what
    landed since the integration-branch SHA you last broadcast, which your
    latest merge record holds (before the first broadcast, the first wave's base):
    `git log --oneline <last-broadcast>..origin/<integration-branch>`.
@@ -431,7 +444,7 @@ before you act:
    whether they must rebase now, with any regeneration that now falls to
    them. This curbs merge skew: siblings building on a stale base, and
    changes that pass alone but break together.
-6. Record the merge with the SHA you broadcast in the ledger, at once
+7. Record the merge with the SHA you broadcast in the ledger, at once
    ([arc-ledger.md](references/arc-ledger.md#a-merge)): the next broadcast
    starts from it. Tell the user in one line what merged, what is live and
    what is next. Then dispatch whatever the merge unblocked (step 3).
@@ -460,12 +473,17 @@ may be away for much of the arc.
 
 On every hand-back and mid-flight message:
 
-- Verify each defect it reports with one command or one search, then file
-  it at once with the repository's triage labels, so the worker's PR can
-  link a durable Issue. A finding you cannot verify yet goes in the ledger
-  at once
+- Verify each defect and each out-of-scope item it reports with one
+  command or one search, then file it at once with the repository's triage
+  labels, so the worker's PR can link a durable Issue. A finding you cannot
+  verify yet goes in the ledger at once
   ([arc-ledger.md](references/arc-ledger.md#an-unverified-finding)), for
-  close-out to verify and file; hold none in a scratch file.
+  close-out to verify and file; hold none in a scratch file. A draft that
+  can't be posted yet, such as a closing comment awaiting a merge you don't
+  make, goes in the ledger the same way
+  ([arc-ledger.md](references/arc-ledger.md#a-pending-draft)): your context
+  can be compacted before close-out, and close-out removes the worker's
+  scratch directory before it posts.
 - Route a finding to the sibling that owns the file and the acceptance
   box, not to whoever found it.
 - Approve an edit outside a worker's area explicitly, with its conditions.
@@ -508,7 +526,8 @@ every Issue has merged:
      `--delete-ignored` alone.
    - Remove every worker's scratch directory, a worker's that ended
      without a report included, once no process has its working
-     directory inside it. Remove nothing else beside them: other arcs
+     directory inside it. First move any draft still held there into the
+     ledger ([arc-ledger.md](references/arc-ledger.md#a-pending-draft)). Remove nothing else beside them: other arcs
      keep theirs there too.
    - Confirm afterwards that the shared git hooks are as they were. Where
      the repository points `core.hooksPath` at hooks it tracks, check that
@@ -542,8 +561,9 @@ every Issue has merged:
    Dashpot refuses if the listed sub-agents change or a process appears
    inside the Worktree. Record that you handed the user the override, their
    instruction and each check's result in the close-out record.
-4. Post each Issue's closing comment (workers draft them), including on
-   Issues their PRs closed automatically.
+4. Post any closing comment still pending in the ledger, including on
+   Issues their PRs closed automatically. The merge routine posted the
+   rest as each PR merged.
 5. Gather the follow-ups the hand-backs raised for the close-out record.
    You filed each one as its hand-back arrived, so this step files only a
    finding that could not be verified then: verify it now, from the ledger

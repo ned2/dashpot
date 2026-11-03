@@ -683,6 +683,51 @@ def test_the_brief_template_and_findings_are_kept_in_the_ledger() -> None:
     assert "Close-out verifies and files each one from here" in finding
 
 
+def test_closing_comments_are_posted_at_merge_not_held_for_close_out() -> None:
+    # Issue #732: a Lead held every draft until close-out, by when they were
+    # scattered across lost context, deleted scratch and stale placeholders.
+    skill = shipped("SKILL.md")
+    merge = section(skill, "4. Handle each hand-back")
+    post = merge.index("**Post the Issue's closing comment** from the worker's draft")
+    assert merge.index("--match-head-commit") < post < merge.index("**Broadcast**")
+    assert "If the user already merged it, skip to step 5." in merge
+    assert "continue from step 5 once it shows `MERGED`" in merge
+    assert "Check it against the merged PR, not against the worker's summary" in merge
+    assert "fill each `<PR>` and `<follow-up: …>` placeholder" in merge
+    assert "7. Record the merge with the SHA you broadcast" in merge
+    assert (
+        "Verify each defect and each out-of-scope item it reports with one "
+        "command or one search, then file it at once"
+    ) in merge
+    assert (
+        "A draft that can't be posted yet, such as a closing comment awaiting a "
+        "merge you don't make, goes in the ledger the same way "
+        "([arc-ledger.md](references/arc-ledger.md#a-pending-draft))"
+    ) in merge
+    close_out = section(skill, "5. Close out")
+    assert close_out.index("First move any draft still held there into the") < (
+        close_out.index("Post any closing comment still pending in the ledger")
+    )
+    assert "Post each Issue's closing comment (workers draft them)" not in close_out
+    assert "pending drafts" in section(skill, "Rules for the whole arc")
+
+    brief = " ".join(shipped("references/brief-template.md").split())
+    assert (
+        "Write `<PR>` for a PR number you don't have yet and "
+        "`<follow-up: short title>` for each item you list for the lead to file."
+    ) in brief
+
+    ledger = shipped("references/arc-ledger.md")
+    pending = section(ledger, "A pending draft")
+    assert "the draft as the worker wrote it" in pending
+    assert "check it against the primary source like any other post" in pending
+    assert "the link to the Issue's closing comment you posted" in section(
+        ledger, "A merge"
+    )
+    published = section(ledger, "What goes to GitHub")
+    assert "`test -s <file> && ! grep -nE '<PR>|<follow-up:' <file>`" in published
+
+
 def test_close_out_files_only_what_a_hand_back_could_not() -> None:
     text = shipped("SKILL.md")
     close_out = section(text, "5. Close out")
@@ -997,6 +1042,7 @@ def test_the_arc_record_stays_in_a_local_ledger() -> None:
         "A merge",
         "A gotcha",
         "An unverified finding",
+        "A pending draft",
         "A decision",
         "The close-out",
         "What goes to GitHub",

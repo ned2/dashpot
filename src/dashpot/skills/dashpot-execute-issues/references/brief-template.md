@@ -111,7 +111,7 @@ Your hand-back, under 300 words, opening with the key line. Send it as your repo
 - the decisions you made beyond the Issue's text;
 - what the lead must act on: follow-ups, integration risks with sibling Issues (name the APIs and files), and open questions;
 - process friction you hit (tooling, instructions, gates);
-- ready to paste: the Issue's closing comment, and a 2–4 line summary for each downstream Issue your work changes.
+- ready to paste: the Issue's closing comment, and a 2–4 line summary for each downstream Issue your work changes. Write `<PR>` for a PR number you don't have yet and `<follow-up: short title>` for each item you list for the lead to file. Never write "a follow-up covers" without one.
 
 {WAVE}
 

@@ -219,6 +219,8 @@ you broadcast. The entry holds:
   run it needed;
 - the integration-branch SHA you broadcast, and every merge since the
   previous broadcast: the next broadcast lists what landed after it;
+- the link to the Issue's closing comment you posted, or that its draft
+  waits as a [pending draft](#a-pending-draft);
 - the worker's wall-clock time, and its tool calls and tokens if the harness
   reports them;
 - what worked, what it cost, and any follow-up it raised.
@@ -233,6 +235,15 @@ the template now words it, and the friction that raised it.
 Written when a hand-back reports a defect you cannot verify yet: the claim,
 the worker and Issue that reported it, and what would verify it. Close-out
 verifies and files each one from here, so none waits in a scratch file.
+
+## A pending draft
+
+Written when a hand-back carries text to post later, such as a closing
+comment awaiting a merge you don't make: the worker, the Issue and where
+the text goes, and the draft as the worker wrote it. Before posting, check
+it against the primary source like any other post, and fill its
+placeholders. The merge entry that links the posted comment closes it;
+close-out posts each one still open.
 
 ## A decision
 
@@ -282,4 +293,7 @@ out local paths, machine names and load, the user's circumstances,
 credentials, and anything the user said they want kept private. Branch
 names, PR links and SHAs are fine. Record the user's decisions as
 decisions, and ask before quoting them. Post with `--body-file <file>`,
-writing the file with a script or a quoted heredoc.
+writing the file with a script or a quoted heredoc. Before posting, check
+that each body file is non-empty and holds no `<PR>` or `<follow-up:`
+placeholder:
+`test -s <file> && ! grep -nE '<PR>|<follow-up:' <file>`.
