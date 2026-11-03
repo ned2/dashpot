@@ -32,7 +32,7 @@ class Evidence(ConfigModel):
     source_digest: str
     # Each fingerprinted path's mode and content hash, so a later check can
     # name the paths that changed rather than only detect that some did.
-    sources: dict[str, str]
+    sources: dict[str, tuple[str, str]]
     coverage_digest: str
     python: str
     platform: str
@@ -58,7 +58,7 @@ class Verified:
     documentation_delta: tuple[str, ...]
 
 
-def source_entries(root: Path) -> dict[str, str]:
+def source_entries(root: Path) -> dict[str, tuple[str, str]]:
     """Each tracked and non-ignored new file's mode and content hash, by path."""
     names = subprocess.check_output(
         [
@@ -72,7 +72,7 @@ def source_entries(root: Path) -> dict[str, str]:
             "--exclude-standard",
         ]
     )
-    entries: dict[str, str] = {}
+    entries: dict[str, tuple[str, str]] = {}
     for raw_name in sorted(set(names.split(b"\0")) - {b""}):
         name = os.fsdecode(raw_name)
         path = root / name
@@ -85,16 +85,16 @@ def source_entries(root: Path) -> dict[str, str]:
             continue
         else:
             raise ValueError(f"Cannot fingerprint source entry: {name}")
-        entries[name] = f"{mode} {hashlib.sha256(data).hexdigest()}"
+        entries[name] = (mode, hashlib.sha256(data).hexdigest())
     return entries
 
 
-def digest_of(entries: Mapping[str, str]) -> str:
+def digest_of(entries: Mapping[str, tuple[str, str]]) -> str:
     """Fingerprint source entries independently of staging."""
     # Names sort by their bytes, so the digest stays the one this gate has
     # always computed.
     ordered = sorted(entries, key=os.fsencode)
-    listed = [[name, *entries[name].split(" ")] for name in ordered]
+    listed = [[name, *entries[name]] for name in ordered]
     return hashlib.sha256(json.dumps(listed, ensure_ascii=True).encode()).hexdigest()
 
 

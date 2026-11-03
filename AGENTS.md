@@ -69,8 +69,9 @@ Leave the Worktree in place unless the user explicitly requests Cleanup.
 The lifecycle hooks `dashpot integrate <harness>` installs observe a session in
 this checkout as live automatically. Observation is not Issue opt-in: the
 `work start` / `stop` lifecycle above still applies. Run `dashpot integrate
-<harness>` from the observing tool install or the main checkout, never from
-an Issue Worktree: the hooks bind the absolute path of the invoking
+<harness>` from the observing tool install; the main checkout also works, but
+a pull into it then changes the code the hooks run. Never run it from an
+Issue Worktree: the hooks bind the absolute path of the invoking
 environment's publisher, and a linked Worktree's `.venv` is removed with the
 Worktree, which would break every hook event on the machine. `integrate` refuses such a binding and `--status` warns
 about one that already exists
@@ -426,15 +427,19 @@ In this Repository:
 - A measurement runs once the code it measures has settled, and is re-run
   when a review fix changes a source its trace hashes. Before merging a PR
   that commits a trace, check its hashes against the PR head with
-  `uv run python scripts/trace_drift.py <verify.mjs> <trace>`, which runs the
-  verifier with `--strict` and lists each drifted source as changed by the
-  PR's own diff or by `main` since the run's base (the merge-base, and it
-  says so, where the trace records no base). Every hashed source the PR
-  itself changes must match the PR head; drift that `main` brought in after
-  the run is recorded in the PR's validation section, not re-measured.
-- The harnesses' lifecycle hooks bind to a non-editable `uv tool install` of
-  a chosen revision, not to the main checkout's editable `.venv`, so a pull
-  into the main checkout changes nothing that observes a live Arc
+  `uv run python scripts/trace_drift.py <verify.mjs> <trace> [verifier
+  argument ...]`. It runs the verifier with `--strict`, or without it where
+  the verifier takes no such flag and its own comparison of the trace's
+  hashes stands in, and lists each drifted source as changed by the PR's own
+  diff or by `main` since the run's base. Where the trace records no base
+  this checkout has, it uses the merge-base, says so, and cannot tell
+  `main`'s drift apart. Every hashed source the PR itself changes must match
+  the PR head; drift that `main` brought in after the run is recorded in the
+  PR's validation section, not re-measured.
+- The harnesses' lifecycle hooks bind to the observing tool install: a
+  non-editable `uv tool install` of a chosen revision, not the main
+  checkout's editable `.venv`, so a pull into the main checkout changes
+  nothing that observes a live Arc
   ([development setup](README.md#development-setup)). The operator
   reinstalls the tool and reruns `dashpot integrate <harness>` only when no
   Arc has a live Worker, then runs `dashpot integrate <harness> --status`.

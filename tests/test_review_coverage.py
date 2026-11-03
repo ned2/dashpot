@@ -1,5 +1,7 @@
 """Exercise coverage evidence across source changes and failed validation."""
 
+import hashlib
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -289,3 +291,45 @@ def test_collection_prints_the_evidence_it_recorded(checkout, monkeypatch, capsy
     out = capsys.readouterr().out
     assert f"source SHA-256: {review_coverage.source_digest(checkout)}" in out
     assert "Accepted documentation" not in out
+
+
+def test_the_digest_keeps_its_formula_for_files_executables_and_symlinks(checkout):
+    tool = checkout / "tool.sh"
+    tool.write_text("#!/bin/sh\n")
+    tool.chmod(0o755)
+    (checkout / "link.py").symlink_to("module.py")
+
+    def entry(name, mode, data):
+        return [name, mode, hashlib.sha256(data).hexdigest()]
+
+    listed = [
+        entry(".gitignore", "file", b".review-coverage/\nignored/\n"),
+        entry("link.py", "symlink", b"module.py"),
+        entry("module.py", "file", b"value = 1\n"),
+        entry("tool.sh", "executable", b"#!/bin/sh\n"),
+    ]
+    expected = hashlib.sha256(json.dumps(listed, ensure_ascii=True).encode())
+    assert review_coverage.source_digest(checkout) == expected.hexdigest()
+
+
+def test_evidence_from_before_the_per_path_record_is_refused(
+    checkout, monkeypatch, capsys
+):
+    fake_pytest(monkeypatch, report)
+    review_coverage.collect(checkout, "HEAD")
+    manifest = checkout / review_coverage.REPORT_DIRECTORY / "evidence.json"
+    earlier = json.loads(manifest.read_text())
+    earlier["schema_version"] = 1
+    del earlier["sources"]
+    manifest.write_text(json.dumps(earlier))
+    monkeypatch.chdir(checkout)
+    monkeypatch.setattr(
+        sys, "argv", ["review_coverage.py", "--base", "HEAD", "--check"]
+    )
+
+    assert review_coverage.main() == 1
+
+    err = capsys.readouterr().err
+    assert err.startswith("Coverage evidence failed: ")
+    assert "schema_version" in err and "sources" in err
+    assert "Traceback" not in err
