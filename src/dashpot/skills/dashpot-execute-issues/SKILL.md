@@ -112,6 +112,13 @@ step 2.
 - For each blocked-by edge, name the **gated slice**: the part of the
   downstream Issue the blocker really gates. It is usually a slice, not the
   whole Issue.
+- For each Issue that pins a tool release, confirm that the release can
+  still run on the machine that will measure it: a developer machine
+  keeps only some releases, and one may be gone by the time the arc
+  starts. Take a missing release to the user before you dispatch its
+  Issue. A re-pin changes the Issue's scope, so post the user's decision
+  on the Issue
+  ([What goes to GitHub](references/arc-ledger.md#what-goes-to-github)).
 - List the Worktrees that already exist (`git worktree list`). Those you
   did not create are the user's: note the files they touch, and never
   remove them. If your session already sits in a Worktree, check whether
@@ -132,7 +139,8 @@ step 2.
 Done when you know the arc's Issues, its goal, the graph, the critical
 path, each Issue's float, each edge's gated slice, the user's Worktrees,
 and every other open arc with the files, numbers, cores and person it
-holds.
+holds, and every pinned release either still runs or has gone to the
+user.
 
 ## 2. Set up
 
@@ -272,9 +280,12 @@ For each Issue in the wave:
    hooks from a Worktree when every checkout shares the repository's hooks
    directory: that repoints every checkout at an environment removed with
    the Worktree.
-2. Render its brief from the template, with the wave block and an
+2. Create the worker's scratch directory, new and empty, as
+   [harnesses.md](references/harnesses.md) says under "In every harness".
+   Render its brief from the template, with the wave block and an
    Issue-specific block. Its `{BASE}` is the `baseCommit` step 1 confirmed,
-   or the tip you fast-forwarded to. The Issue-specific block says which
+   or the tip you fast-forwarded to, and its `{SCRATCH}` that directory's
+   absolute path. The Issue-specific block says which
    gate variant applies, what the worker owns and reserves, what has merged
    and the API it exposes, what a sibling needs from it and when, any
    checkpoint, any pinned tool release it measures, whether verifying and
@@ -373,7 +384,8 @@ before you act:
    decision record (a changed decision needs a new record, not an edit),
    any model that enforces a content or security rule. Tests and docs ride
    on the worker's independent review.
-   For recorded evidence, run the repository's check of it at the PR head
+   For recorded evidence, run the repository's check of it at the PR head,
+   in its minimal documented form, with none of its optional arguments,
    as soon as the hand-back arrives, while the worker is still live or
    resumable: a mismatch goes back to that worker to record again. Its
    report states the check's result; confirm it rather than trust it.
@@ -488,6 +500,10 @@ every Issue has merged:
      (`git -C <path> checkout --detach <integration-branch>`), since Dashpot
      refuses to drop a trial merge no ref reaches, then remove it with
      `--delete-ignored` alone.
+   - Remove every worker's scratch directory, a worker's that ended
+     without a report included, once no process has its working
+     directory inside it. Remove nothing else beside them: other arcs
+     keep theirs there too.
    - Confirm afterwards that the shared git hooks are as they were. Where
      the repository points `core.hooksPath` at hooks it tracks, check that
      the setting is unchanged. Where it installs hooks into the shared Git
@@ -538,8 +554,9 @@ every Issue has merged:
 8. Once every worker you launched has finished, end your Issue work as
    `dashpot-issue-work`'s "Finish the engagement" says.
 9. Leave the user's main checkout as it is. Check its reflog for what moved
-   it during the arc, and tell the user whether it needs updating and what
-   that changes.
+   it during the arc with `git reflog main-worktree/HEAD`, which reads it
+   from any checkout of the repository, and tell the user whether it needs
+   updating and what that changes.
 
 Done when no PR you opened is unaccounted for, no Worktree you created
 remains, the goal carries the record, and the arc's ledger is closed.

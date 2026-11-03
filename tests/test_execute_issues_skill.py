@@ -629,7 +629,8 @@ def test_measuring_stacked_and_waiting_workers_are_briefed() -> None:
     ) in brief
     assert (
         "for recorded evidence, that the repository's check of it passes at "
-        "the PR head, or which sources differ and why;"
+        "the PR head, in its minimal documented form and in each form your PR's "
+        "validation cites, or which sources differ and why;"
     ) in brief
     assert (
         "Then hand back once, with your key line and what you are waiting for, "
@@ -728,7 +729,7 @@ def test_every_hand_back_is_keyed_and_read_against_its_key() -> None:
         "head <your Branch's full head SHA>`"
     )
     assert key in brief
-    assert "Your last message, under 300 words, opening with the key line:" in brief
+    assert "Your hand-back, under 300 words, opening with the key line." in brief
     handling = section(shipped("SKILL.md"), "4. Handle each hand-back")
     assert "**Read every hand-back against its key.**" in handling
     for case in (
@@ -899,7 +900,12 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     assert "It does not stop a determined process" in opencode
     assert 'opencode run --session <lead-session-id> "<message>"' in opencode
     assert "`<arc directory>/workers/<worker name>.md` with one command" in (opencode)
-    assert opencode.count("Write nothing else outside your Worktree.") == 1
+    assert (
+        opencode.count(
+            "Write nothing else outside your Worktree and your scratch directory."
+        )
+        == 1
+    )
     assert "A foreground shell times out after 2 minutes" in opencode
     flowed = " ".join(opencode.split())
     assert "rejects every permission ask the turn raises" in flowed
@@ -1016,3 +1022,210 @@ def test_the_arc_record_stays_in_a_local_ledger() -> None:
         rules
     )
     assert "on the epic, or for a list on the Issue you bound" in published
+
+
+def test_each_worker_gets_a_scratch_directory_of_its_own() -> None:
+    # Issue #692: workers sharing the lead's scratch directory lost and left
+    # behind files they could not tell from their siblings'.
+    text = shipped("references/brief-template.md")
+    explained, template = text.split("## The template\n", 1)
+    flowed = " ".join(explained.split())
+    assert "`{WORKER}`, `{SCRATCH}`, `{PATH}`" in flowed
+    assert (
+        "`{SCRATCH}` is the absolute path of this worker's scratch directory: a "
+        "new, empty directory named for its `{WORKER}` name"
+    ) in flowed
+    brief = " ".join(template.split())
+    assert (
+        "- Scratch directory: {SCRATCH}. The lead created it, empty, for you alone."
+        in (brief)
+    )
+    assert "Keep every temporary file, directory and fixture of yours there" in brief
+    assert (
+        "Other Worktrees, other workers' scratch directories and the main checkout"
+        in (brief)
+    )
+    assert (
+        "Before your final report, check that no process of yours still uses "
+        "{SCRATCH}, and delete any temporary file, directory or fixture you had "
+        "to create outside it. The lead removes {SCRATCH} itself."
+    ) in brief
+    assert "delete every temporary directory and fixture you created" not in brief
+
+    harnesses = shipped("references/harnesses.md")
+    assert "where you create a worker's scratch directory" in " ".join(
+        harnesses.split()
+    )
+    # One unique name per worker under a `.scratch` every arc sharing the
+    # Worktree Root also uses, so close-out removes only its own workers'.
+    every = " ".join(
+        harnesses.split("\n## Claude Code\n", 1)[0]
+        .split("In every harness:", 1)[1]
+        .split()
+    )
+    assert (
+        "`mkdir -p <Worktree Root>/.scratch && mktemp -d "
+        "<Worktree Root>/.scratch/<worker name>.XXXXXX`"
+    ) in every
+    assert "remove only your workers' directories from it" in every
+    assert "<arc-id>" not in harnesses.split("\n## Codex\n", 1)[0]
+    for harness in ("Claude Code", "Codex", "OpenCode"):
+        body = section(harnesses, harness)
+        assert "**Scratch directories.**" in body, harness
+        assert "inside the Worktree Root" in body, harness
+        assert "([In every harness](#worker-mechanics-by-harness))" in body, harness
+    claude = section(harnesses, "Claude Code")
+    assert "A worker inherits your session's scratch directory" in claude
+    # Codex workers inherit the lead's sandbox: the directory sits where the
+    # lead's first check proved they can write.
+    codex = section(harnesses, "Codex")
+    assert "Your workers write only where your sandbox lets them" in codex
+    assert "which your first check proved writable" in codex
+    assert "Write nothing else outside your Worktree and your scratch directory." in (
+        codex
+    )
+    opencode = section(harnesses, "OpenCode")
+    assert "the standing rule under **Permission posture** below covers both" in (
+        opencode
+    )
+
+    skill = shipped("SKILL.md")
+    dispatch = section(skill, "3. Dispatch a wave")
+    assert "Create the worker's scratch directory, new and empty" in dispatch
+    assert "its `{SCRATCH}` that directory's absolute path" in dispatch
+    close_out = section(skill, "5. Close out")
+    assert (
+        "Remove every worker's scratch directory, a worker's that ended without "
+        "a report included"
+    ) in close_out
+    assert "Remove nothing else beside them: other arcs keep theirs there too." in (
+        close_out
+    )
+    assert close_out.index("Remove every worker's scratch directory") < (
+        close_out.index('"Finish the engagement"')
+    )
+
+
+def test_a_measurement_check_passes_in_each_documented_form() -> None:
+    # Issue #692: a verifier passed only in the one form its worker ran.
+    brief = " ".join(shipped("references/brief-template.md").split())
+    assert (
+        "Run that check in its minimal documented form, with none of its "
+        "optional arguments, and in each form your PR's validation cites"
+    ) in brief
+    merge = section(shipped("SKILL.md"), "4. Handle each hand-back")
+    assert (
+        "run the repository's check of it at the PR head, in its minimal "
+        "documented form, with none of its optional arguments,"
+    ) in merge
+
+
+def test_the_lead_confirms_each_pinned_release_before_dispatch() -> None:
+    # Issue #692: three Issues pinned releases the measuring host no longer kept.
+    mapping = section(shipped("SKILL.md"), "1. Map the arc")
+    assert (
+        "For each Issue that pins a tool release, confirm that the release can "
+        "still run on the machine that will measure it"
+    ) in mapping
+    assert "Take a missing release to the user before you dispatch its Issue." in (
+        mapping
+    )
+    assert "post the user's decision on the Issue" in mapping
+    assert "(references/arc-ledger.md#what-goes-to-github)" in mapping
+    done = mapping.split("Done when", 1)[1]
+    assert "every pinned release either still runs or has gone to the user" in done
+    published = section(shipped("references/arc-ledger.md"), "What goes to GitHub")
+    assert "a decision that changes one Issue's scope" in published
+    brief = " ".join(shipped("references/brief-template.md").split())
+    assert "If the pinned release cannot run at all, report that to the lead" in brief
+
+
+def test_the_claude_code_section_follows_its_documentation() -> None:
+    # Issue #642: fork mode, auto-mode hand-backs, background time limits and
+    # worktree isolation, each marked documented, measured or seen.
+    harnesses = shipped("references/harnesses.md")
+    claude = section(harnesses, "Claude Code")
+    assert claude.startswith(
+        "Measured on Claude Code 2.1.287 on Linux, in the experiment this section "
+        "was first written from, except where a paragraph names its own source:"
+    )
+
+    launch = claude.split("**Launch.**", 1)[1].split("**Worker ID.**", 1)[0]
+    assert 'Call `Agent` with `subagent_type: "general-purpose"`' in launch
+    assert "Documented unless marked:" in launch
+    assert "fork mode is on by default in the terminal from v2.1.232" in launch
+    assert "from v2.1.302 in `claude -p`, the Agent SDK, the desktop app" in launch
+    assert "the documentation no longer names the parameter" in launch
+    assert (
+        "There the `Agent` tool has no `run_in_background` parameter (seen on "
+        "2.1.291 and 2.1.316, not measured)"
+    ) in launch
+    assert "**Never pass `name` or `isolation`.**" in launch
+    assert "a call with a `name` launches a teammate instead" in launch
+
+    reports = claude.split("**Worker reports.**", 1)[1].split("**Scratch", 1)[0]
+    assert "In auto mode, from v2.1.271" in reports
+    assert "(documented; measured on 2.1.285, seen on 2.1.316)" in reports
+    assert (
+        '`{REPORTING}`: "To tell the lead something mid-flight, call SendMessage '
+        'with `to: "main"`, then carry on. In auto mode your hand-back is your '
+        "`SubagentHandback` call"
+    ) in reports
+    assert "Your final message is your hand-back" not in claude
+    brief = " ".join(shipped("references/brief-template.md").split())
+    assert "under Claude Code's auto mode, as your `SubagentHandback` call" in brief
+
+    long_commands = claude.split("**Long commands.**", 1)[1].split("**Stopping", 1)[0]
+    assert long_commands.startswith(" Documented, not measured.")
+    assert (
+        "On v2.1.285 to v2.1.287 in every session, and from v2.1.288 in a "
+        "session that runs unattended"
+    ) in long_commands
+    assert (
+        "unless it passes a `timeout` with `run_in_background`, of up to 2 hours"
+        in (long_commands)
+    )
+    assert "A `Monitor` watch ends at its deadline in every session" in long_commands
+    assert (
+        "add to the brief's gotchas: \"Start a gate run or CI watch that may "
+        "outlast <the limit> in the background with an explicit `timeout` of up "
+        "to 2 hours (7200000 ms)."
+    ) in long_commands
+    assert "at most 10 in a `claude -p` run given a single prompt" in long_commands
+    # The lead copies a harness's gotchas into the brief through this slot.
+    explained = shipped("references/brief-template.md").split("## The template", 1)[0]
+    assert (
+        "and each gotcha your harness's section of [harnesses.md](harnesses.md) "
+        "tells you to add"
+    ) in " ".join(explained.split())
+    assert "a background watch can exit early" not in brief
+    assert "Give a long gate run or CI watch in the background an explicit timeout" in (
+        brief
+    )
+
+    location = claude.split("**Location.**", 1)[1].split("**Permission posture.**")[0]
+    assert (
+        "Whether a worker can move a lead inside a linked Worktree is not measured"
+        in (location)
+    )
+    assert (
+        "when the session started with `--worktree`, entered the Worktree with "
+        "`EnterWorktree`, or resumed such a session"
+    ) in location
+    assert "from that session and its workers alike (documented)" in location
+    assert "`git -C <main checkout> reflog` is refused" in location
+    assert "(all seen on 2.1.316, not measured)" in location
+    close_out = section(shipped("SKILL.md"), "5. Close out")
+    assert "`git reflog main-worktree/HEAD`, which reads it from any checkout" in (
+        close_out
+    )
+
+    posture = claude.split("**Permission posture.**", 1)[1]
+    assert (
+        "Never count on the classifier to stop a merge the user never granted: a "
+        "repository's own instructions can read to it as authorisation."
+    ) in posture
+    # The merge finding sits under the posture's own measured release.
+    assert posture.index("Measured on Claude Code 2.1.291") < posture.index(
+        "Never count on the classifier"
+    )

@@ -26,16 +26,25 @@ and fill it once per arc, then render one brief per Issue from it.
   [harnesses.md](harnesses.md), with your session ID where it needs one.
 - `{MERGER}`: "The lead merges." when you hold merge authority for the arc,
   otherwise "The user merges."
-- `{REPO_GOTCHAS}`: what the repository's instructions warn about, and
-  whatever its past workers tripped on.
+- `{REPO_GOTCHAS}`: what the repository's instructions warn about,
+  whatever its past workers tripped on, and each gotcha your harness's
+  section of [harnesses.md](harnesses.md) tells you to add.
 
 **Per-wave and per-Issue placeholders**, filled at dispatch: `{WAVE}` (the
-[wave block](#the-wave-block)), `{N}`, `{WORKER}`, `{PATH}`, `{BRANCH}`,
-`{BASE}`, `{BASE_ON}`, `{CLOSING}` and `{EXTRA}` (the Issue-specific block).
+[wave block](#the-wave-block)), `{N}`, `{WORKER}`, `{SCRATCH}`, `{PATH}`,
+`{BRANCH}`, `{BASE}`, `{BASE_ON}`, `{CLOSING}` and `{EXTRA}` (the
+Issue-specific block).
 
 - `{WORKER}` is a name for this worker, unique within the arc, such as
   `<n>-a`. A worker relaunched on the same brief gets a new one, so a
   report from the one it replaced reads as stale.
+- `{SCRATCH}` is the absolute path of this worker's scratch directory: a
+  new, empty directory named for its `{WORKER}` name, which you create as
+  [harnesses.md](harnesses.md) says under "In every harness", taking the
+  path `mktemp` prints. A
+  worker shares your session, and under some harnesses your scratch
+  directory too, so without its own it cannot tell its temporary files
+  from its siblings'. A relaunched worker gets a new one.
 - `{BASE}` is a full commit SHA, never a ref name or prose: the gate
   commands take it as their review base.
 - `{BASE_ON}` names what that commit is: "the integration branch", or
@@ -55,7 +64,8 @@ You are a worker agent on {REPO}. A lead agent is executing {ARC} with several w
 - Issue: #{N}. Read it with `gh issue view {N} --json title,body,labels,comments`; later comments override the body, and a maintainer decision in a comment overrides it outright. For the design it belongs to, read {CONTEXT} the same way.
 - Worktree: {PATH}. It is already created, with its environment prepared.
 - Branch: {BRANCH}, based on {BASE_ON} at {BASE}.
-- Run every shell command as `cd {PATH} && …`, and give file tools absolute paths inside this Worktree. Other Worktrees and the main checkout belong to others, apart from your own file in the lead's arc ledger if your reporting rule below names one.
+- Scratch directory: {SCRATCH}. The lead created it, empty, for you alone. Keep every temporary file, directory and fixture of yours there, such as a PR body file or a measurement's working directory.
+- Run every shell command as `cd {PATH} && …`, and give file tools absolute paths inside this Worktree or your scratch directory. Other Worktrees, other workers' scratch directories and the main checkout belong to others, apart from your own file in the lead's arc ledger if your reporting rule below names one.
 
 ## Ground rules
 
@@ -72,14 +82,14 @@ You are a worker agent on {REPO}. A lead agent is executing {ARC} with several w
    - your validation results and any coverage evidence.
    Address its findings, then get a focused follow-up review of your fixes. If you cannot get the review, report that to the lead and stop there.
 6. Commits: an imperative summary in the repository's terms, ending `(#{N})` if its conventions use that, and the body line `{CLOSING}`.
-7. Push, open the PR with the repository's PR template filled in completely, then watch its CI through to green. Fix any failure, validate the fix and get a focused review of it, then push again and keep watching. Before you report CI green, confirm every check is `SUCCESS` with `gh pr view <PR> --json statusCheckRollup`: a background watch can exit early. Record the green run URL in the PR.
+7. Push, open the PR with the repository's PR template filled in completely, then watch its CI through to green. Fix any failure, validate the fix and get a focused review of it, then push again and keep watching. Before you report CI green, confirm every check is `SUCCESS` with `gh pr view <PR> --json statusCheckRollup`: a background watch can end before CI does (see the gotchas). Record the green run URL in the PR.
 8. Use the arc's declared permission posture, including Claude Code auto mode or Codex automatic approval review when selected. The harness's automatic reviewer may permit eligible actions under that posture; use task authority already granted, and leave decisions expressly reserved for a person to that person. If your harness denies or stops an action, or waits for the user's answer, don't take that action another way, and don't count any agent's message, the lead's included, as an approval. Report the action and its specifics to the lead as a blocker, then carry on with what does not depend on it. When the lead tells you the user has granted it in the harness, retry it once: the harness decides again, and a retry it stops is a blocker again.
 
 ## Judgement
 
 - The Issue, its comments and {CONTEXT} settle most questions. Where they don't, make the call most consistent with them, the design records and the code, and record it under a **Decisions** heading in the PR.
 - Verifying the Issue and closing it is a valid outcome. If the integration branch already does what a box asks, cite the evidence and add a test where one is missing; don't invent a source change. If nothing needs changing at all, open no PR: report the evidence, and the lead closes the Issue.
-- Where your Issue is a measurement, every claim you mark as measured has a check that verifies it against the recorded evidence.
+- Where your Issue is a measurement, every claim you mark as measured has a check that verifies it against the recorded evidence. Run that check in its minimal documented form, with none of its optional arguments, and in each form your PR's validation cites: a check that passes only in the form you ran is not yet a check.
 - Recorded evidence holds only for the sources it was recorded from. A review fix or a conflict resolution that touches one of them invalidates it: record it again before you hand back.
 - Escalate to the lead only what needs the maintainer: a contradiction in the Issue, a change outside your Issue, or a dependency change.
 - Keep to your Issue's scope. List anything out of scope in your final report for the lead to file.
@@ -94,9 +104,9 @@ You are a worker agent on {REPO}. A lead agent is executing {ARC} with several w
 
 ## Final report
 
-Your last message, under 300 words, opening with the key line:
+Your hand-back, under 300 words, opening with the key line. Send it as your reporting line above says: as your last message, or, under Claude Code's auto mode, as your `SubagentHandback` call. It holds:
 - the PR URL, head SHA, and green CI run URL, or what is failing and why;
-- for recorded evidence, that the repository's check of it passes at the PR head, or which sources differ and why;
+- for recorded evidence, that the repository's check of it passes at the PR head, in its minimal documented form and in each form your PR's validation cites, or which sources differ and why;
 - the review findings and how you handled each;
 - the decisions you made beyond the Issue's text;
 - what the lead must act on: follow-ups, integration risks with sibling Issues (name the APIs and files), and open questions;
@@ -117,9 +127,10 @@ Your last message, under 300 words, opening with the key line:
 - A PR can be merged outside your session once CI is green, so re-check `gh pr view --json state` before pushing a follow-up to it.
 - Batch every documentation nit, and every edit to a file that recorded evidence or a coverage digest depends on, before the final gate and the final measurement run. Each such edit invalidates the evidence and forces a rerun.
 - Start long measurements first and in the background, after freezing the sources they depend on. Evidence recorded at an earlier base stays valid as provenance at that base when later merges did not touch what it measures: record the base rather than rerunning.
-- Tools auto-update on a developer machine. If the installed tool isn't the release your Issue pins, run the pinned release without modifying it, record the version you ran, and tell the lead if the installed one moves mid-run.
+- Tools auto-update on a developer machine. If the installed tool isn't the release your Issue pins, run the pinned release without modifying it, record the version you ran, and tell the lead if the installed one moves mid-run. If the pinned release cannot run at all, report that to the lead as a blocker: a re-pin is the user's decision.
 - In a `pgrep -f` or `pkill -f` pattern, the command's own command line matches too, and `pkill -f` can kill your own shell. Track the processes you start by pid file.
-- Before your final report, delete every temporary directory and fixture you created, after checking that no process of yours still uses them. Leave shared per-user directories (sockets, locks) that the user's own tools also use, and say what your runs left there.
+- A harness can stop a background command, or end a watch, at a time limit before the work it runs is done. Give a long gate run or CI watch in the background an explicit timeout as long as the work needs, within your harness's maximum, and when a watch ends, read the state it watched before you act on its end. Your harness's own limits, where it sets any, are among the gotchas below.
+- Before your final report, check that no process of yours still uses {SCRATCH}, and delete any temporary file, directory or fixture you had to create outside it. The lead removes {SCRATCH} itself. Leave shared per-user directories (sockets, locks) that the user's own tools also use, and say what your runs left there.
 {REPO_GOTCHAS}
 ```
 
