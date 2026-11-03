@@ -90,7 +90,7 @@ def follow_up(
     )
 
 
-def finished_worker(at: Path) -> None:
+def finished_sub_agent(at: Path) -> None:
     """Bind the session and run one Sub-agent's first turn to its end, then the root's."""
     bound_session(at)
     for event in ("SubagentStart", "UserPromptSubmit", "SubagentStop"):
@@ -99,13 +99,13 @@ def finished_worker(at: Path) -> None:
     assert (run_of(at).state, recorded(at)["liveSubagents"]) == ("waiting", [])
 
 
-def test_a_follow_up_holds_the_session_until_the_workers_turn_stops(
+def test_a_follow_up_holds_the_session_until_the_sub_agents_turn_stops(
     tmp_path: Path,
 ) -> None:
-    # The measured order: the Lead's PostToolUse, its Stop while the worker
-    # works, then the worker's SubagentStop alone.
+    # The measured order: the root thread's PostToolUse, its Stop while the
+    # Sub-agent works, then the Sub-agent's SubagentStop alone.
     a, _b = two_worktrees(tmp_path)
-    finished_worker(a)
+    finished_sub_agent(a)
     publish(a, "UserPromptSubmit")
 
     follow_up(a, CHILD)
@@ -123,7 +123,7 @@ def test_a_follow_up_holds_the_session_until_the_workers_turn_stops(
 
 def test_the_follow_up_is_never_stored(tmp_path: Path) -> None:
     a, _b = two_worktrees(tmp_path)
-    finished_worker(a)
+    finished_sub_agent(a)
 
     follow_up(a, CHILD)
 
@@ -147,7 +147,7 @@ def test_every_spelling_codex_parses_names_one_sub_agent(
     tmp_path: Path, spelling: str
 ) -> None:
     a, _b = two_worktrees(tmp_path)
-    finished_worker(a)
+    finished_sub_agent(a)
 
     follow_up(a, spelling)
     assert recorded(a)["liveSubagents"] == [CHILD]
@@ -166,7 +166,7 @@ def test_a_target_that_is_no_thread_id_changes_nothing(
     tmp_path: Path, target: str
 ) -> None:
     a, _b = two_worktrees(tmp_path)
-    finished_worker(a)
+    finished_sub_agent(a)
 
     follow_up(a, target)
     publish(a, "Stop")
@@ -178,7 +178,7 @@ def test_a_follow_up_naming_the_sessions_own_thread_changes_nothing(
     tmp_path: Path,
 ) -> None:
     a, _b = two_worktrees(tmp_path)
-    finished_worker(a)
+    finished_sub_agent(a)
 
     follow_up(a, CODEX_SESSION)
     publish(a, "Stop")
@@ -200,7 +200,7 @@ def test_only_an_accepted_follow_up_call_lists_its_target(
     tmp_path: Path, event: str, tool: str
 ) -> None:
     a, _b = two_worktrees(tmp_path)
-    finished_worker(a)
+    finished_sub_agent(a)
 
     follow_up(a, CHILD, tool=tool, event=event)
 
@@ -209,11 +209,11 @@ def test_only_an_accepted_follow_up_call_lists_its_target(
 
 def test_a_v1_send_input_lists_its_target_too(tmp_path: Path) -> None:
     a, _b = two_worktrees(tmp_path)
-    finished_worker(a)
+    finished_sub_agent(a)
 
     follow_up(a, CHILD, tool=SEND_INPUT)
     publish(a, "Stop")
-    # A v1 worker's follow-up turn publishes its own prompt.
+    # A v1 Sub-agent's follow-up turn publishes its own prompt.
     publish(a, "UserPromptSubmit", CHILD)
 
     assert run_of(a).state == "running"
@@ -237,11 +237,11 @@ def test_a_follow_up_to_a_working_sub_agent_keeps_its_listing(
     assert run_of(a).state == "waiting"
 
 
-def test_a_follow_up_from_another_host_process_keeps_the_workers_own(
+def test_a_follow_up_from_another_host_process_keeps_the_sub_agents_own(
     tmp_path: Path,
 ) -> None:
-    # The resumed process's call must not claim a worker the first process
-    # still runs, which would end its listing with the wrong process (ADR 0107).
+    # The resumed process's call must not claim a Sub-agent the first process
+    # still runs, which would tie its listing to the wrong process (ADR 0107).
     a, _b = two_worktrees(tmp_path)
     both = table_lookup({CODEX.pid: CODEX, RESUMED.pid: RESUMED})
     bound_session(a)

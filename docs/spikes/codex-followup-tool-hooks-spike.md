@@ -152,7 +152,7 @@ it. A run takes about four minutes.
 | Fact | Tested value |
 | --- | --- |
 | Date | 2026-11-03 AEDT |
-| Dashpot base | `a47e86862cd4f3f3b4db1841d220ccc46a4b58c2`, with the runner and the ADR 0161 implementation uncommitted; the first run's base was `06df76a40cfd957ccb5210462569264632483123` |
+| Dashpot base | `a4f9a89351a7e3604438c9b4f96c99cdbd1ceb26`, the ADR 0161 implementation, with its review fixes uncommitted; the first run's base was `06df76a40cfd957ccb5210462569264632483123` |
 | Codex | `codex-cli 0.166.0`, the musl standalone release, SHA-256 `b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8`, as `codex app-server` over stdio |
 | Controller | Node `v24.18.0` |
 | Operating system | Ubuntu, Linux `7.0.0-38-generic`, x86-64 |
@@ -185,7 +185,7 @@ it. A run takes about four minutes.
 | `tool_input` is an object with the keys `target` and `message`. `target` is the string the model wrote, unchanged, whatever form it took. | measured |
 | `tool_use_id` is the model's call ID, the same on `PreToolUse` and `PostToolUse`, so the two pair exactly. | measured |
 | Each of the nine successful calls fired one `PostToolUse`, before the worker's turn ended, since the tool returns once the task is queued ([`core/src/tools/handlers/multi_agents_v2/message_tool.rs#L100`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs#L100)). Its `tool_response` is the empty string. | measured; source for the return |
-| Each `PostToolUse`, of `followup_task` and of `send_input`, came 56 to 125 ms after its `PreToolUse` in this run, and 43 to 61 ms in the first, which ran fewer hooks per call. | trace only |
+| Each `PostToolUse`, of `followup_task` and of `send_input`, came 42 to 70 ms after its `PreToolUse` in this run, and 43 to 61 ms in the first, which ran fewer hooks per call. | trace only |
 
 ## 2. From target to `agent_id`
 
@@ -307,7 +307,8 @@ the run recorded. The verifier checks only the form of the binary's
 SHA-256; the value above is the one the trace records. Every event of a
 subscription Dashpot installs reached its publisher, which exited 0 with
 nothing on stderr. The shared `/tmp/codex-daemon-<uid>/` gained and lost no
-entry during the run. An earlier attempt of step 3's run failed that last
-check: two entries left the shared directory, which the runner only counts,
-while another session on the machine ran. It was discarded and the run
-repeated.
+entry during the run. Two attempts of step 3's run failed that last check
+and were discarded: in each, two entries left or joined the shared
+directory, which the runner only counts, while other sessions on the
+machine ran, one of them a pinned experiment starting its own fixture
+daemon.

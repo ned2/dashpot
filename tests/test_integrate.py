@@ -55,6 +55,10 @@ from factories import (
 )
 from helpers import absent, present, table_lookup, unobservable
 
+# The matcher `dashpot integrate codex` installs on `PostToolUse` (ADR 0161),
+# spelt out rather than imported, so the test pins the wire value.
+CODEX_FOLLOW_UP_MATCHER = "collaborationfollowup_task|multi_agent_v1send_input"
+
 
 def session_record(session_id: str, state: str = "waiting") -> dict[str, Any]:
     return hook_record_document(
@@ -103,7 +107,7 @@ def test_fresh_install_registers_every_lifecycle_event(tmp_path: Path) -> None:
         assert document["hooks"][event] == [{"hooks": [handler]}]
     assert document["hooks"]["PostToolUse"] == [
         {
-            "matcher": "collaborationfollowup_task|multi_agent_v1send_input",
+            "matcher": CODEX_FOLLOW_UP_MATCHER,
             "hooks": [handler],
         }
     ]
@@ -1199,7 +1203,7 @@ def test_codex_subscribes_only_the_follow_up_tools_post_tool_use(
     hooks = read_hooks(home)["hooks"]
     assert "PreToolUse" not in hooks
     assert [group["matcher"] for group in hooks["PostToolUse"]] == [
-        "collaborationfollowup_task|multi_agent_v1send_input"
+        CODEX_FOLLOW_UP_MATCHER
     ]
 
 
@@ -1219,14 +1223,12 @@ def test_a_codex_install_that_predates_follow_ups_is_flagged_and_upgraded(
 
     missing = [message for message in messages if "missing hook events" in message]
     assert missing
-    assert (
-        "PostToolUse(collaborationfollowup_task|multi_agent_v1send_input)" in missing[0]
-    )
+    assert f"PostToolUse({CODEX_FOLLOW_UP_MATCHER})" in missing[0]
 
     install_integration("codex", home, command_path=command)
 
     assert [group["matcher"] for group in read_hooks(home)["hooks"]["PostToolUse"]] == [
-        "collaborationfollowup_task|multi_agent_v1send_input"
+        CODEX_FOLLOW_UP_MATCHER
     ]
 
 

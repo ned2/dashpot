@@ -6,11 +6,11 @@ sandbox helper), what Agent Session Identity the harness lets a command
 running inside the session see, whether that Host Process is exclusive to one
 session, which of its hook events are designated location evidence
 (ADR 0067), and which accepted call gives a Sub-agent a turn whose start the
-harness does not publish (ADR 0161). No harness documents its identity variables as stable, so an
-adapter's claim is never trusted on its own: Issue opt-in validates every
-claim against the lifecycle hook record the harness published for the same
-Worktree, and a claim that names no such record cannot create an Issue
-Binding.
+harness does not publish (ADR 0161). No harness documents its identity
+variables as stable, so an adapter's claim is never trusted on its own:
+Issue opt-in validates every claim against the lifecycle hook record the
+harness published for the same Worktree, and a claim that names no such
+record cannot create an Issue Binding.
 """
 
 from __future__ import annotations
@@ -242,7 +242,7 @@ CODEX_FOLLOW_UP_TOOLS = frozenset(
 # Dashpot keys by.
 _HEX = "[0-9A-Fa-f]"
 _HYPHENATED = f"{_HEX}{{8}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{4}}-{_HEX}{{12}}"
-CODEX_THREAD_ID = re.compile(
+CODEX_THREAD_ID_FORMS = re.compile(
     rf"{_HEX}{{32}}|{_HYPHENATED}|\{{{_HYPHENATED}\}}|urn:uuid:{_HYPHENATED}"
 )
 
@@ -256,7 +256,7 @@ def _codex_follows_up(event: HookEvent) -> str | None:
         return None
     tool_input = event.get("tool_input")
     target = tool_input.get("target") if isinstance(tool_input, Mapping) else None
-    if not isinstance(target, str) or not CODEX_THREAD_ID.fullmatch(target):
+    if not isinstance(target, str) or not CODEX_THREAD_ID_FORMS.fullmatch(target):
         return None
     # The hooks carry a thread's ``agent_id`` as Codex prints it.
     return str(uuid.UUID(target))
