@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -20,7 +20,7 @@ from ..core.commands import recording_command
 from .processes import process_namespace_is_isolated
 
 PROC_ROOT = Path("/proc")
-# How many parents a descent check follows before it gives up: deeper than
+# How many parents a traced ancestry follows before it gives up: deeper than
 # any shell, harness, and tool chain Dashpot runs under.
 MAX_ANCESTRY = 64
 # How long ``lsof`` may take to list every working directory on the host.
@@ -40,12 +40,18 @@ ScanGap = Literal[
 
 @dataclass(frozen=True, slots=True)
 class ProcessDirectory:
-    """One visible process and the working directory it runs in."""
+    """One visible process and the working directory it runs in.
+
+    ``ancestry`` is its parent, that parent's parent, and so on, as far as
+    ``processes_inside`` traced them through the whole scan; a host scan
+    leaves it empty, as it reads each process alone.
+    """
 
     pid: int
     parent_pid: int
     command: str
     cwd: Path
+    ancestry: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +77,10 @@ def processes_inside(path: Path, scan: ProcessScan | None = None) -> WorkingDire
     The Dashpot process asking, and every process it started, are left out:
     they are this inspection's own probes, never an occupant. Its ancestors
     count, so the shell a person runs Dashpot from inside the directory is
-    found. Without ``scan`` the host is read, at call time.
+    found. Each process found carries its ``ancestry``, traced through
+    every process the scan read, inside the path or not, so a caller can
+    tell which Agent Session's Host Process it descends from. Without
+    ``scan`` the host is read, at call time.
     """
     # Resolved here rather than bound as a default, so the suite can replace
     # the host reader for every caller that passes no scan of its own.
@@ -79,26 +88,34 @@ def processes_inside(path: Path, scan: ProcessScan | None = None) -> WorkingDire
     target = path.resolve()
     parents = {process.pid: process.parent_pid for process in observed.processes}
     own = os.getpid()
-    inside = tuple(
-        process
-        for process in observed.processes
-        if process.cwd.is_relative_to(target)
-        and not _descends_from(process.pid, own, parents)
-    )
-    return WorkingDirectories(inside, observed.incomplete)
+    inside: list[ProcessDirectory] = []
+    for process in observed.processes:
+        if not process.cwd.is_relative_to(target):
+            continue
+        ancestry = _ancestry(process.pid, parents)
+        if own == process.pid or own in ancestry:
+            continue
+        inside.append(replace(process, ancestry=ancestry))
+    return WorkingDirectories(tuple(inside), observed.incomplete)
 
 
-def _descends_from(pid: int, ancestor: int, parents: Mapping[int, int]) -> bool:
-    """Whether ``pid`` is ``ancestor`` or a descendant the scan can trace to it."""
+def _ancestry(pid: int, parents: Mapping[int, int]) -> tuple[int, ...]:
+    """The parents the scan traces from ``pid``, nearest first, up to ``MAX_ANCESTRY``.
+
+    A parent the scan did not read still counts, as the last one traced;
+    a chain that loops ends where it would repeat.
+    """
+    traced: list[int] = []
+    seen = {pid}
     current = pid
-    for _ in range(MAX_ANCESTRY):
-        if current == ancestor:
-            return True
+    while len(traced) < MAX_ANCESTRY:
         parent = parents.get(current)
-        if parent is None or parent == current or parent <= 0:
-            return False
+        if parent is None or parent <= 0 or parent in seen:
+            break
+        traced.append(parent)
+        seen.add(parent)
         current = parent
-    return False
+    return tuple(traced)
 
 
 def host_working_directories() -> WorkingDirectories:

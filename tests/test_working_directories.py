@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -29,6 +30,11 @@ from dashpot.sessions.working_directories import (
 from helpers import scan_of
 
 RUN = "dashpot.sessions.working_directories.subprocess.run"
+
+
+def traced(process: ProcessDirectory, *ancestry: int) -> ProcessDirectory:
+    """``process`` as ``processes_inside`` reports it, with its traced ancestry."""
+    return replace(process, ancestry=ancestry)
 
 
 def fake_proc(root: Path, pid: int, cwd: str, stat: str | None) -> None:
@@ -233,7 +239,7 @@ def test_processes_inside_a_directory_include_its_subdirectories_only(
 
     found = processes_inside(worktree, scan_of(here, below, sibling, above))
 
-    assert found == WorkingDirectories((here, below))
+    assert found == WorkingDirectories((traced(here, 1), traced(below, 1)))
 
 
 def test_processes_inside_resolve_the_directory_asked_about(tmp_path: Path) -> None:
@@ -242,7 +248,9 @@ def test_processes_inside_resolve_the_directory_asked_about(tmp_path: Path) -> N
     (tmp_path / "link").symlink_to(real)
     shell = ProcessDirectory(101, 1, "bash", real.resolve())
 
-    assert processes_inside(tmp_path / "link", scan_of(shell)).processes == (shell,)
+    assert processes_inside(tmp_path / "link", scan_of(shell)).processes == (
+        traced(shell, 1),
+    )
 
 
 def test_dashpot_and_what_it_runs_are_no_occupant_but_its_shell_is(
@@ -257,7 +265,7 @@ def test_dashpot_and_what_it_runs_are_no_occupant_but_its_shell_is(
 
     found = processes_inside(worktree, scan_of(shell, dashpot, probe, nested))
 
-    assert found.processes == (shell,)
+    assert found.processes == (traced(shell, 1),)
 
 
 def test_a_parent_chain_that_loops_or_runs_long_ends_the_descent(
@@ -280,7 +288,10 @@ def test_a_parent_chain_that_loops_or_runs_long_ends_the_descent(
         for step in range(depth)
     )
 
-    assert processes_inside(worktree, scan_of(*looped)).processes == looped
+    assert processes_inside(worktree, scan_of(*looped)).processes == (
+        traced(looped[0], 900002),
+        traced(looped[1], 900001),
+    )
     found = {one.pid for one in processes_inside(worktree, scan_of(*deep)).processes}
     assert deep[0].pid in found
     assert deep[-1].pid not in found
@@ -291,4 +302,21 @@ def test_an_incomplete_scan_still_reports_what_it_found(tmp_path: Path) -> None:
 
     found = processes_inside(tmp_path, scan_of(shell, incomplete="isolated-namespace"))
 
-    assert found == WorkingDirectories((shell,), "isolated-namespace")
+    assert found == WorkingDirectories((traced(shell, 1),), "isolated-namespace")
+
+
+def test_a_process_inside_carries_its_ancestry_through_processes_outside(
+    tmp_path: Path,
+) -> None:
+    # A language server inside the Worktree whose harness runs elsewhere.
+    worktree = (tmp_path / "feat").resolve()
+    terminal = ProcessDirectory(900100, 900099, "bash", tmp_path.resolve())
+    harness = ProcessDirectory(900101, 900100, "claude", tmp_path.resolve())
+    server = ProcessDirectory(900102, 900101, "pyright-langser", worktree)
+
+    found = processes_inside(worktree, scan_of(terminal, harness, server))
+
+    # Nearest first, ending at a parent the scan did not read.
+    assert found.processes == (traced(server, 900101, 900100, 900099),)
+    # A host scan reads each process alone, so it traces nothing.
+    assert scan_of(server)().processes[0].ancestry == ()

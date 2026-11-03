@@ -1,7 +1,7 @@
 ---
 status: amended
 date: 2026-10-05
-amended-by: 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md
+amended-by: 0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md, 0160-name-the-agent-session-a-process-inside-a-worktree-descends-from.md
 ---
 
 # Block Worktree removal while a process runs inside it
@@ -34,7 +34,9 @@ working directory inside it.
   `ps -ww -o pid=,args= -p <pids>` as the command that shows them, and says
   to end them or move them out of the Worktree. Because there is a single
   blocker whatever the count, a process starting or ending beside another
-  does not change the preview's fingerprint.
+  does not change the preview's fingerprint. Amended by
+  [ADR 0160](0160-name-the-agent-session-a-process-inside-a-worktree-descends-from.md),
+  which also names the live Agent Session a listed process descends from.
 - **Computed on demand, nothing retained.** The check runs each time a
   linked Worktree is assessed: in the Cleanup preview, in
   `dashpot worktree check`, and in the re-inspection when a Cleanup is

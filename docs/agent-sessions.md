@@ -344,6 +344,17 @@ each process by pid, command and working directory, up to five, then counts
 the rest. It gives `ps -ww -o pid=,args= -p <pids>` to show them, and says
 to end them or move them out of the Worktree.
 
+A process that is a live Agent Session's Host Process, or descends from
+one, is named with that session, traced through its parents wherever they
+work ([ADR 0160](adr/0160-name-the-agent-session-a-process-inside-a-worktree-descends-from.md)).
+A session can leave behind a process it started: Claude Code's language
+server, started in the directory the session was in when it first edited a
+file the LSP plugin serves, stays in a Worktree the session left with
+`ExitWorktree` ([#695](https://github.com/ned2/dashpot/issues/695)). For such
+a descendant the blocker adds that ending the process alone frees the
+Worktree and leaves its session running. Only a session whose Host Process
+the probe found live is named, so a reused pid names nothing.
+
 The check is positive only. Finding no process clears no other blocker, so
 a sub-agent between commands still holds the
 [`sub-agent` blocker](#sub-agents-and-worktree-cleanup). Open files do not

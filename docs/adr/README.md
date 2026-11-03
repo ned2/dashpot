@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-11-02
+date: 2026-11-03
 ---
 
 # Architecture decision records
@@ -107,7 +107,7 @@ of date.
 | 0101 | [Move a conversation switch's sub-agents to the session that runs them](0101-move-a-conversation-switchs-sub-agents-to-the-session-that-runs-them.md) | amended | [0102](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md), [0106](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md) |
 | 0102 | [Clear a stopped sub-agent from the records a moved session left behind](0102-clear-a-stopped-sub-agent-from-the-records-a-moved-session-left-behind.md) | amended | [0109](0109-move-an-opencode-roots-working-sub-agents-with-it-to-another-project.md) |
 | 0103 | [Record the files of a managed skill copy in a manifest](0103-record-the-files-of-a-managed-skill-copy-in-a-manifest.md) | amended | [0110](0110-check-every-integrate-destination-before-writing-and-carry-on-past-a-failed-write.md), [0130](0130-write-integrates-configuration-where-each-harness-reads-it.md) |
-| 0104 | [Block Worktree removal while a process runs inside it](0104-block-worktree-removal-while-a-process-runs-inside-it.md) | amended | [0112](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md) |
+| 0104 | [Block Worktree removal while a process runs inside it](0104-block-worktree-removal-while-a-process-runs-inside-it.md) | amended | [0112](0112-let-a-person-remove-a-worktree-despite-the-sub-agents-a-preview-lists.md), [0160](0160-name-the-agent-session-a-process-inside-a-worktree-descends-from.md) |
 | 0105 | [Raise the Python floor to 3.13](0105-raise-the-python-floor-to-3-13.md) | accepted | — |
 | 0106 | [Record a session waiting after a SessionStart that begins no turn](0106-record-a-session-waiting-after-a-session-start-that-begins-no-turn.md) | accepted | — |
 | 0107 | [Keep a Sub-agent listed while the Host Process that runs it lives](0107-keep-a-sub-agent-listed-while-the-host-process-that-runs-it-lives.md) | accepted | — |
@@ -131,3 +131,4 @@ of date.
 | 0148 | [Let Workers write their own Arc Ledger files, and commit under Codex's sandbox](0148-let-workers-write-their-own-arc-ledger-files-and-commit-under-codexs-sandbox.md) | amended | [0149](0149-offer-a-profile-file-launch-for-a-codex-lead.md) |
 | 0149 | [Offer a profile-file launch for a Codex Lead](0149-offer-a-profile-file-launch-for-a-codex-lead.md) | accepted | — |
 | 0159 | [Check a Codex Arc launch profile on explicit invocation](0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md) | accepted | — |
+| 0160 | [Name the Agent Session a process inside a Worktree descends from](0160-name-the-agent-session-a-process-inside-a-worktree-descends-from.md) | accepted | — |
