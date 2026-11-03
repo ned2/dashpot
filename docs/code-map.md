@@ -45,6 +45,9 @@ rules are in [AGENTS.md](../AGENTS.md#code-conventions).
 | | [`cli/worktrees.py`](../src/dashpot/cli/worktrees.py) | `dashpot worktree` and `dashpot branch`: create, check and remove Issue Worktrees, delete Branches. |
 | | [`cli/sources.py`](../src/dashpot/cli/sources.py) | `dashpot issue` and `dashpot pr`: read-only questions to the configured Query Source. |
 | | [`cli/integrate.py`](../src/dashpot/cli/integrate.py) | `dashpot integrate`: install, check or remove a Harness Integration. |
+| | [`cli/preflight.py`](../src/dashpot/cli/preflight.py) | `dashpot preflight codex`: report an operator-written launch profile's capabilities and remedies. |
+| Codex launch preflight | [`preflight.py`](../src/dashpot/preflight.py) | Resolves Repository paths, validates sandbox probe results, and publishes the bounded capability report. |
+| | [`preflight_probe.py`](../src/dashpot/preflight_probe.py) | Standard-library-only, bounded provisioning queries inside the named Codex profile; emits boolean observations only. |
 | | [`cli/events.py`](../src/dashpot/cli/events.py) | `dashpot events`: read the Event Log, or remove its older files. |
 | Hook publisher | [`hook.py`](../src/dashpot/hook.py) | The entry point every lifecycle hook runs: reads one hook event from standard input and publishes it. |
 | Composition | [`composition.py`](../src/dashpot/composition.py) | Builds the collector and Query Sources for an entry point, and composes Cleanup's preview, selection and execution into a report. |

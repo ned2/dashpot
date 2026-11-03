@@ -21,7 +21,7 @@ from ..core.event_log import (
     working_directory,
 )
 from ..event_logs import open_event_log
-from . import events, init, integrate, observe, sources, work, worktrees
+from . import events, init, integrate, observe, preflight, sources, work, worktrees
 from .shared import EVENT_LOG, USAGE_EXIT_CODE
 
 # The default command's flags that print instead of opening the dashboard.
@@ -51,6 +51,7 @@ app.command(sources.pr)
 app.command(worktrees.worktree)
 app.command(worktrees.branch)
 app.command(integrate.integrate, usage=integrate.INTEGRATE_USAGE)
+app.command(preflight.preflight)
 
 
 def process_kind(tokens: Sequence[str]) -> tuple[str, str | None]:

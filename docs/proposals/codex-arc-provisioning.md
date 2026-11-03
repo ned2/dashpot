@@ -1,6 +1,6 @@
 ---
-status: proposal
-date: 2026-10-16
+status: living
+date: 2026-11-02
 ---
 
 # Codex Arc provisioning and preflight
@@ -13,6 +13,10 @@ launcher that loads a credential environment is tracked separately in
 `ned2/env#8`, which owns its implementation and its release-qualified
 validation. This document owns the Dashpot-facing account, and links that
 work as coordination only, not as a prerequisite.
+
+This is now a living friction and delivery record. Proposal 2 is implemented
+as the explicit Dashpot preflight below; proposals still marked proposed
+and unresolved maintainer choices remain open.
 
 The shipped guidance is the
 [`dashpot-execute-issues` Codex reference](../../src/dashpot/skills/dashpot-execute-issues/references/harnesses.md#codex).
@@ -477,59 +481,51 @@ register identified, each with its evidence:
 A resumed Lead reruns the checks rather than trusting the command it was
 resumed with.
 
-### 2. A Dashpot preflight that verifies a launch profile (ownership decided; ADR pending, #679)
+### 2. A Dashpot preflight that verifies a launch profile (implemented, #679)
 
-The execute-issues skill ships to every operator. So checking a Codex
-Arc's provisioning is Dashpot's job, not the job of one operator's
-launcher. The maintainer decided this on 2026-10-16.
-[#679](https://github.com/ned2/dashpot/issues/679) tracks the ADR and the
-command.
+The maintainer put the check in Dashpot so it serves every operator.
+[ADR 0159](../adr/0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md)
+records its boundary. Run `dashpot preflight codex --profile <name>` from
+its intended checkout, or add `--json` for an operator launcher. It checks
+an existing profile and never constructs launch flags or writes the file.
+The [installation guide](../installation.md#check-a-codex-arc-launch-profile)
+gives its interface and limits.
 
-The check verifies a launch profile the operator writes (proposal 4). It
-never constructs or prints launch flags, and never writes the profile.
-`codex sandbox` takes `--profile` (documented, `--help` on 0.162.1). With
-`-c` overrides, it applies writable roots and `shell_environment_policy.set`
-to the command it runs (F3, probed). The inference, until
-[#678](https://github.com/ned2/dashpot/issues/678) compares them, is that
-probes run under `codex sandbox --profile <name>` check the same grants
-the launch will use, before any session starts:
+The command resolves the Worktree Root through the existing precedence,
+and the shared Git directory through Git. Inside `codex sandbox --profile`
+it collects write-free directory checks, the two cache variables and their
+writable directories, the selected push remote, SSH configuration where
+applicable, `git ls-remote`, and `gh auth status` by exit status only. All
+failures carry remedies, and any failure exits non-zero. Raw command output
+and credential values are withheld.
 
-- `test -w` on the Worktree Root that Dashpot resolves itself, on the Git
-  directory and on each cache. The probe writes nothing (F1, probed);
-  whether `codex sandbox` itself writes state under `$CODEX_HOME` is
-  unknown;
-- that each injected variable is set and names a directory inside the
-  granted roots;
-- `ssh -G` for an SSH remote (F9), and `git ls-remote` for the remote;
-- that `gh auth status` succeeds, by presence and exit status only.
+The [#678 qualification](../spikes/codex-lead-launch-qualification-spike.md)
+measured the sandbox tool's agreement with a fresh launch on Codex 0.166.0
+on Linux. The command refuses to report success for an unqualified release
+or platform. Filesystem probes write nothing; Codex may refresh its helper
+binaries under `$CODEX_HOME/tmp/arg0-linux/`. That is now measured, not
+unknown. Following independent review, the maintainer also approved
+disclosing writes by operator-configured transport/authentication tools:
+they may execute configuration commands and update their own state within
+the profile's existing grants. The command withholds their output and
+does not rewrite those tools or choose credentials. Dashpot's normal Event
+Log remains ignored local state.
 
-It reports every failure at once, each with its remedy. It has two limits.
-`codex sandbox` runs with the invoking terminal's environment, not a
-daemon's, so it cannot show what a daemon-hosted session's commands
-inherit (F3, F7). It also runs no Worker. The checks inside the session
-stay authoritative.
+The result cannot show a resumed thread's saved permissions, the environment
+of a managed daemon, or a Worker's environment. In-session checks stay
+authoritative. Authentication status and remote reads establish neither
+API write nor push or merge rights. The command neither selects a token
+injection mechanism nor changes snapshot filtering or the user's deny
+rules. Those choices remain with the operator and the related Issues.
 
-The check needs an ADR first, because the check runs Codex's own sandbox
-tool and
-[ADR 0008](../adr/0008-let-management-commands-mutate-on-explicit-invocation.md)
-does not cover launching harnesses. The ADR would let Dashpot run that
-tool, with probes that write nothing, to check provisioning. The check
-would:
+`integrate codex --status` remains an installation check: it does not run
+these probes. Dashpot writes no profile or `config.toml` in `$CODEX_HOME`;
+[ADR 0130](../adr/0130-write-integrates-configuration-where-each-harness-reads-it.md)
+still governs integration writes. The external `ned2/env#8` launcher may
+call the preflight while keeping credential loading outside Dashpot.
 
-- never start an Agent Session;
-- never read or print a credential value;
-- be requalified for each pinned release.
-
-Dashpot may ship a profile template, but never writes a profile or
-`config.toml` in `$CODEX_HOME`. There, `integrate` writes only its hooks
-file
-([ADR 0130](../adr/0130-write-integrates-configuration-where-each-harness-reads-it.md)).
-The `ned2/env#8` launcher would call the check, and keep only credential
-loading.
-
-Two dependencies apply. Neither the command nor its guidance recommends a
-profile launch until #678 passes. And the Worktree Root should be settled
-first (F2, maintainer choice 4), because the profile hard-codes it.
+#678 has passed. The operator must still settle the Worktree Root before
+writing a profile that grants it; the checker reports the root it resolved.
 
 ### 3. A Worker-side check (proposed)
 
@@ -617,7 +613,9 @@ escalated push.
 ## Maintainer choices
 
 1. Where the preflight lives. **Decided**: Dashpot owns a
-   read-only check, and an ADR comes first
+   read-only check. **Implemented** by
+   [ADR 0159](../adr/0159-check-a-codex-arc-launch-profile-on-explicit-invocation.md)
+   and `dashpot preflight codex`
    ([#679](https://github.com/ned2/dashpot/issues/679), proposal 2).
 2. Whether to add the Worker-side check to the brief template
    (proposal 3, [#682](https://github.com/ned2/dashpot/issues/682)).
@@ -665,8 +663,9 @@ What remains:
 - Measure a profile file that sets `approvals_reviewer`, in place of
   `--approve-for-me`, and a thread last saved under a named profile other
   than `:workspace`.
-- Decide the preflight's boundary by ADR, then add the read-only check
-  ([#679](https://github.com/ned2/dashpot/issues/679)).
+- Qualify the preflight on another Codex release or platform before
+  extending its initial 0.166.0/Linux boundary. #679 implements the check;
+  in-session checks and its documented limits remain in force.
 - Measure environment inheritance at 0.162.x for a fresh Lead, a resumed
   Lead and a fresh Worker, through `ned2/env#8`.
 - Measure each F9 remedy against a real GitHub remote:

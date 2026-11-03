@@ -2,7 +2,8 @@
 
 Each command group is a module of its own: ``observe`` (the default
 command), ``init``, ``work``, ``events``, ``sources`` (``issue`` and
-``pr``), ``worktrees`` (``worktree`` and ``branch``) and ``integrate``.
+``pr``), ``worktrees`` (``worktree`` and ``branch``), ``integrate`` and
+``preflight``.
 ``root`` gathers them on the root App and runs a command line; ``shared``
 holds what the groups share.
 """

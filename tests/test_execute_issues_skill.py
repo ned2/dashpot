@@ -867,7 +867,10 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
     assert 'the file sets `extends = "<their profile>"`' in codex
     assert '"<Git directory>" = "write"' in codex
     assert "Never add `--sandbox` or `--approve-for-me` to either launch" in codex
-    assert "It cannot show what a resume will grant" in codex
+    preflight = " ".join(codex.split())
+    assert "`dashpot preflight codex --profile arc-sandbox`" in preflight
+    assert "It cannot show a resumed thread's saved permissions" in preflight
+    assert "The in-session checks above stay authoritative" in preflight
     assert "under `read-only`, Codex refuses `--add-dir` and the client exits" in codex
     assert (
         "Codex's background app-server may hold this thread for about a minute"

@@ -19,6 +19,7 @@ from .core.event_log_files import EventLogRemoval, published_event_fields
 from .core.issue_profile import IssueProfile
 from .core.model import WorkspaceSnapshot
 from .core.runtime_events import RuntimeEvent
+from .preflight import CodexPreflight
 from .queries.pages import PageObservation
 from .repository.cleanup import CleanupPreview, CleanupReport
 from .repository.worktrees.create import WorktreePlan
@@ -37,6 +38,11 @@ def snapshot_document(snapshot: WorkspaceSnapshot) -> dict[str, Any]:
 def issue_document(issue: IssueProfile) -> dict[str, Any]:
     """The ``dashpot issue show --json`` document: the complete Issue Profile."""
     return _document(issue)
+
+
+def codex_preflight_document(report: CodexPreflight) -> dict[str, Any]:
+    """The ``dashpot preflight codex --json`` capability report."""
+    return _document(report)
 
 
 def list_page_document(observation: PageObservation) -> dict[str, Any]:
