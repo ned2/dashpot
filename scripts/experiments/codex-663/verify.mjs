@@ -234,7 +234,8 @@ check("ordinary: the bound run does not survive an exit and immediate resume at 
   interval("or settler end after the daemon's SessionEnd", Date.parse(settled.time) - Date.parse(deferred.time), 9500, 12000);
   const shown = one("model.request", (record) => record.probe?.label === "or-resume.0");
   assert.match(shown.probe.work.stdout, new RegExp(`^codex pid ${daemon}: fixture-1 \\(I_fixture_1\\)`), "the resumed turn's work show reported the daemon's run");
-  assert(shown.receiptTime < Date.parse(settled.time), "before Dashpot ended that run");
+  interval("or resumed work show before the run ended", Date.parse(settled.time) - shown.receiptTime, 0, 10000);
+  interval("or resumed work show after thread/closed", shown.receiptTime - closedAt(session).at, 0, 15000);
   for (const label of ["after-resume-settle", "after-resumed-exit"]) assert(runsOf("or", label).every((run) => run.issue === null), `${label}: no bound run`);
   assert(runsOf("or", "after-resume-settle").some((run) => run.host === `${session} hook`));
 });

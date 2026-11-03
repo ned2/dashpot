@@ -44,16 +44,16 @@ Each answer is marked:
 | --- | --- | --- |
 | Did the idle-unload delay change? | No. In all four daemon-hosted sessions the daemon logged the idle shutdown 60.0 s after the session's last terminal exited, and the auxiliary thread each turn starts closed 60 s after it started. The code default of `thread_unload_delay_secs` is still 60, as it was at 0.160.0. | measured; documented, `config/src/config_toml.rs`, `core/src/config/mod.rs` |
 | What ends an unload? | The daemon publishes `SessionEnd` from the thread's shutdown, at its start, then sends `thread/closed` once the shutdown has finished and the thread's writer lock is released. Without contention that took 0.3 s, and the lock file was gone at `thread/closed`. | measured; documented, `unload_thread_without_subscribers` in `app-server/src/request_processors/thread_lifecycle.rs` |
-| Can a resume start straight after the old client exits? | Not while the daemon holds the thread. The resume command the execute-issues skill gives, with sandbox, writable-root and network options, runs in its own client. Codex refuses it with `thread-store conflict: thread <id> already has an active writer`, shows the transcript read-only and says the conversation is open in another app, as at 0.160.0. Each `R` before the unload was refused again. The first `R` after `thread/closed` resumed the thread, 8 s later at this run's retry cadence, and sent no prompt within 5 s, so the runner typed the one the command line had carried. | measured |
+| Can a resume start straight after the old client exits? | Not while the daemon holds the thread. The resume command the execute-issues skill gives, with sandbox, writable-root and network options, runs in its own client. Codex refuses it with `thread-store conflict: thread <id> already has an active writer`, shows the transcript read-only and says the conversation is open in another app, offering `r` to retry, as at 0.160.0. Each `r` before the unload was refused again. The first `r` after `thread/closed` resumed the thread, 8 s later at this run's retry cadence, and sent no prompt within 5 s, so the runner typed the one the command line had carried. | measured |
 | Where does the resumed session run, and with what? | Where `-C` names, in the resuming client, which is then its Host Process. The resumed turns ran with the resume's grants: the Worktrees directory and the main checkout's `.git` writable and the network on, where the first turns had Codex's default `workspace-write` with only their own Worktree writable and no network. | measured |
-| Does the Issue Binding survive an exit and resume at the same Worktree? | No. The daemon's `SessionEnd` defers the run's end, the resumed client's `SessionStart` leaves the run under the daemon, and Dashpot's settler ends the run 10.3 s after that `SessionEnd`, because the daemon is still live. The resumed session is then unbound; `work show` and `work start` recover it. | measured |
+| Does the Issue Binding survive an exit and resume at the same Worktree? | No. The daemon's `SessionEnd` defers the run's end, the resumed client's `SessionStart` leaves the run under the daemon, and Dashpot's settler, the deferred end ADR 0086 describes, ends the run 10.3 s after that `SessionEnd`, because the daemon is still live. The resumed turn's `work show`, 1.7 s before that end, still reported the daemon's run, so the resumed session went on unbound without being told. | measured; the cause documented, ADR 0086 |
 | Does it survive a declared relocation and resume at another Worktree? | Yes. After `work relocate` to Worktree B and the exit, the daemon's `SessionEnd` at A left the run pending, and the resumed client's `SessionStart` at B relocated the same run, with the same Issue and `startedAt`, to that client. `work show` at B reported it, and it ended at that client's own `SessionEnd`. | measured |
 | In what order do the hooks arrive across that relocation? | `SessionStart`, then `UserPromptSubmit` and `Stop` for each of two turns, at A from the daemon; `SessionEnd` at A from the daemon, 60.0 s after the exit; then `SessionStart` (`source` `resume`), `UserPromptSubmit` and `Stop` at B from the resuming client, the `SessionStart` 8.1 s after `thread/closed`; `SessionEnd` at B when that client exits. | measured |
 | What does a slow cleanup do? | With the writer coordination lock held by another process, as Codex's own regression test holds it, the daemon still starts the unload at 60 s and publishes `SessionEnd`, logs `codex.app_server.thread_shutdown_slow` 10 s later and keeps waiting. Meanwhile the thread stays in `thread/loaded/list` with its writer lock held, and the daemon refuses `thread/resume` with `-32600` `thread <id> is closing; retry thread/resume after the thread is closed`. | measured; documented, `app-server/src/request_processors/thread_lifecycle.rs` |
-| Does the slow cleanup finish? | Yes, within a bound. Released 20 s into the cleanup, the daemon sent `thread/closed` at once and removed the lock file. Held longer, the cleanup gave up the coordination lock after Codex's 30 s wait, logged `failed to coordinate thread writer lock cleanup`, and sent `thread/closed` 30.3 s into the cleanup while the hold went on, leaving the thread's lock file in place but unlocked. Either way `codex exec resume` with the grants resumed the session afterwards. | measured; documented, `lock_coordination` and `Drop for WriterLockGuard` in `rollout/src/writer_lock.rs` |
+| Does the slow cleanup finish? | Yes, within a bound. Released 20 s into the cleanup, the daemon sent `thread/closed` at once and removed the lock file. Held longer, the cleanup gave up the coordination lock after Codex's 30 s wait, logged `failed to coordinate thread writer lock cleanup`, and sent `thread/closed` 30.4 s into the cleanup while the hold went on, leaving the thread's lock file in place but unlocked. Either way `codex exec resume` with the grants resumed the session afterwards. | measured; documented, `lock_coordination` and `Drop for WriterLockGuard` in `rollout/src/writer_lock.rs` |
 | What does Dashpot report during a slow cleanup? | The run ends at the settler, 10 s after the `SessionEnd`, while Codex still holds the thread and refuses to resume it. A cleanup that outlasts the settler leaves no run and a loaded thread. | measured |
 | Does a thread whose starting client disconnected during a blocked required MCP startup unload? | Yes. The thread is not loaded while its required MCP server blocks in `initialize`; once the server answered, after the controller had gone, it started with no subscriber and was unloaded 60.0 s later with `SessionEnd` and `thread/closed`. Codex stopped the MCP server as the thread shut down, removed the writer lock, and a later `thread/resume` succeeded. The thread had no turn, so it published no `SessionStart`. | measured; documented, `start_listener` in `app-server/src/request_processors/thread_lifecycle.rs` |
-| Does a slow cleanup change the idle delay? | No. The delay before the unload starts was 60.0 s with the lock held too; the cleanup time adds to it, up to the 30 s coordination bound. | measured |
+| Does a slow cleanup change the idle delay? | No. The delay before the unload starts was 60.0 s with the lock held too; the cleanup time adds to it, up to the coordination lock's 30 s bound when that lock is what slows it. | measured |
 | What does a resume within the settler's 10 s do on a stopped daemon, or at the same Worktree after `work relocate .`? | Unknown: not run. A stopped daemon orphans the run (ADR 0086, measured at 0.160.0). Whether a same-Worktree declaration keeps the binding is untested. | unknown |
 | Does any of this hold on macOS, or with a real model? | Unknown: Linux and the fixture model only. | unknown |
 
@@ -107,7 +107,7 @@ twenty minutes, most of it the waits for the daemon to unload threads.
     - `ordinary`: a plain terminal starts in A with `-C`, its turn runs
       `work start 1`, and the person exits. The resume command, with the
       grants and a prompt, starts at once at A; the runner presses `r`
-      every 8 s while it shows the read-only screen, and types the prompt
+      about every 8 s while it shows the read-only screen, and types the prompt
       once a retry resumes without sending it. Its turn runs `work show`.
     - `relocate`: the same with Issue 2, but a second turn runs
       `work relocate` to B and `work show` before the exit, and the resume
@@ -138,7 +138,7 @@ twenty minutes, most of it the waits for the daemon to unload threads.
   against the value below.
 - [Retained trace](measurements/issue-663-codex-trace.jsonl) is the
   complete metadata stream of the successful run: 288 records, SHA-256
-  `60bf6953f183b7d83ae4a72fee9c281b5a133327947eea24b62fe01c55f14b5a`. The
+  `f22ef2cb9ad1664143238edb10ed6061f369f424c2b64fe539098196b190e820`. The
   fixture root appears
   as `$ROOT`, the experiment directory as `$EXPERIMENT`, the checkout as
   `$CHECKOUT` and the home directory as `~`; the TUI's elided paths are
@@ -150,7 +150,7 @@ twenty minutes, most of it the waits for the daemon to unload threads.
 | Fact | Tested value |
 | --- | --- |
 | Date | 2026-11-03 AEDT |
-| Dashpot base | `06df76a40cfd957ccb5210462569264632483123`, with the runner uncommitted |
+| Dashpot base | `a47e86862cd4f3f3b4db1841d220ccc46a4b58c2`, with the runner committed on the Issue branch at `a284b8adf31ba7f4f0e8b51ef9e458b36ae2eddd`, the head the trace records; the trace names every source it ran by SHA-256 |
 | Codex | `codex-cli 0.166.0`, the musl standalone release, SHA-256 `b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8`, as a managed app-server daemon, its TUI clients and `codex exec` |
 | Controller | Node `v24.18.0`, over the daemon's Unix socket |
 | Operating system | Ubuntu, Linux `7.0.0-38-generic`, x86-64 |
@@ -212,11 +212,15 @@ The binding then depends on whether the move was declared:
 - **Same Worktree, undeclared.** Dashpot's Event Log shows the daemon's
   `SessionEnd` with Work Store change `deferred`, the resumed client's
   `SessionStart` with `unchanged`, and the settler's `ended` 10.3 s after
-  the `SessionEnd`. The settler ends the run because the daemon is still
-  live ([ADR 0086](../adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md));
-  the resumed `SessionStart` does not claim it, since the run is keyed to
-  the daemon. Once the settler had decided, Dashpot listed the resumed
-  session unbound.
+  the `SessionEnd`. The settler is the deferred end a daemon-hosted
+  `SessionEnd` starts; by
+  [ADR 0086](../adr/0086-orphan-runs-of-a-stopped-or-restarted-managed-codex-daemon.md)
+  it ends the run because the daemon is still live, and the resumed
+  `SessionStart` does not claim it, since the run is keyed to the daemon
+  (documented). The resumed turn's `work show`, 8.5 s after
+  `thread/closed` and 1.7 s before the settler's end, reported the
+  daemon's run as this session's Issue work. Once the settler had decided,
+  Dashpot listed the resumed session unbound.
 - **Another Worktree, declared.** With the Relocation Intent pending, the
   daemon's `SessionEnd` changed nothing and the view showed the run
   `unknown` with the `work-relocation-pending` Diagnostic. The resumed
@@ -242,15 +246,16 @@ after which the task keeps waiting. Its regression test,
 | `thread_shutdown_slow` warning | 10.0 s later | 10.0 s later |
 | During the cleanup | loaded, lock held, `thread/resume` refused as closing | the same |
 | Dashpot | run ended at the settler, 10 s after `SessionEnd` | the same |
-| `thread/closed` | 20.1 s into the cleanup, at the release | 30.3 s into the cleanup, still held |
+| `thread/closed` | 20.1 s into the cleanup, at the release | 30.4 s into the cleanup, still held |
 | Lock file at `thread/closed` | removed | left, unlocked |
 | Codex warning | none | `failed to coordinate thread writer lock cleanup` |
 | `codex exec resume` afterwards | resumed | resumed |
 
 The 30 s bound is `lock_coordination` in `rollout/src/writer_lock.rs`: when
 it times out, `Drop for WriterLockGuard` logs the warning and returns, and
-dropping the file releases its lock without removing it. The next
-acquisition takes the stale, unlocked file. So a cleanup slowed by the
+dropping the file releases its lock without removing it (documented). The
+`codex exec resume` that followed took the stale, unlocked file and
+removed it when it exited (measured). So a cleanup slowed by the
 coordination lock ends within about 30 s; the run did not observe a
 cleanup that never ended.
 
@@ -279,27 +284,30 @@ no turns. The thread never ran a turn, so it published `SessionEnd` with no
   Cleanup table, and the skill's "about 60 s".
 - **The resume handoff takes a minute.** A resume with launch options
   started at once after the exit stays read-only until the daemon's unload,
-  and the person must retype the prompt after `R`. The
+  and the person must retype the prompt after the retry that resumes it. The
   [dispatch](../../src/dashpot/skills/dashpot-issue-work/references/dispatch.md#resume-a-codex-session)
   and [recovery](../../src/dashpot/skills/dashpot-issue-work/references/recovery.md#failed-codex-resume)
   references now say so.
-- **A same-Worktree resume of a bound session loses its run.** The skill's
-  `work show` check after a resume recovers it with `work start`, which
-  starts a new run. Whether Dashpot should keep the run, by claiming it
-  from the resumed `SessionStart` or by a same-Worktree declaration, is a
-  follow-up, not this Issue's change.
+- **A same-Worktree resume of a bound session loses its run, unnoticed.**
+  The skill's `work show` check after a resume ran inside the settler's
+  10 s and reported the daemon's run, which the dispatch prompt tells the
+  agent to keep, so the agent would carry on unbound. Whether Dashpot
+  should keep the run, by claiming it from the resumed `SessionStart` or by
+  a same-Worktree declaration, is left for a follow-up Issue; this Issue
+  changes no lifecycle policy.
 - **`SessionEnd` is the start of a daemon unload, not its end.** Dashpot
   ends the run 10 s later, which can be before Codex has released the
   thread; a resume during that gap is refused as closing. Nothing in
   Dashpot waits for `thread/closed`, and nothing measured here needs it to.
 - **Execute-issues Codex reference.** Its Known Dashpot gap and resume
-  notes are outside this Issue's files; the hand-back proposes the update.
+  notes predate these measurements and are left for a follow-up Issue.
 
 ## Validation
 
 The retained trace passed the independent verifier in both forms, without
-and with `--strict`, at the run's base `06df76a`: every script and Dashpot
-module it names matched the hash the run recorded, and the binary's SHA-256
-matched. After the run's `daemon stop`, no fixture Codex process remained,
-the fixture daemon's entries in the shared daemon directory were gone, and
-every hook reached Dashpot's publisher and exited 0.
+and with `--strict`, on the Issue branch at base `a47e868`: every script
+and Dashpot module it names matched the hash the run recorded, and the
+binary's SHA-256 matched. The runner left no fixture process for its
+cleanup to kill, and after the run's `daemon stop` no fixture Codex process
+remained, the fixture daemon's entries in the shared daemon directory were
+gone, and every hook reached Dashpot's publisher and exited 0.

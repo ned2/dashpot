@@ -231,11 +231,12 @@ session before Issue work.
    and press `R`. On Codex 0.166.0 on Linux, a resume with launch options
    runs in its own client. While the managed daemon still holds the thread,
    that client stays read-only and says the conversation is open in another
-   app, even when it starts after this client exits. The daemon releases
-   the thread about 60 s after this client exits. `R` before then is refused
-   again. After an `R` that resumes it, the client does not send the
-   command's prompt, so the user types the prompt again (measured). Do not
-   continue in the old client after handing over the command. The resumed client's first turn publishes the hook that completes
+   app, even when it starts after this client exits. Unhindered, the daemon
+   releases the thread about 60 s after this client exits, and a retry
+   before then is refused again. After the retry that resumes it, the
+   client does not send the command's prompt, so the user types the prompt
+   again (measured). Do not continue in the old client after handing over
+   the command. The resumed client's first turn publishes the hook that completes
    a declared relocation once it proves the same Agent Session Identity at the
    intended Worktree with no live or unobservable client elsewhere.
 
