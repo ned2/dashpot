@@ -520,7 +520,7 @@ measured the Claude Code `--bg` row:
 | Codex 0.160.0, a terminal launched with `--disable daemon_auto_start` while no daemon runs | The terminal's own environment, for a fresh or a resumed session. |
 | OpenCode 2.0.22, shared service | The environment of the TUI or `opencode run` client that last opened or continued the session, which the client sends to the service. A TUI or `opencode run` with variables the service lacks gives them to the session; an `opencode run` without variables the service has takes them away (a TUI doing so is not measured). A session moved with `session_move` runs with the moving client's environment. A session prompted only through the HTTP API, whether created there or prompted after a service restart dropped what its client sent, runs with the service's own environment. |
 | OpenCode 2.0.22, `--standalone` | The client's environment. |
-| Claude Code 2.1.287 and 2.1.289, `--bg` | The environment of the shell that first started the configuration directory's supervisor, for that session and every later `--bg` session under the supervisor, whichever session dispatches it ([reference](agent-harness-server-client-reference.md#background-session-environment-at-21287-and-21289)). |
+| Claude Code 2.1.287 and 2.1.289, `--bg` | The environment of the shell that first started the configuration directory's supervisor, for that session and every later `--bg` session under the supervisor, whichever session dispatches it ([how it was measured](agent-harness-server-client-reference.md#background-session-environment-at-21287-and-21289)). |
 | Claude Code, other sessions | Not measured. |
 
 Dashpot neither loads ignored Worktree configuration nor supplies
