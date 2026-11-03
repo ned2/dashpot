@@ -531,7 +531,9 @@ In the dashboard, a Codex session's state means:
   a few seconds of it, so Dashpot leaves each bound run orphaned under the
   stopped daemon rather than ending it (ADR 0086). A stop with a turn
   running first lets the turn finish, and ends no thread, busy or idle,
-  until it has. A restart reloads every thread it held
+  until it has; so does a restart, as
+  [measured at 0.166.0](spikes/codex-daemon-restart-busy-spike.md). A
+  restart reloads every thread it held
   into the replacement daemon, with no hook: a reloaded thread's next turn
   runs there and is listed unbound beside its orphaned run, and a reloaded
   thread no client holds unloads about 60 s later, leaving the orphan as it

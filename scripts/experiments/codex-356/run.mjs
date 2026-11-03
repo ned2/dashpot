@@ -9,16 +9,20 @@
 // ends the run; a restart or stop, even one that first drains a running
 // turn, leaves it an Orphaned Agent Run that `work start` recovers; a thread
 // the restart reloaded unloads from the replacement; and an `exec` exit or a
-// standalone `/exit` ends its run at once. Everything is recorded as a
-// metadata-only trace.
+// standalone `/exit` ends its run at once. Since #398 it also restarts the
+// daemon while one thread's turn waits on the model and another thread sits
+// idle, and records whether the idle thread's SessionEnd waits for the drain.
+// Everything is recorded as a metadata-only trace.
 //
 //   node run.mjs <absolute codex binary> [expected version] [dashpot bin dir]
 //   node verify.mjs <trace.jsonl> [expected version] [--strict]
+// SPIKE_FIXTURE_PARENT names the directory the fixture is created in (default
+// the system temporary directory).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn, execFileSync, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -31,7 +35,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const checkout = path.resolve(here, "..", "..", "..");
 const binary = process.argv[2];
 assert(binary && path.isAbsolute(binary), "Pass the absolute path to the Codex binary");
-const expectedVersion = process.argv[3] ?? "0.160.0";
+const expectedVersion = process.argv[3] ?? "0.166.0";
 // Dashpot attributes a fixture process it does not recognise to the first
 // harness process above it, so the runner refuses to start below one.
 const harnessAbove = ancestry(process.ppid, 64, 1).find((entry) => entry.comm.startsWith("codex") || entry.comm === "claude"
@@ -42,7 +46,8 @@ const dashpotCommand = path.join(dashpotBin, "dashpot");
 const publisher = path.join(dashpotBin, "dashpot-codex-hook");
 assert(existsSync(dashpotCommand) && existsSync(publisher), `Dashpot's commands are installed in ${dashpotBin}`);
 
-const root = mkdtempSync(path.join(os.tmpdir(), "dashpot-codex-356-"));
+const fixtureParent = path.resolve(process.env.SPIKE_FIXTURE_PARENT ?? os.tmpdir());
+const root = mkdtempSync(path.join(fixtureParent, "dashpot-codex-356-"));
 console.log(`Isolated fixture: ${root}`);
 const fixture = path.join(root, "repository");
 const other = path.join(root, "other-worktree");
@@ -50,20 +55,39 @@ const worktrees = { main: fixture, other };
 const tracePath = path.join(root, "trace.jsonl");
 const records = [];
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-// The operator's home directory and host name never enter the trace; a
-// hook's or shell's ancestry keeps the processes up to the runner's own child.
+// The operator's home directory, host name and the fixture's root never enter
+// the trace; a hook's or shell's ancestry keeps the processes up to the
+// runner's own child.
 const home = os.homedir();
 const hostName = new RegExp(`\\b${os.hostname().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
 const trace = (kind, fields = {}) => {
   const record = { kind, ...fields, receipt: records.length + 1, receiptTime: Date.now() };
   records.push(record);
   const kept = record.ancestry ? { ...record, ancestry: record.ancestry.slice(0, 5) } : record;
-  appendFileSync(tracePath, JSON.stringify(kept).replaceAll(home, "~").replace(hostName, "<host>") + "\n");
+  // An ancestry entry's short command line can end partway through a private
+  // path, which no whole-path replacement matches, so such a cut-off last
+  // token is dropped first. A fixture parent other than the system temporary
+  // directory is scrubbed too.
+  const cutTail = (_key, value) => {
+    if (typeof value !== "string") return value;
+    const token = value.match(/\/[^\s'"=]+$/)?.[0];
+    const paths = [root, here, checkout, home];
+    return token && !paths.includes(token) && paths.some((full) => full.startsWith(token)) ? `${value.slice(0, -token.length)}…` : value;
+  };
+  const scrubbed = JSON.stringify(kept, cutTail).replaceAll(root, "$ROOT");
+  appendFileSync(tracePath, (fixtureParent === os.tmpdir() ? scrubbed : scrubbed.replaceAll(fixtureParent, "$FIXTURE_PARENT")).replaceAll(here, "$EXPERIMENT").replaceAll(checkout, "$CHECKOUT")
+    .replaceAll(home, "~").replace(hostName, "<host>") + "\n");
   return record;
 };
 
+// The pinned release runs through a fixture-local `codex`, read-only.
+const fixtureBin = path.join(root, "bin");
+mkdirSync(fixtureBin);
+const codexBin = path.join(fixtureBin, "codex");
+symlinkSync(binary, codexBin);
+
 const env = {
-  PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
+  PATH: `${fixtureBin}:${path.dirname(process.execPath)}:/usr/bin:/bin`,
   HOME: path.join(root, "home"),
   XDG_CONFIG_HOME: path.join(root, "config"),
   XDG_DATA_HOME: path.join(root, "data"),
@@ -85,15 +109,15 @@ for (const dir of [fixture, env.HOME, env.XDG_CONFIG_HOME, env.XDG_DATA_HOME, en
 // waiter on SessionEnd, `sessionEndHoldMs` holds the SessionEnd hook.
 const hookMode = (mode) => { writeFileSync(env.SPIKE_MODE_FILE, JSON.stringify(mode)); trace("hook.mode", { mode }); };
 hookMode({});
-const version = execFileSync(binary, ["--version"], { env, encoding: "utf8" }).trim();
+const version = execFileSync(codexBin, ["--version"], { env, encoding: "utf8" }).trim();
 assert.equal(version, `codex-cli ${expectedVersion}`, `unexpected Codex version: ${version}`);
 
-// The disposable Dashpot Project: six Local Issue Markdown Issues, the main
+// The disposable Dashpot Project: eight Local Issue Markdown Issues, the main
 // working tree, and one linked Worktree.
 const git = (...args) => execFileSync("git", ["-C", fixture, ...args], { env, stdio: "pipe" });
 git("init", "--initial-branch=main");
 mkdirSync(path.join(fixture, "issues"));
-for (const number of [1, 2, 3, 4, 5, 6]) {
+for (const number of [1, 2, 3, 4, 5, 6, 7, 8]) {
   const metadata = { id: `I_fixture_${number}`, number, reference: `fixture-${number}`, state: "open", stateReason: null, labels: [], assignees: [], author: null,
     relationships: { parent: null, subIssues: [], blockedBy: [], blocking: [] }, issueType: null, milestone: null,
     createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", closedAt: null };
@@ -244,14 +268,24 @@ const fixtureProcesses = () => {
   return found;
 };
 const brief = (entry) => [entry.pid, entry.ppid, entry.comm, entry.cmdline.replaceAll(root, "<root>").replace(/ settle \{.*$/, " settle {…}").slice(0, 240)];
+// A daemon run from its copy of the release under CODEX_HOME has a path long
+// enough to push its flags past the ancestry record's short command line.
+const fullCommand = (pid) => { try { return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean).join(" "); } catch { return ""; } };
 // The managed daemon: `codex app-server ... --managed-daemon`.
-const isDaemon = (entry) => entry.comm.startsWith("codex") && / app-server /.test(entry.cmdline) && / --managed-daemon/.test(entry.cmdline);
+const isDaemon = (entry) => entry.comm.startsWith("codex") && / app-server /.test(fullCommand(entry.pid)) && / --managed-daemon/.test(fullCommand(entry.pid));
 const isSettler = (entry) => / -m dashpot\.hook settle /.test(entry.cmdline);
 const daemons = () => fixtureProcesses().filter(isDaemon);
 const settlers = () => fixtureProcesses().filter(isSettler);
 const socketPath = path.join(env.CODEX_HOME, "app-server-control", "app-server-control.sock");
+// Since 0.166.0 the daemon binds its socket in the shared per-user directory,
+// named by the SHA-256 of the canonical socket path (`protected_socket_path`).
+const sharedDaemonDir = `/tmp/codex-daemon-${os.userInfo().uid}`;
+const sharedEntries = () => { try { return readdirSync(sharedDaemonDir).sort(); } catch { return []; } };
+const sharedBefore = sharedEntries();
+mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+const ownSharedEntry = createHash("sha256").update(path.join(realpathSync(path.dirname(socketPath)), path.basename(socketPath))).digest("hex");
 const processes = (label) => trace("processes", { label, processes: fixtureProcesses().map(brief), daemons: daemons().map((entry) => entry.pid),
-  daemonCmdlines: daemons().map((entry) => entry.cmdline.replaceAll(root, "<root>")), settlers: settlers().map((entry) => entry.pid),
+  daemonCmdlines: daemons().map((entry) => fullCommand(entry.pid).replaceAll(root, "<root>")), settlers: settlers().map((entry) => entry.pid),
   socketExists: existsSync(socketPath), daemonSettings: daemonSettings() });
 const hooks = () => records.filter((record) => record.kind === "hook");
 const hooksSince = (count) => hooks().slice(count);
@@ -288,7 +322,7 @@ const view = (label, extra = {}) => {
 // One-shot Codex commands (`exec`, `app-server daemon`).
 const codex = async (args, label, { cwd = fixture, timeout = 60000 } = {}) => {
   const began = Date.now();
-  const child = spawn(binary, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(codexBin, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk) => { stdout += chunk; });
@@ -353,8 +387,11 @@ const tcpClient = async (name, port) => {
   await once(socket, "open");
   return rpcClient(name, { transport: "loopback-websocket", on: (listener) => socket.addEventListener("message", (message) => listener(message.data)), send: (text) => socket.send(text), close: () => socket.close() });
 };
+// Since 0.166.0 the advertised socket path is a symlink to the socket Codex
+// binds in its shared per-user daemon directory, and a fixture path can be
+// too long to connect to.
 const daemonClient = async (name) => {
-  const socket = await connectUnixWebSocket(socketPath);
+  const socket = await connectUnixWebSocket(realpathSync(socketPath));
   return rpcClient(name, { transport: "unix-websocket", on: (listener) => socket.on("message", listener), send: (text) => socket.send(text), close: () => socket.close() });
 };
 const startThread = async (client, cwd) => {
@@ -379,7 +416,7 @@ const runTurn = async (client, threadId, text, options = {}) => {
 // waits for are kept from its screen.
 const terminals = [];
 const terminal = async (name, cwd, args) => {
-  const child = spawn("script", ["-qfec", [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" "), "/dev/null"],
+  const child = spawn("script", ["-qfec", [codexBin, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" "), "/dev/null"],
     { cwd, env: { ...env, TERM: "xterm-256color", COLUMNS: "120", LINES: "40" }, stdio: ["pipe", "pipe", "pipe"] });
   // The composer treats a burst of keys as a paste, so Enter follows the text
   // after a pause.
@@ -409,9 +446,13 @@ const eventLog = (label) => {
   const outcomes = [];
   for (const dir of Object.values(worktrees)) {
     const ran = dashpot(["events", "--json"], dir);
-    let parsed = null;
-    try { parsed = JSON.parse(ran.stdout); } catch {}
-    for (const event of parsed?.events ?? []) {
+    // One JSON document with an `events` list at the 0.160.0 run's Dashpot;
+    // JSON Lines, one event per line, since.
+    let events = [];
+    try { events = JSON.parse(ran.stdout).events ?? []; } catch {
+      events = ran.stdout.split("\n").filter(Boolean).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
+    }
+    for (const event of events) {
       if (event["event.name"] !== "hook.outcome") continue;
       const kept = Object.fromEntries(fields.filter((field) => event[field] !== undefined && event[field] !== null).map((field) => [field, event[field]]));
       if (!outcomes.some((seen) => seen["service.instance.id"] === kept["service.instance.id"])) outcomes.push(kept);
@@ -429,6 +470,7 @@ try {
   const dirty = execFileSync("git", ["-C", checkout, "status", "--porcelain"], { encoding: "utf8" }).trim() !== "";
   trace("environment", { version, platform: os.platform(), release: os.release(), arch: os.arch(), node: process.version,
     binaryTarget: execFileSync("readlink", ["-f", binary], { encoding: "utf8" }).trim().replace(os.homedir(), "~"),
+    binarySHA256: createHash("sha256").update(readFileSync(binary)).digest("hex"),
     dashpot: { version: dashpot(["--version"]).stdout.trim(), head, dirty }, worktrees, hookEvents,
     // The runner's own scripts by name, and the modules it exercised by
     // repository path.
@@ -438,7 +480,7 @@ try {
   // Setup: trust the fixture hooks through the ledger on a loopback server.
   trace("scenario", { name: "hook-trust" });
   const port = await freePort();
-  const trustServer = spawn(binary, ["app-server", "--listen", `ws://127.0.0.1:${port}`], { cwd: fixture, env, stdio: ["ignore", "pipe", "pipe"] });
+  const trustServer = spawn(codexBin, ["app-server", "--listen", `ws://127.0.0.1:${port}`], { cwd: fixture, env, stdio: ["ignore", "pipe", "pipe"] });
   let trustBanner = "";
   trustServer.stderr.on("data", (chunk) => { trustBanner += chunk; });
   trustServer.stdout.on("data", () => {});
@@ -604,6 +646,61 @@ try {
   await settled("stop");
   processes("after-stop");
   view("after-stop");
+
+  // `daemon restart` while R7's turn (Issue 7, other) waits on the model and
+  // R8 (Issue 8, main) sits idle beside it, on a daemon started afresh. A
+  // restart that ran R8's SessionEnd before the drain, while the turn held
+  // the daemon open past Dashpot's 10 s settle window, would end R8's run
+  // instead of orphaning it (ADR 0086). The hooks run Dashpot's publisher
+  // only, and a waiter watches the old daemon.
+  trace("scenario", { name: "restart-busy" });
+  const restarted = await codex(["app-server", "daemon", "start"], "daemon-start-again");
+  assert.equal(restarted.status, 0, "daemon started again");
+  await waitFor(() => existsSync(socketPath) && daemons().length === 1, "third daemon control socket", 30000);
+  processes("restart-busy-started");
+  const thirdDaemon = daemons()[0].pid;
+  const driver = await daemonClient("driver");
+  clients.push(driver);
+  const r7 = await startThread(driver, other);
+  await runTurn(driver, r7, "SPIKE:r7-start work=start-7");
+  const r8 = await startThread(driver, fixture);
+  await runTurn(driver, r8, "SPIKE:r8-start work=start-8");
+  view("restart-busy-bound");
+  const busyBefore = records.filter((record) => record.kind === "model.request" && record.busy).length;
+  const busyRestart = await runTurn(driver, r7, "SPIKE:busy hold=20000", { detached: true });
+  await waitFor(() => records.filter((record) => record.kind === "model.request" && record.busy).length > busyBefore, "busy model request before the restart", 30000);
+  hookMode({ watchHost: true });
+  since = records.length;
+  hooksBefore = hooks().length;
+  const thirdExit = exitOf(thirdDaemon);
+  await codex(["app-server", "daemon", "restart"], "daemon-restart-busy", { timeout: 150000 });
+  await waitFor(() => existsSync(socketPath) && daemons().length === 1 && daemons()[0].pid !== thirdDaemon, "replacement after the busy restart", 30000);
+  await thirdExit.done;
+  await quietly(waitFor(() => sessionEnds(hooksBefore, [r7, r8]).length === 2, "busy restart SessionEnds", 15000));
+  await quietly(waitFor(() => waiters(since).length >= 2, "busy restart waiters report", 25000));
+  const fourthDaemon = daemons()[0].pid;
+  trace("restart-busy.outcome", { threads: { r7, r8 }, thirdDaemon, fourthDaemon, thirdDaemonExitedAt: thirdExit.exitedAt, busyTurn: busyRestart.turnId,
+    busyCompleted: driver.notifications.find((entry) => entry.method === "turn/completed" && entry.turnId === busyRestart.turnId) ?? null });
+  hookMode({});
+  driver.close();
+  clients = clients.filter((client) => client !== driver);
+  await settled("restart-busy");
+  processes("after-restart-busy");
+  view("after-restart-busy");
+  // The replacement reloaded both threads; stopping it ends them from the
+  // replacement, which ends nothing of the runs orphaned under the old daemon.
+  const inspector = await daemonClient("inspector");
+  trace("restart-busy.reload", { loaded: (await inspector.call("thread/loaded/list", {})).result?.data ?? [] });
+  inspector.close();
+  hooksBefore = hooks().length;
+  const fourthExit = exitOf(fourthDaemon);
+  await codex(["app-server", "daemon", "stop"], "daemon-stop-final", { timeout: 120000 });
+  await fourthExit.done;
+  await quietly(waitFor(() => sessionEnds(hooksBefore, [r7, r8]).length === 2, "final stop SessionEnds", 15000));
+  trace("final-stop.outcome", { fourthDaemon, fourthDaemonExitedAt: fourthExit.exitedAt });
+  await settled("final-stop");
+  processes("after-final-stop");
+  view("after-final-stop");
   eventLog("final");
   console.log(`All scenarios completed: ${root}`);
 } finally {
@@ -615,8 +712,18 @@ try {
     trace("cleanup.kill", { process: brief(entry) });
     try { process.kill(entry.pid, "SIGKILL"); } catch {}
   }
+  // The shared per-user daemon directory, which the operator's own Codex
+  // sessions use too: only this fixture's entries, named by the SHA-256 of
+  // its own control socket path, are counted or removed.
+  const sharedAfter = sharedEntries();
+  const own = (name) => name === ownSharedEntry || name === `${ownSharedEntry}.lock`;
+  const ownLeft = sharedAfter.filter(own);
+  for (const name of ownLeft) { try { rmSync(path.join(sharedDaemonDir, name)); } catch {} }
+  trace("shared-daemon-dir", { ownBefore: sharedBefore.filter(own).length, ownLeft: ownLeft.length, ownRemoved: ownLeft.filter((name) => !existsSync(path.join(sharedDaemonDir, name))).length,
+    othersAdded: sharedAfter.filter((name) => !own(name) && !sharedBefore.includes(name)).length, othersRemoved: sharedBefore.filter((name) => !own(name) && !sharedAfter.includes(name)).length });
   sink.server.closeAllConnections(); sink.server.close(); model.server.closeAllConnections(); model.server.close();
   trace("artifact", { root });
   console.log(`Metadata trace: ${tracePath}`);
+  writeFileSync(path.join(root, "done"), "");
   if (process.env.SPIKE_REMOVE_FIXTURE === "1") rmSync(root, { recursive: true });
 }
