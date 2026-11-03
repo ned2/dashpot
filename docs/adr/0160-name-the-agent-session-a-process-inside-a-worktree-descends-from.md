@@ -56,8 +56,9 @@ Session that process belongs to, when it belongs to one.
   sentence. It says a live Agent Session started those pids and may have
   left the Worktree without them, and that ending them leaves the session
   running. It says that this frees the Worktree only when those processes
-  are all that is inside it. Otherwise it says the other processes still
-  hold the Worktree. When every such session is a Claude Code session, the
+  are all that is inside it and the scan covered every process, so that no
+  unseen one may be inside. When other processes are inside, it says they
+  still hold the Worktree. When every such session is a Claude Code session, the
   sentence cites the language server as the example. A Host Process inside
   the Worktree, and every process under it, gets no such sentence: that
   session is still here, and the `agent-session` blocker reports it.

@@ -506,7 +506,30 @@ def test_the_left_behind_pids_are_capped_as_the_named_processes_are(
 
     assert (
         "A live Agent Session started pids 8000, 8001, 8002, 8003, 8004, and 2 "
-        "more and may have left this Worktree without them, as a Claude Code "
+        "more, and may have left this Worktree without them, as a Claude Code "
         "session leaves its language server behind: ending those processes frees "
         "the Worktree and leaves their sessions running." in detail
+    )
+
+
+def test_an_incomplete_scan_does_not_claim_ending_the_process_frees_the_worktree(
+    tmp_path: Path,
+) -> None:
+    # A process the scan could not read may be inside too.
+    root, worktree = repository_with_worktree(tmp_path)
+    hook_record(root, SESSION, "claude-code", CLAUDE)
+    server = ProcessDirectory(8000, CLAUDE.pid, "pyright-langser", worktree)
+
+    detail = process_detail(
+        preview(
+            root,
+            worktree,
+            scan_of(server, incomplete="isolated-namespace"),
+            table_lookup({CLAUDE.pid: CLAUDE}),
+        )
+    )
+
+    assert detail.endswith(
+        "as a Claude Code session leaves its language server behind: ending that "
+        "process leaves its session running."
     )

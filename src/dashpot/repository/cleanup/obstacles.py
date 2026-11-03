@@ -476,7 +476,9 @@ def assess_processes_inside(
         and attribution.host not in inside
     ]
     if left:
-        detail += f" {_left_behind(left, everything=len(left) == len(inside))}"
+        detail += " " + _left_behind(
+            left, others=len(left) < len(inside), complete=found.incomplete is None
+        )
     pids = ",".join(str(process.pid) for process in found.processes)
     blocker = CleanupBlocker(
         kind="process",
@@ -487,20 +489,22 @@ def assess_processes_inside(
 
 
 def _left_behind(
-    left: Sequence[tuple[int, _HostAttribution]], *, everything: bool
+    left: Sequence[tuple[int, _HostAttribution]], *, others: bool, complete: bool
 ) -> str:
     """Say that live sessions started these processes, and what ending them does.
 
     A session that leaves a Worktree does not always take what it started
     with it: Claude Code's ``ExitWorktree`` leaves its language server
     running where the session first edited Python (#695). Ending the
-    processes frees the Worktree only when nothing else holds it, and ending
-    the session is not offered, since a harness need not end its children
-    with it (ADR 0160).
+    processes frees the Worktree only when no ``others`` are inside and the
+    scan was ``complete``, so nothing unseen may be; ending the session is
+    not offered, since a harness need not end its children with it
+    (ADR 0160).
     """
     pids = [str(pid) for pid, _attribution in left[:NAMED_PROCESSES]]
     if len(left) > NAMED_PROCESSES:
-        pids.append(f"and {len(left) - NAMED_PROCESSES} more")
+        # The comma keeps this "and" apart from the one that follows.
+        pids.append(f"and {len(left) - NAMED_PROCESSES} more,")
     if len(left) == 1:
         subject, pronoun = f"pid {pids[0]}", "it"
         process, session = "that process", "its session"
@@ -517,12 +521,15 @@ def _left_behind(
         if claude_code
         else ""
     )
-    outcome = (
-        f"frees the Worktree and leaves {session} running"
-        if everything
-        else f"leaves {session} running, while the other processes here still "
-        "hold the Worktree"
-    )
+    if others:
+        outcome = (
+            f"leaves {session} running, while the other processes here still "
+            "hold the Worktree"
+        )
+    elif complete:
+        outcome = f"frees the Worktree and leaves {session} running"
+    else:
+        outcome = f"leaves {session} running"
     return (
         f"A live Agent Session started {subject} and may have left this Worktree "
         f"without {pronoun}{example}: ending {process} {outcome}."
