@@ -61,7 +61,11 @@ const daemon = one("daemon.ready").pid;
 const outcome = (prefix) => one(`${prefix}.outcome`);
 const view = (scenario, label) => one("dashpot.view", (record) => record.scenario === scenario && record.label === label);
 const lock = (scenario, label) => one("lock", (record) => record.scenario === scenario && record.label === label).state;
-const loadedAt = (scenario, label) => one("loaded.snapshot", (record) => record.scenario === scenario && record.label === label).ids;
+const loadedAt = (scenario, label) => {
+  const snapshot = one("loaded.snapshot", (record) => record.scenario === scenario && record.label === label);
+  assert.equal(snapshot.error, null, `${scenario} ${label}: thread/loaded/list answered`);
+  return snapshot.ids;
+};
 const runsOf = (scenario, label) => view(scenario, label).agentRuns.map((run) => ({ issue: run.issueId ?? null, state: run.state, host: run.processOrSession,
   at: run.workingDirectory ?? run.observationTarget ?? null, startedAt: run.startedAt ?? null, orphaned: run.orphaned ?? null }));
 // Codex's log database keeps a bounded number of rows, so the run snapshots
@@ -73,7 +77,8 @@ const logFor = (thread, text) => log.filter((entry) => entry.message.includes(th
 // 1 s of which it publishes the thread's SessionEnd. Codex writes its log in
 // batches and can lose the last batch at daemon stop, so where the line was
 // not kept the SessionEnd stands for it.
-let loggedUnloads = 0;
+const loggedUnloads = new Set();
+const unloadsChecked = new Set();
 const trigger = (thread) => {
   const end = hooks.find((record) => record.event === "SessionEnd" && record.payload.session_id === thread);
   assert(end, `SessionEnd for ${thread}`);
@@ -81,10 +86,11 @@ const trigger = (thread) => {
   const found = logFor(thread, "has no subscribers and is idle; shutting down");
   assert(found.length <= 1);
   if (found.length) {
-    loggedUnloads += 1;
+    loggedUnloads.add(thread);
     assert.equal(found[0].pid, daemon, "the daemon unloaded it");
     assert(Math.abs(end.receiptTime - found[0].atMs) <= 1000, "SessionEnd within 1 s of the idle-shutdown line");
   }
+  unloadsChecked.add(thread);
   return found.length ? found[0].atMs : end.receiptTime;
 };
 const closedAt = (thread) => {
@@ -106,6 +112,9 @@ check("Every scenario finished, every wait was met, every hook reached Dashpot's
   assert(of("wait").every((record) => record.met), "every wait met");
   assert(hooks.length > 0);
   for (const record of hooks) assert.equal(record.publisher.status, 0, `${record.event} publisher status`);
+  assert.equal(of("runner.error").length, 0, "the runner raised no error");
+  assert.deepEqual(one("cleanup.left").processes, [], "no fixture process was left for the runner to kill");
+  assert.equal(of("cleanup.kill").length, 0);
   assert.deepEqual(one("cleanup.remaining").pids, []);
   const shared = one("shared-daemon-dir");
   assert.equal(shared.ownBound, true);
@@ -137,11 +146,15 @@ check("Idle unload: for each session the daemon began the idle unload, logging i
     const found = outcome(prefix);
     interval(`${prefix} idle unload after exit`, trigger(found.session) - found.exitedAt, 59000, 62000);
   }
+  const daemonStop = one("scenario", (record) => record.name === "daemon-stop").receiptTime;
   const ephemeral = of("notification").filter((record) => record.method === "thread/started" && record.ephemeral === true);
   assert(ephemeral.length >= 5, "an ephemeral thread per turn");
   for (const started of ephemeral) {
     const closed = of("notification").find((record) => record.method === "thread/closed" && record.thread === started.thread);
-    if (!closed) continue;
+    if (!closed) {
+      assert(daemonStop - started.at < 62000, `ephemeral thread ${started.thread} never closed`);
+      continue;
+    }
     assert(closed.at - started.at >= 59000 && closed.at - started.at <= 62000, `ephemeral thread closed ${closed.at - started.at} ms after it started`);
     assert.equal(sessionHooks(started.thread).length, 0, "the ephemeral thread runs no hook");
   }
@@ -170,7 +183,7 @@ check("A prompt-free unload: the daemon's SessionEnd and thread/closed follow th
 // The resume command the execute-issues skill gives a Lead, with its options.
 const resumed = (prefix) => one("resume.started", (record) => record.label === `${prefix}-resume`);
 const resumeStart = (prefix) => sessionHooks(outcome(prefix).session).find((record) => record.event === "SessionStart" && record.payload.source === "resume");
-check("Resume within the unload window: a `codex resume <id> -C <worktree>` with sandbox, writable-root and network options runs in its own process, which Codex refuses as long as the daemon holds the thread (`already has an active writer`), showing the read-only transcript; a retry after thread/closed resumes it, without sending the prompt from its command line", () => {
+check("Resume within the unload window: a `codex resume <id> -C <worktree>` with sandbox, writable-root and network options runs in its own process, which Codex refuses, at its start and at each retry, as long as the daemon holds the thread (`already has an active writer`), showing the read-only transcript; a retry after thread/closed resumes it, without sending the prompt from its command line", () => {
   for (const prefix of ["or", "rl"]) {
     const { session } = outcome(prefix);
     const started = resumed(prefix);
@@ -181,6 +194,7 @@ check("Resume within the unload window: a `codex resume <id> -C <worktree>` with
     const resumer = refusals[0].pid;
     assert.notEqual(resumer, daemon);
     const closed = closedAt(session).at;
+    assert.equal(refusals.length, 1 + started.presses.filter((at) => at < closed).length, `${prefix}: the first start and each retry before thread/closed were refused`);
     assert(refusals.every((entry) => entry.pid === resumer && entry.atMs < closed + 1000), "every refusal came from the resuming client before the thread closed");
     const start = resumeStart(prefix);
     assert.equal(hostOf(start), resumer, "the resumed session runs in the resuming client");
@@ -207,7 +221,7 @@ check("The resumed turn runs where `-C` names with the resume's grants: the Work
   }
 });
 
-check("ordinary: the bound run does not survive an exit and immediate resume at the same Worktree. The daemon's SessionEnd defers the run's end, the resumed SessionStart leaves it under the daemon, and the settler ends it about 10 s after the SessionEnd, as the daemon is still live; the resumed session is then unbound", () => {
+check("ordinary: the bound run does not survive an exit and immediate resume at the same Worktree. The daemon's SessionEnd defers the run's end, the resumed SessionStart leaves it under the daemon, and the settler ends it about 10 s after the SessionEnd, as the daemon is still live; the resumed turn's `work show` still reports the daemon's run until that end, and the resumed session is then unbound", () => {
   const { session } = outcome("or");
   assert.equal(probe("or-first.0").work.status, 0);
   assert.deepEqual(runsOf("or", "after-start").map((run) => [run.issue, run.host]), [["I_fixture_1", `codex pid ${daemon}`]]);
@@ -218,6 +232,9 @@ check("ordinary: the bound run does not survive an exit and immediate resume at 
   const settled = events("or").find((event) => event["dashpot.hook.event"] === "SessionEnd" && event["dashpot.work_store.change"] === "ended");
   const deferred = events("or").find((event) => event["dashpot.work_store.change"] === "deferred");
   interval("or settler end after the daemon's SessionEnd", Date.parse(settled.time) - Date.parse(deferred.time), 9500, 12000);
+  const shown = one("model.request", (record) => record.probe?.label === "or-resume.0");
+  assert.match(shown.probe.work.stdout, new RegExp(`^codex pid ${daemon}: fixture-1 \\(I_fixture_1\\)`), "the resumed turn's work show reported the daemon's run");
+  assert(shown.receiptTime < Date.parse(settled.time), "before Dashpot ended that run");
   for (const label of ["after-resume-settle", "after-resumed-exit"]) assert(runsOf("or", label).every((run) => run.issue === null), `${label}: no bound run`);
   assert(runsOf("or", "after-resume-settle").some((run) => run.host === `${session} hook`));
 });
@@ -247,10 +264,9 @@ check("relocate: with `work relocate` to Issue Worktree B declared before exit, 
     ["SessionEnd", "A", "daemon"], ["SessionStart", "B", "client"], ["UserPromptSubmit", "B", "client"], ["Stop", "B", "client"], ["SessionEnd", "B", "client"]]);
 });
 
-const holdOf = (prefix) => outcome(prefix);
 check("Slow cleanup: with the writer coordination lock held by another process, the daemon still starts the idle unload on time and publishes SessionEnd at once, logs `thread_shutdown_slow` 10 s later, keeps the thread loaded with its writer lock held, and refuses a daemon `thread/resume` with `-32600` `is closing; retry thread/resume after the thread is closed`", () => {
   for (const prefix of ["sr", "so"]) {
-    const found = holdOf(prefix);
+    const found = outcome(prefix);
     const at = trigger(found.session);
     assert(found.holdAcquiredAt < at, "the hold began before the unload");
     assert.equal(logFor(found.session, "has no subscribers and is idle").length, 1, "the idle-shutdown line was kept");
@@ -268,7 +284,7 @@ check("Slow cleanup: with the writer coordination lock held by another process, 
 });
 
 check("slow-release: released 80 s after the exit, about 20 s into the cleanup, the daemon finishes it: thread/closed within 1 s of the release, the writer lock file removed, the thread gone from thread/loaded/list", () => {
-  const found = holdOf("sr");
+  const found = outcome("sr");
   const at = trigger(found.session);
   const closed = closedAt(found.session);
   interval("sr thread/closed after release", closed.at - found.holdReleasedAt, 0, 1000);
@@ -279,8 +295,8 @@ check("slow-release: released 80 s after the exit, about 20 s into the cleanup, 
   assert.equal(logFor(found.session, "failed to coordinate thread writer lock cleanup").length, 0);
 });
 
-check("slow-timeout: held past Codex's 30 s wait for the coordination lock, the cleanup ends without it: the daemon logs `failed to coordinate thread writer lock cleanup`, sends thread/closed about 30 s after the idle shutdown while the hold continues, and leaves the thread's lock file in place, unlocked", () => {
-  const found = holdOf("so");
+check("slow-timeout: held past Codex's 30 s wait for the coordination lock, the cleanup ends without it: the daemon logs `failed to coordinate thread writer lock cleanup`, sends thread/closed about 30 s after the idle shutdown while the hold continues, and leaves the thread's lock file in place, unlocked, until the next resume takes and removes it", () => {
+  const found = outcome("so");
   const at = trigger(found.session);
   const closed = closedAt(found.session);
   assert(closed.at < found.holdReleasedAt, "closed while the hold continued");
@@ -293,11 +309,12 @@ check("slow-timeout: held past Codex's 30 s wait for the coordination lock, the 
   assert.equal(lock("so", "closed-while-held"), "free");
   assert(!loadedAt("so", "closed-while-held").includes(found.session));
   assert.equal(lock("so", "after-release"), "free");
+  assert.equal(lock("so", "after-exec"), "absent", "the next resume took the stale lock file and removed it");
 });
 
 check("After either slow cleanup, `codex exec resume` with the grants resumes the same session in Worktree A, with the grants in force; Dashpot ended the bound run at the settler, about 10 s after the SessionEnd, while Codex still held the thread", () => {
   for (const [prefix, issue] of [["sr", "I_fixture_1"], ["so", "I_fixture_2"]]) {
-    const found = holdOf(prefix);
+    const found = outcome(prefix);
     const attempt = one("resume.attempt", (record) => record.scenario === prefix && record.phase === "after-close");
     assert.equal(attempt.status, 0);
     const start = sessionHooks(found.session).filter((record) => record.event === "SessionStart");
@@ -318,7 +335,7 @@ check("After either slow cleanup, `codex exec resume` with the grants resumes th
   }
 });
 
-check("mcp-disconnect: a controller's `thread/start` whose required MCP server blocks in initialize registers no thread while blocked; after the controller disconnects and the server answers, the thread starts with no subscriber, is unloaded 59 to 62 s later with SessionEnd and thread/closed, its MCP server is stopped as it shuts down, its writer lock removed, and a later `thread/resume` succeeds", () => {
+check("mcp-disconnect: a controller's `thread/start` whose required MCP server blocks in initialize registers no thread while blocked; after the controller disconnects and the server answers, the thread starts with no subscriber, is unloaded 59 to 62 s later with SessionEnd and thread/closed, its MCP server is stopped as it shuts down, its writer lock removed, and a later `thread/resume` succeeds with Codex's default workspace-write sandbox, the network off and no extra writable root", () => {
   const found = outcome("md");
   const events_ = Object.fromEntries(found.mcp.map((entry) => [entry.event, entry]));
   assert(events_["initialize-received"].at < found.disconnectedAt);
@@ -348,8 +365,9 @@ check("mcp-disconnect: a controller's `thread/start` whose required MCP server b
   assert.equal(attempt.result.id, found.thread);
   assert.equal(attempt.result.cwd, ISSUE_A);
   assert.equal(attempt.result.turns, 0);
+  assert.deepEqual(attempt.result.sandbox, { type: "workspaceWrite", writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false });
 });
 
 for (const claim of checks) console.log(`ok - ${claim}`);
-console.log(`Intervals: ${intervals.join("; ")}; idle-shutdown log lines kept for ${loggedUnloads} of the unloads checked`);
+console.log(`Intervals: ${intervals.join("; ")}; idle-shutdown log lines kept for ${loggedUnloads.size} of the ${unloadsChecked.size} unloads checked`);
 console.log(`Verified ${checks.length} claims against ${records.length} records${drifted.length ? `; Dashpot modules changed since the run: ${drifted.join(", ")}` : ""}.`);

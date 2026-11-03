@@ -326,13 +326,14 @@ const hookTimeline = (session) => hooks().filter((record) => record.payload.sess
     publisher: record.publisher.status, publisherOut: retained(record.publisher.stdout ?? "").slice(0, 300), publisherErr: retained(record.publisher.stderr ?? "").slice(0, 300) }));
 
 // The writer lock of a thread, probed without taking the coordination lock
-// and without creating the file: `absent`, `held` by a runtime, or `free`.
+// and without creating the file: `absent`, `held` by a Codex process (the
+// daemon or a terminal client), or `free`.
 const lockDir = path.join(env.CODEX_HOME, "thread-writer-locks");
 const lockHelper = path.join(here, "lock.py");
 const lockState = (thread) => spawnSync("python3", ["-I", lockHelper, "probe", path.join(lockDir, `${thread}.lock`)], { encoding: "utf8", timeout: 10000 }).stdout.trim();
 const lockCheck = (scenario, label, thread) => trace("lock", { scenario, label, thread, state: lockState(thread) });
 // Holding the coordination lock from another process, as Codex's regression
-// test for slow unloads does: a runtime's writer cleanup waits for it.
+// test for slow unloads does: a Codex process's writer cleanup waits for it.
 const holdCoordination = async (scenario) => {
   const child = spawn("python3", ["-I", lockHelper, "hold", path.join(lockDir, ".coordination.lock")], { env, stdio: ["pipe", "pipe", "pipe"] });
   const holder = { child, acquiredAt: null, releasedAt: null, exited: false };
@@ -474,9 +475,11 @@ const firstTurn = async (name, cwd, label) => {
   trace("first.turn", { name, label, session });
   return { tui, session };
 };
-// A resumed terminal shows a read-only transcript while another runtime
-// still holds the thread, and a person presses `r` to retry. The runner
-// records that screen, then presses `r` every 5 s. A retry that resumes the
+// A resumed terminal shows a read-only transcript while another Codex
+// process (the daemon or a terminal client) still holds the thread, and a
+// person presses `r` to retry. The runner records that screen, then presses
+// `r` about every 8 s: 5 s after each refusal it presses, then watches for
+// 3 s and, unrefused, 2 s more for the prompt. A retry that resumes the
 // thread without sending the prompt given on the command line has it typed.
 const asked = (label) => modelRequests.some((record) => record.label === label && record.step === 0);
 const resumeWithRetries = async (handle, label, timeout = 200000) => {
@@ -531,9 +534,14 @@ const rpcClient = async (name, socket) => {
     if (parsed.id !== undefined && pending.has(parsed.id)) { pending.get(parsed.id)(parsed); pending.delete(parsed.id); return; }
     if (parsed.method) for (const listener of listeners) listener(parsed, Date.now());
   });
-  const send = (method, params = {}) => { const id = ++nextId; socket.send(JSON.stringify({ id, method, params })); return id; };
+  const send = (method, params = {}, onReply = null) => {
+    const id = ++nextId;
+    if (onReply) pending.set(id, onReply);
+    socket.send(JSON.stringify({ id, method, params }));
+    return id;
+  };
   const call = (method, params = {}, timeout = 30000) => Promise.race([
-    new Promise((resolve) => { const id = ++nextId; pending.set(id, resolve); socket.send(JSON.stringify({ id, method, params })); }),
+    new Promise((resolve) => send(method, params, resolve)),
     delay(timeout).then(() => ({ error: { message: `${method} timed out` } })),
   ]);
   const init = await call("initialize", { clientInfo: { name: `dashpot-663-${name}`, version: "0" }, capabilities: { experimentalApi: true } });
@@ -560,15 +568,14 @@ const daemonClient = async (name) => {
 let observer = null;
 let loadedPoll = null;
 const closedAt = new Map();
-const onClosed = new Map();
+const lockProbedOnClose = new Set();
 const startObserver = async () => {
   observer = await daemonClient("observer");
   observer.onNotification((message, at) => {
     if (message.method === "thread/closed") {
       const thread = message.params?.threadId ?? null;
       if (!closedAt.has(thread)) closedAt.set(thread, at);
-      const hook = onClosed.get(thread);
-      trace("notification", { method: message.method, thread, at, lock: hook ? lockState(thread) : undefined });
+      trace("notification", { method: message.method, thread, at, lock: lockProbedOnClose.has(thread) ? lockState(thread) : undefined });
     } else if (message.method === "thread/started") {
       const thread = message.params?.thread ?? {};
       trace("notification", { method: message.method, thread: thread.id ?? null, at, cwd: retained(thread.cwd ?? ""), ephemeral: thread.ephemeral ?? null });
@@ -589,7 +596,7 @@ const startObserver = async () => {
 };
 const loadedNow = async (scenario, label) => {
   const listed = await observer.call("thread/loaded/list", {});
-  return trace("loaded.snapshot", { scenario, label, ids: (listed.result?.data ?? []).slice().sort() });
+  return trace("loaded.snapshot", { scenario, label, ids: (listed.result?.data ?? []).slice().sort(), error: listed.error ?? null });
 };
 // Codex's log keeps a bounded number of rows, so each scenario keeps its own
 // lines when it ends: those naming its thread, and those since it began that
@@ -614,55 +621,55 @@ scenario("daemon-start", async () => {
 // A daemon-hosted session exits and is resumed at once with explicit sandbox
 // roots and network: at its own Worktree (`ordinary`), or at another after
 // declaring the move (`relocate`).
-const exitAndResume = async (p, { issue, target, declare }) => {
-  plan(`${p}-first`, [{ work: `start-${issue}` }]);
-  if (declare) plan(`${p}-declare`, [{ work: `relocate:${target}` }, { work: "show" }]);
-  plan(`${p}-resume`, [{ work: "show" }]);
-  const { tui, session } = await firstTurn(`${p}-t1`, issueA, `${p}-first`);
-  onClosed.set(session, true);
-  await view(p, "after-start");
+const exitAndResume = async (prefix, { issue, target, declare }) => {
+  plan(`${prefix}-first`, [{ work: `start-${issue}` }]);
+  if (declare) plan(`${prefix}-declare`, [{ work: `relocate:${target}` }, { work: "show" }]);
+  plan(`${prefix}-resume`, [{ work: "show" }]);
+  const { tui, session } = await firstTurn(`${prefix}-t1`, issueA, `${prefix}-first`);
+  lockProbedOnClose.add(session);
+  await view(prefix, "after-start");
   if (declare) {
-    await promptTurn(tui, `${p}-declare`, session);
-    await view(p, "after-declare");
+    await promptTurn(tui, `${prefix}-declare`, session);
+    await view(prefix, "after-declare");
   }
-  lockCheck(p, "before-exit", session);
+  lockCheck(prefix, "before-exit", session);
   const exitMark = mark();
   await exitTerminal(tui);
   const exitedAt = tui.exitedAt;
-  lockCheck(p, "after-exit", session);
-  await loadedNow(p, "after-exit");
+  lockCheck(prefix, "after-exit", session);
+  await loadedNow(prefix, "after-exit");
   // What Dashpot reports once the daemon unloads the thread: just after its
   // `SessionEnd`, and once the settler that hook starts has decided.
   const unloadViews = (async () => {
-    if (!(await settle(() => sessionEnd(exitMark, session), `${p} unload SessionEnd`, 150000))) return;
+    if (!(await settle(() => sessionEnd(exitMark, session), `${prefix} unload SessionEnd`, 150000))) return;
     await delay(1000);
-    await view(p, "after-unload");
+    await view(prefix, "after-unload");
     await delay(12000);
-    await view(p, "after-unload-settle");
+    await view(prefix, "after-unload-settle");
   })();
   const resumeMark = mark();
-  const t2 = terminal(`${p}-t2`, ["resume", session, "-C", target, ...grant, `SPIKE:${p}-resume`]);
-  const resumed = await resumeWithRetries(t2, `${p}-resume`);
-  await settle(() => turnEnded(resumeMark, session), `${p}-resume Stop`, 60000);
+  const t2 = terminal(`${prefix}-t2`, ["resume", session, "-C", target, ...grant, `SPIKE:${prefix}-resume`]);
+  const resumed = await resumeWithRetries(t2, `${prefix}-resume`);
+  await settle(() => turnEnded(resumeMark, session), `${prefix}-resume Stop`, 60000);
   await delay(1000);
-  lockCheck(p, "after-resume", session);
-  await loadedNow(p, "after-resume");
+  lockCheck(prefix, "after-resume", session);
+  await loadedNow(prefix, "after-resume");
   await unloadViews;
-  await view(p, "after-resume");
+  await view(prefix, "after-resume");
   // The settler Dashpot starts on a daemon-hosted `SessionEnd` decides
   // within about 10 s.
   await delay(13000);
-  await view(p, "after-resume-settle");
+  await view(prefix, "after-resume-settle");
   const endMark = mark();
   await exitTerminal(t2);
-  await settle(() => sessionEnd(endMark, session), `${p} resumed SessionEnd`, 30000);
+  await settle(() => sessionEnd(endMark, session), `${prefix} resumed SessionEnd`, 30000);
   await delay(13000);
-  lockCheck(p, "after-resumed-exit", session);
-  await view(p, "after-resumed-exit");
-  await eventLog(p, [session]);
-  trace(`${p}.outcome`, { session, exitedAt, closedAt: closedAt.get(session) ?? null, resumed: resumed.receipt, firstUnloadEnd: sessionEnd(exitMark, session)?.receipt ?? null,
+  lockCheck(prefix, "after-resumed-exit", session);
+  await view(prefix, "after-resumed-exit");
+  await eventLog(prefix, [session]);
+  trace(`${prefix}.outcome`, { session, exitedAt, closedAt: closedAt.get(session) ?? null, resumed: resumed.receipt, firstUnloadEnd: sessionEnd(exitMark, session)?.receipt ?? null,
     hooks: hookTimeline(session), turns: rolloutTurns(session), log: unloadLog(session),
-    probes: Object.fromEntries([`${p}-first.0`, `${p}-declare.0`, `${p}-declare.1`, `${p}-resume.0`].map((name) => [name, probeFor(name)]).filter(([, found]) => found)) });
+    probes: Object.fromEntries([`${prefix}-first.0`, `${prefix}-declare.0`, `${prefix}-declare.1`, `${prefix}-resume.0`].map((name) => [name, probeFor(name)]).filter(([, found]) => found)) });
 };
 scenario("ordinary", () => exitAndResume("or", { issue: 1, target: issueA, declare: false }));
 scenario("relocate", () => exitAndResume("rl", { issue: 2, target: issueB, declare: true }));
@@ -671,54 +678,54 @@ scenario("relocate", () => exitAndResume("rl", { issue: 2, target: issueB, decla
 // coordination lock another process holds until `releaseAfter` ms after the
 // client exits. A controller tries to resume the thread while its cleanup is
 // blocked, and `codex exec resume` resumes it once it has closed.
-const slowUnload = async (p, releaseAfter, issue) => {
-  plan(`${p}-first`, [{ work: `start-${issue}` }]);
-  plan(`${p}-exec`, [{ work: "show" }]);
-  const { tui, session } = await firstTurn(`${p}-t1`, issueA, `${p}-first`);
-  onClosed.set(session, true);
+const slowUnload = async (prefix, releaseAfter, issue) => {
+  plan(`${prefix}-first`, [{ work: `start-${issue}` }]);
+  plan(`${prefix}-exec`, [{ work: "show" }]);
+  const { tui, session } = await firstTurn(`${prefix}-t1`, issueA, `${prefix}-first`);
+  lockProbedOnClose.add(session);
   const exitMark = mark();
   await exitTerminal(tui);
   const exitedAt = tui.exitedAt;
-  const holder = await holdCoordination(p);
-  lockCheck(p, "after-exit", session);
-  await settle(() => sessionEnd(exitMark, session), `${p} SessionEnd`, 100000);
+  const holder = await holdCoordination(prefix);
+  lockCheck(prefix, "after-exit", session);
+  await settle(() => sessionEnd(exitMark, session), `${prefix} SessionEnd`, 100000);
   await delay(1000);
-  await view(p, "after-unload");
+  await view(prefix, "after-unload");
   await delay(4000);
-  lockCheck(p, "during-cleanup", session);
-  await loadedNow(p, "during-cleanup");
-  const resumer = await daemonClient(`${p}-resumer`);
+  lockCheck(prefix, "during-cleanup", session);
+  await loadedNow(prefix, "during-cleanup");
+  const resumer = await daemonClient(`${prefix}-resumer`);
   const attempt = await resumer.call("thread/resume", { threadId: session });
   if (attempt.result) await resumer.call("thread/unsubscribe", { threadId: session });
-  trace("resume.attempt", { scenario: p, phase: "during-cleanup", via: "daemon thread/resume", error: attempt.error ? { code: attempt.error.code, message: retained(attempt.error.message) } : null,
+  trace("resume.attempt", { scenario: prefix, phase: "during-cleanup", via: "daemon thread/resume", error: attempt.error ? { code: attempt.error.code, message: retained(attempt.error.message) } : null,
     result: attempt.result ? { id: attempt.result.thread?.id ?? null } : null });
   resumer.close();
   await delay(7000);
-  await view(p, "during-cleanup-settle");
-  lockCheck(p, "during-cleanup-settle", session);
-  await waitFor(() => Date.now() >= exitedAt + releaseAfter || closedAt.has(session), `${p} hold`, releaseAfter + 10000).catch(() => {});
+  await view(prefix, "during-cleanup-settle");
+  lockCheck(prefix, "during-cleanup-settle", session);
+  await waitFor(() => Date.now() >= exitedAt + releaseAfter || closedAt.has(session), `${prefix} hold`, releaseAfter + 10000).catch(() => {});
   if (closedAt.has(session)) {
-    lockCheck(p, "closed-while-held", session);
-    await loadedNow(p, "closed-while-held");
-    await waitFor(() => Date.now() >= exitedAt + releaseAfter, `${p} hold`, releaseAfter + 10000).catch(() => {});
+    lockCheck(prefix, "closed-while-held", session);
+    await loadedNow(prefix, "closed-while-held");
+    await waitFor(() => Date.now() >= exitedAt + releaseAfter, `${prefix} hold`, releaseAfter + 10000).catch(() => {});
   }
   await holder.release();
-  await settle(() => closedAt.has(session), `${p} thread/closed`, 60000);
+  await settle(() => closedAt.has(session), `${prefix} thread/closed`, 60000);
   await delay(1000);
-  lockCheck(p, "after-release", session);
-  await loadedNow(p, "after-release");
+  lockCheck(prefix, "after-release", session);
+  await loadedNow(prefix, "after-release");
   const execMark = mark();
-  const resumed = await run("codex", ["exec", "-C", issueA, ...grant, "resume", session, `SPIKE:${p}-exec`], { cwd: root, timeout: 90000 });
-  trace("resume.attempt", { scenario: p, phase: "after-close", via: "codex exec resume", status: resumed.status,
+  const resumed = await run("codex", ["exec", "-C", issueA, ...grant, "resume", session, `SPIKE:${prefix}-exec`], { cwd: root, timeout: 90000 });
+  trace("resume.attempt", { scenario: prefix, phase: "after-close", via: "codex exec resume", status: resumed.status,
     stderr: retained(stripAnsi(resumed.stderr)).split("\n").filter((line) => /error|writer|conflict|closing/i.test(line)).join("\n").slice(-800) });
-  await settle(() => sessionEnd(execMark, session), `${p} exec SessionEnd`, 30000);
+  await settle(() => sessionEnd(execMark, session), `${prefix} exec SessionEnd`, 30000);
   await delay(13000);
-  lockCheck(p, "after-exec", session);
-  await view(p, "after-exec");
-  await eventLog(p, [session]);
-  trace(`${p}.outcome`, { session, exitedAt, closedAt: closedAt.get(session) ?? null, holdAcquiredAt: holder.acquiredAt, holdReleasedAt: holder.releasedAt,
+  lockCheck(prefix, "after-exec", session);
+  await view(prefix, "after-exec");
+  await eventLog(prefix, [session]);
+  trace(`${prefix}.outcome`, { session, exitedAt, closedAt: closedAt.get(session) ?? null, holdAcquiredAt: holder.acquiredAt, holdReleasedAt: holder.releasedAt,
     unloadEnd: sessionEnd(exitMark, session)?.receipt ?? null, hooks: hookTimeline(session), turns: rolloutTurns(session), log: unloadLog(session),
-    probes: Object.fromEntries([`${p}-first.0`, `${p}-exec.0`].map((name) => [name, probeFor(name)]).filter(([, found]) => found)) });
+    probes: Object.fromEntries([`${prefix}-first.0`, `${prefix}-exec.0`].map((name) => [name, probeFor(name)]).filter(([, found]) => found)) });
 };
 scenario("slow-release", () => slowUnload("sr", 80000, 1));
 scenario("slow-timeout", () => slowUnload("so", 130000, 2));
@@ -727,56 +734,56 @@ scenario("slow-timeout", () => slowUnload("so", 130000, 2));
 // `initialize`; the controller disconnects during that startup, and the
 // runner then lets the server answer.
 scenario("mcp-disconnect", async () => {
-  const p = "md";
+  const prefix = "md";
   const statusPath = path.join(root, "mcp-status.jsonl");
   const gatePath = path.join(gates, "mcp");
   const mcpStatus = () => { try { return readFileSync(statusPath, "utf8").trim().split("\n").map(parseJson).filter(Boolean); } catch { return []; } };
   const mcpEvent = (event) => mcpStatus().find((entry) => entry.event === event) ?? null;
-  const starter = await daemonClient(`${p}-starter`);
+  const starter = await daemonClient(`${prefix}-starter`);
   const startId = starter.send("thread/start", { cwd: issueA, config: { "mcp_servers.blocked": {
     command: process.execPath, args: [path.join(here, "mcp-blocked.mjs"), statusPath, gatePath], required: true, startup_timeout_sec: 120 } } });
-  trace("mcp.thread-start", { scenario: p, requestId: startId });
-  await settle(() => mcpEvent("initialize-received"), `${p} MCP initialize received`, 30000);
+  trace("mcp.thread-start", { scenario: prefix, requestId: startId });
+  await settle(() => mcpEvent("initialize-received"), `${prefix} MCP initialize received`, 30000);
   const mcpPid = mcpEvent("start")?.pid ?? null;
-  await loadedNow(p, "startup-blocked");
+  await loadedNow(prefix, "startup-blocked");
   starter.close();
   const disconnectedAt = Date.now();
-  trace("mcp.disconnect", { scenario: p, at: disconnectedAt });
+  trace("mcp.disconnect", { scenario: prefix, at: disconnectedAt });
   await delay(3000);
-  await loadedNow(p, "after-disconnect");
+  await loadedNow(prefix, "after-disconnect");
   const before = new Set((await observer.call("thread/loaded/list", {})).result?.data ?? []);
   writeFileSync(gatePath, "");
   const openedAt = Date.now();
-  trace("mcp.gate", { scenario: p, at: openedAt });
-  await settle(() => mcpEvent("initialize-answered"), `${p} MCP initialize answered`, 30000);
+  trace("mcp.gate", { scenario: prefix, at: openedAt });
+  await settle(() => mcpEvent("initialize-answered"), `${prefix} MCP initialize answered`, 30000);
   let thread = null;
   await settle(() => {
     thread = records.find((record) => record.kind === "notification" && record.method === "thread/started" && record.receiptTime >= disconnectedAt - 5000 && record.cwd === retained(issueA))?.thread ?? null;
     return thread;
-  }, `${p} thread started`, 30000);
+  }, `${prefix} thread started`, 30000);
   if (!thread) {
     const after = (await observer.call("thread/loaded/list", {})).result?.data ?? [];
     thread = after.find((id) => !before.has(id)) ?? null;
   }
-  onClosed.set(thread, true);
+  lockProbedOnClose.add(thread);
   await delay(1000);
-  lockCheck(p, "loaded", thread);
-  await loadedNow(p, "after-startup");
-  await settle(() => closedAt.has(thread), `${p} thread/closed`, 150000);
-  await settle(() => mcpEvent("stdin-end") || mcpEvent("signal") || (mcpPid && !existsSync(`/proc/${mcpPid}`)), `${p} MCP process exit`, 20000);
+  lockCheck(prefix, "loaded", thread);
+  await loadedNow(prefix, "after-startup");
+  await settle(() => closedAt.has(thread), `${prefix} thread/closed`, 150000);
+  await settle(() => mcpEvent("stdin-end") || mcpEvent("signal") || (mcpPid && !existsSync(`/proc/${mcpPid}`)), `${prefix} MCP process exit`, 20000);
   await delay(1000);
-  lockCheck(p, "after-closed", thread);
-  await loadedNow(p, "after-closed");
-  const resumer = await daemonClient(`${p}-resumer`);
+  lockCheck(prefix, "after-closed", thread);
+  await loadedNow(prefix, "after-closed");
+  const resumer = await daemonClient(`${prefix}-resumer`);
   const attempt = await resumer.call("thread/resume", { threadId: thread });
-  trace("resume.attempt", { scenario: p, phase: "after-close", via: "daemon thread/resume", error: attempt.error ? { code: attempt.error.code, message: retained(attempt.error.message) } : null,
+  trace("resume.attempt", { scenario: prefix, phase: "after-close", via: "daemon thread/resume", error: attempt.error ? { code: attempt.error.code, message: retained(attempt.error.message) } : null,
     result: attempt.result ? { id: attempt.result.thread?.id ?? null, cwd: retained(attempt.result.thread?.cwd ?? ""), turns: attempt.result.thread?.turns?.length ?? null,
       sandbox: parseJson(retained(JSON.stringify(attempt.result.sandbox ?? null))) } : null });
   if (attempt.result) await resumer.call("thread/unsubscribe", { threadId: thread });
   resumer.close();
   // Codex writes its log in batches.
   await delay(6000);
-  trace(`${p}.outcome`, { thread, disconnectedAt, openedAt, closedAt: closedAt.get(thread) ?? null, mcp: mcpStatus().map((entry) => ({ event: entry.event, pid: entry.pid, at: entry.at, signal: entry.signal ?? null })),
+  trace(`${prefix}.outcome`, { thread, disconnectedAt, openedAt, closedAt: closedAt.get(thread) ?? null, mcp: mcpStatus().map((entry) => ({ event: entry.event, pid: entry.pid, at: entry.at, signal: entry.signal ?? null })),
     mcpAlive: mcpPid ? existsSync(`/proc/${mcpPid}`) : null, hooks: hookTimeline(thread), log: unloadLog(thread) });
 });
 

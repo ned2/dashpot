@@ -1,8 +1,9 @@
 """Probe or hold a Codex writer-lock file for the Codex 663 unload and resume run.
 
 Codex takes an advisory ``flock`` on ``<CODEX_HOME>/thread-writer-locks/<id>.lock``
-while a runtime owns a thread, and on ``.coordination.lock`` beside it while it
-creates or removes one. ``probe PATH`` prints ``absent`` when no file exists,
+while a Codex process (the daemon or a terminal client) owns a thread, and on
+``.coordination.lock`` beside it while it creates or removes one.
+``probe PATH`` prints ``absent`` when no file exists,
 ``held`` when another process holds the file's lock, and ``free`` when the file
 exists unlocked; it never creates the file. ``hold PATH`` takes the lock,
 waiting until it is free, prints ``acquired <ms>``, keeps it until its
@@ -22,7 +23,7 @@ def now() -> int:
 
 
 def probe(path: str) -> str:
-    """Whether another process holds the lock on ``path``."""
+    """The state of the lock on ``path``: absent, held or free."""
     try:
         handle = open(path, "rb")  # ruff: ignore[open-file-with-context-handler] - closed below on every path
     except FileNotFoundError:
