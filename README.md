@@ -532,13 +532,22 @@ install left behind. This is development setup, not a product decision, so
 no ADR records it. The commit hooks warn, without failing, while
 `core.hooksPath` is unset or names anything else.
 
-After pulling a change to the hooks, skills or agents Dashpot bundles,
-refresh every harness you have integrated from the main checkout, never
-from a linked Worktree, whose `.venv` is removed with it:
+Bind the harnesses' hooks to a non-editable tool installation of a chosen
+revision, not to a checkout's editable `.venv`: every session on the machine
+runs that publisher, so a pull into the main checkout then changes nothing
+that observes a running Arc. With the main checkout clean at the revision you
+choose, install it as the tool, then refresh every harness you have integrated
+from that tool's `dashpot` and check them:
 
 ```bash
-uv run dashpot integrate --installed
+uv tool install --reinstall --python 3.14 .
+dashpot integrate --installed
+dashpot integrate --status
 ```
+
+Do this only when no Arc has a live Worker
+([AGENTS.md](AGENTS.md#leading-parallel-issue-work)), and never bind from a
+linked Worktree, whose `.venv` is removed with it.
 
 Tests run in parallel by default, reserving half the available CPUs and using
 at most eight workers (at least one). The count is `os.process_cpu_count()`,
@@ -646,8 +655,9 @@ Use `--workers N` to choose a count, or `--workers 0` for serial execution.
 Choose a worker count appropriate to local CPU and memory capacity. Worker crashes fail
 the run without restarting. The evidence records the exact command. It prints
 missing lines and writes `.review-coverage/coverage.json` plus `evidence.json`.
-Evidence records the base, source content digest, coverage report digest,
-command, Python/coverage versions, platform, and completion time. A failed run
+Evidence records the base, source content digest and the mode and hash of each
+file it covers, coverage report digest, command, Python/coverage versions,
+platform, and completion time. A failed run
 removes prior success evidence; changes during the run prevent new evidence.
 Generated files are ignored. Use the checkout's locked environment; Python
 3.14 is preferred for its lower-overhead coverage backend. Other supported
@@ -676,7 +686,14 @@ uv run --locked python scripts/review_coverage.py --base "$review_base" --check
 The source digest includes every tracked and non-ignored new file, `scripts/`
 as well as `src/` and `tests/`, including modes and symlink targets. Staging
 and committing the same files preserves it; source edits, a different review
-base, or a replaced report require fresh evidence.
+base, or a replaced report require fresh evidence. A change since the run
+that touches only documentation paths, as CI's lane classifier defines them
+(`documentation_path` in [`scripts/ci_lane.py`](scripts/ci_lane.py)), leaves
+the evidence standing: `--check` accepts it, prints the recorded digest, and
+lists each documentation path it accepted. Rerun the all-files pre-commit
+checks after such a change all the same. Skill text under `src/`, the
+experiments and the traces are not documentation paths, so a change to one
+requires fresh evidence.
 Ignored local state is excluded. This verifies freshness, not reviewer approval.
 Keep one writer and one coverage run per Worktree. Supply both reports to the
 reviewer and record useful conclusions in the PR; generated evidence is not

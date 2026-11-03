@@ -190,6 +190,8 @@ Written once, at setup, before you create the first Worktree:
 - your share of the machine's cores, and how it splits between workers;
 - the other open arcs you read, with the files, numbers and cores each
   holds, and how each file both arcs touch was settled;
+- the checkout or tool install whose code your harness's hooks run, held
+  at one revision for the arc;
 - who holds merge authority for the arc;
 - the permission posture and reviewer routing, including automatic review
   when selected: each action it may stop, any standing grants already

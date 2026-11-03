@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-11-02
+date: 2026-11-03
 ---
 
 # Measurements
@@ -35,7 +35,14 @@ says `runner or verifier changed`. Some older verifiers, such as
 runner's Git history. The trace keeps the hash of the runner that made it,
 and the runner's Git history holds that version. The helper scripts change
 only with a new trace. The PR that commits a trace still checks every hash
-it records against its head. `tests/test_experiment_runners.py` runs each
+it records against its head, with
+[`scripts/trace_drift.py`](../../../scripts/trace_drift.py): it runs a
+verifier with `--strict` and, when that fails, lists each drifted source as
+changed by the PR's own diff or by `main` since the run's base, without a
+stack trace. A source the PR changes must match its head; drift from `main`
+is recorded in the PR rather than re-measured
+([AGENTS.md](../../../AGENTS.md#leading-parallel-issue-work)).
+`tests/test_experiment_runners.py` runs each
 runner's inline Python and requires every source it hashes to exist, so a
 module move fails the suite instead of the next run.
 
@@ -47,6 +54,13 @@ cites each file.
 
 A `.txt` file is a `script --log-timing` record of a terminal's output: one
 line per write, the seconds since the previous write and the bytes written.
+
+This index is written by hand, and each measurement adds its own row and may
+move the `date:` line. Two branches that each add one conflict here, so a
+rebase resolves the conflict by keeping both sides' rows and the later date;
+one whose only other conflicts are the generated indexes stays
+content-preserving
+([AGENTS.md](../../../AGENTS.md#integration-and-rebase)).
 
 | Trace | Format | Issue | Produced by | Recorded in |
 | --- | --- | --- | --- | --- |
