@@ -275,7 +275,7 @@ def _acknowledged_occupancy(
     scan that could not check every process refuses the step.
     """
     occupants = assess_worktree_occupancy(located.path, located.worktrees, lookup)
-    found, unchecked = assess_processes_inside(located, scan)
+    found, unchecked = assess_processes_inside(located, scan, lookup)
     others = [
         blocker for blocker in (*occupants, *found) if blocker.kind != "sub-agent"
     ]

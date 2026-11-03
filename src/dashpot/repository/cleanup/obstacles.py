@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git, GitError
-from ...core.model import HARNESS_DISPLAY
+from ...core.model import HARNESS_DISPLAY, Harness
 from ...core.shell import in_directory, shell_command, then
 from ...core.text import counted
 from ...core.worktree_paths import is_within, same_path, worktree_paths, worktree_root
 from ...sessions.hook_scan import (
     HookRecordClassification,
+    live_sessions_by_host,
     reachable_hook_stores,
     sessions_at_worktree,
     sessions_with_live_subagents,
@@ -37,7 +38,12 @@ from ...sessions.session_exits import (
     unreported_subagent_stop,
 )
 from ...sessions.work_store import ActiveWork, WorkStore
-from ...sessions.working_directories import ProcessScan, ScanGap, processes_inside
+from ...sessions.working_directories import (
+    ProcessDirectory,
+    ProcessScan,
+    ScanGap,
+    processes_inside,
+)
 from ..observe import assess_content_integration, lock_holder
 from ..refs import RefIndex, short_ref
 from ..worktrees.records import INITIALIZING_LOCK, registered_at, short_branch
@@ -375,8 +381,46 @@ def unchecked_processes(gap: ScanGap) -> str:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _HostAttribution:
+    """The live Agent Sessions a process inside a Worktree belongs to.
+
+    ``host`` is the pid of their Host Process: the process itself when
+    ``is_host``, else its nearest traced ancestor that is one.
+    """
+
+    host: int
+    sessions: tuple[tuple[Harness, str], ...]
+    is_host: bool
+
+    def describe(self) -> str:
+        """The clause that follows the process's pid, command and directory."""
+        sessions = ", ".join(
+            f"{HARNESS_DISPLAY[harness]} session {session}"
+            for harness, session in self.sessions
+        )
+        if self.is_host:
+            return f", the Host Process of {sessions}"
+        return f", started under the Host Process (pid {self.host}) of {sessions}"
+
+
+def _host_attribution(
+    process: ProcessDirectory,
+    hosts: Mapping[int, tuple[tuple[Harness, str], ...]],
+) -> _HostAttribution | None:
+    """The live sessions ``process`` is the Host Process of or descends from, if any."""
+    if process.pid in hosts:
+        return _HostAttribution(process.pid, hosts[process.pid], is_host=True)
+    for ancestor in process.ancestry:
+        if ancestor in hosts:
+            return _HostAttribution(ancestor, hosts[ancestor], is_host=False)
+    return None
+
+
 def assess_processes_inside(
-    located: LocatedWorktree, scan: ProcessScan | None = None
+    located: LocatedWorktree,
+    scan: ProcessScan | None = None,
+    lookup: ProcessLookup = host_process_lookup,
 ) -> tuple[list[CleanupBlocker], str | None]:
     """The ``process`` blocker of a Worktree some process runs inside, and any gap.
 
@@ -386,7 +430,10 @@ def assess_processes_inside(
     and a scan that could not read every process says so in the returned
     sentence instead of a blocker (ADR 0104). The main Worktree is never
     removable, and its tree may hold linked Worktrees whose occupants are
-    not its own, so it is not scanned.
+    not its own, so it is not scanned. A process that is, or descends from,
+    a live Agent Session's Host Process is named with that session, since a
+    session can leave a process it started in a Worktree it has left
+    (ADR 0160).
     """
     if located.role == "main":
         return [], None
@@ -396,9 +443,14 @@ def assess_processes_inside(
     )
     if not found.processes:
         return [], unchecked
+    hosts = live_sessions_by_host(reachable_hook_stores(located.worktrees), lookup)
+    attributions = [_host_attribution(process, hosts) for process in found.processes]
     named = [
         f"pid {process.pid} ({process.command}) at {process.cwd}"
-        for process in found.processes[:NAMED_PROCESSES]
+        f"{attribution.describe() if attribution is not None else ''}"
+        for process, attribution in zip(
+            found.processes[:NAMED_PROCESSES], attributions, strict=False
+        )
     ]
     rest = len(found.processes) - len(named)
     if rest:
@@ -409,15 +461,79 @@ def assess_processes_inside(
     else:
         opening = f"{len(found.processes)} processes are running inside this Worktree"
         pronoun = "them"
+    detail = (
+        f"{opening}: {'; '.join(named)}. Removing the Worktree would delete the "
+        f"directory it works in: end {pronoun} or move {pronoun} out of the Worktree."
+    )
+    # A process whose Host Process is itself inside was not left behind: its
+    # session is still here, which the agent-session blocker reports.
+    inside = {process.pid for process in found.processes}
+    left = [
+        (process.pid, attribution)
+        for process, attribution in zip(found.processes, attributions, strict=True)
+        if attribution is not None
+        and not attribution.is_host
+        and attribution.host not in inside
+    ]
+    if left:
+        detail += " " + _left_behind(
+            left, others=len(left) < len(inside), complete=found.incomplete is None
+        )
     pids = ",".join(str(process.pid) for process in found.processes)
     blocker = CleanupBlocker(
         kind="process",
-        detail=f"{opening}: {'; '.join(named)}. Removing the Worktree would "
-        f"delete the directory it works in: end {pronoun} or move {pronoun} "
-        f"out of the Worktree.",
+        detail=detail,
         command=shell_command("ps", "-ww", "-o", "pid=,args=", "-p", pids),
     )
     return [blocker], unchecked
+
+
+def _left_behind(
+    left: Sequence[tuple[int, _HostAttribution]], *, others: bool, complete: bool
+) -> str:
+    """Say that live sessions started these processes, and what ending them does.
+
+    A session that leaves a Worktree does not always take what it started
+    with it: Claude Code's ``ExitWorktree`` leaves its language server
+    running where the session first edited Python (#695). Ending the
+    processes frees the Worktree only when no ``others`` are inside and the
+    scan was ``complete``, so nothing unseen may be; ending the session is
+    not offered, since a harness need not end its children with it
+    (ADR 0160).
+    """
+    pids = [str(pid) for pid, _attribution in left[:NAMED_PROCESSES]]
+    if len(left) > NAMED_PROCESSES:
+        # The comma keeps this "and" apart from the one that follows.
+        pids.append(f"and {len(left) - NAMED_PROCESSES} more,")
+    if len(left) == 1:
+        subject, pronoun = f"pid {pids[0]}", "it"
+        process, session = "that process", "its session"
+    else:
+        subject, pronoun = f"pids {', '.join(pids)}", "them"
+        process, session = "those processes", "their sessions"
+    claude_code = all(
+        harness == "claude-code"
+        for _pid, attribution in left
+        for harness, _session in attribution.sessions
+    )
+    example = (
+        ", as a Claude Code session leaves its language server behind"
+        if claude_code
+        else ""
+    )
+    if others:
+        outcome = (
+            f"leaves {session} running, while the other processes here still "
+            "hold the Worktree"
+        )
+    elif complete:
+        outcome = f"frees the Worktree and leaves {session} running"
+    else:
+        outcome = f"leaves {session} running"
+    return (
+        f"A live Agent Session started {subject} and may have left this Worktree "
+        f"without {pronoun}{example}: ending {process} {outcome}."
+    )
 
 
 def _unrecorded_opencode_session(work: ActiveWork, stores: Sequence[Path]) -> bool:
@@ -718,7 +834,7 @@ def assess_worktree(
     path = located.path
     blockers = assess_worktree_safety(located, lookup)
     blockers.extend(assess_worktree_occupancy(path, located.worktrees, lookup))
-    found, unchecked = assess_processes_inside(located, scan)
+    found, unchecked = assess_processes_inside(located, scan, lookup)
     blockers.extend(found)
     blockers.extend(assess_nested_worktrees(located))
     if located.detached:
