@@ -518,7 +518,8 @@ measured it with synthetic variables:
 | Codex 0.160.0, a terminal launched with `--disable daemon_auto_start` while no daemon runs | The terminal's own environment, for a fresh or a resumed session. |
 | OpenCode 2.0.22, shared service | The environment of the TUI or `opencode run` client that last opened or continued the session, which the client sends to the service. A TUI or `opencode run` with variables the service lacks gives them to the session; an `opencode run` without variables the service has takes them away (a TUI doing so is not measured). A session moved with `session_move` runs with the moving client's environment. A session prompted only through the HTTP API, whether created there or prompted after a service restart dropped what its client sent, runs with the service's own environment. |
 | OpenCode 2.0.22, `--standalone` | The client's environment. |
-| Claude Code | Not measured. |
+| Claude Code, `--bg` | The environment of the shell that first started the configuration directory's supervisor, for that session and every later `--bg` session under the supervisor, whichever session dispatches it ([measured at 2.1.287 and 2.1.289](agent-harness-server-client-reference.md#background-session-environment-at-21287-and-21289)). |
+| Claude Code, other sessions | Not measured. |
 
 Dashpot neither loads ignored Worktree configuration nor supplies
 credentials. Two operator-local options give a terminal in a linked Worktree
@@ -554,6 +555,46 @@ OpenCode client gives it to the session it opens or continues, while a Codex
 client gives it only to a managed daemon that the client itself starts or,
 launched with `--disable daemon_auto_start` while no daemon runs, to its own
 session; a daemon already running keeps the environment it started with.
+
+#### Starting a session from another session
+
+An agent that starts another Agent Session as its own process, rather than
+as a Sub-agent, gives it whatever environment the process that creates it
+has. Measured on Linux with synthetic variables, a private tmux server and
+an isolated direnv allow store (tmux 3.6, direnv 2.37.1, bash 5.3):
+
+- **A process the command starts itself**, such as with `setsid -f`,
+  inherits that command's environment.
+- **A window or pane that a running tmux server opens** gets the server's
+  global environment merged with the tmux session's environment, not the
+  environment of the `tmux` command that asked for it. tmux's
+  `update-environment` copies only the variables it lists, by default
+  display, SSH and Kerberos ones, and only when a tmux session is created or
+  attached. `tmux new-window -e NAME=value` gives a value to that window
+  alone and leaves it out of `tmux show-environment`, though it is on the
+  command line of the short-lived `tmux` client that sends it.
+  `tmux set-environment` stores a value in the tmux session's environment,
+  where every later window of that tmux session gets it and
+  `show-environment` lists it.
+- **A terminal emulator's running instance**, asked to open a window, may
+  give the window its own environment rather than the caller's. This depends
+  on the terminal and was not measured.
+- **direnv's shell hook runs at a prompt.** bash's lives in
+  `PROMPT_COMMAND`, so a command handed to `bash -c`, `bash -lc` or
+  `bash -ic` runs before any `.envrc` loads; an interactive shell that
+  reaches a prompt loads it. Other shells' hooks were not measured.
+- **`direnv exec <dir> <command>`** loads the `.envrc` that applies to
+  `<dir>`. When that `.envrc` is blocked, it exits 1 without running the
+  command, so a session launched through it never starts. When no `.envrc`
+  applies, it unloads the direnv values it inherited and runs the command
+  without them. Pointed at another checkout, it loads that checkout's
+  environment, including what it puts on `PATH`, such as that checkout's
+  `.venv/bin`.
+
+Where the table above says a daemon or supervisor supplies the environment,
+the new session's commands get that environment whatever its client starts
+with. So only a check run inside the new session sees the environment its
+commands run with.
 
 ## Observe agent sessions
 

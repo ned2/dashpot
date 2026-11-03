@@ -304,9 +304,57 @@ Every checkout — the main worktree and each linked worktree — owns its own
 `.venv`: run `uv sync --locked --group dev` inside the checkout you were
 assigned before running anything there. Project state is per checkout too
 (`.dashpot/state/` is ignored), which is why the Issue work lifecycle above is
-run where the work happens. There is no tracked `.envrc`; an `.envrc` you find
-in a checkout is local, ignored, and holds that user's `gh` credentials —
-leave it alone and never commit one.
+run where the work happens.
+
+There is no tracked `.envrc`. An `.envrc` you find in a checkout is local and
+ignored, and may hold that user's credentials: never read, print, edit, copy,
+allow or commit one. When `gh`, `work start` or a push fails for credentials,
+stop and tell the user what failed, with a link to
+[Credentials in a linked Worktree](docs/installation.md#credentials-in-a-linked-worktree).
+Never switch to or borrow credentials you were not given: don't load the
+environment of a checkout other than the one a command works in, export a
+token yourself, point `GH_CONFIG_DIR` at another store, or run `gh auth login`
+on the user's behalf. The one credential mechanism this Repository sanctions
+is `direnv exec` when starting another Agent Session, as
+[Starting another Agent Session](#starting-another-agent-session) says.
+
+### Starting another Agent Session
+
+This applies when you start another Agent Session for the user's work, in a
+terminal, a tmux window or pane, or detached, rather than a Sub-agent. A
+harness experiment's fixture gets no real credentials and follows
+[Leading parallel Issue work](#leading-parallel-issue-work) instead.
+
+- Start it detached from your own process, in a tmux window or with
+  `setsid -f`, so it neither descends from your Host Process nor ends with
+  the command that started it.
+- Its commands may not run with your environment. A window, pane or session
+  that an already running tmux server, terminal, harness daemon or supervisor
+  opens may get that process's environment, not yours. A command given to a
+  new shell runs before any prompt, so direnv's hook has not loaded an
+  `.envrc` for it.
+  [Credentials in a linked Worktree](docs/installation.md#credentials-in-a-linked-worktree)
+  has the details.
+- Where an `.envrc` applies to the checkout the new session works in, start
+  the session with `direnv exec <that checkout> <command>`. Never point it at
+  another checkout. Usually no `.envrc` applies in a linked Worktree, and then
+  `direnv exec` loads nothing. In every other case, ask the user how the new
+  session gets credentials. Don't work it out by inspecting your own
+  environment.
+- Write the brief to a file outside the checkout and have the session read
+  it, rather than passing its text on the command line. `ps` shows a command
+  line, and Dashpot's hook record keeps the Host Process's. Never put a token
+  on a command line or in a brief.
+- The brief has the session check its access first. For Issue work the check
+  is its `work start`; otherwise it is `gh auth status --hostname github.com`,
+  plus `git ls-remote origin` if the session will push. On a failure the
+  session stops and tells the user what failed. A failing `gh auth status`
+  means `gh` is unusable, and an offline network causes that too. Wait for
+  this first report: only a check inside the session sees the environment its
+  commands run with, and a session that never started never reports.
+- Scope every credential prohibition in a brief to what it protects, by name,
+  such as one experiment's configuration directory, so that it never forbids
+  what the session needs.
 
 ## Leading parallel Issue work
 
