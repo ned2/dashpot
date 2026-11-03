@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-11-03
+date: 2026-11-04
 ---
 
 # Agent harness server and client reference
@@ -21,44 +21,18 @@ below where their meanings differ.
 
 ## Scope and evidence
 
-| Harness | Evidence available | Limits |
-| --- | --- | --- |
-| Codex | Isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on one `app-server --listen`, fork, sub-agent, second client, client departure, interrupt, unsubscribe and unload, `codex exec` and `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the server, and stored-thread resume with a `cwd` override; a second isolated experiment the same day on the managed daemon: `--remote` and plain terminals attached to it, a controller's `thread/resume` and `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a running one, terminal exit and unload; a third isolated experiment (2026-09-20) on the sequential `codex resume <id> -C <path>` route with no daemon, with the daemon holding the thread loaded, and after the daemon unloaded it; the [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals, `remote-control start`, input joined to a running turn, and Dashpot's lifecycle through the managed daemon, extended (2026-10-02) for [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that outlive their parent's turn and a sub-agent's interrupt, and rerun on `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375) with the fixture daemon's updater off, for [#374](https://github.com/ned2/dashpot/issues/374) with a child interrupted while its sibling works and the parent's own turn interrupted, and for [#356](https://github.com/ned2/dashpot/issues/356) with the managed daemon's `SessionEnd` deferred to a settler and the daemon's hooks inheriting a terminal's `COLUMNS`, and rerun on `0.166.0` (2026-11-03) for [#701](https://github.com/ned2/dashpot/issues/701); the [#356 acceptance run](#managed-daemon-restart-and-stop-at-01600) on `0.160.0` (2026-10-02): the managed daemon's unload, `daemon restart` and `daemon stop` with a turn running, the `SessionEnd` hook clamp, a detached process outliving the hook and the daemon, and threads reloaded into the replacement; the [#479 run](#codex-exec-signals-at-01600) on `0.160.0` (2026-10-05): SIGINT, SIGTERM and SIGKILL to detached `codex exec` processes; the [#666 run](#fresh-worker-dynamic-tools-and-delegation-metadata-at-01660) on `0.166.0` (2026-11-03): a client-defined dynamic tool reaching fresh and full-history multi-agent v2 Workers with `multi_agent_v2_dynamic_tools` off and on, across follow-up, compaction and an app-server restart, with Sub-agent creation activity and turn lineage; the [#668 run](#managed-worktrees-at-01660) on `0.166.0` (2026-11-03): the managed-worktree tools in standalone, daemon-attached, untrusted, `codex exec` and app-server-client threads, asynchronous creation, a duplicate request, a second request at the default base, a missing ref, an interrupted creation, failed registration, resume, an independent app-server and a daemon restart reading the attachments, `codex exec --worktree`, and Dashpot's preparation and Cleanup preview beside them; the [#663 run](#unload-and-resume-at-01660) on `0.166.0` (2026-11-03): idle unload, sequential resume with launch options at the same Worktree and after `work relocate`, slow cleanup past the shutdown warning and the coordination lock's 30 s wait, and disconnect during a blocked required MCP startup; the [#399 run](#sub-agent-interruption-at-01660) on `0.166.0` (2026-11-03): Esc on a parent's own thread and on a child chosen in the agent picker, in daemon-attached and standalone terminals, and the parent model's `interrupt_agent` on a working child; current official documentation; pinned `rust-v0.154.0` source and post-release `main` PRs read statically on 2026-09-13 | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, the interactive `codex --worktree`, Codex Desktop's worktree setup and cleanup, Remote Control pairing, the Code Mode remote host, general stdio behavior beyond the linked 0.162.0 permission controls, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
-| Claude Code | Isolated Linux experiment on `2.1.276`: headless, resume, fork, subagent, and background supervisor/worker modes; a second on `2.1.278` (2026-09-19): interactive sessions on a pseudo-terminal with a development channel, `EnterWorktree` and `ExitWorktree` from each launch state, channel delivery during a turn and beside a background job; a third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass and auto mode, interactive turns, resume of a running background session, `--desktop`, `--bg` workspace trust, and `--setting-sources`; a fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors of the supervisor, PTY hosts, spares, and workers through abrupt exit and respawn; a fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a sub-agent's hooks place it; a sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher: worktree tools, a shell `cd`, supervised worker replacement, respawn and idle eviction, repeated on `2.1.287` (2026-10-02) and on `2.1.317` (2026-11-03) for [#701](https://github.com/ned2/dashpot/issues/701); a seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher: when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`, from each launch state and after resume, repeated on `2.1.283` and `2.1.287`; the [#479 run](#background-session-environment-at-21287-and-21289) on `2.1.287` and `2.1.289` (2026-10-05): `--bg` sessions dispatched from headless sessions' shells, the environment they get, a `--settings` `env`, and the dispatching session's `cd`; current official docs and Python SDK source | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, `--setting-sources` forwarding to spawned sessions, and when a supervisor takes a new environment unmeasured |
-| OpenCode | Isolated Linux experiment on `1.18.30`, legacy plugin path (2026-09-12), with that release's source and the official docs; the [#393 experiments](spikes/opencode-v2-spike.md) on `2.0.22` (2026-10-02 and 2026-10-03): the shared service and its plugin instances, shell identity, Sub-agents, moves, `--standalone`, idle eviction, and the plugin API Dashpot's plugin uses; the [#407 acceptance run](#the-shared-service-through-dashpot-at-2022) on `2.0.22` (2026-10-03), through Dashpot's real plugin and helper: the TUI, `opencode run` and the API against the shared service, `--standalone` clients, the npm layout, foreground and background Sub-agents, forks, moves, plugin edits, repairs, reloads and removal, deletion, and the service replaced by 2.0.21 and back, stopped and killed, rerun on `2.2.5` with `2.2.4` (2026-11-03) for [#701](https://github.com/ned2/dashpot/issues/701); the [#423 self-move acceptance run](spikes/opencode-v2-self-relocation-acceptance.md) on `2.0.22` (2026-10-04), rerun on `2.2.5` (2026-11-03) for #701 | `opencode web`, ACP, the SDK's own server, `--server <url>`, remote servers, the desktop app, editor extensions and other operating systems unmeasured; OpenCode 1.x is refused, so its measurements describe no supported mode |
+Each harness's evidence below is a list, oldest first, with one entry per
+measurement or source reading. A new measurement, a rerun of an earlier one
+included, adds its own entry at the end of its harness's list and edits no
+other. Two measurements added at once then conflict only at the list's end,
+and keeping both sides' entries resolves it
+([integration and rebase](../AGENTS.md#integration-and-rebase)).
 
-Documentation was reviewed on 2026-09-13; OpenCode measurements were taken on
-2026-09-12, 2026-10-02, 2026-10-03, 2026-10-04 and 2026-11-03, Claude Code measurements on 2026-09-18, 2026-09-19,
-2026-09-30, 2026-10-01, 2026-10-02, 2026-10-05 and 2026-11-03, and Codex measurements on 2026-09-19,
-2026-09-20, 2026-10-01, 2026-10-02, 2026-10-05, 2026-10-13 and 2026-11-03. Current documentation
-and source branches can change independently
-of an installed binary. Version-sensitive commands and identity mappings need
-checking when the supported release changes. Statements marked as inference or
-unverified are not runtime findings.
-
-The [9 October Codex changelog review](research/harness-arc-orchestration-research.md#codex-changelog-since-01600-2026-10-09)
-covers stable releases after the measured 0.160.0 baseline through 0.162.0.
-It identifies changes to Worker mail, permissions, unload and history
-inheritance, and the experiments needed before updating these runtime claims.
-
-The [0.162.0 permission and Guardian experiment](spikes/codex-worker-permissions-spike.md)
-now measures waiting-Lead approvals, denied-read/network preservation after
-write escalation, code-mode turn-grant isolation, and strict/default Guardian
-stops beside ordinary interruption. Strict Guardian mail wakes a waiting parent;
-decline, default Guardian and ordinary interruption do not. Every interruption
-still lacks `SubagentStop` in that run's observed windows, leaving Dashpot's
-Worker activity and Sub-agent Cleanup blocker in place. The local reconnect
-protocol control preserves full-access launch parameters, but does not qualify
-workspace-write restoration; its server executes no commands.
-
-The [0.166.0 unload and resume experiment](spikes/codex-unload-and-resume-spike.md)
-(2026-11-03, [#663](https://github.com/ned2/dashpot/issues/663)) measures the
-managed daemon's idle unload, a sequential resume with the execute-issues
-grants straight after the client exits, at the same Worktree and after a
-declared relocation, an unload whose cleanup is slowed past the ten-second
-warning and past the writer lock's thirty-second coordination wait, and a
-thread whose starting client disconnected during a blocked required MCP
-startup ([unload and resume at 0.166.0](#unload-and-resume-at-01660)).
+Each entry dates what it measured or read. Current documentation and source
+branches can change independently of an installed binary. Version-sensitive
+commands and identity mappings need checking when the supported release
+changes. Statements marked as inference or unverified are not runtime
+findings.
 
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
@@ -71,6 +45,146 @@ on both, and the
 experiment remains a dated evidence record with its fixtures and trace;
 maintain general server/client facts here instead of creating another
 comparison note.
+
+| Harness | Limits |
+| --- | --- |
+| Codex | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, the interactive `codex --worktree`, Codex Desktop's worktree setup and cleanup, Remote Control pairing, the Code Mode remote host, general stdio behavior beyond the linked 0.162.0 permission controls, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
+| Claude Code | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, `--setting-sources` forwarding to spawned sessions, and when a supervisor takes a new environment unmeasured |
+| OpenCode | `opencode web`, ACP, the SDK's own server, `--server <url>`, remote servers, the desktop app, editor extensions and other operating systems unmeasured; OpenCode 1.x is refused, so its measurements describe no supported mode |
+
+### Codex evidence
+
+- Current official documentation, and the pinned `rust-v0.154.0` source and
+  post-release `main` PRs read statically on 2026-09-13.
+- An isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on
+  one `app-server --listen`, fork, sub-agent, second client, client
+  departure, interrupt, unsubscribe and unload, `codex exec` and
+  `exec resume`, competing resume on both routes, SIGKILL and SIGTERM of the
+  server, and stored-thread resume with a `cwd` override.
+- A second isolated experiment the same day on the managed daemon: `--remote`
+  and plain terminals attached to it, a controller's `thread/resume` and
+  `turn/start` `cwd` overrides on a loaded thread, a turn queued behind a
+  running one, terminal exit and unload.
+- A third isolated experiment (2026-09-20) on the sequential
+  `codex resume <id> -C <path>` route with no daemon, with the daemon holding
+  the thread loaded, and after the daemon unloaded it.
+- The [#161 acceptance run](#hosting-modes-and-daemon-autostart-at-01593) on
+  `0.159.3` (2026-10-01): daemon autostart, standalone and plain terminals,
+  `remote-control start`, input joined to a running turn, and Dashpot's
+  lifecycle through the managed daemon, extended (2026-10-02) for
+  [#355](https://github.com/ned2/dashpot/issues/355) with sub-agents that
+  outlive their parent's turn and a sub-agent's interrupt, and rerun on
+  `0.160.0` (2026-10-02) for [#375](https://github.com/ned2/dashpot/issues/375)
+  with the fixture daemon's updater off, for
+  [#374](https://github.com/ned2/dashpot/issues/374) with a child interrupted
+  while its sibling works and the parent's own turn interrupted, and for
+  [#356](https://github.com/ned2/dashpot/issues/356) with the managed
+  daemon's `SessionEnd` deferred to a settler and the daemon's hooks
+  inheriting a terminal's `COLUMNS`.
+- The [#356 acceptance run](#managed-daemon-restart-and-stop-at-01600) on
+  `0.160.0` (2026-10-02): the managed daemon's unload, `daemon restart` and
+  `daemon stop` with a turn running, the `SessionEnd` hook clamp, a detached
+  process outliving the hook and the daemon, and threads reloaded into the
+  replacement.
+- The [#479 run](#codex-exec-signals-at-01600) on `0.160.0` (2026-10-05):
+  SIGINT, SIGTERM and SIGKILL to detached `codex exec` processes.
+- The [9 October changelog review](research/harness-arc-orchestration-research.md#codex-changelog-since-01600-2026-10-09)
+  (2026-10-09) of the stable releases after the measured 0.160.0 baseline
+  through 0.162.0. It identifies changes to Worker mail, permissions, unload
+  and history inheritance, and the experiments needed before updating these
+  runtime claims.
+- The [0.162.0 permission and Guardian experiment](spikes/codex-worker-permissions-spike.md)
+  (2026-10-13): waiting-Lead approvals, denied-read/network preservation
+  after write escalation, code-mode turn-grant isolation, and strict/default
+  Guardian stops beside ordinary interruption. Strict Guardian mail wakes a
+  waiting parent; decline, default Guardian and ordinary interruption do not.
+  Every interruption still lacks `SubagentStop` in that run's observed
+  windows, leaving Dashpot's Worker activity and Sub-agent Cleanup blocker in
+  place. The local reconnect protocol control preserves full-access launch
+  parameters, but does not qualify workspace-write restoration; its server
+  executes no commands.
+- The #161 acceptance run rerun on `0.166.0` (2026-11-03) for
+  [#701](https://github.com/ned2/dashpot/issues/701).
+- The [#666 run](#fresh-worker-dynamic-tools-and-delegation-metadata-at-01660)
+  on `0.166.0` (2026-11-03): a client-defined dynamic tool reaching fresh and
+  full-history multi-agent v2 Workers with `multi_agent_v2_dynamic_tools` off
+  and on, across follow-up, compaction and an app-server restart, with
+  Sub-agent creation activity and turn lineage.
+- The [#668 run](#managed-worktrees-at-01660) on `0.166.0` (2026-11-03): the
+  managed-worktree tools in standalone, daemon-attached, untrusted,
+  `codex exec` and app-server-client threads, asynchronous creation, a
+  duplicate request, a second request at the default base, a missing ref, an
+  interrupted creation, failed registration, resume, an independent
+  app-server and a daemon restart reading the attachments,
+  `codex exec --worktree`, and Dashpot's preparation and Cleanup preview
+  beside them.
+- The [#663 run](#unload-and-resume-at-01660) on `0.166.0` (2026-11-03),
+  recorded in the [unload and resume experiment](spikes/codex-unload-and-resume-spike.md):
+  the managed daemon's idle unload, a sequential resume with the
+  execute-issues grants straight after the client exits, at the same
+  Worktree and after `work relocate`, an unload whose cleanup is slowed past
+  the ten-second shutdown warning and past the writer lock's thirty-second
+  coordination wait, and a thread whose starting client disconnected during a
+  blocked required MCP startup.
+- The [#399 run](#sub-agent-interruption-at-01660) on `0.166.0`
+  (2026-11-03): Esc on a parent's own thread and on a child chosen in the
+  agent picker, in daemon-attached and standalone terminals, and the parent
+  model's `interrupt_agent` on a working child.
+- The [#398 run](#managed-daemon-restart-with-a-turn-running-at-01660) on
+  `0.166.0` (2026-11-03), extending the #356 acceptance run:
+  `daemon restart` with one thread's turn running and another idle, and every
+  scenario of the 0.160.0 run repeated.
+
+### Claude Code evidence
+
+- Current official docs and Python SDK source, reviewed on 2026-09-13.
+- An isolated Linux experiment on `2.1.276` (2026-09-18): headless, resume,
+  fork, subagent, and background supervisor/worker modes.
+- A second on `2.1.278` (2026-09-19): interactive sessions on a
+  pseudo-terminal with a development channel, `EnterWorktree` and
+  `ExitWorktree` from each launch state, channel delivery during a turn and
+  beside a background job.
+- A third on `2.1.285` against `2.1.280` (2026-09-30): sub-agents under bypass
+  and auto mode, interactive turns, resume of a running background session,
+  `--desktop`, `--bg` workspace trust, and `--setting-sources`.
+- A fourth on `2.1.285` (2026-10-01): `ps` process names and argument vectors
+  of the supervisor, PTY hosts, spares, and workers through abrupt exit and
+  respawn.
+- A fifth on `2.1.285` (2026-10-01): what sub-agent hooks carry and where a
+  sub-agent's hooks place it.
+- A sixth on `2.1.286` (2026-10-01), through Dashpot's real publisher:
+  worktree tools, a shell `cd`, supervised worker replacement, respawn and
+  idle eviction, repeated on `2.1.287` (2026-10-02).
+- A seventh on `2.1.286` (2026-10-02), also through Dashpot's real publisher:
+  when `EnterWorktree` accepts a linked Worktree outside `.claude/worktrees/`,
+  from each launch state and after resume, repeated on `2.1.283` and
+  `2.1.287`.
+- The [#479 run](#background-session-environment-at-21287-and-21289) on
+  `2.1.287` and `2.1.289` (2026-10-05): `--bg` sessions dispatched from
+  headless sessions' shells, the environment they get, a `--settings` `env`,
+  and the dispatching session's `cd`.
+- The sixth experiment's run repeated on `2.1.317` (2026-11-03) for
+  [#701](https://github.com/ned2/dashpot/issues/701).
+
+### OpenCode evidence
+
+- An isolated Linux experiment on `1.18.30`, legacy plugin path
+  (2026-09-12), with that release's source and the official docs.
+- The [#393 experiments](spikes/opencode-v2-spike.md) on `2.0.22` (2026-10-02
+  and 2026-10-03): the shared service and its plugin instances, shell
+  identity, Sub-agents, moves, `--standalone`, idle eviction, and the plugin
+  API Dashpot's plugin uses.
+- The [#407 acceptance run](#the-shared-service-through-dashpot-at-2022) on
+  `2.0.22` (2026-10-03), through Dashpot's real plugin and helper: the TUI,
+  `opencode run` and the API against the shared service, `--standalone`
+  clients, the npm layout, foreground and background Sub-agents, forks,
+  moves, plugin edits, repairs, reloads and removal, deletion, and the
+  service replaced by 2.0.21 and back, stopped and killed.
+- The [#423 self-move acceptance run](spikes/opencode-v2-self-relocation-acceptance.md)
+  on `2.0.22` (2026-10-04).
+- The #407 acceptance run rerun on `2.2.5` with `2.2.4`, and the #423 run
+  rerun on `2.2.5`, both on 2026-11-03 for
+  [#701](https://github.com/ned2/dashpot/issues/701).
 
 ## Shared concepts
 
@@ -2020,7 +2134,11 @@ Keep command/version caveats next to the affected mechanism and distinguish
 current docs from pinned code and measured behavior. Preserve reproducible
 experiment records as evidence, and link them here rather than duplicating
 traces. Keep proposed Dashpot policies and implementation sequencing in design
-documents. The initial Codex workflow section was copied from
+documents. A new measurement adds its section beside the mechanism it
+measures and one entry at the end of its harness's list in
+[Scope and evidence](#scope-and-evidence); it edits no other entry there,
+and narrows that harness's Limits only for what it now measures. The initial
+Codex workflow section was copied from
 `docs/codex-app-server-workflows-research.md` in the operator's main checkout;
 the OpenCode configuration section also incorporates the earlier
 `docs/opencode-harness-support-research.md` from that checkout. Its static

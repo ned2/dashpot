@@ -181,10 +181,16 @@ script resolves it mechanically. The hand-written
 a conflict only in its table's rows and its `date:` line is resolved by
 keeping both sides' rows and the later date. Two branches that each add a
 trace conflict there too, since each appends its row at the table's end.
+The evidence lists in the
+[harness reference's Scope](docs/agent-harness-server-client-reference.md#scope-and-evidence)
+count the same way: each measurement appends its own entry to its harness's
+list, and a conflict only in those entries and that document's `date:` line
+is resolved by keeping both sides' entries unchanged and the later date.
 Confirm it with
 `git range-diff <old-base>..<old-head> <new-base>..<new-head>`: no commit's
 added or removed lines change outside those indexes' generated parts, the
-measurements table's rows and its `date:` line. Context
+measurements table's rows, the harness reference's evidence entries, and
+the two documents' `date:` lines. Context
 lines may differ where `main` edited nearby. A content-preserving rebase needs
 no further review: in place of the local review gate, rerun only
 `uv run pre-commit run --all-files`, which checks the regenerated indexes, and
@@ -392,8 +398,9 @@ In this Repository:
 - `scripts/maintain_docs.py` reads tracked files only: `git add -N` a new
   document before `--write-indexes`, and regenerate the indexes after
   every rebase, since sibling Workers add ADRs and documents too. A rebase
-  whose only conflicts are those indexes, or the measurements index's rows
-  and `date:` line, stays content-preserving
+  whose only conflicts are those indexes, the measurements index's rows,
+  the harness reference's evidence entries, or those two documents'
+  `date:` lines, stays content-preserving
   ([integration and rebase](#integration-and-rebase)).
 - Give each Worker a share of the cores with `review_coverage.py --workers
   N`; [development setup](README.md#development-setup) records sixteen
