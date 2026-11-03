@@ -680,7 +680,15 @@ refuses a Codex worker's `work` commands that would change your Issue work,
 as running in a sub-agent. No tool you hold moves it either, and your
 sandbox hides the app-server's control socket from your commands (measured
 on Codex 0.166.0). The user moves it by resuming it with `-C` after your
-client exits. `/cd` does not move it: it forks a new session and leaves
+client exits. Give them the original launch options too: the legacy
+command's sandbox, directories, network, cache/transport settings and
+chosen approval options, or `--profile <name>` with
+`-c 'default_permissions="<name>"'`. The launches above qualified on
+0.166.0 on Linux (measured); losing grants or cache settings on a bare
+resume is inference, and a bare resume after legacy `-c sandbox_*` options
+remains unmeasured. Recheck capabilities after resuming. A bare command
+is suitable only when there are no extra launch grants or environment
+settings to preserve. `/cd` does not move it: it forks a new session and leaves
 yours in place until Codex unloads it about a minute later. Neither moves
 the client process: a client whose terminal started inside a Worktree keeps
 it from Cleanup, as a `process` blocker, until that client exits.

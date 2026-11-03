@@ -95,7 +95,8 @@ session with `opencode <worktree-path> --session <session-id>`, then run
 `work start` with the same Issue there, which reports that it restarted the
 run. A Codex run never continues by itself either: resume the session in
 the Worktree the run is in with `codex resume <session-id> -C
-<worktree-path>`, which the dashboard's Sessions pane copies with `y`, then
+<worktree-path>`, which the dashboard's Sessions pane copies with `y`, adding
+the [preserved launch options](dispatch.md#preserve-launch-options), then
 run `work start` with the same Issue there, which reports that it restarted
 the run. After a Codex daemon restart the conversation is already loaded, so
 its next turn can run `work start` without a resume while it stays loaded;
