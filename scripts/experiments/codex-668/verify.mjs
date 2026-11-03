@@ -162,7 +162,7 @@ check("The tool binds the creating thread in a private owner record in the sourc
   assert.deepEqual(attachment, { type: "worktree", identityKey: first.root, payload: first });
 });
 
-check("The task keeps its cwd and sandbox: after creation the shell still runs in the source checkout, which it may write, while a write inside the new checkout is refused (EROFS) under workspace-write", () => {
+check("The Codex thread keeps its cwd and sandbox: after creation the shell still runs in the source checkout, which it may write, while a write inside the new checkout is refused (EROFS) under workspace-write", () => {
   const probe = probeOf("sa-create");
   assert.equal(probe.cwd, FIXTURE);
   assert.equal(probe.thread, create.session);
@@ -186,6 +186,18 @@ check("A later request with an explicit ref is a new operation and a new checkou
   assert.equal(pages.at(-1).nextCursor, null);
   assert(pages.slice(0, -1).every((page) => typeof page.nextCursor === "string"));
   assert.deepEqual(pages.flatMap((page) => page.data.map((entry) => entry.root)).sort(), [first.root, second.root].sort());
+});
+
+const same = one("sa.same");
+const third = replies("sa-same", same.session).find((latest) => latest.reply.type === "created").reply.worktree;
+check("Nothing reuses a checkout: a request at the default base while an attached checkout at that base exists makes a third checkout, again at origin/main", () => {
+  const ids = replies("sa-same", same.session).filter((latest) => latest.reply.operationId).map((latest) => latest.reply.operationId);
+  assert(ids.length && ids.every((id) => id === ids[0]) && ids[0] !== operation);
+  assert.deepEqual(same.created, [third.root]);
+  managed(third.root);
+  assert(![first.root, second.root].includes(third.root));
+  assert.equal(same.checkout.head, refs.originMain);
+  assert.equal(same.checkout.head, create.checkout.head, "the same base as the first checkout");
 });
 
 check("A ref that does not resolve fails the operation through status, before any checkout is allocated", () => {
@@ -213,24 +225,24 @@ check("Killing the terminal's Codex process after `git worktree add` leaves an o
   assert.deepEqual(read.owners.orphan, []);
 });
 
-check("After the terminal is gone, an independent app-server reads the thread's two worktree attachments and their owner through the documented attachment methods", () => {
+check("After the terminal is gone, an independent app-server reads the thread's three worktree attachments and their owner through the documented attachment methods", () => {
   const read = one("rs.read");
   assert.equal(read.session, sa.session);
   assert.equal(read.attachments.error, null);
-  assert.equal(read.attachments.count, 2);
+  assert.equal(read.attachments.count, 3);
   assert.deepEqual(read.attachments.types, ["worktree"]);
-  assert.deepEqual(read.attachments.worktrees.map((entry) => entry.payload.root).sort(), [first.root, second.root].sort());
+  assert.deepEqual(read.attachments.worktrees.map((entry) => entry.payload.root).sort(), [first.root, second.root, third.root].sort());
   assert.deepEqual(read.owners.first, [{ threadId: sa.session, archived: false }]);
   assert.deepEqual(read.owners.second, [{ threadId: sa.session, archived: false }]);
 });
 
-check("Operation status does not survive the process: the resumed thread is told the interrupted operation is unknown, and list_worktrees returns the two attachments and not the orphan", () => {
+check("Operation status does not survive the process: the resumed thread is told the interrupted operation is unknown, and list_worktrees returns the three attachments and not the orphan", () => {
   const resumed = one("rs.resume");
   assert.equal(resumed.resumedSession, sa.session);
   assert.deepEqual(resumed.starts, [[sa.session, "resume"]]);
   const status = replies("rs-resume", sa.session).find((latest) => latest.name === "get_worktree_creation_status");
   assert.deepEqual(status.reply, { error: UNKNOWN });
-  assert.deepEqual(listed("rs-resume", sa.session).flatMap((page) => page.data.map((entry) => entry.root)).sort(), [first.root, second.root].sort());
+  assert.deepEqual(listed("rs-resume", sa.session).flatMap((page) => page.data.map((entry) => entry.root)).sort(), [first.root, second.root, third.root].sort());
 });
 
 check("`codex exec --worktree` starts the session inside a new pool checkout detached at the source's HEAD (local main, not origin/main), binds the owner record, and adds no attachment; its sandbox may write that checkout and not the source", () => {
@@ -251,7 +263,7 @@ check("`codex exec --worktree` starts the session inside a new pool checkout det
 
 const dm = one("dm.create");
 const dmRoot = replies("dm-create", dm.session).find((latest) => latest.reply.type === "created").reply.worktree.root;
-check("When attachment fails, the result is `registrationFailed`: the checkout is retained and owner-bound but unattached, and the attachment owner query returns no thread for it, during and after a daemon restart", () => {
+check("When attachment fails, the result is `registrationFailed`: the checkout is retained and owner-bound but unattached, and the attachment owner query returns no thread for it. Once the controller removed its 99 fillers, the thread's one worktree attachment survived the daemon's replacement by a restart", () => {
   const fill = one("dm.fill");
   assert.equal(fill.existing, 1);
   assert.equal(fill.added, 99);
@@ -266,7 +278,14 @@ check("When attachment fails, the result is `registrationFailed`: the checkout i
   assert.equal(full.attachments.count, 100);
   assert(!full.attachments.worktrees.some((entry) => entry.payload.root === result.worktree.root));
   assert.deepEqual(full.owners.failed, []);
+  const unfill = one("dm.unfill");
+  assert.equal(unfill.removed, 99);
+  assert.deepEqual(unfill.other, []);
+  assert.deepEqual(unfill.left, ["worktree"]);
+  assert.equal(one("daemon.restart").status, 0);
   const restart = one("dm.restart");
+  assert(Number.isInteger(restart.daemonPidBefore) && Number.isInteger(restart.daemonPid));
+  assert.notEqual(restart.daemonPid, restart.daemonPidBefore, "a new daemon process");
   assert.deepEqual(restart.attachments.worktrees.map((entry) => entry.payload.root), [dmRoot]);
   assert.deepEqual(restart.owners.created, [{ threadId: dm.session, archived: false }]);
   assert.deepEqual(restart.owners.failed, []);
@@ -285,9 +304,10 @@ check("Dashpot's own preparation differs: a named Branch at origin/main in the s
   assert.deepEqual(compare.issueCheckout, { head: refs.originMain, branch: "refs/heads/fixture-1", ignoredCopied: false, untrackedCopied: false });
   assert.equal(compare.hookMarkerBefore, false);
   assert.equal(compare.hookMarker, true);
+  assert(compare.createMs < 1000, "a synchronous creation in under a second");
 });
 
-check("Dashpot's Cleanup check sees nothing of Codex's ownership: an attached, owner-bound managed checkout and the exec --worktree checkout are removable, and only the interrupted orphan is held, as dirty", () => {
+check("Dashpot's Cleanup check sees nothing of Codex's ownership: `worktree check` reports an attached, owner-bound managed checkout and the exec --worktree checkout removable, and only the interrupted orphan is held, as dirty", () => {
   const { checks: found } = one("dashpot.compare");
   assert.deepEqual(found.managed, { status: 0, removable: true, kinds: [], details: [] });
   assert.deepEqual(found.execWorktree, { status: 0, removable: true, kinds: [], details: [] });

@@ -1,6 +1,6 @@
 // Managed-worktree run for Issue #668: can Codex's managed-worktree tools
-// help Dashpot prepare or recover a Worktree, or explain which task a
-// checkout belongs to, and can an integration reach them without private
+// help Dashpot prepare or recover a Worktree, or explain which Codex thread
+// a checkout belongs to, and can an integration reach them without private
 // internals? Drives a pinned Codex CLI against a loopback Responses API
 // fixture with an isolated CODEX_HOME, whose daemon updater is off, under
 // the `workspace-write` sandbox, with Dashpot's own Codex hook publisher, in
@@ -16,16 +16,17 @@
 //   duplicate request, status polls, the created checkout, its base, Branch
 //   state, files, owner record, the session's directory and write
 //   permissions, and `list_worktrees`;
-// - a second creation after the first completed, at an explicit `ref`, and
-//   one at a ref that does not exist;
+// - a second creation after the first completed, at an explicit `ref`, a
+//   third at the default base again, and one at a ref that does not exist;
 // - a creation interrupted by killing the terminal, then the attachments an
 //   independent app-server reads, and the resumed thread's status and list;
 // - a registration that fails because the thread holds its limit of
 //   attachments, on the daemon, and the attachments after the daemon
-//   restarts;
+//   is replaced by a restart;
 // - `codex exec --worktree`: where it creates, and what it records;
-// - `dashpot worktree create` and `dashpot worktree check` in the same
-//   Repository, for comparison.
+// - `dashpot worktree create`, `dashpot worktree check` and the Cleanup
+//   preview of `dashpot worktree remove --dry-run` in the same Repository,
+//   for comparison.
 //
 //   node run.mjs <absolute codex binary> [expected version] [dashpot bin dir]
 //   node verify.mjs <trace.jsonl> [expected version] [--strict]
@@ -667,6 +668,7 @@ scenario("standalone", async () => {
     poll, probeOnce(`${p}-create`, (ctx) => [path.join(fixture, ".dashpot", "state", `probe-${p}`), path.join(workspaceOf(ctx) ?? root, `probe-${p}`)]),
     listAll));
   plan(`${p}-again`, steps(searchFirst, callOnce("create_worktree", { allowAsync: true, ref: "feature" }), poll, listAll));
+  plan(`${p}-same`, steps(searchFirst, callOnce("create_worktree", { allowAsync: true }), poll));
   plan(`${p}-missing`, steps(searchFirst, callOnce("create_worktree", { allowAsync: true, ref: "no-such-ref" }), poll));
   plan(`${p}-interrupt`, steps(searchFirst, callOnce("create_worktree", { allowAsync: true }), poll));
   const { tui, session } = await firstTurn(p, [...standalone, "-C", fixture], `${p}-avail`);
@@ -698,6 +700,15 @@ scenario("standalone", async () => {
   const second = createdRoot(`${p}-again`);
   state.secondRoot = second;
   trace(`${p}.again`, { session, requests: outcome(`${p}-again`), created: newCheckouts(before).map(retained), checkout: inspect(second), git: codexGitSince(gitAt) });
+
+  // The default base again, with an attached checkout already there: whether
+  // the tool reuses it or makes another.
+  before = poolCheckouts();
+  gitAt = gitLogLines().length;
+  await promptTurn(tui, `${p}-same`);
+  const third = createdRoot(`${p}-same`);
+  state.thirdRoot = third;
+  trace(`${p}.same`, { session, requests: outcome(`${p}-same`), created: newCheckouts(before).map(retained), checkout: inspect(third), git: codexGitSince(gitAt) });
 
   before = poolCheckouts();
   gitAt = gitLogLines().length;
@@ -852,19 +863,26 @@ scenario("daemon", async () => {
   const failedRoot = newCheckouts(before)[0] ?? null;
   trace(`${p}.full`, { session, requests: outcome(`${p}-full`), created: newCheckouts(before).map(retained), checkout: inspect(failedRoot),
     attachments: await attachmentsOf(controller, session), owners: { created: await ownersOf(controller, createdHere), failed: await ownersOf(controller, failedRoot) } });
-  for (let index = 0; index < 100; index++) await controller.call("thread/attachment/remove", { threadId: session, attachmentType: "fixture_marker", identityKey: `fixture-${index}` });
+  const removals = [];
+  for (let index = 0; index < 100 - existing; index++) {
+    const removed = await controller.call("thread/attachment/remove", { threadId: session, attachmentType: "fixture_marker", identityKey: `fixture-${index}` });
+    removals.push(removed.error?.message ?? "removed");
+  }
+  trace(`${p}.unfill`, { removed: removals.filter((entry) => entry === "removed").length, other: [...new Set(removals.filter((entry) => entry !== "removed"))],
+    left: (await controller.call("thread/attachment/list", { threadId: session, limit: 100 })).result?.data?.map((entry) => entry.attachmentType) ?? null });
   controller.close();
   controllers = controllers.filter((client) => client !== controller);
   const exitAt = mark();
   await exitTerminal(tui);
   await settle(() => hookSince(exitAt, (record) => record.event === "SessionEnd" && record.payload.session_id === session), `${p} SessionEnd`, 100000);
 
+  const pidBefore = daemonPid();
   const restarted = spawnSync("codex", ["app-server", "daemon", "restart"], { cwd: fixture, env, encoding: "utf8", timeout: 60000 });
   trace("daemon.restart", { status: restarted.status });
   await delay(1000);
   await waitFor(() => existsSync(socketPath) && daemonPid(), "daemon control socket after restart", 30000);
   const after = await daemonClient("after-restart");
-  trace(`${p}.restart`, { session, daemonPid: daemonPid(), attachments: await attachmentsOf(after, session), owners: { created: await ownersOf(after, createdHere), failed: await ownersOf(after, failedRoot) } });
+  trace(`${p}.restart`, { session, daemonPidBefore: pidBefore, daemonPid: daemonPid(), attachments: await attachmentsOf(after, session), owners: { created: await ownersOf(after, createdHere), failed: await ownersOf(after, failedRoot) } });
   after.close();
   const pid = daemonPid();
   const stopped = spawnSync("codex", ["app-server", "daemon", "stop"], { cwd: fixture, env, encoding: "utf8", timeout: 60000 });

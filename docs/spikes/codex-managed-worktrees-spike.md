@@ -8,8 +8,8 @@ date: 2026-11-03
 The experiment for [Issue #668](https://github.com/ned2/dashpot/issues/668)
 asks whether Codex's managed-worktree tools could improve two things. One
 is the Worktree preparation and recovery that Dashpot performs only when a
-person asks for it. The other is Dashpot's passive view of which task made
-which checkout. The run pins **codex-cli 0.166.0**, as the maintainer
+person asks for it. The other is Dashpot's passive view of which Codex thread
+made which checkout. The run pins **codex-cli 0.166.0**, as the maintainer
 decided on 2026-11-03: read the Issue's "0.162.0" as 0.166.0. The
 `worktrees` feature flag is no longer a condition. At this tag it is
 `Removed`, and its comment says managed worktrees "are always available"
@@ -33,15 +33,15 @@ Each answer is marked:
 
 | Question | Answer | Basis |
 | --- | --- | --- |
-| Where are the tools offered? | Only to the model, inside an interactive terminal session (the TUI) on a trusted local project. They are deferred behind `tool_search`, which is why #681's list of thirteen direct tools did not show them. A standalone terminal names them in the `codex_worktrees` namespace and a terminal attached to the managed daemon in `codex_tui`. `codex exec`, a thread an app-server client starts, and an explicitly untrusted folder are offered none. | measured; documented, `tui/src/app_server_session.rs`, `core/src/tools/spec_plan.rs` |
+| Where are the tools offered? | Only to the model, inside an interactive terminal session (the TUI) on a local project that is not explicitly untrusted. They are deferred behind `tool_search`. A standalone terminal names them in the `codex_worktrees` namespace and a terminal attached to the managed daemon in `codex_tui`. `codex exec`, a thread an app-server client starts, and an explicitly untrusted folder are offered none. The deferral is also why #681's list of thirteen direct tools did not show them. | measured; documented, `tui/src/app_server_session.rs`, `core/src/tools/spec_plan.rs`; the #681 explanation is inference |
 | Can Dashpot call them? | Not through a supported interface. The terminal serves them from its own loopback MCP server, guarded by a random bearer token, and the app-server has no worktree-creation method. | documented, `tui/src/dynamic_tools_mcp.rs`, `app-server-protocol/src/protocol/common.rs` |
 | How does creation behave? | It is asynchronous. `create_worktree` answers `pending` with an operation id at once. A second request while one is pending returns the same id and starts nothing. Status polls stay `pending` until the result is `created`. | measured |
-| What does it create? | A checkout in Codex's own pool (`CODEX_HOME/worktrees/<4 hex>/<repo>`), detached at origin's remote HEAD by default, or at an explicit `ref`. It creates no Branch, runs no Git hook, and copies no uncommitted, untracked or ignored file. The pool is a fixed location: the tool takes no destination path. | measured |
-| Does the session move? | No. Its cwd, hooks and sandbox stay in the source checkout. Under `workspace-write`, a write inside the new checkout is refused (`EROFS`). | measured |
-| What survives a failure? | A ref that does not resolve fails before anything is allocated. A Codex process killed after `git worktree add` leaves an orphan: a registered Git worktree with no files, no owner record and no attachment. If the attachment fails, the result is `registrationFailed`, and the checkout is kept, bound to its owner but not attached. | measured |
+| What does it create? | A Worktree in Codex's own pool (`CODEX_HOME/worktrees/<4 hex>/<repo>`). By default it is detached at a remote's HEAD, preferring origin's; an explicit `ref` overrides that. It creates no Branch, runs no Git hook, and copies no uncommitted, untracked or ignored file. The pool is a fixed location: the tool takes no destination path. A second request at the same base makes another checkout rather than reusing one. | measured |
+| Does the Agent Session move? | No. Its cwd, hooks and sandbox stay in the source checkout. Under `workspace-write`, a write inside the new checkout is refused (`EROFS`). | measured |
+| What survives a failure? | A ref that does not resolve fails before anything is allocated. Codex rolls back a failed add or populate, but a Codex process killed after `git worktree add` leaves an orphan: a registered Worktree with no files, no owner record and no attachment. If the attachment fails, the result is `registrationFailed`, and the checkout is kept, bound to its owner but not attached. | measured; the rollback is documented, `worktree/src/lib.rs` |
 | What survives a restart? | The attachments survive, and operation status does not. The resumed thread is told its interrupted operation is unknown. An independent app-server, and the daemon after a restart, read the attachments and their owner thread through the documented attachment methods. | measured |
-| Is `--worktree` the same thing? | No. `codex --worktree` and `codex exec --worktree` start the session inside a new pool checkout at the source's own HEAD, not origin's. They bind the owner record but add no attachment. | measured |
-| How does this compare with `dashpot worktree create`? | Dashpot plans an Issue Branch and path, checks that the base carries the Project configuration, refuses collisions before Git runs, and rolls back a failed add. Codex's tool does none of these. Codex's own advantages are the duplicate guard and the asynchronous status, and both last only as long as the process. | measured; documented |
+| Is `--worktree` the same thing? | No. `codex exec --worktree` starts the Agent Session inside a new pool checkout at the source's own HEAD, not origin's. It binds the owner record but adds no attachment. The interactive `codex --worktree` takes the same path in the source but was not run. | measured for `codex exec --worktree`; documented for `codex --worktree`, `tui/src/worktree_startup.rs` |
+| How does this compare with `dashpot worktree create`? | Dashpot plans an Issue Branch and path, checks that the base carries the Project configuration, and refuses collisions before Git runs. Codex's tool does none of these. Both roll back a failed add, but only Codex can leave an orphan, when its process is killed. Codex's own advantages are the duplicate guard and the asynchronous status, and both last only as long as the process. | measured; documented |
 | Does Cleanup see Codex's ownership? | No. Dashpot's Cleanup preview offers an attached checkout owned by a Codex thread as an available target with no blocker, while the attachment owner query still names that thread. | measured |
 | Recommendation: preparation | **No integration.** Dashpot cannot invoke the tools, and their result does not meet the Issue Worktree contract. | inference |
 | Recommendation: provenance | **Defer.** The attachment API is documented and stable, but it covers only the checkouts this tool created, needs an app-server connection, and identifies a checkout by its path. | inference |
@@ -58,8 +58,9 @@ node scripts/experiments/codex-668/verify.mjs /var/tmp/dashpot-668-SUFFIX/trace.
 ```
 
 The runner prints the fixture root, and the trace is `trace.jsonl` inside
-it. The fixture lives under `/var/tmp`, because a fixture under a deep
-scratch directory overruns the 108-byte limit on a Unix socket path. A run
+it. The fixture lives under `/var/tmp`: outside every Dashpot Project,
+outside `/tmp`, whose shared Codex daemon directory belongs to the person's
+own sessions, and short enough for the daemon's Unix socket path. A run
 takes about four minutes. `SPIKE_SCENARIOS=standalone,restart` runs a
 subset, which the verifier does not accept. The retained trace is
 [issue-668-codex-trace.jsonl](measurements/issue-668-codex-trace.jsonl):
@@ -76,9 +77,9 @@ changed since the run. With it, the change fails verification.
 - codex-cli 0.166.0, `x86_64-unknown-linux-musl`, binary SHA-256
   `b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8`, run
   read-only through a fixture-local symlink, on Linux with Git 2.53.
-- Dashpot at `10b049b07c2f69ea97760e895e1d8b5bd36391a6`, with no change under
+- Dashpot at `896a2b6dfbdc674b5b011492ff06414205de695c`, with no change under
   `src/`. The runner's SHA-256 is
-  `4da0a3d790202f7c5281ec7b27f650fe154dfa1724c2674df5c3e61079588f83`, and
+  `5cb93d768101ce1855cef824112cbdd18056bf825367554db62c53a04e449ed6`, and
   the trace records each hashed source.
 - The fixture is isolated:
   - its own `HOME`, `XDG_*`, `TMPDIR` and `CODEX_HOME`;
@@ -131,35 +132,42 @@ changed since the run. With it, the change fails verification.
 | --- | --- | --- |
 | `create_worktree`, `get_worktree_creation_status`, `list_worktrees` | The model in a TUI session only | A TUI-private MCP server ([`tui/src/dynamic_tools_mcp.rs#L149-L161`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/dynamic_tools_mcp.rs#L149-L161)). Its tool contracts are [`tui/src/managed_worktree_tool_specs.rs#L7-L18`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/managed_worktree_tool_specs.rs#L7-L18) |
 | `thread/attachment/add`, `/list`, `/remove`, `thread/attachmentOwner/list`, notification `thread/attachment/updated` | Any app-server client | Documented in [`app-server/README.md#L365`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/app-server/README.md#L365). Declared without an experimental marker in [`app-server-protocol/src/protocol/common.rs#L688-L707`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/app-server-protocol/src/protocol/common.rs#L688-L707). At most 100 per thread ([`state/src/lib.rs#L136`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/state/src/lib.rs#L136)) |
-| `codex --worktree`, `codex exec --worktree`, `codex fork --worktree` | A person starting a session | Creates a checkout at the source's HEAD (`base: None`, [`tui/src/worktree_startup.rs#L246-L250`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/worktree_startup.rs#L246-L250)) and starts the session there |
+| `codex --worktree`, `codex exec --worktree`, `codex fork --worktree` | A person starting an Agent Session | Creates a checkout at the source's HEAD (`base: None`, [`tui/src/worktree_startup.rs#L246-L250`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/worktree_startup.rs#L246-L250), [`exec/src/lib.rs#L485-L488`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/exec/src/lib.rs#L485-L488)) and starts the session there |
 | `/worktree` browser | A person in the TUI | Not measured. The [reference](../agent-harness-server-client-reference.md#managed-worktrees-at-01660) records it |
 | Owner record `codex-thread.json` in the checkout's Git admin directory | Codex | Private file format, `{"version":1,"ownerThreadId":…}`, written by [`bind_thread`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/worktree/src/lib.rs#L274-L277) |
 
-The app-server offers no method to create a worktree. The tools are
-advertised to the model only when all of these hold:
+The app-server offers no method to create a worktree. Among the conditions
+for the tools to be advertised to the model:
 
 1. The terminal's app-server is embedded or the local daemon, not remote,
    and the session uses no remote environment
-   ([`tui/src/app/startup.rs#L503-L518`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/startup.rs#L503-L518)).
+   ([`tui/src/app/startup.rs#L503-L518`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app/startup.rs#L503-L518)),
+   and the thread is not in cloud mode
+   ([`tui/src/app_server_session.rs#L501-L503`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_session.rs#L501-L503)).
 2. The project is not explicitly untrusted. A project with no trust
    decision qualifies
-   ([`tui/src/app_server_session.rs#L503`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_session.rs#L503),
+   ([`tui/src/app_server_session.rs#L504`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_session.rs#L504),
    [`config/src/config_toml.rs#L627-L629`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/config/src/config_toml.rs#L627-L629)).
 3. A probe `thread/attachment/list` succeeds, which shows that attachment
-   storage is available
-   ([`#L504-L524`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_session.rs#L504-L524)).
-4. The model supports tool search. The tools are then deferred rather than
-   direct
-   ([`core/src/tools/spec_plan.rs#L267-L274`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/spec_plan.rs#L267-L274)).
+   storage is available, and the tool service starts
+   ([`#L504-L534`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_session.rs#L504-L534)).
+4. No user-configured MCP server already owns the namespace, and any
+   managed MCP requirements permit the terminal's server
+   ([`#L548-L567`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/app_server_session.rs#L548-L567)).
 
-The namespace is `codex_tui` when the terminal also serves its task tools,
+Where the model supports tool search, the tools are deferred behind it;
+otherwise they are offered directly
+([`core/src/tools/spec_plan.rs#L267-L275`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/tools/spec_plan.rs#L267-L275)).
+
+The namespace is `codex_tui` when the terminal also serves the tools Codex calls `task_tools`,
 which happens on the daemon, and `codex_worktrees` otherwise
 ([`tui/src/dynamic_tools_mcp.rs#L107-L113`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/dynamic_tools_mcp.rs#L107-L113)).
 `create_worktree` is pre-approved there (`"approval_mode": "approve"`).
 
-Each call also checks the thread. An ephemeral side conversation is
-refused, the thread's environment must be local, and the source project
-must not be untrusted
+`create_worktree` also checks the thread. An ephemeral side conversation
+is refused, the thread's environment must be local, and the source project
+must not be untrusted. A status call only matches the operation to the
+calling thread, and listing checks nothing more
 ([`tui/src/managed_worktree_tools.rs#L188-L217`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/managed_worktree_tools.rs#L188-L217)).
 
 Storage:
@@ -169,7 +177,8 @@ Storage:
   ([`worktree/src/settings.rs#L43-L44`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/worktree/src/settings.rs#L43-L44)).
 - Attachments are kept in Codex's state database.
 - Operation status lives only in the terminal process's memory. A finished
-  result is kept for an hour, and at most 64 operations at once
+  operation is kept until the next creation finds it more than an hour past
+  its start, and at most 64 operations are retained
   ([`tui/src/managed_worktree_tools.rs#L218-L231`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/managed_worktree_tools.rs#L218-L231)).
 
 The Issue's 0.162.0 citations still hold at 0.166.0:
@@ -199,16 +208,24 @@ The measured sequence, in a standalone terminal:
 
 Codex's Git sequence:
 
-1. `for-each-ref` to find the default base: origin's remote HEAD, then
-   `origin/main`, `origin/master`, `main`, `master`
+1. `for-each-ref` to find the default base: a remote's HEAD, origin's
+   first, then `origin/main`, `origin/master`, `main`, `master`
    ([`worktree/src/git.rs#L99-L140`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/worktree/src/git.rs#L99-L140));
 2. `rev-parse --verify <base>^{commit}`;
 3. `worktree add --detach --no-checkout <pool>/<hex>/repository <sha>`;
-4. `config --file <config.worktree> core.worktree`;
+4. `rev-parse --git-path config.worktree`, then
+   `config --file <config.worktree> core.worktree`;
 5. `--work-tree=. reset --hard`.
 
-Every Git call disables hooks, fsmonitor, filters and LFS smudge
-([`worktree/src/git.rs#L171-L178`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/worktree/src/git.rs#L171-L178)).
+Every Git call disables hooks and fsmonitor and skips LFS smudge
+([`worktree/src/git.rs#L171-L178`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/worktree/src/git.rs#L171-L178)),
+and the commands that write the working tree also disable the configured
+filters
+([`#L41-L51`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/worktree/src/git.rs#L41-L51)).
+A failed add removes its pool directory, and a failed populate removes the
+Worktree
+([`worktree/src/lib.rs#L100-L103`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/worktree/src/lib.rs#L100-L103),
+[`#L142-L145`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/worktree/src/lib.rs#L142-L145)).
 So the fixture's `post-checkout` marker was not written. Dashpot's own
 `git worktree add` did run it.
 
@@ -225,8 +242,11 @@ new checkout detached at `feature`. `list_worktrees` reads one attachment per
 page (`limit: Some(1)`,
 [`tui/src/managed_worktree_tools.rs#L318-L330`](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/tui/src/managed_worktree_tools.rs#L318-L330)).
 So a caller must follow `nextCursor`, as the tool's description says.
-Nothing reuses a checkout automatically: the description tells the model
-to inspect the list and prefer an active checkout.
+
+Nothing reuses a checkout automatically. A third request, at the default
+base again while the first checkout at that base was attached, made a
+third checkout. The description leaves reuse to the model: it should
+inspect the list and prefer an active checkout.
 
 ## 3. Failure and recovery, measured
 
@@ -247,10 +267,12 @@ to inspect the list and prefer an active checkout.
   "Checkout retained; registration failed. Do not create a duplicate." The
   checkout was clean and owner-bound but unattached, and
   `thread/attachmentOwner/list` returned no thread for it. So that query
-  reads attachments, not the owner record. After `codex app-server daemon
-  restart`, the thread still held exactly its one earlier attachment.
+  reads attachments, not the owner record. The controller then removed its
+  99 fillers, leaving the thread its one `worktree` attachment. After
+  `codex app-server daemon restart` replaced the daemon process, the thread
+  still held exactly that attachment.
 
-## 4. Compared with `create_issue_worktree`
+## 4. Compared with `dashpot worktree create`
 
 | | `dashpot worktree create` | Codex `create_worktree` |
 | --- | --- | --- |
@@ -259,14 +281,14 @@ to inspect the list and prefer an active checkout.
 | Branch | A new Issue Branch, created atomically ([`create.py#L372`](../../src/dashpot/repository/worktrees/create.py#L372)) | None: detached HEAD |
 | Base | `origin/HEAD` by default, or `--base` | Origin's remote HEAD by default, or `ref` |
 | Checks before Git runs | Worktree Root, Branch name, collisions, an existing Issue Worktree, and a base that carries the same Project configuration ([`create.py#L253`](../../src/dashpot/repository/worktrees/create.py#L253)) | The ref resolves |
-| Failure | Refused before mutation, or rolled back (ADR 0011) | An orphan is possible; `registrationFailed` keeps the checkout |
+| Failure | Refused before mutation, or rolled back (ADR 0011) | A failed add or populate is rolled back; a killed process leaves an orphan; `registrationFailed` keeps the checkout |
 | Duplicate guard | Refuses a second Worktree for the Issue | One pending operation per thread, while the process lives |
 | Hooks, setup | The Repository's own hooks run; no dependency setup | No hooks; no setup; nothing copied |
-| Session placement | Unchanged; `work start` binds the Issue where the session runs | Unchanged; the session stays in its source checkout |
+| Agent Session placement | Unchanged; `work start` binds the Issue where the session runs | Unchanged; the session stays in its source checkout |
 
 In the same fixture, `dashpot worktree create fixture-1` planned and created
 Branch `fixture-1` at `origin/main` in `$ROOT/repository.worktrees/fixture-1`
-in about 250 ms.
+in under a second.
 
 Keeping Dashpot's contract on top of Codex's tool would take all of the
 following:
@@ -274,7 +296,7 @@ following:
 - a Branch;
 - a destination in the Worktree Root;
 - the compatibility check;
-- rollback of an orphan;
+- recovery of an orphan;
 - a way to invoke the tool from outside the model.
 
 The only gains left would be the asynchronous status and the duplicate
@@ -303,12 +325,14 @@ Their limits:
   socket. A per-poll observation would pay for that connection. The data is
   per thread: `thread/attachment/list` needs a thread id, which Dashpot
   already has from hooks. `thread/attachmentOwner/list` goes from a path to
-  its threads.
+  its threads. Whether starting an app-server on a person's own
+  `CODEX_HOME`, or connecting to their daemon's control socket, is free of
+  side effects is unknown: the fixture only ever read its own `CODEX_HOME`.
 - **Identity.** The identity key is the checkout's path. Dashpot never
   derives identity from paths, so the record could only describe an
   observed Worktree, never identify one.
 - **Meaning.** An attachment is provenance only. It is not an Issue Binding
-  and not Worker placement. The creating session never runs in the
+  and not Worker placement. The creating Agent Session never runs in the
   checkout, so it is not occupancy either.
 
 The measured gap is Cleanup. The standalone session had ended, its
@@ -316,13 +340,13 @@ checkout was attached, and `thread/attachmentOwner/list` still named the
 owner thread. In that state:
 
 ```console
-$ dashpot worktree check $ROOT/codex-home/worktrees/9d75/repository
-Worktree   $ROOT/codex-home/worktrees/9d75/repository
+$ dashpot worktree check $ROOT/codex-home/worktrees/4b74/repository
+Worktree   $ROOT/codex-home/worktrees/4b74/repository
 Branch     (detached)
 Removable  yes
            Sub-agents of Agent Sessions outside this Repository are not checked.
 Remove with
-  $ git worktree remove $ROOT/codex-home/worktrees/9d75/repository
+  $ git worktree remove $ROOT/codex-home/worktrees/4b74/repository
 ```
 
 `dashpot worktree remove <same path> --dry-run --json` planned the removal,
@@ -337,8 +361,8 @@ blocker, or a `detached` blocker. Neither applies:
 - Its HEAD is reachable from `origin/main`, so no `detached` blocker
   arises.
 
-The `exec --worktree` checkout was also offered. That is expected, since
-its session had ended. The difference is that a Codex thread may still
+`worktree check` also reported the `exec --worktree` checkout removable.
+That is expected, since its Agent Session had ended. The difference is that a Codex thread may still
 resume into its attached checkout, and a person might still be working in
 it.
 
@@ -361,7 +385,8 @@ it.
   A narrow, testable follow-up comes first: let Cleanup's preview name a
   Codex thread that holds an attachment to the target, as a blocker or a
   stated consequence. Doing so needs a design decision, because it would be
-  the first Cleanup fact read from an app-server.
+  the first Cleanup fact read from an app-server. It is proposed as a
+  follow-up Issue, to be filed with this experiment's close-out.
 
 ## Implications for the skills
 
@@ -374,16 +399,17 @@ outside this change. What it could say:
   Branch and does not move the Worker.
 - A Lead should not let a Worker use it for an Issue Worktree.
 
-That wording is proposed as a follow-up.
+That wording is proposed as a follow-up, to be filed with this
+experiment's close-out.
 
 ## Validation
 
 - `node scripts/experiments/codex-668/verify.mjs
-  docs/spikes/measurements/issue-668-codex-trace.jsonl` passes all 19
+  docs/spikes/measurements/issue-668-codex-trace.jsonl` passes all 20
   claims, with and without `--strict`.
 - The run's scenarios, in order:
-  1. a standalone terminal (availability, creation, reuse, missing ref,
-     interrupt);
+  1. a standalone terminal (availability, creation, an explicit ref, the
+     default base again, missing ref, interrupt);
   2. restart (an independent app-server read, then resume);
   3. an untrusted folder;
   4. `codex exec`;
