@@ -1,4 +1,4 @@
-// Independent verifier for a Codex 649 goal-driven Lead trace. Checks the
+// Independent verifier for a Codex 649 goal-driven lead trace. Checks the
 // recorded model requests, app-server notifications, hooks, shells, goal
 // replies and Dashpot's own views against the claims the spike makes for the
 // pinned release, without importing the runner or Dashpot. With
@@ -85,13 +85,13 @@ check("The run used the pinned release through a fixture-local symlink, with the
   assert.deepEqual(of("cleanup.kill"), []);
 });
 
-check("Goals are on by default: the fixture configuration names no `goals` feature, and every request, the Workers' included, offers `get_goal`, `create_goal` and `update_goal`", () => {
+check("Goals are on by default: the fixture configuration names no `goals` feature, and every request, the workers' included, offers `get_goal`, `create_goal` and `update_goal`", () => {
   assert(!/\bgoals\b/.test(environment.config));
   assert(requests.length > 0 && requests.every((record) => record.goalTools.join() === "get_goal,create_goal,update_goal"));
   for (const worker of [l1.workerA, l1.workerB, l2.workerC, l3.workerD]) assert(requestsOf(worker).length > 0);
 });
 
-check("A skill's instruction reaches the model as a user message, not in its instructions, and the runtime accepts the `create_goal` the Lead makes on it: the goal is active before the Workers spawn", () => {
+check("A skill's instruction reaches the model as a user message, not in its instructions, and Codex accepts the `create_goal` the lead makes on it: the goal is active before the workers spawn", () => {
   const start = requests.filter((record) => record.label === "l1-start");
   assert(start.length >= 4 && start.every((record) => record.skill.inInput.length === 1 && record.skill.inInput[0][1] === "message" && record.skill.inInput[0][2] === "user" && !record.skill.inInstructions));
   const create = start.find((record) => record.action === "create_goal");
@@ -102,7 +102,7 @@ check("A skill's instruction reaches the model as a user message, not in its ins
   assert.match(spawn.lastOutput, /"goal":\{"threadId":"[0-9a-f-]{36}","objective":"SPIKE:l1-goal /);
 });
 
-check("With an active goal, Codex starts the next turn as soon as the Lead's turn ends: every L1 turn after its first is a `goal` turn whose input ends with Codex's continuation as a user message, the first starting while both Workers still ran", () => {
+check("With an active goal, Codex starts the next turn as soon as the lead's turn ends: every L1 turn after its first is a `goal` turn whose input ends with Codex's continuation as a user message, the first starting while both workers still ran", () => {
   const turns = turnsStarted(l1.lead).map((record) => record.turn);
   assert.equal(turns[0], l1.startTurn);
   assert(turns.length >= 10);
@@ -118,13 +118,14 @@ check("With an active goal, Codex starts the next turn as soon as the Lead's tur
   assert(firstGoal.receipt < shell("wa.0", "end").receipt && firstGoal.receipt < shell("wb.0", "end").receipt);
 });
 
-check("A Worker's message and its completion start no turn: with a goal, they reached L1 inside a running goal turn's `wait_agent`, which returned early; without one, L2 made no request and started no turn after its Worker messaged and finished, and its first goal turn carried both", () => {
+check("A worker's message and its completion start no turn: with a goal, they reached L1 inside a running goal turn's `wait_agent`, which returned early; without one, L2 made no request and started no turn after its worker messaged and finished, and its first goal turn carried both", () => {
   const waits = goalRequests(l1.lead).filter((record) => record.phase === "workers" && record.step === 1);
   assert(waits.length >= 3);
   assert(waits.every((record) => /"message":"Wait completed\.","timed_out":false/.test(record.lastOutput)));
   const seen = waits.map(messagesIn);
   assert(seen.some((markers) => markers.at(-1) === "NOTE:wa") && seen.some((markers) => markers.at(-1) === "DONE:wa") && seen.some((markers) => markers.at(-1) === "DONE:wb"));
-  assert.deepEqual([l2.idleRequests, l2.idleTurns], [[], 0]);
+  const idle = (list) => list.filter((record) => record.receiptTime > l2.startCompletedAt && record.receiptTime < l2.goalSetAt);
+  assert.deepEqual([idle(requestsOf(l2.lead)).length, idle(turnsStarted(l2.lead)).length], [0, 0]);
   assert(shell("wc.2", "end").receiptTime < l2.goalSetAt);
   const firstGoal = goalRequests(l2.lead)[0];
   assert.deepEqual(messagesIn(firstGoal), ["NOTE:wc", "DONE:wc"]);
@@ -132,19 +133,22 @@ check("A Worker's message and its completion start no turn: with a goal, they re
   assert(firstGoal.receiptTime - l2.goalSetAt < 1000);
 });
 
-check("A goal turn runs no `UserPromptSubmit` hook and one `Stop`: each of L1's, L2's and L3's goal turns has a Stop with its turn id and no UserPromptSubmit, while each Lead's first turn has both; a resumed Lead's goal turn runs `SessionStart` and no UserPromptSubmit", () => {
+check("A goal turn runs no `UserPromptSubmit` hook and one `Stop`: each of L1's, L2's and L3's goal turns has a Stop with its turn id and no UserPromptSubmit, while each lead's first turn has both; a resumed lead's goal turn runs `SessionStart` and no UserPromptSubmit", () => {
   for (const lead of [l1.lead, l2.lead, l3.lead]) {
     const prompts = hooksOf(lead, "UserPromptSubmit");
     assert.equal(prompts.length, 1);
     const goalTurns = turnsOfRequests(goalRequests(lead));
     assert(goalTurns.length >= 3);
     assert(!goalTurns.includes(prompts[0].payload.turn_id));
+    const first = turnsStarted(lead)[0].turn;
+    assert.equal(prompts[0].payload.turn_id, first);
+    assert.equal(hooksOf(lead, "Stop").filter((record) => record.payload.turn_id === first).length, 1);
     for (const turn of goalTurns) assert.equal(hooksOf(lead, "Stop").filter((record) => record.payload.turn_id === turn).length, 1, `one Stop for goal turn ${turn}`);
   }
   assert.equal(hooksOf(l3.lead, "SessionStart").filter((record) => record.receiptTime > l3.resumedAt).length, 1);
 });
 
-check("Dashpot shows a Lead in a goal turn as `waiting` once its Workers have stopped: L1 read `running` while its Workers ran, then `waiting` while a goal turn's command ran, and L3 read `waiting` while an unsubscribed goal turn's command ran", () => {
+check("Dashpot shows a lead in a goal turn as `waiting` once its workers have stopped: L1 read `running` while its workers ran, then `waiting` while a goal turn's command ran, and L3 read `waiting` while an unsubscribed goal turn's command ran", () => {
   const running = runFor("l1-goal-turn-workers-running", "I_fixture_1");
   assert.equal(running.length, 1);
   assert.equal(running[0].state, "running");
@@ -159,7 +163,7 @@ check("Dashpot shows a Lead in a goal turn as `waiting` once its Workers have st
   assert.deepEqual(runFor("l3-unsubscribed-goal-active", "I_fixture_2").map((run) => run.state), ["waiting"]);
 });
 
-check("Waiting with no Workers left does not block the goal: at least four L1 goal turns whose `wait_agent` timed out and whose final message was empty left it active; the model's `update_goal` to `blocked` took effect at once, and no turn started after it", () => {
+check("Waiting with no workers left does not block the goal: at least four L1 goal turns whose `wait_agent` timed out and whose final message was empty left it active; the model's `update_goal` to `blocked` took effect at once, and no turn started after it", () => {
   const idle = goalRequests(l1.lead).filter((record) => record.phase === "noprogress");
   const idleTurns = turnsOfRequests(idle);
   assert(idleTurns.length >= 4);
@@ -175,31 +179,33 @@ check("Waiting with no Workers left does not block the goal: at least four L1 go
   const blocked = events.find((record) => record.thread === l1.lead && record.method === "thread/goal/updated" && record.goal.status === "blocked");
   assert(blocked.receipt > block.receipt);
   assert.equal(goalStatuses(l1.lead).filter((status) => status !== "active").join(), "blocked");
-  assert.equal(l1.turnsAfterBlocked, 0);
+  assert.equal(turnsStarted(l1.lead).filter((record) => record.receipt > blocked.receipt).length, 0);
   assert.equal(goalGet("l1-blocked").status, "blocked");
 });
 
-check("The runtime blocks a goal after three automatic turns with empty answers and no tool call, and at once on a turn error, whose turn runs no Stop hook", () => {
+check("Codex blocks a goal after three automatic turns with empty answers and no tool call, and at once on a turn error, whose turn runs no Stop hook", () => {
   const empty = goalRequests(l4.lead);
   assert.equal(empty.length, 3);
   assert(empty.every((record) => record.response === "empty" && record.action === null));
-  assert.equal(l4.turns.length, 3);
+  assert.deepEqual(turnsStarted(l4.lead).map((record) => record.turn), turnsOfRequests(empty));
   assert.equal(goalStatuses(l4.lead).at(-1), "blocked");
   assert(goalStatuses(l4.lead).slice(0, -1).every((status) => status === "active"));
   assert.equal(goalGet("l4-after").status, "blocked");
-  assert.equal(l5.requests, 1);
-  assert.equal(l5.turns.length, 1);
-  assert.equal(completed(l5.turns[0]).status, "failed");
+  assert.equal(requestsOf(l5.lead).length, 1);
+  const failedTurns = turnsStarted(l5.lead);
+  assert.equal(failedTurns.length, 1);
+  assert.equal(completed(failedTurns[0].turn).status, "failed");
   assert.equal(goalStatuses(l5.lead).at(-1), "blocked");
   assert.deepEqual(hooksOf(l5.lead, "Stop"), []);
   assert.equal(goalGet("l5-after").status, "blocked");
 });
 
-check("An active goal keeps an unsubscribed Lead loaded and working: for 80 s after its client left, L3 stayed loaded, its goal turns kept running, and it had no SessionEnd; once the goal was paused, the app-server unloaded it about 60 s after its last turn and Dashpot ended its bound run", () => {
+check("An active goal keeps an unsubscribed lead loaded and working: for 80 s after its client left, L3 stayed loaded, its goal turns kept running, and it had no SessionEnd; once the goal was paused, the app-server unloaded it about 60 s after its last turn and Dashpot ended its bound run", () => {
   assert.equal(l3.loadedPolls.length, 8);
   assert(l3.loadedPolls.every(([, loaded, , ended]) => loaded && !ended));
   assert(l3.loadedPolls.every(([, , count], index) => index === 0 || count > l3.loadedPolls[index - 1][2]));
-  assert(l3.goalTurnsWhileUnsubscribed >= 10);
+  assert(l3.loadedPolls.at(-1)[0] >= 80000);
+  assert(turnsOfRequests(goalRequests(l3.lead).filter((record) => record.receiptTime > l3.leftAt && record.receiptTime < l3.pausedAt)).length >= 10);
   const ended = one("hook", (record) => record.event === "SessionEnd" && record.payload.session_id === l3.lead && record.receiptTime < l3.resumedAt);
   const lastStop = hooksOf(l3.lead, "Stop").filter((record) => record.receiptTime < ended.receiptTime).at(-1);
   assert(lastStop.receiptTime > l3.pausedAt);
@@ -209,10 +215,12 @@ check("An active goal keeps an unsubscribed Lead loaded and working: for 80 s af
   assert.deepEqual(runFor("l3-unloaded", "I_fixture_2"), []);
 });
 
-check("A goal does not reload an unloaded Lead: setting L3's goal active while it was unloaded made no request, loaded nothing and ran no hook; resuming it started a goal turn at once, which Dashpot showed as a new, unbound run", () => {
+check("A goal does not reload an unloaded lead: setting L3's goal active while it was unloaded made no request, loaded nothing and ran no hook; resuming it started a goal turn at once, which Dashpot showed as a new, unbound run", () => {
   const set = one("goal.set", (record) => record.label === "l3-set-active-unloaded");
   assert.equal(set.goal.status, "active");
-  assert.deepEqual(l3.afterReactivate, { requests: 0, loaded: false, sessionStarts: 0 });
+  // Whether the thread was loaded is the client's own poll; requests and hooks come from the raw records.
+  assert.equal(l3.afterReactivate.loaded, false);
+  assert.equal(requestsOf(l3.lead).filter((record) => record.receiptTime > l3.reactivatedAt && record.receiptTime < l3.resumedAt).length, 0);
   assert.equal(goalGet("l3-unloaded-reactivated").status, "active");
   assert.equal(hooks.filter((record) => record.payload.session_id === l3.lead && record.receiptTime > l3.reactivatedAt && record.receiptTime < l3.resumedAt).length, 0);
   const [first] = requestsOf(l3.lead).filter((record) => record.receiptTime > l3.resumedAt);
@@ -238,11 +246,12 @@ if (codexSource) {
     assert.match(extension, /fn on_thread_idle[\s\S]*?runtime\.continue_if_idle\(\)\.await/);
     assert.match(extension, /let tools_visible_for_thread = !matches!\(\s*input\.session_source,\s*SessionSource::SubAgent\(SubAgentSource::Review\)\s*\);/);
   });
-  check("Source: the runtime blocks a goal on a turn error other than a usage limit, after three automatic turns with an empty answer and no activity, and after three turns whose `exec` failed with no tool succeeding; any tool outcome counts as activity; `update_goal` sets `blocked` without counting turns, and the three-turn rule is the tool's instruction to the model", () => {
+  check("Source: the goal extension blocks a goal on a turn error other than a usage limit, which sets `usage_limited`, after three automatic turns with an empty answer and no activity, and after three turns whose `exec` failed with no tool succeeding; any tool outcome counts as activity; `create_goal` asks nothing of who requested the goal and `update_goal` sets `blocked` without counting turns, and the three-turn rule is the tool's instruction to the model", () => {
     const extension = source("ext/goal/src/extension.rs");
     assert.match(extension, /CodexErrorInfo::UsageLimitExceeded => ActiveGoalStopReason::UsageLimit,[\s\S]*?_ => ActiveGoalStopReason::TurnError,/);
     const runtime = source("ext/goal/src/runtime.rs");
     assert.match(runtime, /ActiveGoalStopReason::TurnError => \{\s*\("turn-error", codex_state::ThreadGoalStatus::Blocked, None\)/);
+    assert.match(runtime, /ActiveGoalStopReason::UsageLimit => \(\s*"usage-limit",\s*codex_state::ThreadGoalStatus::UsageLimited,/);
     assert.match(runtime, /"empty-response",\s*codex_state::ThreadGoalStatus::Blocked,/);
     assert.match(runtime, /"execution-unavailable",\s*codex_state::ThreadGoalStatus::Blocked,/);
     const accounting = source("ext/goal/src/accounting.rs");
@@ -252,6 +261,10 @@ if (codexSource) {
     assert.match(accounting, /if tool_name\.is_default_namespace\(\) && tool_name\.name == "exec" => \{\s*turn\.failed_execution = true;/);
     assert.match(accounting, /\(inner\.consecutive_execution_failure_turns >= 3\)\.then_some\(goal_id\)/);
     const tool = source("ext/goal/src/tool.rs");
+    // Creating a goal validates its objective and budget, and asks nothing of who requested it.
+    const createAt = tool.indexOf("async fn handle_create(");
+    const create = tool.slice(createAt, tool.indexOf(".insert_thread_goal(", createAt));
+    assert(createAt >= 0 && /validate_thread_goal_objective/.test(create) && !/explicit|origin|source|request_kind/i.test(create));
     const updateAt = tool.indexOf("async fn handle_update(");
     const update = tool.slice(updateAt, tool.indexOf("self.metrics", updateAt));
     assert(updateAt >= 0 && update.length > 0 && !/consecutive|three/.test(update));
@@ -260,7 +273,7 @@ if (codexSource) {
     assert.match(spec, /Set to `blocked` only after the same blocking condition has recurred for at least three consecutive goal turns/);
     assert.match(source("ext/goal/templates/goals/continuation.md"), /A verified wait polls a specific process, session, job, or tool handle confirmed live now\./);
   });
-  check("Source: only user input runs `UserPromptSubmit`; a Worker's completion does not trigger a turn and waking on agent messages is off by default; `wait_agent` waits 30 s by default, from 10 s to an hour; a resumed thread emits its idle lifecycle, which continues an active goal; the app-server unloads a thread with no subscribers once it has been inactive for `thread_unload_delay_secs`, 60 by default", () => {
+  check("Source: only user input runs `UserPromptSubmit`; a worker's completion does not trigger a turn and waking on agent messages is off by default; `wait_agent` waits 30 s by default, from 10 s to an hour; a resumed thread emits its idle lifecycle, which continues an active goal; the app-server unloads a thread with no subscribers once it has been inactive for `thread_unload_delay_secs`, 60 by default", () => {
     assert.match(source("core/src/hook_runtime.rs"), /pub\(crate\) async fn inspect_pending_input\([\s\S]*?match pending_input_item \{\s*TurnInput::UserInput \{ content, \.\. \} => \{\s*let request = UserPromptSubmitRequest \{/);
     assert.match(source("core/src/agent/control/completion.rs"), /\/\*trigger_turn\*\/ false,/);
     assert.match(source("features/src/lib.rs"), /id: Feature::WakeOnAgentMessages,\s*key: "wake_on_agent_messages",\s*stage: Stage::UnderDevelopment,\s*default_enabled: false,/);

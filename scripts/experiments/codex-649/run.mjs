@@ -59,7 +59,7 @@ assert(existsSync(dashpotCommand) && existsSync(publisher), `Dashpot's commands 
 // Outside every Dashpot Project and outside `/tmp`, whose shared Codex
 // daemon directory belongs to the operator's own sessions; a short path
 // keeps every socket under the length limit.
-const root = mkdtempSync(path.join(process.env.SPIKE_ROOT_BASE ?? "/var/tmp", "dashpot-649-codex-"));
+const root = mkdtempSync(path.join("/var/tmp", "dashpot-649-codex-"));
 console.log(`Isolated fixture: ${root}`);
 const fixture = path.join(root, "repository");
 const other = path.join(root, "other-worktree");
@@ -550,7 +550,8 @@ try {
   trace("scenario", { name: "l1-skill-goal" });
   const l1 = await startThread(client, "l1", {});
   const l1Start = await runTurn(client, l1, "$fixture-goal-lead SPIKE:l1-start");
-  const workerA = threadOf("wa.0") ?? (await waitFor(() => threadOf("wa.0"), "worker A's first command", 30000), threadOf("wa.0"));
+  await waitFor(() => threadOf("wa.0"), "worker A's first command", 30000);
+  const workerA = threadOf("wa.0");
   await waitFor(() => threadOf("wb.0"), "worker B's first command", 30000);
   const workerB = threadOf("wb.0");
   await waitFor(() => leadTurns(l1).length >= 2, "L1's first goal turn", 30000);

@@ -112,7 +112,8 @@ the later releases and the installed version observed on 9 October.
      contradicts the skill's "Codex never starts a turn for an idle lead"
      for a Lead that sets a goal.
    - Claude Code's `/goal` is a session-scoped Stop hook.
-   - Neither has been measured with Dashpot.
+   - Both are now measured with Dashpot, in the
+     [goal experiment](../spikes/goal-driven-lead-spike.md).
 5. **Worker rules could be enforced by agent definition on every harness.**
    Only OpenCode does so today, and only for session moves.
 6. **A Claude Code Lead isolated in a linked Worktree, and every Worker it
@@ -489,16 +490,23 @@ the PR.
     that ([above](#affordances-and-their-limits-1)).
   - It is not what the v2 Codex runners measured.
 - **Capacity.** The section names the legacy alias `[agents] max_threads`.
-- **Stay in your turn.** A goal is a candidate replacement for the wait-loop
-  discipline, but four things about it are unmeasured:
-  - how Dashpot's hooks see a `goal` turn;
-  - whether a Lead waiting in `wait_agent` across goal turns is set
-    `blocked`, by the model or by the runtime;
-  - what an unloaded Lead does
-    ([#492](https://github.com/ned2/dashpot/issues/492)). By source, a goal
-    runs only in a loaded thread, so a goal is not a fix for #492;
-  - whether a skill's instruction counts as the explicit request a goal
-    needs ([below](#goals-that-keep-a-lead-going)).
+- **Stay in your turn.** A goal was a candidate replacement for the
+  wait-loop discipline. The
+  [goal experiment](../spikes/goal-driven-lead-spike.md#codex) measured the
+  four open questions:
+  - a `goal` turn publishes `Stop` and no `UserPromptSubmit`, so Dashpot
+    shows the Lead `waiting` once its Workers stop;
+  - a Lead waiting in `wait_agent` across goal turns is never blocked by
+    Codex's empty-response stop, since a timed-out wait is a tool call; only
+    the model's own `update_goal`, or a failed turn, blocks the goal;
+  - a goal does not reload an unloaded Lead
+    ([#492](https://github.com/ned2/dashpot/issues/492)), but while it stays
+    active it keeps an unsubscribed Lead loaded;
+  - Codex accepts a `create_goal` made on a skill's instruction
+    ([below](#goals-that-keep-a-lead-going)).
+
+  The experiment recommends a goal as a backstop to the wait loop, not a
+  replacement for it.
 - **Reviewer.** `codex review --base` from a Worker's shell would use no
   thread slot. It would, however, be its own Agent Session in the Worktree,
   like the `codex exec` case the section already describes. Not measured,
@@ -942,7 +950,8 @@ New; documented only.
 
 ### Goals that keep a Lead going
 
-- **Codex.** A goal starts turns on an idle thread (documented, above).
+- **Codex.** A goal starts a turn on an idle thread
+  ([measured](../spikes/goal-driven-lead-spike.md#goal-turns-and-a-workers-mail)).
 - **Claude Code.**
   - A Lead already gets a new turn when a background Worker finishes
     ([measured](../spikes/claude-code-worker-mechanics-spike.md#3-completion)).

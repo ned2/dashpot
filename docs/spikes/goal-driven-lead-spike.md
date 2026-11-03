@@ -14,9 +14,12 @@ with a recommendation for the skill's Codex "Stay in your turn" paragraph
 and its Claude Code section, and drafts their wording. It changes no
 skill text: a follow-up Issue carries the change.
 
-Here a **Lead** is the root thread or session of an Agent Session and a
-**Worker** one of its [Sub-agents](../domain-language.md). The fixture
-Leads only delegate, so they are the skill's Lead and Workers in shape only.
+Here a **lead** is the root thread or session of a fixture Agent Session
+and a **worker** one of its [Sub-agents](../domain-language.md). The
+fixture leads only delegate, so they are the skill's Lead and Workers in
+shape only. Where this document capitalises Lead or Worker, it means the
+[domain language's](../domain-language.md) roles under the
+`dashpot-execute-issues` skill.
 A **goal turn** is a turn the goal starts rather than a person or a
 notification.
 
@@ -27,7 +30,7 @@ Each answer is marked:
   [`rust-v0.166.0`](https://github.com/openai/codex/tree/rust-v0.166.0),
   commit `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`, paths under
   `codex-rs/`, or from the Claude Code 2.1.317 bundle where it says so.
-  With `--codex-source`, the Codex verifier checks each cited Codex fact in
+  With `--codex-source`, the Codex verifier checks each Codex fact cited in
   a checkout of that commit, by matching its code in the cited file, not at
   the cited line;
 - **documented**: from Claude Code's
@@ -43,13 +46,13 @@ Each answer is marked:
 | Question | Answer | Basis |
 | --- | --- | --- |
 | Codex: do a Worker's message and its completion start goal turns? | No. Neither starts a turn, with or without a goal. With a goal, Codex starts a goal turn as soon as the Lead's turn ends, whatever the Workers do, and a goal turn waiting in `wait_agent` receives their mail, which ends the wait early. Without a goal, a Lead whose Worker messaged and finished stayed idle. | measured; source |
-| Codex: which hooks fire for a goal turn, and what does Dashpot show? | `Stop` only, once per goal turn, and no `UserPromptSubmit`. Dashpot shows the Lead `running` while a Worker runs, then `waiting` through every later goal turn, though the Lead is working. | measured; source |
-| Codex: does a Lead waiting in `wait_agent` across goal turns reach `blocked`? Through which path? | Not by itself. A wait that times out is a tool call, and a tool call resets the runtime's empty-turn count, so waiting goal turns never meet the empty-response stop. The goal became `blocked` only through the model's own `update_goal`, which takes effect at once; the three-turn rule is an instruction to the model, not a runtime check. The runtime blocks a goal itself after three automatic turns with an empty answer and no tool call, and at once on a failed turn. | measured; source |
-| Codex: does a skill's instruction count as the explicit request? | The runtime does not check: `create_goal` made on a skill's instruction was accepted. The skill's text reaches the model as a user message, which the tool's description counts as an explicit request. Whether a real model makes the call is not measured. | measured for the runtime; source for the description; inference for a real model |
+| Codex: which hooks fire for a goal turn, and what does Dashpot show? | `Stop` only, once per goal turn, and no `UserPromptSubmit`. Dashpot shows the Lead `running` while a Worker runs, then `waiting` in a goal turn after the Workers stopped, though the Lead was working (measured). So a Lead driven by a goal reads `waiting` through every goal turn after its Workers stop (inference). | measured; source; inference |
+| Codex: does a Lead waiting in `wait_agent` across goal turns reach `blocked`? Through which path? | Not by itself. A wait that times out is a tool call, and a tool call resets the goal extension's empty-turn count, so waiting goal turns never meet the empty-response stop. The goal became `blocked` only through the model's own `update_goal`, which takes effect at once; the three-turn rule is an instruction to the model, not a check Codex makes. Codex blocks a goal itself after three automatic turns with an empty answer and no tool call, and at once on a failed turn. | measured; source |
+| Codex: does a skill's instruction count as the explicit request? | Codex does not check: `create_goal` made on a skill's instruction was accepted. The skill's text reaches the model as a user message, which the tool's description counts as an explicit request. Whether a real model makes the call is not measured. | measured for Codex; source for the description; inference for a real model |
 | Codex: does a goal reload an unloaded Lead ([#492](https://github.com/ned2/dashpot/issues/492))? | Confirmed: it does not. A goal set active on an unloaded Lead made no request, loaded nothing and ran no hook. Resuming the Lead started a goal turn at once. An active goal does keep an unsubscribed Lead loaded and working, until the goal stops being active. | measured; source |
 | Claude Code: the evaluator's Stop-hook verdicts against Dashpot's Stop-driven turn state | Claude Code defers evaluation while a background Worker runs, and each Worker's completion notice starts a turn that runs `UserPromptSubmit`, so Dashpot shows the Lead `running` through that phase. Once no Worker runs, a "not met" verdict continues the turn after `Stop` has fired, with no `UserPromptSubmit`, so Dashpot shows the working Lead `waiting`. | measured |
 | Claude Code: check-ins while Workers run | In a headless Lead, a check-in comes only when a turn ends with work still running after the interval: it continues that turn, again after `Stop` and with no `UserPromptSubmit`. No check-in came while the Lead was idle. An interactive Lead's idle check-ins are documented, not measured. | measured; documented |
-| Claude Code: a condition phrased as the skill's end | The condition reached the evaluator verbatim. The evaluator calls no tool, so it can judge only what the conversation already shows. A "met" verdict cleared the goal. Nine "not met" verdicts in a row with no tool call end the turn with the goal kept, until the next prompt. | measured; documented |
+| Claude Code: a condition phrased as the skill's end | The condition reached the evaluator verbatim. The evaluator calls no tool, so it can judge only what the conversation already shows. A "met" verdict cleared the goal. Nine "not met" verdicts in a row with no tool call end the turn with the goal kept, until the next prompt. A condition phrased as merged would never be met by a Lead whose operator merges, so it would end in that cap (inference; the fixture evaluator is scripted). | measured; documented; inference |
 
 ## Recommendation
 
@@ -62,7 +65,9 @@ Each answer is marked:
 - The wait loop stays: a goal turn does nothing with the Workers unless it
   waits in `wait_agent`, and each goal turn spends at least one model
   request. With `wait_agent` waiting up to an hour, a waiting Lead spends
-  about one goal turn an hour.
+  about one goal turn an hour. A Lead that ends goal turns with text and
+  no wait is never stopped by the empty-response rule, and spends requests
+  continuously: the fixture's unsubscribed lead ran 15 goal turns in 80 s.
 - A failed model request blocks the goal at once, and a usage limit sets
   `usage_limited` (source). The Lead then stops as it does today, so the
   skill tells it, and the user, how to restart.
@@ -70,6 +75,8 @@ Each answer is marked:
   [#492](https://github.com/ned2/dashpot/issues/492) gap's workaround while
   the goal stays active. Once the goal is blocked, paused or complete, the
   Lead unloads about 60 s later and Dashpot ends its Issue work as before.
+  The run measured an explicit `thread/unsubscribe` on a connection that
+  stayed open, not a client process exiting from a daemon-hosted Lead.
   "Keep a client attached" stays.
 - The cost to Dashpot is the measured gap: every goal turn after the
   Workers stop reads `waiting`. The skill names it as a Known Dashpot gap,
@@ -170,9 +177,9 @@ it. The Codex run takes about five minutes, the Claude Code run about four.
 - **Records.** Metadata only: each request's directive kind, markers,
   tool and turn trigger; each evaluator request's shape; the app-server's
   turn and goal notifications; each hook's identity fields; the shells'
-  identity; and Dashpot's view. No prompt or message text is kept, except
-  the opening words of a message Claude Code itself writes, such as a
-  check-in. The fixture root appears as `$ROOT` and the home directory as
+  identity; and Dashpot's view. The only text kept is the fixture's own
+  labels and verdicts, and the opening words of a message Claude Code
+  itself writes, such as a feedback message or a check-in. The fixture root appears as `$ROOT` and the home directory as
   `~`.
 
 The [Codex runner](../../scripts/experiments/codex-649/run.mjs) and its
@@ -204,27 +211,27 @@ and [the Claude Code trace](measurements/issue-649-claude-code-trace.jsonl).
   model makes them: whether a real Codex model calls `create_goal` on the
   skill's instruction, waits in `wait_agent` in each goal turn, or holds off
   `blocked`, and whether a real evaluator judges the condition well.
-- **Hosting mode.** Every Codex Lead runs on one app-server over a loopback
-  WebSocket. Every Claude Code Lead is headless, so the interactive idle
+- **Hosting mode.** Every Codex lead runs on one app-server over a loopback
+  WebSocket. Every Claude Code lead is headless, so the interactive idle
   check-ins and the terminal's `/goal` display are documented only.
-- **Timings.** Workers hold for seconds, not hours, and the Claude Code
+- **Timings.** workers hold for seconds, not hours, and the Claude Code
   check-in interval is one minute, not the default thirty. Every timing is
   one sample.
 - **Not measured.** Codex's usage-limit and execution-unavailable stops,
   an interrupted goal turn, a token budget, and Claude Code's automatic
-  retries after a failed evaluation. A Claude Code Lead with a `/goal` and
-  a `SendMessage` from a Worker was not run.
+  retries after a failed evaluation. A Claude Code lead with a `/goal` and
+  a `SendMessage` from a worker was not run.
 - **Platforms.** macOS, other releases and real models are unmeasured.
 
 ## Codex
 
-The runner drives five multi-agent v2 Leads. L1 creates its goal with
-`create_goal` on a skill's instruction, spawns Workers A and B and ends its
-turn. Its goal turns wait in `wait_agent` for 30 s while the Workers message
+The runner drives five multi-agent v2 leads. L1 creates its goal with
+`create_goal` on a skill's instruction, spawns workers A and B and ends its
+turn. Its goal turns wait in `wait_agent` for 30 s while the workers message
 and finish, run a command, wait at least four more times for 10 s with no
 progress and an empty final message, and then set the goal `blocked`. L2
-spawns Worker C with no goal and ends its turn; the client sets a goal once
-C has messaged and finished. L3 creates a goal and spawns a Worker; its
+spawns worker C with no goal and ends its turn; the client sets a goal once
+C has messaged and finished. L3 creates a goal and spawns a worker; its
 client unsubscribes, later pauses the goal, waits for the unload, sets the
 goal active while L3 is unloaded, and resumes it. L4's goal turns answer
 empty, and L5's model requests fail.
@@ -232,7 +239,7 @@ empty, and L5's model requests fail.
 ### Goals are on by default
 
 The fixture configuration names no `goals` feature, and every request,
-the Workers' included, offered `get_goal`, `create_goal` and
+the workers' included, offered `get_goal`, `create_goal` and
 `update_goal` (measured). `goals` is a stable feature, on by default
 ([`features/src/lib.rs` L2060-L2064](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/features/src/lib.rs#L2060-L2064)),
 and the goal tools are hidden only from a review Sub-agent
@@ -242,7 +249,7 @@ and the goal tools are hidden only from a review Sub-agent
 ### A skill's instruction and `create_goal`
 
 The fixture skill's body reached the model as a user message, not in its
-instructions, and the runtime accepted the `create_goal` L1 made on it: the
+instructions, and Codex accepted the `create_goal` L1 made on it: the
 goal was active before the first spawn (measured). The tool's description
 says "Create a goal only when explicitly requested by the user or
 system/developer instructions; do not infer goals from ordinary tasks"
@@ -252,12 +259,12 @@ and `handle_create` checks no such request
 (source). A user-invoked skill's instruction is a user message, so it is an
 explicit request by the description's terms (inference).
 
-### Goal turns, and a Worker's mail
+### Goal turns, and a worker's mail
 
 Every L1 turn after its first was a goal turn: its request carried
 `turn_trigger` `goal`, and its input ended with Codex's continuation as a
-user message. The first goal turn started as the Lead's turn ended, while
-both Workers still ran (measured; 17 ms later, trace only). The goal
+user message. The first goal turn started as the lead's turn ended, while
+both workers still ran (measured; 15 ms later, trace only). The goal
 extension's `on_thread_idle` calls `continue_if_idle`
 ([`extension.rs` L180-L203](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/ext/goal/src/extension.rs#L180-L203)),
 which needs the live thread and calls `start_turn_if_idle` with
@@ -265,12 +272,12 @@ which needs the live thread and calls `start_turn_if_idle` with
 ([`ext/goal/src/runtime.rs` L436-L497](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/ext/goal/src/runtime.rs#L436-L497))
 (source).
 
-A Worker's message and its completion started no turn. With the goal, both
+A worker's message and its completion started no turn. With the goal, both
 reached L1 inside a goal turn's `wait_agent`, which returned "Wait
 completed" without timing out. Without one, L2 made no request and started
-no turn after Worker C messaged and finished; when the client then set a
+no turn after worker C messaged and finished; when the client then set a
 goal, the first goal turn started at once and carried both C's message and
-its completion (measured). A Worker's completion is delivered with
+its completion (measured). A worker's completion is delivered with
 `trigger_turn` false
 ([`core/src/agent/control/completion.rs` L117](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/agent/control/completion.rs#L117)),
 and waking on agent messages is an under-development feature, off by
@@ -283,16 +290,16 @@ default
 ### Hooks, and what Dashpot shows
 
 Each goal turn of L1, L2 and L3 ran one `Stop` with its turn ID and no
-`UserPromptSubmit`, while each Lead's first turn ran both (measured). Only
+`UserPromptSubmit`, while each lead's first turn ran both (measured). Only
 user input runs `UserPromptSubmit`
 ([`core/src/hook_runtime.rs` L707-L713](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/src/hook_runtime.rs#L707-L713)),
 and a goal turn's input is a response item (source).
 
-Dashpot showed L1 `running` while its Workers ran, which its live
+Dashpot showed L1 `running` while its workers ran, which its live
 Sub-agents explain. Once both had stopped, it showed L1 `waiting` while a
 goal turn's command ran, and it showed L3 `waiting` while an unsubscribed
-goal turn's command ran (measured). A Lead driven by a goal reads `waiting`
-for all its work after the Workers stop: a gap the drafted Dashpot Issue
+goal turn's command ran (measured). A lead driven by a goal reads `waiting`
+for all its work after the workers stop: a gap the drafted Dashpot Issue
 below records (inference).
 
 ### Blocking
@@ -300,7 +307,7 @@ below records (inference).
 Four or more L1 goal turns whose `wait_agent` timed out and whose final
 message was empty left the goal active. The model's `update_goal` to
 `blocked` took effect at once, and no turn started after it (measured;
-four turns, trace only). L4's goal was blocked after three automatic turns
+five turns, trace only). L4's goal was blocked after three automatic turns
 with an empty answer and no tool call. L5's was blocked after its one
 failed turn, which ran no `Stop` hook (measured).
 
@@ -330,7 +337,7 @@ By source:
   "verified wait"
   ([`ext/goal/templates/goals/continuation.md` L24, L50](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/ext/goal/templates/goals/continuation.md#L24-L50)).
 
-### An unsubscribed and an unloaded Lead
+### An unsubscribed and an unloaded lead
 
 For 80 s after its client unsubscribed, L3 stayed loaded, its goal turns
 kept running, and it published no `SessionEnd` (measured; 15 goal turns,
@@ -369,14 +376,14 @@ Each citation #649 makes at `rust-v0.160.0` still holds at
 
 ## Claude Code
 
-The runner drives three headless Leads. C1 binds Issue 1 and sets a goal
-phrased as the skill's end, "every fixture Worker's pull request is open
+The runner drives three headless leads. C1 binds Issue 1 and sets a goal
+phrased as the skill's end, "every fixture worker's pull request is open
 and its CI checks are green", whose start turn launches two background
-Workers, of about 25 s and 70 s. Its evaluator answers "not met" once after
+workers, of about 25 s and 70 s. Its evaluator answers "not met" once after
 both finish, while the continuation runs a command, and "met" after. C2's
 evaluator always answers "not met": its continuations each run a command
 twelve times, then answer with text only. C3 sets a one-minute check-in
-interval and launches two background Workers, of about 80 s and 110 s.
+interval and launches two background workers, of about 80 s and 110 s.
 
 ### The evaluator
 
@@ -387,34 +394,34 @@ condition verbatim, and quoted the `Stop` hook's input, `background_tasks`
 included (measured). The documentation says the evaluator calls no tools,
 and that a condition can be up to 4,000 characters (documented). An
 evaluator that calls no tools can judge only what the conversation shows,
-so a condition about pull requests holds only once the Lead's turns have
+so a condition about pull requests holds only once the lead's turns have
 stated their state (inference).
 
-### Deferral while Workers run, and notifications
+### Deferral while workers run, and notifications
 
-C1's goal start turn and a notification turn each ended with a Worker
+C1's goal start turn and a notification turn each ended with a worker
 still running and no evaluation, and every evaluation came after the last
-Worker had finished, with no background task in the hook input. C3 was
-evaluated once, after its second Worker finished (measured). The
+worker had finished, with an empty `background_tasks` in the hook input. C3 was
+evaluated once, after its second worker finished (measured). The
 documentation says background work defers evaluation (documented).
 
-Each Worker's completion notice started a turn that ran
-`UserPromptSubmit`, and Dashpot showed the Lead `running` while its
-background Workers ran (measured).
+Each worker's completion notice started a turn that ran
+`UserPromptSubmit`, and Dashpot showed the lead `running` while its
+background workers ran (measured).
 
 ### Verdicts and Dashpot's turn state
 
 A "not met" verdict continued the turn with "Stop hook feedback:" and the
 condition as a user message. It came after the `Stop` hook had run, with
 `stop_hook_active` false, and ran no `UserPromptSubmit`, so Dashpot showed
-the Lead `waiting` while that continuation ran a command. The `Stop` that
+the lead `waiting` while that continuation ran a command. The `Stop` that
 ended the continuation carried `stop_hook_active` true (measured). A "met"
 verdict cleared the goal: a later prompt in C1 had no evaluation
 (measured).
 
 ### The block cap
 
-C2 continued through twelve "not met" verdicts, one after each command.
+C2 continued through exactly twelve "not met" verdicts, one after each command.
 Nine in a row with no tool call then made Claude Code end the turn with the
 notice "A hook blocked the turn from ending 9 consecutive times"
 (measured). That notice names `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` as the
@@ -427,20 +434,20 @@ prompt (documented).
 
 ### Check-ins
 
-With `CLAUDE_CODE_GOAL_CHECKIN_MINUTES` at 1, C3 made no Lead request in
-the 80 s before its first Worker finished. The notification turn that then
-ended with the second Worker still running was continued by a user message
+With `CLAUDE_CODE_GOAL_CHECKIN_MINUTES` at 1, C3 made no lead request in
+the 80 s before its first worker finished. The notification turn that then
+ended with the second worker still running was continued by a user message
 opening "Goal check-in:", the condition, "is still active, and evaluation
 has been deferred for 1", after its `Stop` hook and with no
 `UserPromptSubmit` or evaluation. No further check-in came in the 30 s
-before the second Worker finished (measured). The documentation says a
-check-in is due after 30 minutes deferred by default, the interval then
-doubling up to four times, that a `-p` session gets one only "at the end of
+before the second worker finished (measured). The documentation says a
+check-in is due after 30 minutes deferred by default, each later one
+waiting twice as long, up to four times the first interval, that a `-p` session gets one only "at the end of
 the next turn that finishes with the work still running", and that an
 interactive session gets at most three idle check-ins between prompts
 (documented).
 
-### Unbound Leads
+### Unbound leads
 
 C2 and C3 bound no Issue, and Dashpot showed each as an unbound run
 (measured).
@@ -461,7 +468,7 @@ C2 and C3 bound no Issue, and Dashpot showed each as an unbound run
 
 Each retained trace passed its verifier in its minimal form, and with
 `--strict` (and, for Codex, `--codex-source` at a `rust-v0.166.0`
-checkout): 11 measured claims, and 14 with the source claims, against 458
+checkout): 11 measured claims, and 14 with the source claims, against 467
 Codex records; 10 claims against 288 Claude Code records. Every
 script and Dashpot module each trace names matched the hash the run
 recorded. The verifiers check only the form of each binary's SHA-256; the

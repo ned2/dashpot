@@ -15,7 +15,7 @@ const retained = ["session_id", "hook_event_name", "cwd", "source", "reason", "a
 const raw = readFileSync(0, "utf8");
 let payload = {};
 try { payload = JSON.parse(raw || "{}"); } catch (error) { payload = { parseError: String(error) }; }
-const published = spawnSync(process.env.SPIKE_PUBLISHER, [], { input: raw, encoding: "utf8", timeout: 20000 });
+const published = spawnSync(process.env.SPIKE_PUBLISHER, [], { input: raw, encoding: "utf8", timeout: 8000 });
 const tasks = Array.isArray(payload.background_tasks) ? payload.background_tasks : null;
 const record = {
   kind: "hook",

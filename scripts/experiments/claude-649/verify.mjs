@@ -1,4 +1,4 @@
-// Independent verifier for a Claude Code 649 goal-driven Lead trace. Checks
+// Independent verifier for a Claude Code 649 goal-driven lead trace. Checks
 // the recorded model and evaluator requests, hooks, shells, client notices
 // and Dashpot's own views against the claims the spike makes for the pinned
 // release, without importing the runner or Dashpot.
@@ -54,7 +54,7 @@ const evaluationsOf = (lead) => evaluations.filter((record) => record.lead === l
 const between = (list, from, to) => list.filter((record) => record.receipt > from && record.receipt < to);
 const condition = (lead) => `SPIKE:${lead}-goal`;
 
-check("The run used the pinned release through a fixture-local symlink with its updater off, the hooks subscribed exactly as `dashpot integrate claude-code` subscribes them, Dashpot's real publisher succeeding for every hook, every Lead exiting, no fixture process left, and nothing gained in the shared daemon directory", () => {
+check("The run used the pinned release through a fixture-local symlink with its updater off, the hooks subscribed exactly as `dashpot integrate claude-code` subscribes them, Dashpot's real publisher succeeding for every hook, every lead exiting, no fixture process left, and nothing gained in the shared daemon directory", () => {
   assert.equal(environment.binaryTarget, `~/.local/share/claude/versions/${expectedVersion}`);
   assert.match(environment.binarySHA256, /^[0-9a-f]{64}$/);
   assert.equal(environment.flags.DISABLE_AUTOUPDATER, "1");
@@ -84,7 +84,7 @@ check("`/goal` evaluates its condition on the small fast model with no tools: ea
   assert.deepEqual([...new Set(starts.map((record) => record.label))].sort(), ["c1-goal", "c2-goal", "c3-goal"]);
 });
 
-check("Claude Code defers the evaluator while a background Worker runs: in C1 the goal's start turn and a notification turn each ended with a Worker still running and no evaluation, and every evaluation came after the last Worker had finished, with no background task in the hook input", () => {
+check("Claude Code defers the evaluator while a background worker runs: in C1 the goal's start turn and a notification turn each ended with a worker still running and no evaluation, and every evaluation came after the last worker had finished, with an empty `background_tasks` in the hook input", () => {
   const stops = leadHooks(c1.session, "Stop").filter((record) => record.receiptTime > c1.goalAt);
   const busy = stops.filter((record) => record.backgroundTasks.count > 0);
   assert.deepEqual(busy.map((record) => record.backgroundTasks.count), [2, 1]);
@@ -94,11 +94,10 @@ check("Claude Code defers the evaluator while a background Worker runs: in C1 th
   assert(evaluations.every((record) => record.hookInput.backgroundTasks === 0));
   assert.equal(view("c1-workers-running").evaluations, 0);
   assert.equal(view("c1-notification-turn").evaluations, 0);
-  assert.equal(c3.evaluationsWhileWaiting, 0);
   assert(evaluationsOf("c3").every((record) => record.receipt > shell("wd", "end").receipt));
 });
 
-check("A background Worker's completion notice starts a turn that runs `UserPromptSubmit`, and Dashpot shows the Lead `running` while its background Workers run", () => {
+check("A background worker's completion notice starts a turn that runs `UserPromptSubmit`, and Dashpot shows the lead `running` while its background workers run", () => {
   const notifications = requests.filter((record) => record.session === c1.session && record.directiveKind === "task-notification");
   assert(notifications.length >= 2);
   const notified = shell("c1-notified");
@@ -109,7 +108,7 @@ check("A background Worker's completion notice starts a turn that runs `UserProm
   assert.deepEqual(runsOf("c3-waiting", c3.session).map((run) => run.state), ["running"]);
 });
 
-check("A \"not met\" verdict continues the turn with the evaluator's feedback as a user message, after the Stop hook has run and without `UserPromptSubmit`, so Dashpot shows the Lead `waiting` while that continuation works; the Stop that ends it carries `stop_hook_active`", () => {
+check("A \"not met\" verdict continues the turn with the evaluator's feedback as a user message, after the Stop hook has run and without `UserPromptSubmit`, so Dashpot shows the lead `waiting` while that continuation works; the Stop that ends it carries `stop_hook_active`", () => {
   const notMet = evaluationsOf("c1").find((record) => !record.verdict.ok);
   assert.equal(notMet.phase, "continue");
   const feedback = requests.find((record) => record.session === c1.session && record.directiveKind === "goal-feedback");
@@ -133,7 +132,7 @@ check("A \"met\" verdict clears the goal: after it, the turn ended and a later p
   const met = evaluationsOf("c1").filter((record) => record.verdict.ok);
   assert.equal(met.length, 1);
   assert.equal(met[0].hookInput.stopHookActive, true);
-  assert.equal(c1.evaluationsAfterMet, 0);
+  assert.deepEqual(evaluationsOf("c1").filter((record) => record.receiptTime > c1.afterMetAt), []);
   assert.equal(evaluationsOf("c1").at(-1), met[0]);
   assert(leadHooks(c1.session, "Stop").some((record) => record.receiptTime > c1.afterMetAt));
 });
@@ -147,17 +146,19 @@ const blockRuns = (session, lead, from, to) => {
   return runs;
 };
 
-check("A goal turn may continue past nine \"not met\" verdicts while the Lead keeps calling tools, but nine in a row with no tool call make Claude Code end the turn with its block-cap notice", () => {
-  assert.equal(c2.endedDuringTools, false);
-  assert(c2.toolRounds >= 12);
+check("A goal turn may continue past nine \"not met\" verdicts while the lead keeps calling tools, but nine in a row with no tool call make Claude Code end the turn with its block-cap notice", () => {
+  const progress = of("command", (record) => record.label === "c2-progress" && record.phase === "end");
+  assert.equal(progress.length, 12);
   const cap = one("client.system", (record) => record.client === "c2" && record.key === "stop-hook-block-cap");
+  assert(progress.at(-1).receipt < cap.receipt);
+  assert(of("client.result", (record) => record.client === "c2").every((record) => record.receipt < progress[0].receipt || record.receipt > cap.receipt));
   assert.match(cap.text, /^A hook blocked the turn from ending 9 consecutive times/);
   const goal = one("client.send", (record) => record.client === "c2" && record.text.startsWith("/goal")).receipt;
   const runs = blockRuns(c2.session, "c2", goal, cap.receipt);
   // One run per tool call, after the goal's start: one verdict after each
   // command but the last, then nine with no tool call.
   assert.equal(runs[0], 0);
-  assert.equal(runs.length - 1, c2.toolRounds);
+  assert.equal(runs.length - 1, progress.length);
   assert(runs.slice(1, -1).every((count) => count === 1));
   assert.equal(runs.at(-1), 9);
   const ended = of("client.result", (record) => record.client === "c2" && record.receipt > cap.receipt)[0];
@@ -165,13 +166,14 @@ check("A goal turn may continue past nine \"not met\" verdicts while the Lead ke
 });
 
 check("The block cap ends the turn but keeps the goal: C2's next prompt was evaluated again; an \"impossible\" verdict then cleared it, and the prompt after had no evaluation", () => {
-  assert.deepEqual(c2.evaluationsAfterPrompt, [[false, false], [false, true]]);
-  assert.equal(c2.evaluationsAfterFinal, 0);
+  const verdicts = evaluationsOf("c2").filter((record) => record.receiptTime > c2.c2AfterAt && record.receiptTime < c2.finalAt);
+  assert.deepEqual(verdicts.map((record) => [record.verdict.ok, record.verdict.impossible ?? false]), [[false, false], [false, true]]);
+  assert.deepEqual(evaluationsOf("c2").filter((record) => record.receiptTime > c2.finalAt), []);
   assert(leadHooks(c2.session, "Stop").some((record) => record.receiptTime > c2.finalAt));
 });
 
-check("In a headless Lead, a goal check-in waits for a turn to end with background work still running: with a one-minute interval, C3 made no Lead request in the 80 s before its first Worker finished; the notification turn that then ended with the second still running was continued by a \"Goal check-in\" user message, after its Stop hook and with no `UserPromptSubmit` or evaluation, and no further check-in came in the 30 s before the second finished", () => {
-  // A Worker's requests carry the Lead's session; its directive is its own prompt.
+check("In a headless lead, a goal check-in waits for a turn to end with background work still running: with a one-minute interval, C3 made no lead request in the 80 s before its first worker finished; the notification turn that then ended with the second still running was continued by a \"Goal check-in\" user message, after its Stop hook and with no `UserPromptSubmit` or evaluation, and no further check-in came in the 30 s before the second finished", () => {
+  // A worker's requests carry the lead's session; its directive is its own prompt.
   const lead = requests.filter((record) => record.session === c3.session && !["wc", "wd"].includes(record.label));
   const start = lead.filter((record) => record.directiveKind === "goal-start").at(-1);
   const firstDone = shell("wc", "end");

@@ -29,7 +29,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -50,8 +50,9 @@ assert(!host, `Run this outside every harness session (for example with \`setsid
 const dashpot = path.join(checkout, ".venv", "bin", "dashpot");
 const publisher = path.join(checkout, ".venv", "bin", "dashpot-claude-code-hook");
 const python = path.join(checkout, ".venv", "bin", "python");
+for (const file of [dashpot, publisher, python]) assert(existsSync(file), `Run \`uv sync --locked --group dev\` in this checkout first: ${file} is missing`);
 
-const root = mkdtempSync(path.join(process.env.SPIKE_ROOT_BASE ?? "/var/tmp", "dashpot-649-claude-"));
+const root = mkdtempSync(path.join("/var/tmp", "dashpot-649-claude-"));
 console.log(`Isolated fixture: ${root}`);
 const fixture = path.join(root, "repository");
 const tracePath = path.join(root, "trace.jsonl");
