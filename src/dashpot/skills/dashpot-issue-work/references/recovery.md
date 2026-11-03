@@ -133,13 +133,14 @@ this Claude Code session, in a Worktree the session left with `ExitWorktree`,
 is usually its language server, such as `pyright-langserver` for the
 `pyright` LSP plugin. Claude Code starts it when the session first edits a
 file that plugin serves or calls `LSP`, in the directory the session is in
-at the time.
-`ExitWorktree` neither stops nor moves it, so it keeps the Worktree from
-Cleanup until it or the session ends.
+at the time. `ExitWorktree` neither stops nor moves it, so it keeps the
+Worktree from Cleanup until it or the session ends.
 
-Tell the user the pid and command the blocker names. Ending that process
-alone frees the Worktree and leaves the session running; ending the session
-also frees it. Never end the process yourself.
+Tell the user the pid and command the blocker names, and relay what the
+blocker says ending it does: it leaves the session running, and frees the
+Worktree when nothing else is inside. Ending the session also ended it in
+the case [#695](https://github.com/ned2/dashpot/issues/695) records. Never
+end the process yourself.
 
 ## Codex Worktree still occupied after leaving
 

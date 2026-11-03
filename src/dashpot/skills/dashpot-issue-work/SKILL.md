@@ -66,9 +66,9 @@ is the instruction to do so; do not wait for the user to ask:
   Agent Run still bound would move back with the session. Check that the
   result names the directory the session is back in; if that is another
   Issue Worktree, the session was started there, as in the next case. Never
-  use `remove`. `ExitWorktree` leaves behind a language server the session
-  started in the Worktree, so then run `<dashpot> worktree check
-  <worktree-path>` and, if a `process` blocker names this session, follow
+  use `remove`. `ExitWorktree` does not take along a language server the
+  session started in the Worktree. Afterwards run `<dashpot> worktree check
+  <worktree-path>`, and if a `process` blocker names this session, follow
   [recovery](references/recovery.md#claude-code-worktree-still-occupied-after-leaving).
 - **Claude Code, started in the Worktree.** There is nothing to exit. If you
   cannot tell which case applies, call `ExitWorktree` with `action: "keep"`

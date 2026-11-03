@@ -350,10 +350,11 @@ work ([ADR 0160](adr/0160-name-the-agent-session-a-process-inside-a-worktree-des
 A session can leave behind a process it started: Claude Code's language
 server, started in the directory the session was in when it first edited a
 file the LSP plugin serves, stays in a Worktree the session left with
-`ExitWorktree` ([#695](https://github.com/ned2/dashpot/issues/695)). For such
-a descendant the blocker adds that ending the process alone frees the
-Worktree and leaves its session running. Only a session whose Host Process
-the probe found live is named, so a reused pid names nothing.
+`ExitWorktree` ([#695](https://github.com/ned2/dashpot/issues/695)). For a
+descendant whose Host Process is not itself inside the Worktree, the blocker
+adds that ending the process leaves its session running. It says that this
+frees the Worktree only when nothing else is inside. Only a session whose Host
+Process the probe found live is named, so a reused pid names nothing.
 
 The check is positive only. Finding no process clears no other blocker, so
 a sub-agent between commands still holds the

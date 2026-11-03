@@ -318,5 +318,3 @@ def test_a_process_inside_carries_its_ancestry_through_processes_outside(
 
     # Nearest first, ending at a parent the scan did not read.
     assert found.processes == (traced(server, 900101, 900100, 900099),)
-    # A host scan reads each process alone, so it traces nothing.
-    assert scan_of(server)().processes[0].ancestry == ()

@@ -50,13 +50,22 @@ Session that process belongs to, when it belongs to one.
   its nearest such ancestor. A Host Process that holds several live
   sessions, as an OpenCode server does, names them all, since the process
   table cannot tell which of them started the child.
-- **Say what clears it.** When any process listed descends from a live
-  session's Host Process, the detail ends with a sentence: a live Agent
-  Session started those pids and may have left the Worktree without them,
-  as a Claude Code session leaves its language server behind, and ending
-  them frees the Worktree and leaves the session running. A Host Process
-  itself inside the Worktree is not given this sentence, since ending it
-  ends the session.
+- **Say what clears it.** A process is left behind when it descends from a
+  live session's Host Process and that Host Process is not itself inside the
+  Worktree. When any listed process is left behind, the detail ends with a
+  sentence. It says a live Agent Session started those pids and may have
+  left the Worktree without them, and that ending them leaves the session
+  running. It says that this frees the Worktree only when those processes
+  are all that is inside it. Otherwise it says the other processes still
+  hold the Worktree. When every such session is a Claude Code session, the
+  sentence cites the language server as the example. A Host Process inside
+  the Worktree, and every process under it, gets no such sentence: that
+  session is still here, and the `agent-session` blocker reports it.
+- **Ending the session is not offered.** The sentence names only ending
+  the process. A harness need not end its children when its session ends,
+  and whether Claude Code always does is not yet measured
+  ([#697](https://github.com/ned2/dashpot/issues/697)). The skill's recovery
+  reference, which speaks for one harness, mentions ending the session too.
 - **Narration, not a gate.** The attribution is part of the blocker's
   `detail`, which a preview's fingerprint already leaves out. The blocker's
   kind, and so whether the Worktree is removable, is unchanged. Dashpot
@@ -107,4 +116,5 @@ confirmation all carry the attribution, since they share
   It is named by pid and command alone, as before.
 - Which Claude Code tool calls start a language server, whether ending the
   session always ends it, and how other LSP plugins behave are not settled
-  here. They are left to a spike on a pinned release.
+  here. They are left to a spike on a pinned release
+  ([#697](https://github.com/ned2/dashpot/issues/697)).

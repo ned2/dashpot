@@ -761,6 +761,30 @@ def sessions_at_worktree(
     ]
 
 
+def live_sessions_by_host(
+    stores: Sequence[Path], lookup: ProcessLookup = host_process_lookup
+) -> Mapping[int, tuple[tuple[Harness, str], ...]]:
+    """The live Agent Sessions each Host Process holds, by pid, as harness and id.
+
+    Only a session whose freshest current record the probe found live counts,
+    so its pid is that process now and not a reused one. A Host Process may
+    hold several sessions, as an OpenCode server does, so a pid lists them all.
+    """
+    hosts: dict[int, set[tuple[Harness, str]]] = {}
+    for history in session_histories(stores, lookup):
+        current = history.freshest_current
+        # A live outcome always has a process; the check narrows its type.
+        if (
+            current is None
+            or current.record.outcome != "live"
+            or (process := current.record.process) is None
+        ):
+            continue
+        held = hosts.setdefault(process.pid, set())
+        held.add((current.record.harness, current.record.session_id))
+    return {pid: tuple(sorted(held)) for pid, held in hosts.items()}
+
+
 def sessions_with_live_subagents(
     worktrees: Sequence[Path],
     stores: Sequence[Path],

@@ -9,14 +9,14 @@ from pathlib import Path
 from typing import Literal
 
 from ...core.git import Git, GitError
-from ...core.model import HARNESS_DISPLAY
+from ...core.model import HARNESS_DISPLAY, Harness
 from ...core.shell import in_directory, shell_command, then
 from ...core.text import counted
 from ...core.worktree_paths import is_within, same_path, worktree_paths, worktree_root
 from ...sessions.hook_scan import (
     HookRecordClassification,
+    live_sessions_by_host,
     reachable_hook_stores,
-    scan_hook_stores,
     sessions_at_worktree,
     sessions_with_live_subagents,
     stored_session_records,
@@ -381,51 +381,40 @@ def unchecked_processes(gap: ScanGap) -> str:
     )
 
 
-def live_session_hosts(
-    worktrees: Sequence[Path], lookup: ProcessLookup = host_process_lookup
-) -> Mapping[int, str]:
-    """The live Agent Sessions each Host Process holds, by pid, named for a person.
+@dataclass(frozen=True, slots=True)
+class _HostAttribution:
+    """The live Agent Sessions a process inside a Worktree belongs to.
 
-    Only a session whose Host Process the probe found live is named, so its
-    pid is that process now and not a reused one. A Host Process may hold
-    several sessions, as an OpenCode server does, so each pid names them all.
+    ``host`` is the pid of their Host Process: the process itself when
+    ``is_host``, else its nearest traced ancestor that is one.
     """
-    hosts: dict[int, set[tuple[str, str]]] = {}
-    stores = reachable_hook_stores(worktrees)
-    for scanned in scan_hook_stores(stores, LivenessProbe(lookup)):
-        record = scanned.record
-        process = record.process
-        if record.outcome != "live" or process is None:
-            continue
-        hosts.setdefault(process.pid, set()).add(
-            (HARNESS_DISPLAY[record.harness], record.session_id)
+
+    host: int
+    sessions: tuple[tuple[Harness, str], ...]
+    is_host: bool
+
+    def describe(self) -> str:
+        """The clause that follows the process's pid, command and directory."""
+        sessions = ", ".join(
+            f"{HARNESS_DISPLAY[harness]} session {session}"
+            for harness, session in self.sessions
         )
-    return {
-        pid: ", ".join(
-            f"{harness} session {session}" for harness, session in sorted(held)
-        )
-        for pid, held in hosts.items()
-    }
+        if self.is_host:
+            return f", the Host Process of {sessions}"
+        return f", started under the Host Process (pid {self.host}) of {sessions}"
 
 
-def _process_attribution(
-    process: ProcessDirectory, hosts: Mapping[int, str]
-) -> tuple[str, bool]:
-    """How ``process`` is named against the live sessions, and whether one started it.
-
-    A process is either a session's Host Process itself, or descends from
-    the nearest Host Process in its traced ancestry, or neither.
-    """
+def _host_attribution(
+    process: ProcessDirectory,
+    hosts: Mapping[int, tuple[tuple[Harness, str], ...]],
+) -> _HostAttribution | None:
+    """The live sessions ``process`` is the Host Process of or descends from, if any."""
     if process.pid in hosts:
-        return f", the Host Process of {hosts[process.pid]}", False
+        return _HostAttribution(process.pid, hosts[process.pid], is_host=True)
     for ancestor in process.ancestry:
         if ancestor in hosts:
-            return (
-                f", started under the Host Process (pid {ancestor}) of "
-                f"{hosts[ancestor]}",
-                True,
-            )
-    return "", False
+            return _HostAttribution(ancestor, hosts[ancestor], is_host=False)
+    return None
 
 
 def assess_processes_inside(
@@ -454,17 +443,15 @@ def assess_processes_inside(
     )
     if not found.processes:
         return [], unchecked
-    hosts = live_session_hosts(located.worktrees, lookup)
-    named: list[str] = []
-    started: list[int] = []
-    for index, process in enumerate(found.processes):
-        attribution, descends = _process_attribution(process, hosts)
-        if descends:
-            started.append(process.pid)
-        if index < NAMED_PROCESSES:
-            named.append(
-                f"pid {process.pid} ({process.command}) at {process.cwd}{attribution}"
-            )
+    hosts = live_sessions_by_host(reachable_hook_stores(located.worktrees), lookup)
+    attributions = [_host_attribution(process, hosts) for process in found.processes]
+    named = [
+        f"pid {process.pid} ({process.command}) at {process.cwd}"
+        f"{attribution.describe() if attribution is not None else ''}"
+        for process, attribution in zip(
+            found.processes[:NAMED_PROCESSES], attributions, strict=False
+        )
+    ]
     rest = len(found.processes) - len(named)
     if rest:
         named.append(f"and {rest} more")
@@ -478,8 +465,18 @@ def assess_processes_inside(
         f"{opening}: {'; '.join(named)}. Removing the Worktree would delete the "
         f"directory it works in: end {pronoun} or move {pronoun} out of the Worktree."
     )
-    if started:
-        detail += f" {_left_behind(started)}"
+    # A process whose Host Process is itself inside was not left behind: its
+    # session is still here, which the agent-session blocker reports.
+    inside = {process.pid for process in found.processes}
+    left = [
+        (process.pid, attribution)
+        for process, attribution in zip(found.processes, attributions, strict=True)
+        if attribution is not None
+        and not attribution.is_host
+        and attribution.host not in inside
+    ]
+    if left:
+        detail += f" {_left_behind(left, everything=len(left) == len(inside))}"
     pids = ",".join(str(process.pid) for process in found.processes)
     blocker = CleanupBlocker(
         kind="process",
@@ -489,24 +486,46 @@ def assess_processes_inside(
     return [blocker], unchecked
 
 
-def _left_behind(started: Sequence[int]) -> str:
-    """Say that a live session started these processes, and that ending them spares it.
+def _left_behind(
+    left: Sequence[tuple[int, _HostAttribution]], *, everything: bool
+) -> str:
+    """Say that live sessions started these processes, and what ending them does.
 
     A session that leaves a Worktree does not always take what it started
     with it: Claude Code's ``ExitWorktree`` leaves its language server
-    running where the session first edited Python (#695).
+    running where the session first edited Python (#695). Ending the
+    processes frees the Worktree only when nothing else holds it, and ending
+    the session is not offered, since a harness need not end its children
+    with it (ADR 0160).
     """
-    if len(started) == 1:
-        subject, pronoun = f"pid {started[0]}", "it"
+    pids = [str(pid) for pid, _attribution in left[:NAMED_PROCESSES]]
+    if len(left) > NAMED_PROCESSES:
+        pids.append(f"and {len(left) - NAMED_PROCESSES} more")
+    if len(left) == 1:
+        subject, pronoun = f"pid {pids[0]}", "it"
         process, session = "that process", "its session"
     else:
-        listed = ", ".join(str(pid) for pid in started)
-        subject, pronoun = f"pids {listed}", "them"
+        subject, pronoun = f"pids {', '.join(pids)}", "them"
         process, session = "those processes", "their sessions"
+    claude_code = all(
+        harness == "claude-code"
+        for _pid, attribution in left
+        for harness, _session in attribution.sessions
+    )
+    example = (
+        ", as a Claude Code session leaves its language server behind"
+        if claude_code
+        else ""
+    )
+    outcome = (
+        f"frees the Worktree and leaves {session} running"
+        if everything
+        else f"leaves {session} running, while the other processes here still "
+        "hold the Worktree"
+    )
     return (
         f"A live Agent Session started {subject} and may have left this Worktree "
-        f"without {pronoun}, as a Claude Code session leaves its language server "
-        f"behind: ending {process} frees the Worktree and leaves {session} running."
+        f"without {pronoun}{example}: ending {process} {outcome}."
     )
 
 

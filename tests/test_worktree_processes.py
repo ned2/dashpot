@@ -41,7 +41,7 @@ from dashpot.sessions.working_directories import (
     WorkingDirectories,
 )
 from factories import git, hook_record
-from helpers import absent, scan_of, table_lookup
+from helpers import absent, scan_of, table_lookup, unobservable
 
 SANDBOXED = (
     "Processes running inside this Worktree were not all checked: Dashpot runs "
@@ -379,22 +379,54 @@ def test_a_grandchild_names_the_nearest_host_process_it_descends_from(
     )
 
 
-def test_a_host_process_inside_the_worktree_is_named_but_not_left_behind(
+def test_a_host_process_inside_the_worktree_and_its_children_are_not_left_behind(
+    tmp_path: Path,
+) -> None:
+    # The session is still here, so nothing it started was left behind.
+    root, worktree = repository_with_worktree(tmp_path)
+    hook_record(root, SESSION, "claude-code", CLAUDE)
+    harness = ProcessDirectory(CLAUDE.pid, 1, "claude", worktree)
+    server = ProcessDirectory(8000, CLAUDE.pid, "node", worktree / "web")
+
+    detail = process_detail(
+        preview(
+            root,
+            worktree,
+            scan_of(harness, server),
+            table_lookup({CLAUDE.pid: CLAUDE}),
+        )
+    )
+
+    assert detail == (
+        f"2 processes are running inside this Worktree: pid 7777 (claude) at "
+        f"{worktree}, the Host Process of Claude Code session {SESSION}; pid 8000 "
+        f"(node) at {worktree / 'web'}, started under the Host Process (pid 7777) "
+        f"of Claude Code session {SESSION}. Removing the Worktree would delete the "
+        f"directory it works in: end them or move them out of the Worktree."
+    )
+
+
+def test_a_left_behind_process_beside_another_does_not_claim_to_free_the_worktree(
     tmp_path: Path,
 ) -> None:
     root, worktree = repository_with_worktree(tmp_path)
     hook_record(root, SESSION, "claude-code", CLAUDE)
-    harness = ProcessDirectory(CLAUDE.pid, 1, "claude", worktree)
+    server = ProcessDirectory(8000, CLAUDE.pid, "pyright-langser", worktree)
+    shell = ProcessDirectory(4242, 1, "bash", worktree)
 
     detail = process_detail(
-        preview(root, worktree, scan_of(harness), table_lookup({CLAUDE.pid: CLAUDE}))
+        preview(
+            root, worktree, scan_of(server, shell), table_lookup({CLAUDE.pid: CLAUDE})
+        )
     )
 
-    assert detail == (
-        f"A process is running inside this Worktree: pid 7777 (claude) at "
-        f"{worktree}, the Host Process of Claude Code session {SESSION}. Removing "
-        f"the Worktree would delete the directory it works in: end it or move it "
-        f"out of the Worktree."
+    assert detail.endswith(
+        f"pid 4242 (bash) at {worktree}. Removing the Worktree would delete the "
+        f"directory it works in: end them or move them out of the Worktree. A live "
+        f"Agent Session started pid 8000 and may have left this Worktree without "
+        f"it, as a Claude Code session leaves its language server behind: ending "
+        f"that process leaves its session running, while the other processes here "
+        f"still hold the Worktree."
     )
 
 
@@ -413,33 +445,68 @@ def test_a_session_whose_host_process_is_gone_names_nothing(tmp_path: Path) -> N
     )
 
 
+def test_a_session_whose_liveness_is_unknown_names_nothing(tmp_path: Path) -> None:
+    root, worktree = repository_with_worktree(tmp_path)
+    hook_record(root, SESSION, "claude-code", CLAUDE)
+    server = ProcessDirectory(8000, CLAUDE.pid, "pyright-langser", worktree)
+
+    detail = process_detail(
+        preview(root, worktree, scan_of(server), unobservable("ps failed"))
+    )
+
+    assert detail == (
+        f"A process is running inside this Worktree: pid 8000 (pyright-langser) "
+        f"at {worktree}. Removing the Worktree would delete the directory it "
+        f"works in: end it or move it out of the Worktree."
+    )
+
+
 def test_one_host_process_names_every_live_session_it_holds(tmp_path: Path) -> None:
+    # An OpenCode server holds several sessions; the process table cannot tell
+    # which started a child, and only Claude Code's language server is cited.
     root, worktree = repository_with_worktree(tmp_path)
     hook_record(root, SESSION, "opencode", OPENCODE)
     hook_record(root, OTHER_SESSION, "opencode", OPENCODE)
     builds = [
         ProcessDirectory(8000 + n, OPENCODE.pid, "make", worktree) for n in range(2)
     ]
-    shell = ProcessDirectory(4242, 1, "bash", worktree)
 
     detail = process_detail(
         preview(
-            root,
-            worktree,
-            scan_of(*builds, shell),
-            table_lookup({OPENCODE.pid: OPENCODE}),
+            root, worktree, scan_of(*builds), table_lookup({OPENCODE.pid: OPENCODE})
         )
     )
 
     sessions = f"OpenCode session {SESSION}, OpenCode session {OTHER_SESSION}"
     assert detail == (
-        f"3 processes are running inside this Worktree: pid 8000 (make) at "
+        f"2 processes are running inside this Worktree: pid 8000 (make) at "
         f"{worktree}, started under the Host Process (pid 5151) of {sessions}; "
         f"pid 8001 (make) at {worktree}, started under the Host Process "
-        f"(pid 5151) of {sessions}; pid 4242 (bash) at {worktree}. Removing the "
-        f"Worktree would delete the directory it works in: end them or move them "
-        f"out of the Worktree. A live Agent Session started pids 8000, 8001 and "
-        f"may have left this Worktree without them, as a Claude Code session leaves "
-        f"its language server behind: ending those processes frees the Worktree "
-        f"and leaves their sessions running."
+        f"(pid 5151) of {sessions}. Removing the Worktree would delete the "
+        f"directory it works in: end them or move them out of the Worktree. A live "
+        f"Agent Session started pids 8000, 8001 and may have left this Worktree "
+        f"without them: ending those processes frees the Worktree and leaves their "
+        f"sessions running."
+    )
+
+
+def test_the_left_behind_pids_are_capped_as_the_named_processes_are(
+    tmp_path: Path,
+) -> None:
+    root, worktree = repository_with_worktree(tmp_path)
+    hook_record(root, SESSION, "claude-code", CLAUDE)
+    workers = [
+        ProcessDirectory(8000 + n, CLAUDE.pid, "pyright-langser", worktree)
+        for n in range(7)
+    ]
+
+    detail = process_detail(
+        preview(root, worktree, scan_of(*workers), table_lookup({CLAUDE.pid: CLAUDE}))
+    )
+
+    assert (
+        "A live Agent Session started pids 8000, 8001, 8002, 8003, 8004, and 2 "
+        "more and may have left this Worktree without them, as a Claude Code "
+        "session leaves its language server behind: ending those processes frees "
+        "the Worktree and leaves their sessions running." in detail
     )
