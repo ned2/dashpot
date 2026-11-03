@@ -73,8 +73,8 @@ this checkout as live automatically. Observation is not Issue opt-in: the
 a pull into it then changes the code the hooks run. Never run it from an
 Issue Worktree: the hooks bind the absolute path of the invoking
 environment's publisher, and a linked Worktree's `.venv` is removed with the
-Worktree, which would break every hook event on the machine. `integrate` refuses such a binding and `--status` warns
-about one that already exists
+Worktree, which would break every hook event on the machine. `integrate`
+refuses such a binding and `--status` warns about one that already exists
 ([diagnosis](docs/installation.md#diagnose-an-installation)).
 
 A sub-agent shares the session's Agent Run and needs no opt-in of its own. It
@@ -428,10 +428,10 @@ In this Repository:
   when a review fix changes a source its trace hashes. Before merging a PR
   that commits a trace, check its hashes against the PR head with
   `uv run python scripts/trace_drift.py <verify.mjs> <trace> [verifier
-  argument ...]`. It runs the verifier with `--strict`, or without it where
-  the verifier takes no such flag and its own comparison of the trace's
-  hashes stands in, and lists each drifted source as changed by the PR's own
-  diff or by `main` since the run's base. Where the trace records no base
+  argument ...]`. It runs the verifier with `--strict`; where the verifier
+  takes no such flag, it runs it plainly and compares the trace's hashes
+  itself. It lists each drifted source as changed by the PR's own diff or by
+  `main` since the run's base. Where the trace records no base
   this checkout has, it uses the merge-base, says so, and cannot tell
   `main`'s drift apart. Every hashed source the PR itself changes must match
   the PR head; drift that `main` brought in after the run is recorded in the

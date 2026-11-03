@@ -192,6 +192,37 @@ def test_without_a_run_base_main_cannot_be_told_apart_and_it_says_so(
     )
 
 
+def test_without_a_run_base_a_source_main_removed_still_counts(
+    checkout, monkeypatch, capsys
+):
+    git(checkout.root, "switch", "-q", "main")
+    (checkout.root / "src/dashpot/settled.py").unlink()
+    commit(checkout.root, "Main removes a source")
+    git(checkout.root, "switch", "-q", "measurement")
+    git(checkout.root, "rebase", "-q", "main")
+    write(checkout.root, VERIFIER, PLAIN_VERIFIER)
+    first = environment()
+    first["sourceSHA256"] = {
+        "run.mjs": sha("// runner\n"),
+        "src/dashpot/settled.py": sha("settled = 1\n"),
+        "elsewhere.mjs": sha("// another experiment's helper\n"),
+    }
+    record_trace(checkout.root, first)
+    fake_node(monkeypatch)
+
+    assert check() == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith(
+        f"{TRACE}: {VERIFIER} passes, but takes no --strict; its hashes drift.\n"
+    )
+    assert out.endswith(
+        "  not changed by this PR; with no recorded base, main's part is unknown: "
+        "src/dashpot/settled.py (now removed)\n"
+        "  not found in the checkout: elsewhere.mjs\n"
+    )
+
+
 @pytest.mark.parametrize("key", ["dashpot", "checkout", "dashpotHead", "head"])
 def test_each_recorded_head_key_names_the_run_base(checkout, monkeypatch, capsys, key):
     recorded = (
@@ -274,6 +305,7 @@ def test_a_strict_failure_this_wrapper_cannot_explain_points_at_the_verifier(
         "Without --strict it passes, yet no source this wrapper can find differs "
         "from the run's: read the verifier's message.\n"
     ) in out
+    assert "not drift" not in out
     assert "Drifted sources" not in out
 
 
@@ -317,7 +349,7 @@ def test_a_verifier_without_strict_passes_when_every_found_source_matches(
     )
 
 
-def test_a_failing_verifier_without_strict_reports_its_message(
+def test_a_verifier_without_strict_that_dies_unexplained_reports_its_status(
     checkout, monkeypatch, capsys
 ):
     write(checkout.root, VERIFIER, PLAIN_VERIFIER)

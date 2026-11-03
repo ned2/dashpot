@@ -212,15 +212,15 @@ def digest(path: Path) -> str:
 
 def drifted(root: Path, verifier: Path, environment: dict[str, object]) -> list[Hashed]:
     """Each hashed source that differs from the run, with the paths it can mean."""
-    found: dict[str, Hashed] = {}
+    by_name: dict[str, Hashed] = {}
     for name, recorded in hashed_sources(environment):
         paths = candidates(root, verifier, name)
         existing = next((path for path in paths if (root / path).exists()), None)
         if existing is None:
-            found.setdefault(name, Hashed(name, paths, found=False))
+            by_name.setdefault(name, Hashed(name, paths, found=False))
         elif digest(root / existing) != recorded:
-            found.setdefault(existing, Hashed(existing, (existing,), found=True))
-    return sorted(found.values(), key=lambda item: item.name)
+            by_name.setdefault(existing, Hashed(existing, (existing,), found=True))
+    return sorted(by_name.values(), key=lambda item: item.name)
 
 
 def run_base(root: Path, environment: dict[str, object], pr_base: str) -> RunBase:
@@ -229,6 +229,11 @@ def run_base(root: Path, environment: dict[str, object], pr_base: str) -> RunBas
     if head is not None and resolves(root, head):
         return RunBase(head, recorded=True)
     return RunBase(pr_base, recorded=False)
+
+
+def existed(root: Path, commit: str, paths: tuple[str, ...]) -> bool:
+    """Whether any of the paths was ever in the history that leads to a commit."""
+    return bool(git(root, "rev-list", "-1", commit, "--", *paths))
 
 
 def touches(names: set[str], paths: tuple[str, ...]) -> bool:
@@ -268,7 +273,14 @@ def classify(
             if base.recorded
             else "unknown"
         )
-        if not item.found and origin in {"neither", "unknown"}:
+        # Gone without a known cause: with a recorded base nothing since it
+        # removed the source, so its name is relative to a directory this
+        # wrapper does not know. Without one, a source the PR's base once had
+        # was removed at an unknown point and still counts.
+        if not item.found and (
+            origin == "neither"
+            or (origin == "unknown" and not existed(root, pr_base, item.paths))
+        ):
             origin = "missing"
         shown = next(
             (path for path in item.paths if touches(own | from_main, (path,))),
@@ -330,10 +342,13 @@ def report(
         print("The verifier takes no --strict; every source found matches the run's.")
         print_drift(drift, "Hashed names not found in the checkout, so not checked:")
         return 0
+    # Whether the failure is a verifier failure rather than a strict-only one.
+    failed_plainly = not strict
     if strict:
         print(f"{trace}: {verifier} --strict failed: {failure(result)}")
         lenient = run_verifier(verifier, trace, arguments, strict=False)
-        if lenient.returncode != 0:
+        failed_plainly = lenient.returncode != 0
+        if failed_plainly:
             print(f"Without --strict it fails too: {failure(lenient)}")
         elif checked:
             print("Without --strict it passes, so the failure is source drift alone.")
@@ -355,7 +370,7 @@ def report(
             "The trace records no run base this checkout has, so the run's base "
             f"is taken as the merge-base of HEAD and {main}: {base.commit}."
         )
-    if not checked:
+    if failed_plainly and not checked:
         print("No hashed source differs from the run's, so the failure is not drift.")
     print_drift(drift, "Drifted sources:")
     return 1

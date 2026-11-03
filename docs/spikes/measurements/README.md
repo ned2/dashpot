@@ -39,8 +39,9 @@ it records against its head, with
 [`scripts/trace_drift.py`](../../../scripts/trace_drift.py): it runs a
 verifier with `--strict`, or plainly where the verifier takes no such flag,
 and lists each source whose hash has drifted as changed by the PR's own diff
-or by `main` since the run's base, without a stack trace. A source the PR changes must match its head; drift from `main`
-is recorded in the PR rather than re-measured
+or by `main` since the run's base, without a stack trace. A source the PR
+changes must match its head; drift from `main` is recorded in the PR rather
+than re-measured
 ([AGENTS.md](../../../AGENTS.md#leading-parallel-issue-work)).
 `tests/test_experiment_runners.py` runs each
 runner's inline Python and requires every source it hashes to exist, so a
