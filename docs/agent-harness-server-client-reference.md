@@ -21,19 +21,6 @@ below where their meanings differ.
 
 ## Scope and evidence
 
-Each harness's evidence below is a list, oldest first, with one entry per
-measurement or source reading. A new measurement, a rerun of an earlier one
-included, adds its own entry at the end of its harness's list and edits no
-other. Two measurements added at once then conflict only at the list's end,
-and keeping both sides' entries resolves it
-([integration and rebase](../AGENTS.md#integration-and-rebase)).
-
-Each entry dates what it measured or read. Current documentation and source
-branches can change independently of an installed binary. Version-sensitive
-commands and identity mappings need checking when the supported release
-changes. Statements marked as inference or unverified are not runtime
-findings.
-
 This reference consolidates the Codex workflow research supplied from the main
 checkout, the Codex and Claude comparison notes, and the reusable findings from
 the [OpenCode experiment](spikes/opencode-identity-lifecycle-spike.md), the
@@ -46,16 +33,32 @@ experiment remains a dated evidence record with its fixtures and trace;
 maintain general server/client facts here instead of creating another
 comparison note.
 
+Each evidence entry below dates what it measured or read. Current
+documentation and source branches can change independently of an installed
+binary. Version-sensitive commands and identity mappings need checking when
+the supported release changes. Statements marked as inference or unverified
+are not runtime findings.
+
+What the evidence leaves unmeasured, by harness:
+
 | Harness | Limits |
 | --- | --- |
 | Codex | `/cd`, `/new` and `/resume` inside a terminal, `/worktree`, the interactive `codex --worktree`, Codex Desktop's worktree setup and cleanup, Remote Control pairing, the Code Mode remote host, general stdio behavior beyond the linked 0.162.0 permission controls, and other operating systems unmeasured; the pinned source reading remains the only account of those modes |
 | Claude Code | Remote Control attachment, SDK, agent teams, cloud, and plugin-distributed channels untested; supervised process shapes on macOS unmeasured; Remote Control server mode refused to start without a claude.ai login; resume of a mid-turn background session, the desktop app, `--setting-sources` forwarding to spawned sessions, and when a supervisor takes a new environment unmeasured |
 | OpenCode | `opencode web`, ACP, the SDK's own server, `--server <url>`, remote servers, the desktop app, editor extensions and other operating systems unmeasured; OpenCode 1.x is refused, so its measurements describe no supported mode |
 
+Each harness's evidence below is a list, oldest first, with one entry per
+measurement or source reading. A new measurement, a rerun of an earlier one
+included, adds its own entry at the end of its harness's list and edits no
+other. Two measurements added at once then conflict only at the list's end,
+and keeping both sides' entries resolves it
+([integration and rebase](../AGENTS.md#integration-and-rebase)).
+
 ### Codex evidence
 
-- Current official documentation, and the pinned `rust-v0.154.0` source and
-  post-release `main` PRs read statically on 2026-09-13.
+- Current official documentation, reviewed on 2026-09-13, and the pinned
+  `rust-v0.154.0` source and post-release `main` PRs, read statically the
+  same day.
 - An isolated Linux experiment on `0.155.1` (2026-09-19): two root threads on
   one `app-server --listen`, fork, sub-agent, second client, client
   departure, interrupt, unsubscribe and unload, `codex exec` and
@@ -137,7 +140,7 @@ comparison note.
 
 ### Claude Code evidence
 
-- Current official docs and Python SDK source, reviewed on 2026-09-13.
+- Current official docs, reviewed on 2026-09-13, and Python SDK source.
 - An isolated Linux experiment on `2.1.276` (2026-09-18): headless, resume,
   fork, subagent, and background supervisor/worker modes.
 - A second on `2.1.278` (2026-09-19): interactive sessions on a
@@ -169,7 +172,8 @@ comparison note.
 ### OpenCode evidence
 
 - An isolated Linux experiment on `1.18.30`, legacy plugin path
-  (2026-09-12), with that release's source and the official docs.
+  (2026-09-12), with that release's source and the official docs, the docs
+  reviewed again on 2026-09-13.
 - The [#393 experiments](spikes/opencode-v2-spike.md) on `2.0.22` (2026-10-02
   and 2026-10-03): the shared service and its plugin instances, shell
   identity, Sub-agents, moves, `--standalone`, idle eviction, and the plugin
