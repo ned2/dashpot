@@ -171,12 +171,46 @@ environment, and a terminal launched with `--disable daemon_auto_start`
 hosts its session itself with that environment: then suggest running the
 command from a terminal where `gh` works, such as one in the main checkout.
 
+On Codex 0.166.0 on Linux, a launch with `--profile` or the sandbox/cache
+`-c` options below runs in its own client instead (measured). Its commands
+get that terminal's environment. A loaded client environment alone does
+not prove the shell's credential or cache environment; recheck those in
+the resumed session.
+
 `-C` places the session, not the client process: Codex never changes its
 own process's directory, so the client keeps the directory of the terminal
 that runs the command. Cleanup's `process` blocker counts that client, and
 the terminal's shell, inside whatever Worktree that directory is in, until
 both leave. Suggest a terminal outside every Worktree the user may later
 remove, such as one in the main checkout.
+
+### Preserve launch options
+
+Build `<launch-options>` from the session's original launch:
+
+- **Legacy sandbox launch:** carry its `--sandbox`, `--add-dir`, network,
+  `shell_environment_policy.set` cache/transport settings and chosen
+  approval options. Use the same approved paths and values. The
+  execute-issues resume command with these grants qualified on Codex
+  0.166.0 on Linux (measured).
+- **Profile launch:** carry `--profile <name>` and pin it with
+  `-c 'default_permissions="<name>"'`. On 0.166.0 on Linux, `--profile`
+  alone kept a resumed thread's saved `:workspace` permissions; adding the
+  pin applied the intended profile (measured). Keep approval settings in
+  the chosen profile. Beside `--profile` without the pin, `--sandbox` or
+  `--approve-for-me` replaced its grants with legacy sandbox permissions
+  (measured). Keep both legacy options off the profile launch.
+
+These results are in the
+[launch qualification](https://github.com/ned2/dashpot/blob/main/docs/spikes/codex-lead-launch-qualification-spike.md).
+Losing grants or cache settings when moving with a bare resume is an
+inference: a bare resume after legacy `-c sandbox_*` options remains
+unmeasured. Use a bare resume only for a session with no extra launch
+grants or environment settings to preserve. If the original options are
+unknown, recover the operator's launch command before handing off; do not
+invent grants. Replace `<launch-options>` with the actual options (or omit
+it for that bare case), and recheck capabilities inside the resumed
+session before Issue work.
 
 1. Run `<dashpot> integrate codex --status` and capture the confirmed Agent
    Session Identity.
@@ -189,7 +223,7 @@ remove, such as one in the main checkout.
 4. Give the user one safely shell-quoted command of this shape:
 
    ```text
-   codex resume <session-id> -C <worktree-path> 'Continue Issue <reference>. First run <dashpot> work show. If it reports this session already working on Issue <reference>, retain that Agent Run; otherwise run <dashpot> work start <reference> and verify it with <dashpot> work show. Then follow the repository workflow through green CI.'
+   codex resume <session-id> -C <worktree-path> <launch-options> 'Continue Issue <reference>. Verify destination identity with <dashpot> integrate codex --status, run <dashpot> work show, and recheck launch capabilities before Issue work. If show reports this session already working on Issue <reference>, retain that Agent Run; otherwise run <dashpot> work start <reference> and verify it with <dashpot> work show. Then follow the repository workflow through green CI.'
    ```
 
 5. Tell the user to exit this client and then run the command. If they run
@@ -204,7 +238,7 @@ resume support, explain the limitation and give the same quoted instruction to
 a fresh session instead:
 
 ```text
-codex -C <worktree-path> 'Continue Issue <reference>. First run <dashpot> work start <reference> and verify it with <dashpot> work show, then follow the repository workflow through green CI.'
+codex -C <worktree-path> <launch-options> 'Continue Issue <reference>. Verify destination identity with <dashpot> integrate codex --status, recheck launch capabilities, then run <dashpot> work start <reference> and verify it with <dashpot> work show. Follow the repository workflow through green CI.'
 ```
 
 This fallback creates a new Agent Session. It is compatibility behavior, not

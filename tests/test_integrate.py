@@ -137,7 +137,20 @@ def test_install_distributes_the_versioned_issue_work_skill(tmp_path: Path) -> N
     assert ISSUE_WORK_SKILL.marker in text
     assert f"written for Dashpot {BUNDLED_SKILL_VERSION}" in text
     dispatch = (skill / "references" / "dispatch.md").read_text()
-    assert "codex resume <session-id> -C <worktree-path>" in dispatch
+    assert "codex resume <session-id> -C <worktree-path> <launch-options>" in dispatch
+    assert "codex -C <worktree-path> <launch-options>" in dispatch
+    launch_options = flowed(dispatch.split("### Preserve launch options", 1)[1])
+    assert "carry its `--sandbox`, `--add-dir`, network" in launch_options
+    assert "`shell_environment_policy.set` cache/transport settings" in launch_options
+    assert "`-c 'default_permissions=\"<name>\"'`" in launch_options
+    assert "Use the same approved paths and values" in launch_options
+    assert "inference: a bare resume after legacy `-c sandbox_*`" in launch_options
+    assert "options remains unmeasured" in launch_options
+    assert "recover the operator's launch command" in launch_options
+    assert "Beside `--profile` without the pin" in launch_options
+    assert launch_options.index("recheck launch capabilities before Issue work") < (
+        launch_options.index("If show reports this session already working")
+    )
     assert "work relocate <worktree-path>" in dispatch
     assert "/cd <worktree-path>" in dispatch
     assert "cannot complete a Relocation Intent" in dispatch
@@ -836,7 +849,9 @@ def test_issue_work_skill_leaves_the_worktree_once_its_run_has_stopped(
     # Each way out the skill names is the one the Cleanup blocker names.
     codex_case = text[codex:opencode]
     assert "until its client exits" in codex_case
-    assert "`codex resume <session-id> -C <directory>`" in codex_case
+    assert "`codex resume <session-id> -C <directory> <launch-options>`" in codex_case
+    assert "`--profile <name> -c 'default_permissions=\"<name>\"'`" in codex_case
+    assert "references/dispatch.md#preserve-launch-options" in codex_case
     assert "60 s after its last client leaves" in codex_case
     assert "60 s after its last client leaves" in session_exit("codex").end
     opencode_case = text[opencode:follow_up]

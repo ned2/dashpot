@@ -79,8 +79,13 @@ is the instruction to do so; do not wait for the user to ask:
 - **Codex.** The model cannot move its own session: no tool it holds
   changes the session's directory. Tell the user this session keeps the
   Worktree from Cleanup until its client exits, and that
-  `codex resume <session-id> -C <directory>` continues it elsewhere after
-  that. A daemon-hosted thread ends about 60 s after its last client leaves.
+  `codex resume <session-id> -C <directory> <launch-options>` continues it
+  elsewhere after that. Carry the original sandbox, directory, network,
+  cache and permission-posture options; for a profile launch, use
+  `--profile <name> -c 'default_permissions="<name>"'`. Follow
+  [Preserve launch options](references/dispatch.md#preserve-launch-options)
+  for the measured boundary and the unmeasured legacy-options case.
+  A daemon-hosted thread ends about 60 s after its last client leaves.
   Codex never changes its client process's directory, so if the client's
   terminal was started inside the Worktree, that client and terminal keep
   it from Cleanup as running processes until they exit or leave it, so the

@@ -864,6 +864,17 @@ def test_each_harness_has_its_mechanics_and_fallbacks() -> None:
         "-c 'default_permissions=\"arc-sandbox\"'"
     ) in codex
     assert "Keep the `-c` on the resume" in codex
+    location = " ".join(
+        codex.split("**Location.**", 1)[1].split("**Reviewer.**")[0].split()
+    )
+    assert "Give them the original launch options too" in location
+    assert "network, cache/transport settings and chosen approval options" in location
+    assert "`-c 'default_permissions=\"<name>\"'`" in location
+    assert "0.166.0 on Linux (measured)" in location
+    assert (
+        "bare resume after legacy `-c sandbox_*` options remains unmeasured" in location
+    )
+    assert "Recheck capabilities after resuming" in location
     assert 'the file sets `extends = "<their profile>"`' in codex
     assert '"<Git directory>" = "write"' in codex
     assert "Never add `--sandbox` or `--approve-for-me` to either launch" in codex
