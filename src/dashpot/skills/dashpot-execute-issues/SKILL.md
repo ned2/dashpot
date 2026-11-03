@@ -76,6 +76,12 @@ step 2.
   workers' IDs. It asserts that none of them works in that Worktree, which
   only the user can check: show the user the refusal and let them decide.
   Never pass it yourself, and never brief a worker to.
+- **Hold the code your hooks run at one revision.** Your harness's hooks
+  run Dashpot's publisher from wherever it was integrated
+  (`<dashpot> integrate <harness> --status` names it). When that is a
+  checkout of the repository the arc changes, the checkout is frozen for
+  the arc. When it is a tool install, the install is held at one revision
+  for the arc the same way. The arc map says which it is.
 - **Merge only with authority.** See [Merge authority](#merge-authority).
 - **Keep the arc's record in its ledger.** The arc map, waves, merges,
   decisions, gotchas, unverified findings and close-out go in the arc's

@@ -45,8 +45,9 @@ Issue. It owns the resolve, opt-in, Worktree dispatch, handoff, recovery, and
 finish sequence while this file supplies this Repository's commands and gates.
 `dashpot integrate <harness>` installs or updates the skill beside the
 lifecycle hooks; if the skill is unavailable, ask the user to run
-`uv run dashpot integrate codex`, `uv run dashpot integrate claude-code`, or
-`uv run dashpot integrate opencode`.
+`dashpot integrate codex`, `dashpot integrate claude-code`, or
+`dashpot integrate opencode` from the observing tool install
+([leading parallel Issue work](#leading-parallel-issue-work)).
 
 For this Repository, invoke Dashpot through `uv run dashpot` in the Worktree
 where work happens. Hold the Issue Binding through the whole engagement,
@@ -68,11 +69,12 @@ Leave the Worktree in place unless the user explicitly requests Cleanup.
 The lifecycle hooks `dashpot integrate <harness>` installs observe a session in
 this checkout as live automatically. Observation is not Issue opt-in: the
 `work start` / `stop` lifecycle above still applies. Run `dashpot integrate
-<harness>` only from the main checkout, never from an Issue Worktree: the hooks
-bind the absolute path of the invoking environment's publisher, and a linked
-Worktree's `.venv` is removed with the Worktree, which would break every hook
-event on the machine. `integrate` refuses such a binding and `--status` warns
-about one that already exists
+<harness>` from the observing tool install; the main checkout also works, but
+a pull into it then changes the code the hooks run. Never run it from an
+Issue Worktree: the hooks bind the absolute path of the invoking
+environment's publisher, and a linked Worktree's `.venv` is removed with the
+Worktree, which would break every hook event on the machine. `integrate`
+refuses such a binding and `--status` warns about one that already exists
 ([diagnosis](docs/installation.md#diagnose-an-installation)).
 
 A sub-agent shares the session's Agent Run and needs no opt-in of its own. It
@@ -100,7 +102,13 @@ decision as a new ADR in `docs/adr/`.
 
 Before every commit, run the README's [local review gate](README.md#local-review-gate):
 all-files pre-commit checks and the full suite with coverage, both clean.
-Coverage replaces ordinary pytest for that gate. A change touching only the
+Coverage replaces ordinary pytest for that gate. Its evidence still stands
+when every path changed since the coverage run is documentation as CI's lane
+classifier defines it (`documentation_path` in `scripts/ci_lane.py`):
+`review_coverage.py --check` accepts that delta and names the paths it
+accepted, while the all-files pre-commit checks still rerun. Skill text under
+`src/`, the experiments and the traces are not documentation paths, since the
+suite reads them, so a change to one reruns coverage. A change touching only the
 Markdown that CI's [documentation lane](README.md#continuous-integration)
 classifies skips the coverage run; confirm the classification with the
 command the [local review gate](README.md#local-review-gate) gives rather
@@ -168,9 +176,15 @@ index, the `README.md` of `docs/research/`, `docs/spikes/`, `docs/reviews/`
 and `docs/proposals/` — and are resolved by running
 `uv run python scripts/maintain_docs.py --write-indexes`. Two branches that
 each add an ADR, or a document of one kind, always conflict there, and the
-script resolves it mechanically. Confirm it with
+script resolves it mechanically. The hand-written
+[measurements index](docs/spikes/measurements/README.md) counts beside them:
+a conflict only in its table's rows and its `date:` line is resolved by
+keeping both sides' rows and the later date. Two branches that each add a
+trace conflict there too, since each appends its row at the table's end.
+Confirm it with
 `git range-diff <old-base>..<old-head> <new-base>..<new-head>`: no commit's
-added or removed lines change outside those indexes' generated parts. Context
+added or removed lines change outside those indexes' generated parts, the
+measurements table's rows and its `date:` line. Context
 lines may differ where `main` edited nearby. A content-preserving rebase needs
 no further review: in place of the local review gate, rerun only
 `uv run pre-commit run --all-files`, which checks the regenerated indexes, and
@@ -378,7 +392,8 @@ In this Repository:
 - `scripts/maintain_docs.py` reads tracked files only: `git add -N` a new
   document before `--write-indexes`, and regenerate the indexes after
   every rebase, since sibling Workers add ADRs and documents too. A rebase
-  whose only conflicts are those indexes stays content-preserving
+  whose only conflicts are those indexes, or the measurements index's rows
+  and `date:` line, stays content-preserving
   ([integration and rebase](#integration-and-rebase)).
 - Give each Worker a share of the cores with `review_coverage.py --workers
   N`; [development setup](README.md#development-setup) records sixteen
@@ -408,8 +423,26 @@ In this Repository:
   `~/.local/share/claude/versions/`. Codex's `/tmp/codex-daemon-<uid>/` and
   Claude Code's `/tmp/cc-daemon-<uid>/` are shared with the user's own
   sessions, so never delete either wholesale. Read process arguments with
-  `ps -ww`. Before merging a PR that commits a trace, check every hash it
-  records against the PR head.
+  `ps -ww`.
+- A measurement runs once the code it measures has settled, and is re-run
+  when a review fix changes a source its trace hashes. Before merging a PR
+  that commits a trace, check its hashes against the PR head with
+  `uv run python scripts/trace_drift.py <verify.mjs> <trace> [verifier
+  argument ...]`. It runs the verifier with `--strict`; where the verifier
+  takes no such flag, it runs it plainly and compares the trace's hashes
+  itself. It lists each drifted source as changed by the PR's own diff or by
+  `main` since the run's base. Where the trace records no base
+  this checkout has, it uses the merge-base, says so, and cannot tell
+  `main`'s drift apart. Every hashed source the PR itself changes must match
+  the PR head; drift that `main` brought in after the run is recorded in the
+  PR's validation section, not re-measured.
+- The harnesses' lifecycle hooks bind to the observing tool install: a
+  non-editable `uv tool install` of a chosen revision, not the main
+  checkout's editable `.venv`, so a pull into the main checkout changes
+  nothing that observes a live Arc
+  ([development setup](README.md#development-setup)). The operator
+  reinstalls the tool and reruns `dashpot integrate <harness>` only when no
+  Arc has a live Worker, then runs `dashpot integrate <harness> --status`.
 
 ## Tracking and notes
 

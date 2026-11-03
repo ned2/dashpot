@@ -9,10 +9,14 @@ import os
 import platform
 import subprocess
 import sys
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 from typing import Literal
+
+from ci_lane import documentation_path
 
 from dashpot.core.pydantic import ConfigModel
 
@@ -22,10 +26,13 @@ REPORT_DIRECTORY = ".review-coverage"
 class Evidence(ConfigModel):
     """Associate a successful coverage run with its source and environment."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     base_commit: str
     head_commit: str
     source_digest: str
+    # Each fingerprinted path's mode and content hash, so a later check can
+    # name the paths that changed rather than only detect that some did.
+    sources: dict[str, tuple[str, str]]
     coverage_digest: str
     python: str
     platform: str
@@ -41,8 +48,18 @@ def git(root: Path, *arguments: str) -> str:
     ).strip()
 
 
-def source_digest(root: Path) -> str:
-    """Fingerprint tracked and non-ignored new files independently of staging."""
+@dataclass(frozen=True, slots=True)
+class Verified:
+    """Evidence that still stands, with the documentation it was accepted across."""
+
+    evidence: Evidence
+    # Documentation paths changed since the coverage run, which leave its
+    # evidence standing; empty when the sources are exactly the run's.
+    documentation_delta: tuple[str, ...]
+
+
+def source_entries(root: Path) -> dict[str, tuple[str, str]]:
+    """Each tracked and non-ignored new file's mode and content hash, by path."""
     names = subprocess.check_output(
         [
             "git",
@@ -55,7 +72,7 @@ def source_digest(root: Path) -> str:
             "--exclude-standard",
         ]
     )
-    entries: list[tuple[str, str, str]] = []
+    entries: dict[str, tuple[str, str]] = {}
     for raw_name in sorted(set(names.split(b"\0")) - {b""}):
         name = os.fsdecode(raw_name)
         path = root / name
@@ -68,8 +85,22 @@ def source_digest(root: Path) -> str:
             continue
         else:
             raise ValueError(f"Cannot fingerprint source entry: {name}")
-        entries.append((name, mode, hashlib.sha256(data).hexdigest()))
-    return hashlib.sha256(json.dumps(entries, ensure_ascii=True).encode()).hexdigest()
+        entries[name] = (mode, hashlib.sha256(data).hexdigest())
+    return entries
+
+
+def digest_of(entries: Mapping[str, tuple[str, str]]) -> str:
+    """Fingerprint source entries independently of staging."""
+    # Names sort by their bytes, so the digest stays the one this gate has
+    # always computed.
+    ordered = sorted(entries, key=os.fsencode)
+    listed = [[name, *entries[name]] for name in ordered]
+    return hashlib.sha256(json.dumps(listed, ensure_ascii=True).encode()).hexdigest()
+
+
+def source_digest(root: Path) -> str:
+    """Fingerprint tracked and non-ignored new files independently of staging."""
+    return digest_of(source_entries(root))
 
 
 def report_digest(root: Path) -> str:
@@ -92,7 +123,7 @@ def collect(root: Path, base: str, workers: int | None = None) -> Evidence:
     if os.environ.get("PYTEST_ADDOPTS"):
         raise ValueError("Unset PYTEST_ADDOPTS so coverage verifies the full suite")
     base_commit = git(root, "rev-parse", "--verify", f"{base}^{{commit}}")
-    before = source_digest(root)
+    before = source_entries(root)
     command = [
         sys.executable,
         "-m",
@@ -107,12 +138,13 @@ def collect(root: Path, base: str, workers: int | None = None) -> Evidence:
         command.extend(["-n", str(workers), "--dist=load", "--max-worker-restart=0"])
     environment = {**os.environ, "COVERAGE_FILE": str(directory / ".coverage")}
     subprocess.run(command, cwd=root, env=environment, check=True)
-    if source_digest(root) != before:
+    if source_entries(root) != before:
         raise ValueError("Source files changed during coverage; run it again")
     evidence = Evidence(
         base_commit=base_commit,
         head_commit=git(root, "rev-parse", "HEAD"),
-        source_digest=before,
+        source_digest=digest_of(before),
+        sources=before,
         coverage_digest=report_digest(root),
         python=platform.python_version(),
         platform=platform.platform(),
@@ -124,18 +156,34 @@ def collect(root: Path, base: str, workers: int | None = None) -> Evidence:
     return evidence
 
 
-def verify(root: Path, base: str) -> Evidence:
-    """Reject missing, replaced, or stale coverage evidence before review or push."""
+def verify(root: Path, base: str) -> Verified:
+    """Reject missing, replaced, or stale coverage evidence before review or push.
+
+    Evidence still stands when every path changed since the run is
+    documentation as CI's lane classifier defines it; those paths are
+    returned so the caller can report them.
+    """
     evidence = Evidence.model_validate_json(
         (root / REPORT_DIRECTORY / "evidence.json").read_text()
     )
     if evidence.base_commit != git(root, "rev-parse", "--verify", f"{base}^{{commit}}"):
         raise ValueError("Review base changed; collect coverage for the intended base")
-    if evidence.source_digest != source_digest(root):
-        raise ValueError("Source files changed since coverage; run it again")
+    if digest_of(evidence.sources) != evidence.source_digest:
+        raise ValueError("Evidence sources do not match its digest; run it again")
     if evidence.coverage_digest != report_digest(root):
         raise ValueError("Coverage report changed since collection; run it again")
-    return evidence
+    current = source_entries(root)
+    changed = sorted(
+        name
+        for name in evidence.sources.keys() | current.keys()
+        if evidence.sources.get(name) != current.get(name)
+    )
+    rerun = [name for name in changed if not documentation_path(name)]
+    if rerun:
+        raise ValueError(
+            f"Source files changed since coverage; run it again: {', '.join(rerun)}"
+        )
+    return Verified(evidence, tuple(changed))
 
 
 def main() -> int:
@@ -155,13 +203,14 @@ def main() -> int:
         help="verify existing evidence without running tests",
     )
     arguments = parser.parse_args()
+    accepted: tuple[str, ...] = ()
     try:
         root = Path(git(Path.cwd(), "rev-parse", "--show-toplevel"))
-        evidence = (
-            verify(root, arguments.base)
-            if arguments.check
-            else collect(root, arguments.base, arguments.workers)
-        )
+        if arguments.check:
+            verified = verify(root, arguments.base)
+            evidence, accepted = verified.evidence, verified.documentation_delta
+        else:
+            evidence = collect(root, arguments.base, arguments.workers)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"Coverage evidence failed: {error}", file=sys.stderr)
         return 1
@@ -169,6 +218,9 @@ def main() -> int:
     print(
         f"Review base: {evidence.base_commit}; source SHA-256: {evidence.source_digest}"
     )
+    if accepted:
+        print("Accepted documentation changed since coverage:")
+        print("\n".join(f"  {name}" for name in accepted))
     return 0
 
 
