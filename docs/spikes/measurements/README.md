@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-11-02
+date: 2026-11-03
 ---
 
 # Measurements
@@ -104,6 +104,7 @@ line per write, the seconds since the previous write and the bytes written.
 | [`issue-648-claude-2.1.291-trace.jsonl.gz`](issue-648-claude-2.1.291-trace.jsonl.gz) | Gzipped JSONL trace, Claude Code 2.1.291 with its auto-mode classifier | [#648](https://github.com/ned2/dashpot/issues/648) | [`claude-648`](../../../scripts/experiments/claude-648/) | [Claude Code auto mode against an Arc's actions](../claude-code-auto-mode-arc-actions-spike.md) |
 | [`issue-664-codex-trace.jsonl`](issue-664-codex-trace.jsonl) | JSONL trace, Codex CLI 0.162.0 | [#664](https://github.com/ned2/dashpot/issues/664) | [`codex-664`](../../../scripts/experiments/codex-664/) | [Codex Worker mail and follow-up across eviction experiment](../codex-worker-mail-eviction-spike.md) |
 | [`issue-665-codex-trace.jsonl.gz`](issue-665-codex-trace.jsonl.gz) | Gzipped JSONL trace, Codex CLI 0.162.0 with a fixture Guardian classifier | [#665](https://github.com/ned2/dashpot/issues/665) | [`permissions-run.mjs`](../../../scripts/experiments/codex-639/permissions-run.mjs), verified by [`permissions-verify.mjs`](../../../scripts/experiments/codex-639/permissions-verify.mjs) | [Codex Worker approvals, turn grants and Guardian stops](../codex-worker-permissions-spike.md) |
+| [`issue-666-codex-trace.jsonl`](issue-666-codex-trace.jsonl) | JSONL trace, Codex CLI 0.166.0 | [#666](https://github.com/ned2/dashpot/issues/666) | [`codex-666`](../../../scripts/experiments/codex-666/) | [Codex fresh-Worker dynamic tools and delegation metadata experiment](../codex-fresh-worker-dynamic-tools-spike.md) |
 | [`issue-674-codex-trace.jsonl`](issue-674-codex-trace.jsonl) | JSONL trace, Codex CLI 0.166.0 | [#674](https://github.com/ned2/dashpot/issues/674) | [`codex-674`](../../../scripts/experiments/codex-674/) | [Codex follow-up tool hooks experiment](../codex-followup-tool-hooks-spike.md) |
 | [`issue-678-codex-trace.jsonl`](issue-678-codex-trace.jsonl) | JSONL trace, Codex CLI 0.166.0 | [#678](https://github.com/ned2/dashpot/issues/678) | [`codex-678`](../../../scripts/experiments/codex-678/) | [Codex Lead launch qualification experiment](../codex-lead-launch-qualification-spike.md) |
 | [`issue-681-codex-trace.jsonl`](issue-681-codex-trace.jsonl) | JSONL trace, Codex CLI 0.166.0 | [#681](https://github.com/ned2/dashpot/issues/681) | [`codex-681`](../../../scripts/experiments/codex-681/) | [Codex root session departure experiment](../codex-root-session-departure-spike.md) |
