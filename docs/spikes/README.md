@@ -1,6 +1,6 @@
 ---
 status: living
-date: 2026-11-02
+date: 2026-11-03
 ---
 
 # Spikes
@@ -19,6 +19,7 @@ stays as it was written.
 
 | Document | Status | Date |
 | --- | --- | --- |
+| [Codex follow-up tool hooks experiment](codex-followup-tool-hooks-spike.md) | research | 2026-11-03 |
 | [Codex Lead launch qualification experiment](codex-lead-launch-qualification-spike.md) | research | 2026-11-02 |
 | [Codex root session departure experiment](codex-root-session-departure-spike.md) | research | 2026-11-02 |
 | [Codex Worker push transport under the sandbox](codex-worker-push-transport-spike.md) | research | 2026-11-02 |
